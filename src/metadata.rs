@@ -1,11 +1,17 @@
 use std::collections::HashMap;
-use symphonia::core::errors::Error;
+use std::fs::File;
+use std::io;
+use std::path::Path;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::{Metadata, MetadataOptions, Value, MetadataRevision, StandardTagKey};
+use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::Hint;
+use thiserror::Error;
 
-fn create_standard_tag_key_maps() -> (HashMap<StandardTagKey, &'static str>, HashMap<&'static str, StandardTagKey>) {
+fn create_standard_tag_key_maps() -> (
+    HashMap<StandardTagKey, &'static str>,
+    HashMap<&'static str, StandardTagKey>,
+) {
     let mut key_to_string = HashMap::new();
     let mut string_to_key = HashMap::new();
 
@@ -54,19 +60,43 @@ fn create_standard_tag_key_maps() -> (HashMap<StandardTagKey, &'static str>, Has
         (StandardTagKey::Mood, "mood"),
         (StandardTagKey::MovementName, "movement_name"),
         (StandardTagKey::MovementNumber, "movement_number"),
-        (StandardTagKey::MusicBrainzAlbumArtistId, "musicbrainz_album_artist_id"),
+        (
+            StandardTagKey::MusicBrainzAlbumArtistId,
+            "musicbrainz_album_artist_id",
+        ),
         (StandardTagKey::MusicBrainzAlbumId, "musicbrainz_album_id"),
         (StandardTagKey::MusicBrainzArtistId, "musicbrainz_artist_id"),
         (StandardTagKey::MusicBrainzDiscId, "musicbrainz_disc_id"),
         (StandardTagKey::MusicBrainzGenreId, "musicbrainz_genre_id"),
         (StandardTagKey::MusicBrainzLabelId, "musicbrainz_label_id"),
-        (StandardTagKey::MusicBrainzOriginalAlbumId, "musicbrainz_original_album_id"),
-        (StandardTagKey::MusicBrainzOriginalArtistId, "musicbrainz_original_artist_id"),
-        (StandardTagKey::MusicBrainzRecordingId, "musicbrainz_recording_id"),
-        (StandardTagKey::MusicBrainzReleaseGroupId, "musicbrainz_release_group_id"),
-        (StandardTagKey::MusicBrainzReleaseStatus, "musicbrainz_release_status"),
-        (StandardTagKey::MusicBrainzReleaseTrackId, "musicbrainz_release_track_id"),
-        (StandardTagKey::MusicBrainzReleaseType, "musicbrainz_release_type"),
+        (
+            StandardTagKey::MusicBrainzOriginalAlbumId,
+            "musicbrainz_original_album_id",
+        ),
+        (
+            StandardTagKey::MusicBrainzOriginalArtistId,
+            "musicbrainz_original_artist_id",
+        ),
+        (
+            StandardTagKey::MusicBrainzRecordingId,
+            "musicbrainz_recording_id",
+        ),
+        (
+            StandardTagKey::MusicBrainzReleaseGroupId,
+            "musicbrainz_release_group_id",
+        ),
+        (
+            StandardTagKey::MusicBrainzReleaseStatus,
+            "musicbrainz_release_status",
+        ),
+        (
+            StandardTagKey::MusicBrainzReleaseTrackId,
+            "musicbrainz_release_track_id",
+        ),
+        (
+            StandardTagKey::MusicBrainzReleaseType,
+            "musicbrainz_release_type",
+        ),
         (StandardTagKey::MusicBrainzTrackId, "musicbrainz_track_id"),
         (StandardTagKey::MusicBrainzWorkId, "musicbrainz_work_id"),
         (StandardTagKey::Opus, "opus"),
@@ -143,61 +173,77 @@ lazy_static::lazy_static! {
 }
 
 pub fn standard_tag_key_to_string(key: StandardTagKey) -> String {
-    STANDARD_TAG_KEY_TO_STRING.get(&key).unwrap_or(&"").to_string()
+    STANDARD_TAG_KEY_TO_STRING
+        .get(&key)
+        .unwrap_or(&"")
+        .to_string()
 }
 
 pub fn string_to_standard_tag_key(s: &str) -> Option<StandardTagKey> {
     STRING_TO_STANDARD_TAG_KEY.get(s).cloned()
 }
 
-pub fn get_metadata(file_path: &str) -> Result<Vec<(String, String)>, Error> {
+fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, String)>) {
+    for tag in revision.tags() {
+        let std_key = match tag.std_key {
+            Some(standard_key) => standard_tag_key_to_string(standard_key),
+            None => String::from(""),
+        };
+        let value = match &tag.value {
+            Value::String(val) => val.clone(),
+            Value::UnsignedInt(val) => val.to_string(),
+            Value::SignedInt(val) => val.to_string(),
+            Value::Float(val) => val.to_string(),
+            Value::Boolean(val) => val.to_string(),
+            Value::Binary(_) => String::from("[Binary data]"),
+            Value::Flag => String::from("[Flag]"),
+        };
+        metadata_list.push((std_key, value));
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum MetadataError {
+    #[error("file not found")]
+    FileNotFound,
+    #[error("io error")]
+    Io(#[from] io::Error),
+    #[error("symphonia error")]
+    Symphonia(#[from] symphonia::core::errors::Error),
+}
+
+pub fn get_metadata(file_path: &str) -> Result<Vec<(String, String)>, MetadataError> {
+    if !Path::new(file_path).exists() {
+        return Err(MetadataError::FileNotFound);
+    }
+
     // Open the media source.
-    let src = std::fs::File::open(file_path)?;
+    let src = File::open(file_path)?;
 
     // Create the media source stream.
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
     // Create a probe hint using the file's extension.
     let mut hint = Hint::new();
-    hint.with_extension(file_path.split('.').last().unwrap_or_default());
+    let ext = file_path.split('.').last().unwrap_or_default();
+    hint.with_extension(ext);
 
     // Use the default options for metadata and format readers.
-    let meta_opts: MetadataOptions = Default::default();
     let fmt_opts: FormatOptions = Default::default();
+    let meta_opts: MetadataOptions = Default::default();
 
     // Probe the media source.
     let mut probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)?;
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .expect("unsupported format");
 
+    let mut format = probed.format;
     let mut metadata_list = Vec::new();
 
-    // Get the metadata from the probed format.
-    if let Some(metadata) = probed.metadata.get() {
-        let mut metadata: Metadata<'_> = metadata;
-        while !metadata.is_latest() {
-            let current_revision: Option<&MetadataRevision> = metadata.current();
-            if let Some(revision) = current_revision {
-                for tag in revision.tags() {
-                    let key = tag.key.clone();
-                    let std_key = match tag.std_key {
-                        Some(standard_key) => standard_tag_key_to_string(standard_key),
-                        None => String::from(""),
-                    };
-                    let value = match &tag.value {
-                        Value::String(val) => val.clone(),
-                        Value::UnsignedInt(val) => val.to_string(),
-                        Value::SignedInt(val) => val.to_string(),
-                        Value::Float(val) => val.to_string(),
-                        Value::Boolean(val) => val.to_string(),
-                        Value::Binary(_) => String::from("[Binary data]"),
-                        Value::Flag => String::from("[Flag]"),
-                    };
-                    metadata_list.push((key, value));
-                    metadata_list.push(("Standard Key".to_string(), std_key));
-                }
-            }
-            metadata.pop();
-        }
+    if let Some(metadata_rev) = format.metadata().current() {
+        push_tags(metadata_rev, &mut metadata_list);
+    } else if let Some(metadata_rev) = probed.metadata.get().as_ref().and_then(|m| m.current()) {
+        push_tags(metadata_rev, &mut metadata_list);
     }
 
     Ok(metadata_list)
