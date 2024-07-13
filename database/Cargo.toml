@@ -1,0 +1,14 @@
+[package]
+name = "database"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "database"
+path = "src/lib.rs"
+
+[dependencies]
+log = { version = "0.4.22" }
+sea-orm = { version="0.12.15", features = [ "sqlx-sqlite", "runtime-async-std-native-tls", "macros" ] }
+migration = { path = "../migration" }

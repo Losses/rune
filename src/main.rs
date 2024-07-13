@@ -1,16 +1,9 @@
-use player::metadata::get_metadata;
+use database::connection::connect_main_db;
 
-fn main() {
-    // Get the first command line argument.
-    let args: Vec<String> = std::env::args().collect();
-    let path = args.get(1).expect("file path not provided");
+#[tokio::main]
+async fn main() {
+    let path = ".";
+    let db = connect_main_db(path).await;
 
-    match get_metadata(path) {
-        Ok(metadata) => {
-            for (key, value) in metadata {
-                println!("{}: {}", key, value);
-            }
-        }
-        Err(err) => eprintln!("Error: {}", err),
-    }
+    println!("{:#?}", db);
 }
