@@ -25,11 +25,11 @@ async fn main() {
             let description = describe_file(&file.path, &root_path).unwrap();
             println!("= {}", to_unix_path_string(file.path).unwrap());
             println!("|- Description");
-            println!("||- Hash: {}", description.file_hash);
-            println!("||- Last Modified: {}", description.last_modified);
+            println!("|  |- Hash: {}", description.file_hash);
+            println!("|  |- Last Modified: {}", description.last_modified);
             println!("|- Metadata");
             for (key, value) in file.metadata {
-                println!("||- {}: {}", key, value);
+                println!("|  |- {}: {}", key, value);
             }
         }
     }
