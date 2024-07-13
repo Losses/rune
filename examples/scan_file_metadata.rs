@@ -10,11 +10,6 @@ fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
 
 #[tokio::main]
 async fn main() {
-    let path = ".";
-    let db = connect_main_db(path).await;
-
-    println!("{:#?}", db);
-
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).cloned().expect("Audio data path not provided");

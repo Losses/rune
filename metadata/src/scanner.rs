@@ -1,5 +1,7 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::{WalkDir, DirEntry};
+
+use crate::reader::get_metadata;
 
 fn is_audio_file(entry: &DirEntry) -> bool {
     if let Some(ext) = entry.path().extension() {
@@ -19,14 +21,16 @@ fn scan_audio_files<P: AsRef<Path>>(path: P) -> impl Iterator<Item = DirEntry> {
         .filter(|entry| entry.file_type().is_file() && is_audio_file(entry))
 }
 
-pub struct MetadataScanner {
+pub struct AudioScanner {
+    root_path: PathBuf,
     iterator: Box<dyn Iterator<Item = DirEntry>>,
     ended: bool,
 }
 
-impl MetadataScanner {
+impl AudioScanner {
     pub fn new<P: AsRef<Path> + 'static>(path: P) -> Self {
-        MetadataScanner {
+        AudioScanner {
+            root_path: path.as_ref().to_path_buf(),
             iterator: Box::new(scan_audio_files(path)),
             ended: false,
         }
@@ -47,5 +51,44 @@ impl MetadataScanner {
 
     pub fn has_ended(&self) -> bool {
         self.ended
+    }
+
+    pub fn root_path(&self) -> &Path {
+        &self.root_path
+    }
+}
+
+pub struct FileMetadata {
+    pub path: PathBuf,
+    pub metadata: Vec<(String, String)>,
+}
+
+pub struct MetadataScanner {
+    audio_scanner: AudioScanner,
+}
+
+impl MetadataScanner {
+    pub fn new<P: AsRef<Path> + 'static>(path: P) -> Self {
+        MetadataScanner {
+            audio_scanner: AudioScanner::new(path),
+        }
+    }
+
+    pub fn read_metadata(&mut self, count: usize) -> Vec<FileMetadata> {
+        let mut metadata_list = Vec::new();
+        let files = self.audio_scanner.read_files(count);
+        for file in files {
+            let abs_path = file.path().to_path_buf();
+            let rel_path = abs_path.strip_prefix(self.audio_scanner.root_path()).unwrap().to_path_buf();
+            match get_metadata(abs_path.to_str().unwrap(), None) {
+                Ok(metadata) => metadata_list.push(FileMetadata { path: rel_path, metadata }),
+                Err(err) => eprintln!("Error reading metadata for {}: {}", abs_path.display(), err),
+            }
+        }
+        metadata_list
+    }
+
+    pub fn has_ended(&self) -> bool {
+        self.audio_scanner.has_ended()
     }
 }
