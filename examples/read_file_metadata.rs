@@ -1,4 +1,4 @@
-use player::metadata::get_metadata;
+use metadata::reader::get_metadata;
 
 fn main() {
     // Get the first command line argument.

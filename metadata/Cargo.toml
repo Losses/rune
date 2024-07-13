@@ -1,0 +1,15 @@
+[package]
+name = "metadata"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "metadata"
+path = "src/lib.rs"
+
+[dependencies]
+symphonia = "0.5.4"
+thiserror = "1.0.61"
+lazy_static = "1.5.0"
+walkdir = "2.5.0"
