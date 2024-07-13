@@ -183,12 +183,17 @@ pub fn string_to_standard_tag_key(s: &str) -> Option<StandardTagKey> {
     STRING_TO_STANDARD_TAG_KEY.get(s).cloned()
 }
 
-fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, String)>) {
+fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, String)>, field_blacklist: &Vec<&str>) {
     for tag in revision.tags() {
         let std_key = match tag.std_key {
             Some(standard_key) => standard_tag_key_to_string(standard_key),
             None => String::from(""),
         };
+
+        if field_blacklist.contains(&std_key.as_str()) {
+            continue;
+        }
+
         let value = match &tag.value {
             Value::String(val) => val.clone(),
             Value::UnsignedInt(val) => val.to_string(),
@@ -212,7 +217,7 @@ pub enum MetadataError {
     Symphonia(#[from] symphonia::core::errors::Error),
 }
 
-pub fn get_metadata(file_path: &str) -> Result<Vec<(String, String)>, MetadataError> {
+pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Result<Vec<(String, String)>, MetadataError> {
     if !Path::new(file_path).exists() {
         return Err(MetadataError::FileNotFound);
     }
@@ -240,10 +245,12 @@ pub fn get_metadata(file_path: &str) -> Result<Vec<(String, String)>, MetadataEr
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
 
+    let blacklist = field_blacklist.unwrap_or(vec!["encoded_by", "encoder", "comment", "description"]);
+
     if let Some(metadata_rev) = format.metadata().current() {
-        push_tags(metadata_rev, &mut metadata_list);
+        push_tags(metadata_rev, &mut metadata_list, &blacklist);
     } else if let Some(metadata_rev) = probed.metadata.get().as_ref().and_then(|m| m.current()) {
-        push_tags(metadata_rev, &mut metadata_list);
+        push_tags(metadata_rev, &mut metadata_list, &blacklist);
     }
 
     Ok(metadata_list)

@@ -12,7 +12,7 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("file path not provided");
 
-    match get_metadata(path) {
+    match get_metadata(path, None) {
         Ok(metadata) => {
             for (key, value) in metadata {
                 println!("{}: {}", key, value);
