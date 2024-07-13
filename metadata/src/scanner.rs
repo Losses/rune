@@ -14,21 +14,21 @@ fn is_audio_file(entry: &DirEntry) -> bool {
     }
 }
 
-fn scan_audio_files<P: AsRef<Path>>(path: P) -> impl Iterator<Item = DirEntry> {
+fn scan_audio_files<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> {
     WalkDir::new(path)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|entry| entry.file_type().is_file() && is_audio_file(entry))
 }
 
-pub struct AudioScanner {
+pub struct AudioScanner<'a> {
     root_path: PathBuf,
-    iterator: Box<dyn Iterator<Item = DirEntry>>,
+    iterator: Box<dyn Iterator<Item = DirEntry> + 'a>,
     ended: bool,
 }
 
-impl AudioScanner {
-    pub fn new<P: AsRef<Path> + 'static>(path: P) -> Self {
+impl<'a> AudioScanner<'a> {
+    pub fn new<P: AsRef<Path>>(path: &'a P) -> Self {
         AudioScanner {
             root_path: path.as_ref().to_path_buf(),
             iterator: Box::new(scan_audio_files(path)),
@@ -63,12 +63,12 @@ pub struct FileMetadata {
     pub metadata: Vec<(String, String)>,
 }
 
-pub struct MetadataScanner {
-    audio_scanner: AudioScanner,
+pub struct MetadataScanner<'a> {
+    audio_scanner: AudioScanner<'a>,
 }
 
-impl MetadataScanner {
-    pub fn new<P: AsRef<Path> + 'static>(path: P) -> Self {
+impl<'a> MetadataScanner<'a> {
+    pub fn new<P: AsRef<Path>>(path: &'a P) -> Self {
         MetadataScanner {
             audio_scanner: AudioScanner::new(path),
         }
