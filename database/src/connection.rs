@@ -1,3 +1,6 @@
+use arroy::distances::Euclidean;
+use arroy::Database as ArroyDatabase;
+use heed::{Env, EnvOpenOptions};
 use log::LevelFilter;
 use sea_orm::DbErr;
 use sea_orm::{ConnectOptions, Database};
@@ -31,4 +34,25 @@ pub async fn connect_main_db(lib_path: &str) -> sea_orm::DatabaseConnection {
 
 pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<(), DbErr> {
     Migrator::refresh(conn).await
+}
+
+const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
+
+/// Initialize the recommendation database.
+///
+/// # Arguments
+/// * `db_path` - The path to the database directory.
+///
+/// # Returns
+/// * `Result<(Env, ArroyDatabase<Euclidean>), Box<dyn std::error::Error>>` - The database environment and the Arroy database.
+pub fn connect_recommendation_db(
+    lib_path: &str,
+) -> Result<(Env, ArroyDatabase<Euclidean>), Box<dyn std::error::Error>> {
+    let path: PathBuf = [lib_path, ".1.db"].iter().collect();
+    let path_str = path.into_os_string().into_string().unwrap();
+    let env = unsafe { EnvOpenOptions::new().map_size(DB_SIZE).open(path_str) }?;
+    let mut wtxn = env.write_txn()?;
+    let db: ArroyDatabase<Euclidean> = env.create_database(&mut wtxn, None)?;
+    wtxn.commit()?;
+    Ok((env, db))
 }

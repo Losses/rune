@@ -1,10 +1,13 @@
+use futures::stream::{self, StreamExt};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, CursorTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::ActiveValue;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::path::{Path, PathBuf};
 use tokio::task;
-use futures::stream::{self, StreamExt};
-use crate::entities::{media_files, media_analysis};
-use analysis::analysis::{analyze_audio, normalize_analysis_result};
+
+use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
+
+use crate::entities::{media_analysis, media_files};
 
 /// Analyze the audio library by reading existing files, checking if they have been analyzed,
 /// and performing audio analysis if not. The function uses cursor pagination to process files
@@ -27,23 +30,29 @@ pub async fn analysis_audio_library(
 
     loop {
         // Fetch the next batch of files
-        let files: Vec<media_files::Model> = cursor.first(batch_size).all(db).await?;
+        let files: Vec<media_files::Model> =
+            cursor.first(batch_size.try_into().unwrap()).all(db).await?;
 
         if files.is_empty() {
             break;
         }
 
         // Process each file in parallel using multiple cores
-        let tasks: Vec<_> = files.into_iter().map(|file| {
-            let db = db.clone();
-            let root_path = root_path.to_path_buf();
-            task::spawn(async move {
-                process_file_if_needed(&db, &file, &root_path).await
+        let tasks: Vec<_> = files
+            .clone()
+            .into_iter()
+            .map(|file| {
+                let db = db.clone();
+                let root_path = root_path.to_path_buf();
+                task::spawn(async move { process_file_if_needed(&db, &file, &root_path).await })
             })
-        }).collect();
+            .collect();
 
         // Wait for all tasks to complete
-        let results: Vec<_> = stream::iter(tasks).buffer_unordered(batch_size).collect().await;
+        let results: Vec<_> = stream::iter(tasks)
+            .buffer_unordered(batch_size)
+            .collect()
+            .await;
 
         // Check for any errors
         for result in results {
@@ -141,5 +150,8 @@ async fn insert_analysis_result(
         ..Default::default()
     };
 
-    media_analysis::Entity::insert(new_analysis).exec(db).await.unwrap();
+    media_analysis::Entity::insert(new_analysis)
+        .exec(db)
+        .await
+        .unwrap();
 }

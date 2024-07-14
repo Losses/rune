@@ -15,4 +15,9 @@ sea-orm-migration = "0.12.15"
 async-graphql = "7.0.6"
 migration = { path = "../migration" }
 metadata = { path = "../metadata" }
-analysis = { path = "./analysis" }
+analysis = { path = "../analysis" }
+futures = "0.3.30"
+tokio = "1.38.0"
+arroy = "0.4.0"
+heed = "0.20.3"
+rand = "0.8.5"
