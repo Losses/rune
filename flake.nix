@@ -25,6 +25,7 @@
             fd
             alsa-lib
             libpulseaudio
+            pulseaudioFull
             rust-bin.beta.latest.default
           ];
 
