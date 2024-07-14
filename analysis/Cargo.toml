@@ -1,0 +1,13 @@
+[package]
+name = "analysis"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "analysis"
+path = "src/lib.rs"
+
+[dependencies]
+rustfft = "6.2.0"
+symphonia = "0.5.4"
