@@ -9,7 +9,7 @@ fn main() {
     let fft_results = fft(path, 4608, 2304);
 
     // Print the FFT results.
-    for (i, fft_result) in fft_results.iter().enumerate() {
+    for (i, fft_result) in fft_results.spectrum.iter().enumerate() {
         println!("{}: {:?}", i, fft_result);
     }
 }

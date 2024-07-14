@@ -10,7 +10,14 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
-pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Complex<f32>> {
+pub struct AudioDescription {
+    pub sample_rate: u32,
+    pub duration: f64,
+    pub total_samples: usize,
+    pub spectrum: Vec<Complex<f32>>,
+}
+
+pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
     // Open the media source.
     let src = std::fs::File::open(file_path).expect("failed to open media");
 
@@ -41,6 +48,24 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
         .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
         .expect("no supported audio tracks");
 
+    let sample_rate = track
+        .codec_params
+        .sample_rate
+        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No sample rate found"))
+        .unwrap();
+    let duration = track
+        .codec_params
+        .n_frames
+        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No duration found"))
+        .unwrap();
+
+    let time_base = track
+        .codec_params
+        .time_base
+        .unwrap_or_else(|| symphonia::core::units::TimeBase::new(1, sample_rate));
+    let duration_in_seconds =
+        time_base.calc_time(duration).seconds as f64 + time_base.calc_time(duration).frac;
+
     // Use the default options for the decoder.
     let dec_opts: DecoderOptions = Default::default();
 
@@ -58,6 +83,7 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
     let mut buffer = vec![Complex::new(0.0, 0.0); window_size];
     let mut avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
     let mut count = 0;
+    let mut total_samples = 0;
 
     // Precompute Hanning window
     let hanning_window: Vec<f32> = (0..window_size)
@@ -65,6 +91,9 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
             0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0)).cos())
         })
         .collect();
+
+    // Buffer to hold audio samples until we have enough for one window
+    let mut sample_buffer: Vec<f32> = Vec::new();
 
     // Decode loop.
     loop {
@@ -105,25 +134,31 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
             ($buf:expr) => {
                 for plane in $buf.planes().planes() {
                     debug!("Processing plane with len: {}", plane.len());
-                    for chunk in plane
-                        .windows(window_size)
-                        .step_by(window_size - overlap_size)
-                    {
-                        debug!("Processing chunk with len: {}", chunk.len());
-                        for (i, &sample) in chunk.iter().enumerate() {
-                            let windowed_sample =
-                                IntoSample::<f32>::into_sample(sample) * hanning_window[i];
-                            buffer[i] = Complex::new(windowed_sample, 0.0);
+                    for &sample in plane.iter() {
+                        let sample: f32 = IntoSample::<f32>::into_sample(sample);
+                        sample_buffer.push(sample);
+                        total_samples += 1;
+
+                        // Process the buffer when it reaches the window size
+                        while sample_buffer.len() >= window_size {
+                            let chunk = &sample_buffer[..window_size];
+                            for (i, &sample) in chunk.iter().enumerate() {
+                                let windowed_sample = sample * hanning_window[i];
+                                buffer[i] = Complex::new(windowed_sample, 0.0);
+                            }
+
+                            fft.process(&mut buffer);
+                            debug!("FFT processed");
+
+                            for (i, value) in buffer.iter().enumerate() {
+                                avg_spectrum[i] += value;
+                            }
+
+                            count += 1;
+
+                            // Remove the processed samples, keeping the overlap
+                            sample_buffer.drain(..(window_size - overlap_size));
                         }
-
-                        fft.process(&mut buffer);
-                        debug!("FFT processed");
-
-                        for (i, value) in buffer.iter().enumerate() {
-                            avg_spectrum[i] += value;
-                        }
-
-                        count += 1;
                     }
                 }
             };
@@ -172,6 +207,26 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
             }
         }
     }
+
+    // Process any remaining samples in the buffer
+    if !sample_buffer.is_empty() {
+        // Pad the remaining samples with zeros to reach window_size
+        sample_buffer.resize(window_size, 0.0);
+        for (i, &sample) in sample_buffer.iter().enumerate() {
+            let windowed_sample = sample * hanning_window[i];
+            buffer[i] = Complex::new(windowed_sample, 0.0);
+        }
+
+        fft.process(&mut buffer);
+        debug!("FFT processed for remaining samples");
+
+        for (i, value) in buffer.iter().enumerate() {
+            avg_spectrum[i] += value;
+        }
+
+        count += 1;
+    }
+
     if count == 0 {
         panic!("No audio data processed");
     }
@@ -182,5 +237,10 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Comp
     }
     debug!("Final average spectrum calculated");
 
-    avg_spectrum
+    AudioDescription {
+        sample_rate,
+        duration: duration_in_seconds,
+        total_samples,
+        spectrum: avg_spectrum,
+    }
 }
