@@ -15,3 +15,4 @@ sea-orm-migration = "0.12.15"
 async-graphql = "7.0.6"
 migration = { path = "../migration" }
 metadata = { path = "../metadata" }
+analysis = { path = "./analysis" }

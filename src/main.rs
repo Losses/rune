@@ -1,12 +1,25 @@
-use analysis::analysis::{analyze_audio, normalize_analysis_result};
+use std::path::PathBuf;
 
-fn main() {
+use database::connection::connect_main_db;
+use database::actions::metadata::scan_audio_library;
+use database::actions::analysis::analysis_audio_library;
+
+#[tokio::main]
+async fn main() {
+    let path = ".";
+    let db = connect_main_db(path).await;
+
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
-    let path = args.get(1).expect("file path not provided");
+    let path = args.get(1).cloned().expect("Audio data path not provided");
 
-    // Process the audio file and perform FFT using Overlap-Save method.
-    let analysis_result = normalize_analysis_result(analyze_audio(path, 4096, 4096 / 2));
+    let root_path = PathBuf::from(&path);
 
-    println!("{:#?}", analysis_result);
+    // Scan the audio library
+    scan_audio_library(&db, &root_path, true).await;
+
+    // Analyze the audio files in the database
+    analysis_audio_library(&db, &root_path, 10).await.expect("Audio analysis failed");
+
+    println!("OK");
 }
