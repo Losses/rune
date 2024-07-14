@@ -1,5 +1,6 @@
+use log::info;
 use metadata::describe::{describe_file, FileDescription};
-use metadata::scanner::{MetadataScanner, FileMetadata};
+use metadata::scanner::{FileMetadata, MetadataScanner};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use std::path::PathBuf;
@@ -7,43 +8,75 @@ use std::path::PathBuf;
 use crate::entities::media_files;
 use crate::entities::media_metadata;
 
-fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
-    let path = path_buf.as_path();
-    path.to_str().map(|path_str| path_str.replace("\\", "/"))
-}
-
 pub async fn process_file(
     db: &DatabaseConnection,
     metadata: FileMetadata,
-    description: &FileDescription,
-    unix_path: &str,
+    description: &mut FileDescription,
 ) {
+    info!(
+        "Starting to process file: {}, in dir: {}",
+        description.file_name.clone(),
+        description.directory.clone(),
+    );
+
     // Check if the file already exists in the database
     let existing_file = media_files::Entity::find()
-        .filter(media_files::Column::FileHash.eq(description.file_hash.clone()))
+        .filter(media_files::Column::Directory.eq(description.directory.clone()))
+        .filter(media_files::Column::FileName.eq(description.file_name.clone()))
         .one(db)
         .await
         .unwrap();
 
     if let Some(existing_file) = existing_file {
+        info!(
+            "File exists in the database: {}",
+            description.file_name.clone()
+        );
+
         // File exists in the database
         if existing_file.last_modified == description.last_modified {
             // If the file's last modified date hasn't changed, skip it
+            info!(
+                "File's last modified date hasn't changed, skipping: {}",
+                description.file_name.clone()
+            );
             return;
         } else {
             // If the file's last modified date has changed, check the hash
-            if existing_file.file_hash == description.file_hash {
+            info!(
+                "File's last modified date has changed, checking hash: {}",
+                description.file_name.clone()
+            );
+            let new_hash = description.get_crc().unwrap();
+            if existing_file.file_hash == new_hash {
                 // If the hash is the same, update the last modified date
+                info!(
+                    "File hash is the same, updating last modified date: {}",
+                    description.file_name.clone()
+                );
                 update_last_modified(db, &existing_file, description).await;
             } else {
                 // If the hash is different, update the metadata
+                info!(
+                    "File hash is different, updating metadata: {}",
+                    description.file_name.clone()
+                );
                 update_file_metadata(db, &existing_file, description, metadata).await;
             }
         }
     } else {
         // If the file is new, insert a new record
-        insert_new_file(db, metadata, description, unix_path).await;
+        info!(
+            "File is new, inserting new record: {}",
+            description.file_name.clone()
+        );
+        insert_new_file(db, metadata, description).await;
     }
+
+    info!(
+        "Finished processing file: {}",
+        description.file_name.clone()
+    );
 }
 
 pub async fn update_last_modified(
@@ -59,12 +92,12 @@ pub async fn update_last_modified(
 pub async fn update_file_metadata(
     db: &DatabaseConnection,
     existing_file: &media_files::Model,
-    description: &FileDescription,
+    description: &mut FileDescription,
     metadata: FileMetadata,
 ) {
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
-    active_model.file_hash = ActiveValue::Set(description.file_hash.clone());
+    active_model.file_hash = ActiveValue::Set(description.get_crc().unwrap());
     active_model.update(db).await.unwrap();
 
     // Update metadata
@@ -95,14 +128,13 @@ pub async fn update_file_metadata(
 pub async fn insert_new_file(
     db: &DatabaseConnection,
     metadata: FileMetadata,
-    description: &FileDescription,
-    unix_path: &str,
+    description: &mut FileDescription,
 ) {
     let new_file = media_files::ActiveModel {
-        file_name: ActiveValue::Set(unix_path.to_string()),
+        file_name: ActiveValue::Set(description.file_name.to_string()),
         directory: ActiveValue::Set(description.directory.clone()),
         extension: ActiveValue::Set(description.extension.clone()),
-        file_hash: ActiveValue::Set(description.file_hash.clone()),
+        file_hash: ActiveValue::Set(description.get_crc().unwrap().clone()),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
     };
@@ -128,11 +160,11 @@ pub async fn insert_new_file(
         .unwrap();
 }
 
-async fn clean_up_database(db: &DatabaseConnection) {
+async fn clean_up_database(db: &DatabaseConnection, root_path: &PathBuf) {
     let db_files = media_files::Entity::find().all(db).await.unwrap();
     for db_file in db_files {
-        let file_path = PathBuf::from(&db_file.file_name);
-        if !file_path.exists() {
+        let full_path = root_path.join(PathBuf::from(&db_file.file_name));
+        if !full_path.exists() {
             // Delete the file record
             media_files::Entity::delete_by_id(db_file.id)
                 .exec(db)
@@ -157,14 +189,13 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &PathBuf, cl
     while !scanner.has_ended() {
         let files = scanner.read_metadata(5);
         for file in files {
-            let description = describe_file(&file.path, root_path).unwrap();
-            let unix_path = to_unix_path_string(file.path.clone()).unwrap();
+            let mut description = describe_file(&file.path, root_path).unwrap();
 
-            process_file(db, file, &description, &unix_path).await;
+            process_file(db, file, &mut description).await;
         }
     }
 
     if cleanup {
-        clean_up_database(&db).await;
+        clean_up_database(&db, &root_path).await;
     }
 }

@@ -22,10 +22,10 @@ async fn main() {
     while !scanner.has_ended() {
         let files = scanner.read_metadata(5);
         for file in files {
-            let description = describe_file(&file.path, &root_path).unwrap();
+            let mut description = describe_file(&file.path, &root_path).unwrap();
             println!("= {}", to_unix_path_string(file.path).unwrap());
             println!("|- Description");
-            println!("|  |- Hash: {}", description.file_hash);
+            println!("|  |- Hash: {}", description.get_crc().unwrap());
             println!("|  |- Last Modified: {}", description.last_modified);
             println!("|- Metadata");
             for (key, value) in file.metadata {
