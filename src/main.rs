@@ -28,13 +28,13 @@ async fn main() {
     // Scan the audio library
     scan_audio_library(&main_db, &root_path, true).await;
 
-    // // Analyze the audio files in the database
-    // analysis_audio_library(&main_db, &root_path, 10)
-    //     .await
-    //     .expect("Audio analysis failed");
+    // Analyze the audio files in the database
+    analysis_audio_library(&main_db, &root_path, 10)
+        .await
+        .expect("Audio analysis failed");
 
-    // let analysis_db = connect_recommendation_db(&path).unwrap();
-    // let _ = sync_recommendation(&main_db, &analysis_db).await;
+    let analysis_db = connect_recommendation_db(&path).unwrap();
+    let _ = sync_recommendation(&main_db, &analysis_db).await;
 
     println!("OK");
 }
