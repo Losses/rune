@@ -24,7 +24,7 @@
             eza
             fd
             alsa-lib
-
+            libpulseaudio
             rust-bin.beta.latest.default
           ];
 
