@@ -1,4 +1,5 @@
 use futures::stream::{self, StreamExt};
+use log::{error, info};
 use sea_orm::entity::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -28,14 +29,19 @@ pub async fn analysis_audio_library(
 ) -> Result<(), sea_orm::DbErr> {
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
 
+    info!("Starting audio library analysis with batch size: {}", batch_size);
+
     loop {
         // Fetch the next batch of files
         let files: Vec<media_files::Model> =
             cursor.first(batch_size.try_into().unwrap()).all(db).await?;
 
         if files.is_empty() {
+            info!("No more files to process. Exiting loop.");
             break;
         }
+
+        info!("Processing batch of {} files", files.len());
 
         // Process each file in parallel using multiple cores
         let tasks: Vec<_> = files
@@ -44,7 +50,11 @@ pub async fn analysis_audio_library(
             .map(|file| {
                 let db = db.clone();
                 let root_path = root_path.to_path_buf();
-                task::spawn(async move { process_file_if_needed(&db, &file, &root_path).await })
+                let file_id = file.id;
+                task::spawn(async move {
+                    info!("Processing file with ID: {}", file_id);
+                    process_file_if_needed(&db, &file, &root_path).await
+                })
             })
             .collect();
 
@@ -57,18 +67,20 @@ pub async fn analysis_audio_library(
         // Check for any errors
         for result in results {
             if let Err(e) = result {
-                eprintln!("Error processing file: {:?}", e);
+                error!("Error processing file: {:?}", e);
             }
         }
 
         // Move the cursor to the next batch
         if let Some(last_file) = files.last() {
+            info!("Moving cursor after file ID: {}", last_file.id);
             cursor.after(last_file.id);
         } else {
             break;
         }
     }
 
+    info!("Audio library analysis completed.");
     Ok(())
 }
 

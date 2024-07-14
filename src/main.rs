@@ -9,7 +9,7 @@ use database::connection::{connect_main_db, connect_recommendation_db};
 #[tokio::main]
 async fn main() {
     // std::env::set_var("RUST_LOG", "debug");
-    let filter = EnvFilter::new("symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off"); // ,debug
+    let filter = EnvFilter::new("symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info"); // ,debug
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
