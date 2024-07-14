@@ -9,5 +9,6 @@ name = "analysis"
 path = "src/lib.rs"
 
 [dependencies]
+log = "0.4.22"
 rustfft = "6.2.0"
 symphonia = "0.5.4"

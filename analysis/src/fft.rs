@@ -1,18 +1,16 @@
+use log::debug;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::audio::Signal;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use symphonia::core::conv::IntoSample;
 
-pub fn process_audio_with_fft(
-    file_path: &str,
-    fft_size: usize,
-    overlap_size: usize,
-) -> Vec<Vec<Complex<f32>>> {
+pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> Vec<Complex<f32>> {
     // Open the media source.
     let src = std::fs::File::open(file_path).expect("failed to open media");
 
@@ -56,9 +54,17 @@ pub fn process_audio_with_fft(
 
     // Prepare FFT planner and buffers.
     let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(fft_size);
-    let mut buffer = vec![Complex::new(0.0, 0.0); fft_size];
-    let mut fft_results = Vec::new();
+    let fft = planner.plan_fft_forward(window_size);
+    let mut buffer = vec![Complex::new(0.0, 0.0); window_size];
+    let mut avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
+    let mut count = 0;
+
+    // Precompute Hanning window
+    let hanning_window: Vec<f32> = (0..window_size)
+        .map(|n| {
+            0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0)).cos())
+        })
+        .collect();
 
     // Decode loop.
     loop {
@@ -66,9 +72,13 @@ pub fn process_audio_with_fft(
         let packet = match format.next_packet() {
             Ok(packet) => packet,
             Err(Error::ResetRequired) => unimplemented!(),
-            Err(Error::IoError(_)) => break,
+            Err(Error::IoError(_)) => {
+                debug!("End of stream");
+                break;
+            }
             Err(err) => panic!("{}", err),
         };
+        debug!("Packet received: track_id = {}", packet.track_id());
 
         // If the packet does not belong to the selected track, skip over it.
         if packet.track_id() != track_id {
@@ -78,46 +88,99 @@ pub fn process_audio_with_fft(
         // Decode the packet into audio samples.
         let decoded = match decoder.decode(&packet) {
             Ok(decoded) => decoded,
-            Err(Error::IoError(_)) => continue,
-            Err(Error::DecodeError(_)) => continue,
+            Err(Error::IoError(_)) => {
+                debug!("IO Error while decoding");
+                continue;
+            }
+            Err(Error::DecodeError(_)) => {
+                debug!("Decode Error");
+                continue;
+            }
             Err(err) => panic!("{}", err),
         };
+        debug!("Packet decoded successfully");
 
         // Macro to handle different AudioBufferRef types
         macro_rules! process_audio_buffer {
             ($buf:expr) => {
                 for plane in $buf.planes().planes() {
-                    // Process each block using Overlap-Save method.
-                    for chunk in plane.windows(fft_size).step_by(fft_size - overlap_size) {
-                        // Fill the buffer with the chunk.
+                    debug!("Processing plane with len: {}", plane.len());
+                    for chunk in plane
+                        .windows(window_size)
+                        .step_by(window_size - overlap_size)
+                    {
+                        debug!("Processing chunk with len: {}", chunk.len());
                         for (i, &sample) in chunk.iter().enumerate() {
-                            buffer[i] = Complex::new(sample.into_sample(), 0.0);
+                            let windowed_sample =
+                                IntoSample::<f32>::into_sample(sample) * hanning_window[i];
+                            buffer[i] = Complex::new(windowed_sample, 0.0);
                         }
 
-                        // Perform FFT.
                         fft.process(&mut buffer);
+                        debug!("FFT processed");
 
-                        // Store the FFT result.
-                        fft_results.push(buffer.clone());
+                        for (i, value) in buffer.iter().enumerate() {
+                            avg_spectrum[i] += value;
+                        }
+
+                        count += 1;
                     }
                 }
             };
         }
 
-        // Process the decoded audio samples.
         match decoded {
-            AudioBufferRef::U8(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::U16(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::U24(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::U32(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::S8(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::S16(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::S24(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::S32(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::F32(buf) => process_audio_buffer!(buf),
-            AudioBufferRef::F64(buf) => process_audio_buffer!(buf),
+            AudioBufferRef::U8(buf) => {
+                debug!("Decoded buffer type: U8, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::U16(buf) => {
+                debug!("Decoded buffer type: U16, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::U24(buf) => {
+                debug!("Decoded buffer type: U24, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::U32(buf) => {
+                debug!("Decoded buffer type: U32, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::S8(buf) => {
+                debug!("Decoded buffer type: S8, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::S16(buf) => {
+                debug!("Decoded buffer type: S16, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::S24(buf) => {
+                debug!("Decoded buffer type: S24, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::S32(buf) => {
+                debug!("Decoded buffer type: S32, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::F32(buf) => {
+                debug!("Decoded buffer type: F32, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
+            AudioBufferRef::F64(buf) => {
+                debug!("Decoded buffer type: F64, length: {}", buf.frames());
+                process_audio_buffer!(buf);
+            }
         }
     }
+    if count == 0 {
+        panic!("No audio data processed");
+    }
 
-    fft_results
+    // Calculate the final average spectrum.
+    for value in avg_spectrum.iter_mut() {
+        *value /= count as f32;
+    }
+    debug!("Final average spectrum calculated");
+
+    avg_spectrum
 }
