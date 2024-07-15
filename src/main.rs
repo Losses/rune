@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgGroup, Parser, Subcommand};
 use serde_json::json;
 use std::fs::canonicalize;
 use std::fs::{self, File};
@@ -16,10 +16,15 @@ use database::connection::{connect_main_db, connect_recommendation_db};
 #[derive(Parser)]
 #[command(name = "Media Manager")]
 #[command(about = "A CLI tool for managing media libraries", long_about = None)]
+#[command(group(ArgGroup::new("path_group").required(true).args(&["path", "path_pos"])))]
 struct Cli {
-    /// The root path of the media library
+    /// The root path of the media library (option)
     #[arg(short, long)]
-    path: PathBuf,
+    path: Option<PathBuf>,
+
+    /// The root path of the media library (positional)
+    #[arg()]
+    path_pos: Option<PathBuf>,
 
     /// The subcommand to run
     #[command(subcommand)]
@@ -59,7 +64,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info",
+        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,info",
     );
 
     tracing_subscriber::fmt()
@@ -67,7 +72,10 @@ async fn main() {
         .with_test_writer()
         .init();
 
-    let canonicalized_path = match canonicalize(&cli.path) {
+    // Determine the path from either the option or the positional argument
+    let path = cli.path.or(cli.path_pos).expect("Path is required");
+
+    let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
         Err(e) => {
             eprintln!("Failed to canonicalize path: {}", e);
@@ -101,11 +109,11 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            scan_audio_library(&main_db, &cli.path, true).await;
+            scan_audio_library(&main_db, &path, true).await;
             println!("Library scanned successfully.");
         }
         Commands::Analyze => {
-            if let Err(e) = analysis_audio_library(&main_db, &cli.path, 10).await {
+            if let Err(e) = analysis_audio_library(&main_db, &path, 10).await {
                 eprintln!("Audio analysis failed: {}", e);
                 return;
             }
@@ -218,8 +226,7 @@ async fn main() {
                     }
 
                     for file_info in files {
-                        let relative_path = cli
-                            .path
+                        let relative_path = path
                             .join(&file_info.directory)
                             .join(&file_info.file_name);
                         let relative_to_output = match pathdiff::diff_paths(
