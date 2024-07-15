@@ -6,7 +6,7 @@ use database::actions::metadata::scan_audio_library;
 #[tokio::main]
 async fn main() {
     let path = ".";
-    let db = connect_main_db(path).await;
+    let db = connect_main_db(path).await.unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();

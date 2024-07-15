@@ -58,7 +58,7 @@ pub async fn sync_recommendation(
 
     // Open a write transaction for the recommendation database
     let mut wtxn = env.write_txn()?;
-    let writer = Writer::<Euclidean>::new(arroy_db.clone(), 0, 13); // Assuming 13 dimensions for the analysis data
+    let writer = Writer::<Euclidean>::new(arroy_db.clone(), 0, 17); // Assuming 17 dimensions for the analysis data
 
     // Insert or update analysis data in the recommendation database
     for analysis in analyses {
@@ -103,7 +103,7 @@ pub async fn sync_recommendation(
     for id in reader.item_ids() {
         if !existing_ids.contains(&(id as i32)) {
             let mut wtxn = env.write_txn()?;
-            let writer = Writer::<Euclidean>::new(arroy_db.clone(), 0, 13);
+            let writer = Writer::<Euclidean>::new(arroy_db.clone(), 0, 17);
             writer.del_item(&mut wtxn, id)?;
             wtxn.commit()?;
         }

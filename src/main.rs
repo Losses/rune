@@ -83,11 +83,18 @@ async fn main() {
         }
     };
 
-    let main_db = connect_main_db(lib_path).await;
+    let main_db = match connect_main_db(lib_path).await {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Failed to connect to main database: {}", e);
+            return;
+        }
+    };
+
     let analysis_db = match connect_recommendation_db(lib_path) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Failed to canonicalize path: {}", e);
+            eprintln!("Failed to connect to analysis database: {}", e);
             return;
         }
     };

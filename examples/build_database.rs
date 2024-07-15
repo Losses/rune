@@ -17,7 +17,7 @@ async fn main() {
         .init();
 
     let path = ".";
-    let main_db = connect_main_db(path).await;
+    let main_db = connect_main_db(path).await.unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
