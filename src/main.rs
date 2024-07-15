@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::analysis::analysis_audio_library;
+use database::actions::file::get_file_id_from_path;
 use database::actions::file::get_files_by_ids;
 use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::get_recommendation;
@@ -17,15 +18,15 @@ use database::connection::{connect_main_db, connect_recommendation_db};
 #[derive(Parser)]
 #[command(name = "Media Manager")]
 #[command(about = "A CLI tool for managing media libraries", long_about = None)]
-#[command(group(ArgGroup::new("path_group").required(true).args(&["path", "path_pos"])))]
+#[command(group(ArgGroup::new("library_group").required(true).args(&["library", "library0"])))]
 struct Cli {
     /// The root path of the media library (option)
     #[arg(short, long)]
-    path: Option<PathBuf>,
+    library: Option<PathBuf>,
 
     /// The root path of the media library (positional)
     #[arg()]
-    path_pos: Option<PathBuf>,
+    library0: Option<PathBuf>,
 
     /// The subcommand to run
     #[command(subcommand)]
@@ -43,8 +44,12 @@ enum Commands {
     /// Recommend music
     Recommend {
         /// The ID of the item to get recommendations for
-        #[arg(short, long)]
-        item_id: usize,
+        #[arg(short, long, group = "recommend_group")]
+        item_id: Option<usize>,
+
+        /// The file path of the music to get recommendations for
+        #[arg(short = 'p', long, group = "recommend_group")]
+        file_path: Option<PathBuf>,
 
         /// The number of recommendations to retrieve
         #[arg(short, long, default_value_t = 10)]
@@ -74,7 +79,7 @@ async fn main() {
         .init();
 
     // Determine the path from either the option or the positional argument
-    let path = cli.path.or(cli.path_pos).expect("Path is required");
+    let path = cli.library.or(cli.library0).expect("Path is required");
 
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
@@ -128,11 +133,27 @@ async fn main() {
         }
         Commands::Recommend {
             item_id,
+            file_path,
             num,
             format,
             output,
         } => {
-            let recommendations = match get_recommendation(&analysis_db, *item_id, *num) {
+            let file_id = if let Some(item_id) = item_id {
+                *item_id
+            } else if let Some(file_path) = file_path {
+                match get_file_id_from_path(&main_db, &path, file_path).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        return;
+                    }
+                }
+            } else {
+                eprintln!("Either item_id or file_path must be provided.");
+                return;
+            };
+
+            let recommendations = match get_recommendation(&analysis_db, file_id, *num) {
                 Ok(recommendations) => recommendations,
                 Err(e) => {
                     eprintln!("Failed to get recommendations: {}", e);
@@ -161,7 +182,7 @@ async fn main() {
                     };
 
                     // Check and correct file extension
-                    let corrected_path = check_and_correct_extension(output_path, "json");
+                    let corrected_path = check_and_correct_extension(&canonicalized_path.join(output_path), "json");
                     if corrected_path != *output_path {
                         eprintln!("Warning: Output file extension corrected to .json");
                     }
@@ -200,7 +221,7 @@ async fn main() {
                     };
 
                     // Check and correct file extension
-                    let corrected_path = check_and_correct_extension(output_path, "m3u8");
+                    let corrected_path = check_and_correct_extension(&canonicalized_path.join(output_path), "m3u8");
                     if corrected_path != *output_path {
                         eprintln!("Warning: Output file extension corrected to .m3u8");
                     }
@@ -246,7 +267,7 @@ async fn main() {
                         }
                     }
 
-                    println!("Recommendations saved to M3U8 file.");
+                    println!("Recommendations saved to M3U8 file: {}", corrected_path.to_str().unwrap());
                 }
                 Some(_) => {
                     eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
@@ -262,7 +283,11 @@ async fn main() {
                         if let Some(file_info) = file_info {
                             let file_path =
                                 path.join(&file_info.directory).join(&file_info.file_name);
-                            table.add_row(row![format!("{:0>5}", id), format!("{:.4}", distance), file_path.display()]);
+                            table.add_row(row![
+                                format!("{:0>5}", id),
+                                format!("{:.4}", distance),
+                                file_path.display()
+                            ]);
                         }
                     }
 

@@ -24,10 +24,16 @@ pub fn get_recommendation(
     let (env, db) = db_conn;
     let rtxn = env.read_txn()?;
     let reader = Reader::<Euclidean>::open(&rtxn, 0, *db)?;
-    let search_k = NonZeroUsize::new(n * reader.n_trees() * 15);
+    let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
+        .ok_or("Failed to create NonZeroUsize from search_k")?;
+    
+    let item_id: u32 = item_id.try_into()
+        .map_err(|_| "Failed to convert item_id to u32")?;
+    
     let results = reader
-        .nns_by_item(&rtxn, item_id.try_into().unwrap(), n, search_k, None)?
-        .unwrap();
+        .nns_by_item(&rtxn, item_id, n, Some(search_k), None)?
+        .ok_or("No results found for the given item_id")?;
+    
     Ok(results)
 }
 

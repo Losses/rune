@@ -1,5 +1,6 @@
 use sea_orm::entity::prelude::*;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use std::path::Path;
 
 use crate::entities::media_files;
 
@@ -12,4 +13,69 @@ pub async fn get_files_by_ids(
         .all(db)
         .await?;
     Ok(files)
+}
+
+pub async fn get_file_by_path(
+    db: &DatabaseConnection,
+    relative_path: &Path,
+) -> Result<Option<media_files::Model>, sea_orm::DbErr> {
+    let directory = relative_path
+        .parent()
+        .unwrap_or_else(|| Path::new(""))
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+    let file_name = relative_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new(""))
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+
+    let file = media_files::Entity::find()
+        .filter(media_files::Column::Directory.eq(directory))
+        .filter(media_files::Column::FileName.eq(file_name))
+        .one(db)
+        .await?;
+
+    Ok(file)
+}
+
+pub async fn get_file_id_from_path(
+    db: &DatabaseConnection,
+    root_path: &Path,
+    file_path: &Path,
+) -> Result<usize, String> {
+    // Check if the file exists as an absolute path
+    let absolute_path = if file_path.is_absolute() {
+        file_path.to_path_buf()
+    } else {
+        root_path.join(file_path)
+    };
+
+    if !absolute_path.exists() {
+        return Err(format!("File does not exist: {:?}", absolute_path));
+    }
+
+    let relative_path = match absolute_path.strip_prefix(root_path) {
+        Ok(path) => path,
+        Err(_) => {
+            return Err(format!(
+                "File is not within the specified library path: {:?}",
+                absolute_path
+            ));
+        }
+    };
+
+    let file_info = match get_file_by_path(db, relative_path).await {
+        Ok(Some(file_info)) => file_info,
+        Ok(None) => {
+            return Err(format!("File is not in the database: {:?}", relative_path));
+        }
+        Err(e) => {
+            return Err(format!("Failed to query the database: {}", e));
+        }
+    };
+
+    Ok(file_info.id as usize)
 }
