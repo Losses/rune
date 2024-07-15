@@ -1,4 +1,5 @@
 use clap::{ArgGroup, Parser, Subcommand};
+use prettytable::{format, row, Table};
 use serde_json::json;
 use std::fs::canonicalize;
 use std::fs::{self, File};
@@ -226,9 +227,8 @@ async fn main() {
                     }
 
                     for file_info in files {
-                        let relative_path = path
-                            .join(&file_info.directory)
-                            .join(&file_info.file_name);
+                        let relative_path =
+                            path.join(&file_info.directory).join(&file_info.file_name);
                         let relative_to_output = match pathdiff::diff_paths(
                             &relative_path,
                             corrected_path.parent().unwrap(),
@@ -252,10 +252,21 @@ async fn main() {
                     eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
                 }
                 None => {
-                    println!("Recommendations:");
-                    for (id, distance) in recommendations {
-                        println!("ID: {}, Distance: {}", id, distance);
+                    // Create a table to display recommendations
+                    let mut table = Table::new();
+                    table.add_row(row!["ID", "Distance", "File Path"]);
+                    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+
+                    for (id, distance) in &recommendations {
+                        let file_info = files.iter().find(|f| f.id == *id as i32);
+                        if let Some(file_info) = file_info {
+                            let file_path =
+                                path.join(&file_info.directory).join(&file_info.file_name);
+                            table.add_row(row![format!("{:0>5}", id), format!("{:.4}", distance), file_path.display()]);
+                        }
                     }
+
+                    table.printstd();
                 }
             }
         }
