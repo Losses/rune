@@ -1,9 +1,9 @@
 use clap::{Parser, Subcommand};
 use serde_json::json;
+use std::fs::canonicalize;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::fs::canonicalize;
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::analysis::analysis_audio_library;
@@ -67,14 +67,30 @@ async fn main() {
         .with_test_writer()
         .init();
 
-    let canonicalized_path = canonicalize(&cli.path)
-        .expect("Failed to canonicalize path");
-    let lib_path = canonicalized_path
-        .to_str()
-        .expect("Invalid path, could not convert to string");
+    let canonicalized_path = match canonicalize(&cli.path) {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("Failed to canonicalize path: {}", e);
+            return;
+        }
+    };
+
+    let lib_path = match canonicalized_path.to_str() {
+        Some(path) => path,
+        None => {
+            eprintln!("Invalid path, could not convert to string");
+            return;
+        }
+    };
 
     let main_db = connect_main_db(lib_path).await;
-    let analysis_db = connect_recommendation_db(lib_path).unwrap();
+    let analysis_db = match connect_recommendation_db(lib_path) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Failed to canonicalize path: {}", e);
+            return;
+        }
+    };
 
     match &cli.command {
         Commands::Scan => {
@@ -82,12 +98,16 @@ async fn main() {
             println!("Library scanned successfully.");
         }
         Commands::Analyze => {
-            analysis_audio_library(&main_db, &cli.path, 10)
-                .await
-                .expect("Audio analysis failed");
-            sync_recommendation(&main_db, &analysis_db)
-                .await
-                .expect("Sync recommendation failed");
+            if let Err(e) = analysis_audio_library(&main_db, &cli.path, 10).await {
+                eprintln!("Audio analysis failed: {}", e);
+                return;
+            }
+
+            if let Err(e) = sync_recommendation(&main_db, &analysis_db).await {
+                eprintln!("Sync recommendation failed: {}", e);
+                return;
+            }
+
             println!("Audio analysis completed successfully.");
         }
         Commands::Recommend {
@@ -96,20 +116,33 @@ async fn main() {
             format,
             output,
         } => {
-            let recommendations = get_recommendation(&analysis_db, *item_id, *num)
-                .expect("Failed to get recommendations");
+            let recommendations = match get_recommendation(&analysis_db, *item_id, *num) {
+                Ok(recommendations) => recommendations,
+                Err(e) => {
+                    eprintln!("Failed to get recommendations: {}", e);
+                    return;
+                }
+            };
 
             // Get file details of recommendations
             let ids: Vec<i32> = recommendations.iter().map(|(id, _)| *id as i32).collect();
-            let files = get_files_by_ids(&main_db, &ids)
-                .await
-                .expect("Failed to get files by IDs");
+            let files = match get_files_by_ids(&main_db, &ids).await {
+                Ok(files) => files,
+                Err(e) => {
+                    eprintln!("Failed to get files by IDs: {}", e);
+                    return;
+                }
+            };
 
             match format.as_deref() {
                 Some("json") => {
-                    let output_path = output
-                        .as_ref()
-                        .expect("Output file path is required when format is specified");
+                    let output_path = match output {
+                        Some(path) => path,
+                        None => {
+                            eprintln!("Output file path is required when format is specified");
+                            return;
+                        }
+                    };
 
                     // Check and correct file extension
                     let corrected_path = check_and_correct_extension(output_path, "json");
@@ -119,19 +152,36 @@ async fn main() {
 
                     // Create directories if they don't exist
                     if let Some(parent) = corrected_path.parent() {
-                        fs::create_dir_all(parent).expect("Failed to create directories");
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            eprintln!("Failed to create directories: {}", e);
+                            return;
+                        }
                     }
 
                     let json_data = json!(recommendations);
-                    let mut file = File::create(corrected_path).expect("Failed to create file");
-                    file.write_all(json_data.to_string().as_bytes())
-                        .expect("Failed to write to file");
+                    let mut file = match File::create(&corrected_path) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            eprintln!("Failed to create file: {}", e);
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = file.write_all(json_data.to_string().as_bytes()) {
+                        eprintln!("Failed to write to file: {}", e);
+                        return;
+                    }
+
                     println!("Recommendations saved to JSON file.");
                 }
                 Some("m3u8") => {
-                    let output_path = output
-                        .as_ref()
-                        .expect("Output file path is required when format is specified");
+                    let output_path = match output {
+                        Some(path) => path,
+                        None => {
+                            eprintln!("Output file path is required when format is specified");
+                            return;
+                        }
+                    };
 
                     // Check and correct file extension
                     let corrected_path = check_and_correct_extension(output_path, "m3u8");
@@ -141,20 +191,47 @@ async fn main() {
 
                     // Create directories if they don't exist
                     if let Some(parent) = corrected_path.parent() {
-                        fs::create_dir_all(parent).expect("Failed to create directories");
+                        if let Err(e) = fs::create_dir_all(parent) {
+                            eprintln!("Failed to create directories: {}", e);
+                            return;
+                        }
                     }
 
-                    let mut file = File::create(corrected_path.clone()).expect("Failed to create file");
-                    file.write_all("#EXTM3U\n".as_bytes())
-                        .expect("Failed to write to file");
+                    let mut file = match File::create(&corrected_path) {
+                        Ok(file) => file,
+                        Err(e) => {
+                            eprintln!("Failed to create file: {}", e);
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = file.write_all("#EXTM3U\n".as_bytes()) {
+                        eprintln!("Failed to write to file: {}", e);
+                        return;
+                    }
 
                     for file_info in files {
-                        let relative_path = cli.path.join(&file_info.directory).join(&file_info.file_name);
-                        let relative_to_output =
-                            pathdiff::diff_paths(&relative_path, corrected_path.parent().unwrap()).unwrap();
-                        writeln!(file, "{}", relative_to_output.display())
-                            .expect("Failed to write to file");
+                        let relative_path = cli
+                            .path
+                            .join(&file_info.directory)
+                            .join(&file_info.file_name);
+                        let relative_to_output = match pathdiff::diff_paths(
+                            &relative_path,
+                            corrected_path.parent().unwrap(),
+                        ) {
+                            Some(path) => path,
+                            None => {
+                                eprintln!("Failed to calculate relative path");
+                                return;
+                            }
+                        };
+
+                        if let Err(e) = writeln!(file, "{}", relative_to_output.display()) {
+                            eprintln!("Failed to write to file: {}", e);
+                            return;
+                        }
                     }
+
                     println!("Recommendations saved to M3U8 file.");
                 }
                 Some(_) => {
