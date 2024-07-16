@@ -1,11 +1,12 @@
 use arroy::distances::Euclidean;
-use arroy::{Database as ArroyDatabase, Reader, Writer};
-use heed::Env;
+use arroy::{Reader, Writer};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use sea_orm::entity::prelude::*;
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
+
+use crate::connection::{MainDbConnection, RecommendationDbConnection};
 
 /// Get recommendations for a given item.
 ///
@@ -17,23 +18,25 @@ use std::num::NonZeroUsize;
 /// # Returns
 /// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
 pub fn get_recommendation(
-    db_conn: &(Env, ArroyDatabase<Euclidean>),
+    db_conn: &RecommendationDbConnection,
     item_id: usize,
     n: usize,
 ) -> Result<Vec<(u32, f32)>, Box<dyn std::error::Error>> {
-    let (env, db) = db_conn;
+    let env = db_conn.env.clone();
+    let db = db_conn.db;
     let rtxn = env.read_txn()?;
-    let reader = Reader::<Euclidean>::open(&rtxn, 0, *db)?;
+    let reader = Reader::<Euclidean>::open(&rtxn, 0, db)?;
     let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
         .ok_or("Failed to create NonZeroUsize from search_k")?;
-    
-    let item_id: u32 = item_id.try_into()
+
+    let item_id: u32 = item_id
+        .try_into()
         .map_err(|_| "Failed to convert item_id to u32")?;
-    
+
     let results = reader
         .nns_by_item(&rtxn, item_id, n, Some(search_k), None)?
         .ok_or("No results found for the given item_id")?;
-    
+
     Ok(results)
 }
 
@@ -46,10 +49,11 @@ pub fn get_recommendation(
 /// # Returns
 /// * `Result<(), Box<dyn std::error::Error>>` - A result indicating success or failure.
 pub async fn sync_recommendation(
-    db: &DatabaseConnection,
-    db_conn: &(Env, ArroyDatabase<Euclidean>),
+    db: &MainDbConnection,
+    db_conn: &RecommendationDbConnection,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (env, arroy_db) = db_conn;
+    let env = db_conn.env.clone();
+    let arroy_db = db_conn.db;
 
     // Fetch all analysis data
     let analyses = crate::entities::media_analysis::Entity::find()
@@ -105,7 +109,7 @@ pub async fn sync_recommendation(
 
     // Clean up the recommendation database by removing items not present in the main database
     let rtxn = env.read_txn()?;
-    let reader = Reader::<Euclidean>::open(&rtxn, 0, *arroy_db)?;
+    let reader = Reader::<Euclidean>::open(&rtxn, 0, arroy_db)?;
     for id in reader.item_ids() {
         if !existing_ids.contains(&(id as i32)) {
             let mut wtxn = env.write_txn()?;

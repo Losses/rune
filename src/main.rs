@@ -1,19 +1,13 @@
 use clap::{ArgGroup, Parser, Subcommand};
-use prettytable::{format, row, Table};
-use serde_json::json;
 use std::fs::canonicalize;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::analysis::analysis_audio_library;
-use database::actions::file::get_file_id_from_path;
-use database::actions::file::get_files_by_ids;
 use database::actions::metadata::scan_audio_library;
-use database::actions::recommendation::get_recommendation;
-use database::actions::recommendation::sync_recommendation;
 use database::connection::{connect_main_db, connect_recommendation_db};
+
+use player::analysis::*;
+use player::recommend::*;
 
 #[derive(Parser)]
 #[command(name = "Media Manager")]
@@ -119,17 +113,7 @@ async fn main() {
             println!("Library scanned successfully.");
         }
         Commands::Analyze => {
-            if let Err(e) = analysis_audio_library(&main_db, &path, 10).await {
-                eprintln!("Audio analysis failed: {}", e);
-                return;
-            }
-
-            if let Err(e) = sync_recommendation(&main_db, &analysis_db).await {
-                eprintln!("Sync recommendation failed: {}", e);
-                return;
-            }
-
-            println!("Audio analysis completed successfully.");
+            analyze_audio_library(&main_db, &analysis_db, &path).await;
         }
         Commands::Recommend {
             item_id,
@@ -138,172 +122,20 @@ async fn main() {
             format,
             output,
         } => {
-            let file_id = if let Some(item_id) = item_id {
-                *item_id
-            } else if let Some(file_path) = file_path {
-                match get_file_id_from_path(&main_db, &path, file_path).await {
-                    Ok(id) => id,
-                    Err(e) => {
-                        eprintln!("{}", e);
-                        return;
-                    }
-                }
-            } else {
-                eprintln!("Either item_id or file_path must be provided.");
-                return;
-            };
-
-            let recommendations = match get_recommendation(&analysis_db, file_id, *num) {
-                Ok(recommendations) => recommendations,
-                Err(e) => {
-                    eprintln!("Failed to get recommendations: {}", e);
-                    return;
-                }
-            };
-
-            // Get file details of recommendations
-            let ids: Vec<i32> = recommendations.iter().map(|(id, _)| *id as i32).collect();
-            let files = match get_files_by_ids(&main_db, &ids).await {
-                Ok(files) => files,
-                Err(e) => {
-                    eprintln!("Failed to get files by IDs: {}", e);
-                    return;
-                }
-            };
-
-            match format.as_deref() {
-                Some("json") => {
-                    let output_path = match output {
-                        Some(path) => path,
-                        None => {
-                            eprintln!("Output file path is required when format is specified");
-                            return;
-                        }
-                    };
-
-                    // Check and correct file extension
-                    let corrected_path = check_and_correct_extension(&canonicalized_path.join(output_path), "json");
-                    if corrected_path != *output_path {
-                        eprintln!("Warning: Output file extension corrected to .json");
-                    }
-
-                    // Create directories if they don't exist
-                    if let Some(parent) = corrected_path.parent() {
-                        if let Err(e) = fs::create_dir_all(parent) {
-                            eprintln!("Failed to create directories: {}", e);
-                            return;
-                        }
-                    }
-
-                    let json_data = json!(recommendations);
-                    let mut file = match File::create(&corrected_path) {
-                        Ok(file) => file,
-                        Err(e) => {
-                            eprintln!("Failed to create file: {}", e);
-                            return;
-                        }
-                    };
-
-                    if let Err(e) = file.write_all(json_data.to_string().as_bytes()) {
-                        eprintln!("Failed to write to file: {}", e);
-                        return;
-                    }
-
-                    println!("Recommendations saved to JSON file.");
-                }
-                Some("m3u8") => {
-                    let output_path = match output {
-                        Some(path) => path,
-                        None => {
-                            eprintln!("Output file path is required when format is specified");
-                            return;
-                        }
-                    };
-
-                    // Check and correct file extension
-                    let corrected_path = check_and_correct_extension(&canonicalized_path.join(output_path), "m3u8");
-                    if corrected_path != *output_path {
-                        eprintln!("Warning: Output file extension corrected to .m3u8");
-                    }
-
-                    // Create directories if they don't exist
-                    if let Some(parent) = corrected_path.parent() {
-                        if let Err(e) = fs::create_dir_all(parent) {
-                            eprintln!("Failed to create directories: {}", e);
-                            return;
-                        }
-                    }
-
-                    let mut file = match File::create(&corrected_path) {
-                        Ok(file) => file,
-                        Err(e) => {
-                            eprintln!("Failed to create file: {}", e);
-                            return;
-                        }
-                    };
-
-                    if let Err(e) = file.write_all("#EXTM3U\n".as_bytes()) {
-                        eprintln!("Failed to write to file: {}", e);
-                        return;
-                    }
-
-                    for file_info in files {
-                        let relative_path =
-                            path.join(&file_info.directory).join(&file_info.file_name);
-                        let relative_to_output = match pathdiff::diff_paths(
-                            &relative_path,
-                            corrected_path.parent().unwrap(),
-                        ) {
-                            Some(path) => path,
-                            None => {
-                                eprintln!("Failed to calculate relative path");
-                                return;
-                            }
-                        };
-
-                        if let Err(e) = writeln!(file, "{}", relative_to_output.display()) {
-                            eprintln!("Failed to write to file: {}", e);
-                            return;
-                        }
-                    }
-
-                    println!("Recommendations saved to M3U8 file: {}", corrected_path.to_str().unwrap());
-                }
-                Some(_) => {
-                    eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
-                }
-                None => {
-                    // Create a table to display recommendations
-                    let mut table = Table::new();
-                    table.add_row(row!["ID", "Distance", "File Path"]);
-                    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-
-                    for (id, distance) in &recommendations {
-                        let file_info = files.iter().find(|f| f.id == *id as i32);
-                        if let Some(file_info) = file_info {
-                            let file_path =
-                                path.join(&file_info.directory).join(&file_info.file_name);
-                            table.add_row(row![
-                                format!("{:0>5}", id),
-                                format!("{:.4}", distance),
-                                file_path.display()
-                            ]);
-                        }
-                    }
-
-                    table.printstd();
-                }
-            }
+            recommend_music(
+                &main_db,
+                &analysis_db,
+                RecommendMusicOptions {
+                    canonicalized_path: &canonicalized_path,
+                    path: &path,
+                    item_id: *item_id,
+                    file_path: file_path.as_ref(),
+                    num: *num,
+                    format: format.as_ref().map(|x| x.as_str()),
+                    output: output.as_ref(),
+                },
+            )
+            .await;
         }
-    }
-}
-
-fn check_and_correct_extension(path: &Path, expected_extension: &str) -> PathBuf {
-    if path.extension().and_then(|ext| ext.to_str()) != Some(expected_extension) {
-        let mut corrected_path = path.to_path_buf();
-        corrected_path.set_extension(expected_extension);
-        corrected_path
-    } else {
-        path.to_path_buf()
     }
 }

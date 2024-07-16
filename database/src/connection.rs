@@ -50,9 +50,11 @@ impl From<DbErr> for ConnectMainDbError {
     }
 }
 
+pub type MainDbConnection = sea_orm::DatabaseConnection;
+
 pub async fn connect_main_db(
     lib_path: &str,
-) -> Result<sea_orm::DatabaseConnection, ConnectMainDbError> {
+) -> Result<MainDbConnection, ConnectMainDbError> {
     let path: PathBuf = [lib_path, ".rune", ".0.db"].iter().collect();
 
     let dir_path = path.parent().ok_or_else(|| {
@@ -115,6 +117,11 @@ impl Error for ConnectRecommendationDbError {}
 
 const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
+pub struct RecommendationDbConnection {
+    pub env: Env,
+    pub db: ArroyDatabase<Euclidean>,
+}
+
 /// Initialize the recommendation database.
 ///
 /// # Arguments
@@ -124,7 +131,7 @@ const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
 /// * `Result<(Env, ArroyDatabase<Euclidean>), Box<dyn std::error::Error>>` - The database environment and the Arroy database.
 pub fn connect_recommendation_db(
     lib_path: &str,
-) -> Result<(Env, ArroyDatabase<Euclidean>), Box<dyn Error>> {
+) -> Result<RecommendationDbConnection, Box<dyn Error>> {
     let path: PathBuf = [lib_path, ".rune", ".analysis"].iter().collect();
 
     if !path.exists() {
@@ -154,5 +161,5 @@ pub fn connect_recommendation_db(
     wtxn.commit()
         .map_err(|e| ConnectRecommendationDbError::CommitError(Box::new(e)))?;
 
-    Ok((env, db))
+    Ok(RecommendationDbConnection { env, db })
 }

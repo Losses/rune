@@ -3,6 +3,10 @@ name = "player"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "player"
+path = "src/lib.rs"
+
 [dependencies]
 futures = "0.3.30"
 rodio = "0.19.0"
