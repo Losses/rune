@@ -10,6 +10,7 @@ tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros"] }
 database = { path = "./database" }
 metadata = { path = "./metadata" }
 analysis = { path = "./analysis" }
+playback = { path = "./playback" }
 tracing-subscriber = "0.3.18"
 tracing = "0.1.40"
 serde = "1.0.204"
