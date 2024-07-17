@@ -1,4 +1,5 @@
-use rodio::{Decoder, OutputStream, Sink};
+use log::{debug, error, info};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -40,6 +41,7 @@ pub(crate) struct PlayerInternal {
     playlist: Vec<PathBuf>,
     current_track_index: Option<usize>,
     sink: Option<Sink>,
+    stream_handle: Option<OutputStreamHandle>,
 }
 
 impl PlayerInternal {
@@ -47,12 +49,15 @@ impl PlayerInternal {
         commands: mpsc::UnboundedReceiver<PlayerCommand>,
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
     ) -> Self {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+
         Self {
             commands,
             event_sender,
             playlist: Vec::new(),
             current_track_index: None,
             sink: None,
+            stream_handle: Some(stream_handle),
         }
     }
 
@@ -62,6 +67,7 @@ impl PlayerInternal {
         loop {
             tokio::select! {
                 Some(cmd) = self.commands.recv() => {
+                    debug!("Received command: {:?}", cmd);
                     match cmd {
                         PlayerCommand::Load { index } => self.load(Some(index)),
                         PlayerCommand::Play => self.play(),
@@ -82,28 +88,27 @@ impl PlayerInternal {
     }
 
     fn load(&mut self, index: Option<usize>) {
-        if index.is_none() {
-            return;
-        }
-
-        if let Ok((_, stream_handle)) = OutputStream::try_default() {
-            let _index = index.unwrap();
-            let path = &self.playlist[_index];
+        if let Some(index) = index {
+            debug!("Loading track at index: {}", index);
+            let path = &self.playlist[index];
             let file = File::open(path);
             match file {
                 Ok(file) => {
                     let source = Decoder::new(BufReader::new(file));
                     match source {
                         Ok(source) => {
-                            let sink = Sink::try_new(&stream_handle).unwrap();
+                            let sink = Sink::try_new(self.stream_handle.as_ref().unwrap()).unwrap();
                             sink.append(source);
                             self.sink = Some(sink);
+                            self.current_track_index = Some(index);
+                            info!("Playing track: {:?}", path);
                             self.event_sender.send(PlayerEvent::Playing).unwrap();
                         }
-                        Err(_) => {
+                        Err(e) => {
+                            error!("Failed to decode audio: {:?}", e);
                             self.event_sender
                                 .send(PlayerEvent::Error {
-                                    index: _index.clone(),
+                                    index,
                                     path: path.clone(),
                                     error: "Failed to decode audio".to_string(),
                                 })
@@ -111,37 +116,51 @@ impl PlayerInternal {
                         }
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    error!("Failed to open file: {:?}", e);
                     self.event_sender
                         .send(PlayerEvent::Error {
-                            index: _index.clone(),
+                            index,
                             path: path.clone(),
                             error: "Failed to open file".to_string(),
                         })
                         .unwrap();
                 }
             }
+        } else {
+            error!("Load command received without index");
         }
     }
 
     fn play(&mut self) {
         if let Some(sink) = &self.sink {
             sink.play();
+            info!("Playback started");
             self.event_sender.send(PlayerEvent::Playing).unwrap();
+        } else {
+            info!("Loading the first track");
+            self.load(Some(0));
+            self.play();
         }
     }
 
     fn pause(&mut self) {
         if let Some(sink) = &self.sink {
             sink.pause();
+            info!("Playback paused");
             self.event_sender.send(PlayerEvent::Paused).unwrap();
+        } else {
+            error!("Pause command received but no track is loaded");
         }
     }
 
     fn stop(&mut self) {
         if let Some(sink) = self.sink.take() {
             sink.stop();
+            info!("Playback stopped");
             self.event_sender.send(PlayerEvent::Stopped).unwrap();
+        } else {
+            error!("Stop command received but no track is loaded");
         }
     }
 
@@ -149,10 +168,14 @@ impl PlayerInternal {
         if let Some(index) = self.current_track_index {
             if index + 1 < self.playlist.len() {
                 self.current_track_index = Some(index + 1);
+                debug!("Moving to next track: {}", index + 1);
                 self.load(Some(index + 1));
             } else {
+                info!("End of playlist reached");
                 self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
             }
+        } else {
+            error!("Next command received but no track is currently playing");
         }
     }
 
@@ -160,8 +183,13 @@ impl PlayerInternal {
         if let Some(index) = self.current_track_index {
             if index > 0 {
                 self.current_track_index = Some(index - 1);
-                self.load(self.current_track_index.clone());
+                debug!("Moving to previous track: {}", index - 1);
+                self.load(Some(index - 1));
+            } else {
+                error!("Previous command received but already at the first track");
             }
+        } else {
+            error!("Previous command received but no track is currently playing");
         }
     }
 
@@ -169,24 +197,39 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.try_seek(std::time::Duration::from_millis(position_ms as u64))
                 .unwrap();
+            info!("Seeking to position: {} ms", position_ms);
             self.event_sender.send(PlayerEvent::Playing).unwrap();
+        } else {
+            error!("Seek command received but no track is loaded");
         }
     }
 
     fn add_to_playlist(&mut self, path: PathBuf) {
+        debug!("Adding to playlist: {:?}", path);
         self.playlist.push(path);
     }
 
     fn remove_from_playlist(&mut self, index: usize) {
-        self.playlist.remove(index);
+        if index < self.playlist.len() {
+            debug!("Removing from playlist at index: {}", index);
+            self.playlist.remove(index);
+        } else {
+            error!(
+                "Remove command received but index {} is out of bounds",
+                index
+            );
+        }
     }
 
     fn send_progress(&self) {
         if let Some(sink) = &self.sink {
             let position = sink.get_pos();
+            debug!("Sending progress: {:?}", position);
             self.event_sender
                 .send(PlayerEvent::Progress { position })
                 .unwrap();
+        } else {
+            error!("Progress update attempted but no track is loaded");
         }
     }
 }

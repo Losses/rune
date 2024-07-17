@@ -67,7 +67,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,info",
+        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,debug",
     );
 
     tracing_subscriber::fmt()
