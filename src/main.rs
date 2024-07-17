@@ -1,4 +1,4 @@
-use clap::{ArgGroup, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use dunce::canonicalize;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
@@ -7,20 +7,16 @@ use database::actions::metadata::scan_audio_library;
 use database::connection::{connect_main_db, connect_recommendation_db};
 
 use player::analysis::*;
+use player::playback::*;
 use player::recommend::*;
 
 #[derive(Parser)]
 #[command(name = "Media Manager")]
 #[command(about = "A CLI tool for managing media libraries", long_about = None)]
-#[command(group(ArgGroup::new("library_group").required(true).args(&["library", "library0"])))]
 struct Cli {
-    /// The root path of the media library (option)
-    #[arg(short, long)]
-    library: Option<PathBuf>,
-
-    /// The root path of the media library (positional)
+    /// The root path of the media library
     #[arg()]
-    library0: Option<PathBuf>,
+    library: Option<PathBuf>,
 
     /// The subcommand to run
     #[command(subcommand)]
@@ -34,6 +30,13 @@ enum Commands {
 
     /// Analyze the audio files in the library
     Analyze,
+
+    /// Play audio files in the library
+    Play {
+        /// Currently, we only support play audio files randomly
+        #[arg()]
+        mode: Option<String>,
+    },
 
     /// Recommend music
     Recommend {
@@ -73,7 +76,7 @@ async fn main() {
         .init();
 
     // Determine the path from either the option or the positional argument
-    let path = cli.library.or(cli.library0).expect("Path is required");
+    let path = cli.library.expect("Path is required");
 
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
@@ -114,6 +117,13 @@ async fn main() {
         }
         Commands::Analyze => {
             analyze_audio_library(&main_db, &analysis_db, &path).await;
+        }
+        Commands::Play { mode } => {
+            if mode.as_deref() == Some("random") {
+                play_random(&main_db, &canonicalized_path).await;
+            } else {
+                println!("Mode not implemented!");
+            }
         }
         Commands::Recommend {
             item_id,

@@ -23,7 +23,6 @@ pub async fn get_random_files(
     let mut query: sea_orm::sea_query::SelectStatement =
         media_files::Entity::find().as_query().to_owned();
     let select = query
-        .from(media_files::Entity)
         .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
         .limit(n as u64);
     let statement = db.get_database_backend().build(select);

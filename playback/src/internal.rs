@@ -23,7 +23,7 @@ pub enum PlayerEvent {
     Stopped,
     Playing,
     Paused,
-    EndOfTrack,
+    EndOfPlaylist,
     Error {
         index: usize,
         path: PathBuf,
@@ -151,7 +151,7 @@ impl PlayerInternal {
                 self.current_track_index = Some(index + 1);
                 self.load(Some(index + 1));
             } else {
-                self.event_sender.send(PlayerEvent::EndOfTrack).unwrap();
+                self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
             }
         }
     }
