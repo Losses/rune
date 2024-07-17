@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tokio::sync::mpsc;
@@ -46,10 +47,8 @@ impl Player {
 }
 
 impl Player {
-    pub fn load(&self, track_id: &str) {
-        self.command(PlayerCommand::Load {
-            track_id: track_id.to_string(),
-        });
+    pub fn load(&self, index: usize) {
+        self.command(PlayerCommand::Load { index });
     }
 
     pub fn play(&self) {
@@ -76,15 +75,11 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, track_id: &str) {
-        self.command(PlayerCommand::AddToPlaylist {
-            track_id: track_id.to_string(),
-        });
+    pub fn add_to_playlist(&self, path: PathBuf) {
+        self.command(PlayerCommand::AddToPlaylist { path });
     }
 
-    pub fn remove_from_playlist(&self, track_id: &str) {
-        self.command(PlayerCommand::RemoveFromPlaylist {
-            track_id: track_id.to_string(),
-        });
+    pub fn remove_from_playlist(&self, index: usize) {
+        self.command(PlayerCommand::RemoveFromPlaylist { index });
     }
 }

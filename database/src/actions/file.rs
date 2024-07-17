@@ -1,5 +1,6 @@
+use migration::{Func, SimpleExpr};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
 use std::path::Path;
 
 use crate::entities::media_files;
@@ -12,6 +13,25 @@ pub async fn get_files_by_ids(
         .filter(media_files::Column::Id.is_in(ids.to_vec()))
         .all(db)
         .await?;
+    Ok(files)
+}
+
+pub async fn get_random_files(
+    db: &DatabaseConnection,
+    n: usize,
+) -> Result<Vec<media_files::Model>, Box<dyn std::error::Error>> {
+    let mut query: sea_orm::sea_query::SelectStatement =
+        media_files::Entity::find().as_query().to_owned();
+    let select = query
+        .from(media_files::Entity)
+        .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+        .limit(n as u64);
+    let statement = db.get_database_backend().build(select);
+
+    let files = media_files::Model::find_by_statement(statement)
+        .all(db)
+        .await?;
+
     Ok(files)
 }
 

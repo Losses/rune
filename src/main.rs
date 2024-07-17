@@ -1,5 +1,5 @@
 use clap::{ArgGroup, Parser, Subcommand};
-use std::fs::canonicalize;
+use dunce::canonicalize;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
