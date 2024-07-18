@@ -83,7 +83,10 @@ impl<'a> MetadataScanner<'a> {
             let rel_path = abs_path.strip_prefix(self.audio_scanner.root_path()).unwrap().to_path_buf();
             match get_metadata(abs_path.to_str().unwrap(), None) {
                 Ok(metadata) => metadata_list.push(FileMetadata { path: rel_path, metadata }),
-                Err(err) => error!("Error reading metadata for {}: {}", abs_path.display(), err),
+                Err(err) => {
+                    error!("Error reading metadata for {}: {}", abs_path.display(), err);
+                    // Continue to the next file instead of returning an empty list
+                }
             }
         }
         metadata_list

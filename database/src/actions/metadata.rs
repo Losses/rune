@@ -190,10 +190,6 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &PathBuf, cl
     while !scanner.has_ended() {
         info!("Reading metadata for the next 5 files.");
         let files = scanner.read_metadata(5);
-        if files.is_empty() {
-            info!("No more files to process.");
-            break;
-        }
 
         for file in files {
             info!("Processing file: {:?}", file.path);
