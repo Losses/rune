@@ -1,3 +1,4 @@
+use log::{error};
 use clap::{Parser, Subcommand};
 use dunce::canonicalize;
 use std::path::PathBuf;
@@ -67,7 +68,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,debug",
+        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,info",
     );
 
     tracing_subscriber::fmt()
@@ -81,7 +82,7 @@ async fn main() {
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("Failed to canonicalize path: {}", e);
+            error!("Failed to canonicalize path: {}", e);
             return;
         }
     };
@@ -89,7 +90,7 @@ async fn main() {
     let lib_path = match canonicalized_path.to_str() {
         Some(path) => path,
         None => {
-            eprintln!("Invalid path, could not convert to string");
+            error!("Invalid path, could not convert to string");
             return;
         }
     };
@@ -97,7 +98,7 @@ async fn main() {
     let main_db = match connect_main_db(lib_path).await {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Failed to connect to main database: {}", e);
+            error!("Failed to connect to main database: {}", e);
             return;
         }
     };
@@ -105,7 +106,7 @@ async fn main() {
     let analysis_db = match connect_recommendation_db(lib_path) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("Failed to connect to analysis database: {}", e);
+            error!("Failed to connect to analysis database: {}", e);
             return;
         }
     };

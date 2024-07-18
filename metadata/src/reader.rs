@@ -239,8 +239,7 @@ pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Resu
 
     // Probe the media source.
     let mut probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)
-        .expect("unsupported format");
+        .format(&hint, mss, &fmt_opts, &meta_opts)?;
 
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
