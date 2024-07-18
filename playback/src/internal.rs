@@ -41,6 +41,7 @@ pub(crate) struct PlayerInternal {
     playlist: Vec<PathBuf>,
     current_track_index: Option<usize>,
     sink: Option<Sink>,
+    _stream: Option<OutputStream>,
 }
 
 impl PlayerInternal {
@@ -55,6 +56,7 @@ impl PlayerInternal {
             playlist: Vec::new(),
             current_track_index: None,
             sink: None,
+            _stream: None,
         }
     }
 
@@ -94,10 +96,11 @@ impl PlayerInternal {
                     let source = Decoder::new(BufReader::new(file));
                     match source {
                         Ok(source) => {
-                            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+                            let (stream, stream_handle) = OutputStream::try_default().unwrap();
                             let sink = Sink::try_new(&stream_handle).unwrap();
                             sink.append(source);
                             self.sink = Some(sink);
+                            self._stream = Some(stream);
                             self.current_track_index = Some(index);
                             info!("Track loaded: {:?}", path);
                             self.event_sender.send(PlayerEvent::Playing).unwrap();
