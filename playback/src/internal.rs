@@ -1,5 +1,5 @@
 use log::{debug, error, info};
-use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
+use rodio::{Decoder, OutputStream, Sink};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -41,7 +41,6 @@ pub(crate) struct PlayerInternal {
     playlist: Vec<PathBuf>,
     current_track_index: Option<usize>,
     sink: Option<Sink>,
-    stream_handle: Option<OutputStreamHandle>,
 }
 
 impl PlayerInternal {
@@ -49,7 +48,6 @@ impl PlayerInternal {
         commands: mpsc::UnboundedReceiver<PlayerCommand>,
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
     ) -> Self {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
 
         Self {
             commands,
@@ -57,7 +55,6 @@ impl PlayerInternal {
             playlist: Vec::new(),
             current_track_index: None,
             sink: None,
-            stream_handle: Some(stream_handle),
         }
     }
 
@@ -97,11 +94,12 @@ impl PlayerInternal {
                     let source = Decoder::new(BufReader::new(file));
                     match source {
                         Ok(source) => {
-                            let sink = Sink::try_new(self.stream_handle.as_ref().unwrap()).unwrap();
+                            let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+                            let sink = Sink::try_new(&stream_handle).unwrap();
                             sink.append(source);
                             self.sink = Some(sink);
                             self.current_track_index = Some(index);
-                            info!("Playing track: {:?}", path);
+                            info!("Track loaded: {:?}", path);
                             self.event_sender.send(PlayerEvent::Playing).unwrap();
                         }
                         Err(e) => {
