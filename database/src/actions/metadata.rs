@@ -165,14 +165,9 @@ async fn clean_up_database(db: &DatabaseConnection, root_path: &PathBuf) -> Resu
     for db_file in db_files {
         let full_path = root_path.join(PathBuf::from(&db_file.file_name));
         if !full_path.exists() {
+            info!("Cleaning {}", full_path.to_str().unwrap());
             // Delete the file record
             media_files::Entity::delete_by_id(db_file.id)
-                .exec(db)
-                .await?;
-
-            // Delete associated metadata
-            media_metadata::Entity::delete_many()
-                .filter(media_metadata::Column::FileId.eq(db_file.id))
                 .exec(db)
                 .await?;
         }

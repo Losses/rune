@@ -50,7 +50,9 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk-media_analysis-file_id")
                             .from(MediaAnalysis::Table, MediaAnalysis::FileId)
-                            .to(MediaFiles::Table, MediaFiles::Id),
+                            .to(MediaFiles::Table, MediaFiles::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )

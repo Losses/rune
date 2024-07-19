@@ -32,13 +32,17 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk-playlist_items-playlist_id")
                             .from(PlaylistItems::Table, PlaylistItems::PlaylistId)
-                            .to(Playlists::Table, Playlists::Id),
+                            .to(Playlists::Table, Playlists::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
                     )
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-playlist_items-file_id")
                             .from(PlaylistItems::Table, PlaylistItems::FileId)
-                            .to(MediaFiles::Table, MediaFiles::Id),
+                            .to(MediaFiles::Table, MediaFiles::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )

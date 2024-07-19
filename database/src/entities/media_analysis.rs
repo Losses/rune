@@ -58,8 +58,8 @@ pub enum Relation {
         belongs_to = "super::media_files::Entity",
         from = "Column::FileId",
         to = "super::media_files::Column::Id",
-        on_update = "NoAction",
-        on_delete = "NoAction"
+        on_update = "Cascade",
+        on_delete = "Cascade"
     )]
     MediaFiles,
 }
