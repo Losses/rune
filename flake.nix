@@ -86,6 +86,7 @@
             libpulseaudio
             pulseaudioFull
           ] ++ [
+            gtk3
             pinnedJDK
             androidCustomPackage
           ];
