@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:rinf/rinf.dart';
+import './messages/generated.dart';
 
-void main() {
+void main() async {
+  await initializeRust(assignRustSignal);
   runApp(const MyApp());
 }
 
