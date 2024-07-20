@@ -75,7 +75,7 @@
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
           buildInputs = with pkgs; [
-            flutter323
+            flutter
             android-studio
             rust-bin.beta.latest.default
             openssl
@@ -85,11 +85,18 @@
             alsa-lib
             libpulseaudio
             pulseaudioFull
+            rustup
           ] ++ [
             gtk3
             pinnedJDK
             androidCustomPackage
             protobuf_26
+            pcre2
+            mount
+            ninja
+            clang
+            cmake
+            libstdcxx5
           ];
 
           shellHook = ''

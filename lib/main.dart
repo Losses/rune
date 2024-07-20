@@ -1,128 +1,417 @@
-import 'package:flutter/material.dart';
-import 'package:rinf/rinf.dart';
-import './messages/generated.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:flutter/foundation.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:system_theme/system_theme.dart';
+import 'package:url_launcher/link.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'routes/home.dart' deferred as home;
+import 'routes/tracks.dart' deferred as tracks;
+import 'routes/settings.dart' deferred as settings;
+
+import 'widgets/theme_gradient.dart';
+import 'widgets/deferred_widget.dart';
+
+import 'theme.dart';
+
+const String appTitle = 'Rune Player';
+
+/// Checks if the current environment is a desktop environment.
+bool get isDesktop {
+  if (kIsWeb) return false;
+  return [
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+    TargetPlatform.macOS,
+  ].contains(defaultTargetPlatform);
+}
 
 void main() async {
-  await initializeRust(assignRustSignal);
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // if it's not on the web, windows or android, load the accent color
+  if (!kIsWeb &&
+      [
+        TargetPlatform.windows,
+        TargetPlatform.android,
+      ].contains(defaultTargetPlatform)) {
+    SystemTheme.accentColor.load();
+  }
+
+  if (isDesktop) {
+    await flutter_acrylic.Window.initialize();
+    await WindowManager.instance.ensureInitialized();
+    windowManager.waitUntilReadyToShow().then((_) async {
+      await windowManager.setMinimumSize(const Size(500, 600));
+      await windowManager.show();
+      await windowManager.setPreventClose(true);
+    });
+  }
+
   runApp(const MyApp());
+
+  Future.wait([
+    DeferredWidget.preload(home.loadLibrary),
+    DeferredWidget.preload(tracks.loadLibrary),
+    DeferredWidget.preload(settings.loadLibrary),
+  ]);
 }
+
+final _appTheme = AppTheme();
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-        useMaterial3: true,
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+    return ChangeNotifierProvider.value(
+      value: _appTheme,
+      builder: (context, child) {
+        final appTheme = context.watch<AppTheme>();
+        return FluentApp.router(
+          title: appTitle,
+          themeMode: appTheme.mode,
+          debugShowCheckedModeBanner: false,
+          color: appTheme.color,
+          darkTheme: FluentThemeData(
+            brightness: Brightness.dark,
+            accentColor: appTheme.color,
+            visualDensity: VisualDensity.standard,
+            focusTheme: FocusThemeData(
+              glowFactor: is10footScreen(context) ? 2.0 : 0.0,
+            ),
+          ),
+          theme: FluentThemeData(
+            accentColor: appTheme.color,
+            visualDensity: VisualDensity.standard,
+            focusTheme: FocusThemeData(
+              glowFactor: is10footScreen(context) ? 2.0 : 0.0,
+            ),
+          ),
+          locale: appTheme.locale,
+          builder: (context, child) {
+            return Directionality(
+              textDirection: appTheme.textDirection,
+              child: NavigationPaneTheme(
+                data: NavigationPaneThemeData(
+                  backgroundColor: appTheme.windowEffect !=
+                          flutter_acrylic.WindowEffect.disabled
+                      ? Colors.transparent
+                      : null,
+                ),
+                child: child!,
+              ),
+            );
+          },
+          routeInformationParser: router.routeInformationParser,
+          routerDelegate: router.routerDelegate,
+          routeInformationProvider: router.routeInformationProvider,
+        );
+      },
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({
+    super.key,
+    required this.child,
+    required this.shellContext,
+  });
 
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  final Widget child;
+  final BuildContext? shellContext;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _MyHomePageState extends State<MyHomePage> with WindowListener {
+  bool value = false;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+  // int index = 0;
+
+  final viewKey = GlobalKey(debugLabel: 'Navigation View Key');
+
+  late final List<NavigationPaneItem> originalItems = [
+    PaneItem(
+      key: const ValueKey('/'),
+      icon: const Icon(FluentIcons.home),
+      title: const Text('Home'),
+      body: const SizedBox.shrink(),
+    ),
+    PaneItem(
+      key: const ValueKey('/tracks'),
+      icon: const Icon(FluentIcons.focus),
+      title: const Text('Tracks'),
+      body: const SizedBox.shrink(),
+    ),
+  ].map<NavigationPaneItem>((e) {
+    PaneItem buildPaneItem(PaneItem item) {
+      return PaneItem(
+        key: item.key,
+        icon: item.icon,
+        title: item.title,
+        body: item.body,
+        onTap: () {
+          final path = (item.key as ValueKey).value;
+          if (GoRouterState.of(context).uri.toString() != path) {
+            context.go(path);
+          }
+          item.onTap?.call();
+        },
+      );
+    }
+
+    if (e is PaneItemExpander) {
+      return PaneItemExpander(
+        key: e.key,
+        icon: e.icon,
+        title: e.title,
+        body: e.body,
+        items: e.items.map((item) {
+          if (item is PaneItem) return buildPaneItem(item);
+          return item;
+        }).toList(),
+      );
+    }
+    return buildPaneItem(e);
+  }).toList();
+  late final List<NavigationPaneItem> footerItems = [
+    PaneItem(
+      key: const ValueKey('/settings'),
+      icon: const Icon(FluentIcons.settings),
+      title: const Text('Settings'),
+      body: const SizedBox.shrink(),
+      onTap: () {
+        if (GoRouterState.of(context).uri.toString() != '/settings') {
+          context.go('/settings');
+        }
+      },
+    ),
+  ];
+
+  @override
+  void initState() {
+    windowManager.addListener(this);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  int _calculateSelectedIndex(BuildContext context) {
+    final location = GoRouterState.of(context).uri.toString();
+    int indexOriginal = originalItems
+        .where((item) => item.key != null)
+        .toList()
+        .indexWhere((item) => item.key == Key(location));
+
+    if (indexOriginal == -1) {
+      int indexFooter = footerItems
+          .where((element) => element.key != null)
+          .toList()
+          .indexWhere((element) => element.key == Key(location));
+      if (indexFooter == -1) {
+        return 0;
+      }
+      return originalItems
+              .where((element) => element.key != null)
+              .toList()
+              .length +
+          indexFooter;
+    } else {
+      return indexOriginal;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+    FluentLocalizations.of(context);
+
+    final appTheme = context.watch<AppTheme>();
+    final theme = FluentTheme.of(context);
+    if (widget.shellContext != null) {
+      if (router.canPop() == false) {
+        setState(() {});
+      }
+    }
+    return NavigationView(
+      key: viewKey,
+      paneBodyBuilder: (item, child) {
+        final name =
+            item?.key is ValueKey ? (item!.key as ValueKey).value : null;
+        return FocusTraversalGroup(
+          key: ValueKey('body$name'),
+          child: widget.child,
+        );
+      },
+      pane: NavigationPane(
+        selected: _calculateSelectedIndex(context),
+        header: SizedBox(
+          height: kOneLineTileHeight,
+          child: ShaderMask(
+            shaderCallback: (rect) {
+              final color = appTheme.color.defaultBrushFor(
+                theme.brightness,
+              );
+              return LinearGradient(
+                colors: [
+                  color,
+                  color,
+                ],
+              ).createShader(rect);
+            },
+            child: const ThemeGradient(),
+          ),
         ),
+        displayMode: appTheme.displayMode,
+        indicator: () {
+          switch (appTheme.indicator) {
+            case NavigationIndicators.end:
+              return const EndNavigationIndicator();
+            case NavigationIndicators.sticky:
+            default:
+              return const StickyNavigationIndicator();
+          }
+        }(),
+        items: originalItems,
+        footerItems: footerItems,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+    );
+  }
+
+  @override
+  void onWindowClose() async {
+    bool isPreventClose = await windowManager.isPreventClose();
+    if (isPreventClose && mounted) {
+      showDialog(
+        context: context,
+        builder: (_) {
+          return ContentDialog(
+            title: const Text('Confirm close'),
+            content: const Text('Are you sure you want to close this window?'),
+            actions: [
+              FilledButton(
+                child: const Text('Yes'),
+                onPressed: () {
+                  Navigator.pop(context);
+                  windowManager.destroy();
+                },
+              ),
+              Button(
+                child: const Text('No'),
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+              ),
+            ],
+          );
+        },
+      );
+    }
+  }
+}
+
+class WindowButtons extends StatelessWidget {
+  const WindowButtons({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final FluentThemeData theme = FluentTheme.of(context);
+
+    return SizedBox(
+      width: 138,
+      height: 50,
+      child: WindowCaption(
+        brightness: theme.brightness,
+        backgroundColor: Colors.transparent,
+      ),
     );
   }
 }
+
+class LinkPaneItemAction extends PaneItem {
+  LinkPaneItemAction({
+    required super.icon,
+    required this.link,
+    required super.body,
+    super.title,
+  });
+
+  final String link;
+
+  @override
+  Widget build(
+    BuildContext context,
+    bool selected,
+    VoidCallback? onPressed, {
+    PaneDisplayMode? displayMode,
+    bool showTextOnTop = true,
+    bool? autofocus,
+    int? itemIndex,
+  }) {
+    return Link(
+      uri: Uri.parse(link),
+      builder: (context, followLink) => Semantics(
+        link: true,
+        child: super.build(
+          context,
+          selected,
+          followLink,
+          displayMode: displayMode,
+          showTextOnTop: showTextOnTop,
+          itemIndex: itemIndex,
+          autofocus: autofocus,
+        ),
+      ),
+    );
+  }
+}
+
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+final _shellNavigatorKey = GlobalKey<NavigatorState>();
+final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
+  ShellRoute(
+    navigatorKey: _shellNavigatorKey,
+    builder: (context, state, child) {
+      return MyHomePage(
+        shellContext: _shellNavigatorKey.currentContext,
+        child: child,
+      );
+    },
+    routes: <GoRoute>[
+      /// Home
+      GoRoute(
+        path: '/',
+        builder: (context, state) => DeferredWidget(
+          home.loadLibrary,
+          () => home.HomePage(),
+        ),
+      ),
+
+      /// Tracks
+      GoRoute(
+        path: '/tracks',
+        builder: (context, state) => DeferredWidget(
+          tracks.loadLibrary,
+          () => tracks.TracksPage(),
+        ),
+      ),
+
+      /// Settings
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => DeferredWidget(
+          tracks.loadLibrary,
+          () => settings.SettingsPage(),
+        ),
+      ),
+    ],
+  ),
+]);
