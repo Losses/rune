@@ -96,10 +96,11 @@
             alias ls=exa
             alias find=fd
             export RUST_BACKTRACE=1
-            JAVA_HOME=${pinnedJDK}
-            ANDROID_HOME=${androidCustomPackage}/share/android-sdk
-            GRADLE_USER_HOME=/home/specx/.gradle
-            GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
+            export JAVA_HOME=${pinnedJDK}
+            export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
+            export GRADLE_USER_HOME=/home/specx/.gradle
+            export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
+            export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
           '';
         };
       }
