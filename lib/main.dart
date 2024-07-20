@@ -15,6 +15,8 @@ import 'widgets/theme_gradient.dart';
 import 'widgets/deferred_widget.dart';
 
 import 'theme.dart';
+import 'package:rinf/rinf.dart';
+import './messages/generated.dart';
 
 const String appTitle = 'Rune Player';
 
@@ -29,6 +31,7 @@ bool get isDesktop {
 }
 
 void main() async {
+  await initializeRust(assignRustSignal);
   WidgetsFlutterBinding.ensureInitialized();
 
   // if it's not on the web, windows or android, load the accent color

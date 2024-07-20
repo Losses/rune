@@ -102,6 +102,7 @@
           shellHook = ''
             alias ls=exa
             alias find=fd
+            alias rinf='flutter pub run rinf'
             export RUST_BACKTRACE=1
             export JAVA_HOME=${pinnedJDK}
             export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
