@@ -1,0 +1,7 @@
+syntax = "proto3";
+package playback;
+
+// [RINF:DART-SIGNAL]
+message PlayFileRequest {
+  string file_id = 1;
+}

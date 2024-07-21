@@ -82,4 +82,8 @@ impl Player {
     pub fn remove_from_playlist(&self, index: usize) {
         self.command(PlayerCommand::RemoveFromPlaylist { index });
     }
+
+    pub fn clear_playlist(&self) {
+        self.command(PlayerCommand::ClearPlaylist);
+    }
 }

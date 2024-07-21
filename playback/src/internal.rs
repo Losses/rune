@@ -17,6 +17,7 @@ pub enum PlayerCommand {
     Seek(u32),
     AddToPlaylist { path: PathBuf },
     RemoveFromPlaylist { index: usize },
+    ClearPlaylist,
 }
 
 #[derive(Debug, Clone)]
@@ -77,6 +78,7 @@ impl PlayerInternal {
                         PlayerCommand::Seek(position_ms) => self.seek(position_ms),
                         PlayerCommand::AddToPlaylist { path } => self.add_to_playlist(path),
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index),
+                        PlayerCommand::ClearPlaylist => self.clear_playlist(),
                     }
                 },
                 _ = progress_interval.tick() => {
@@ -220,6 +222,15 @@ impl PlayerInternal {
                 index
             );
         }
+    }
+
+    fn clear_playlist(&mut self) {
+        self.playlist.clear();
+        self.current_track_index = None;
+        self.sink = None;
+        self._stream = None;
+        info!("Playlist cleared");
+        self.event_sender.send(PlayerEvent::Stopped).unwrap();
     }
 
     fn send_progress(&self) {
