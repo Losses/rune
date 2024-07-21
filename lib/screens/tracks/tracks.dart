@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/screens/tracks/widgets/track_list.dart';
 
 class TracksPage extends StatefulWidget {
   const TracksPage({super.key});
@@ -10,16 +11,11 @@ class TracksPage extends StatefulWidget {
 class _TracksPageState extends State<TracksPage> {
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: const PageHeader(
-        title: Text('Hello World with Fluent UI'),
+    return const ScaffoldPage(
+      header: PageHeader(
+        title: Text('Tracks'),
       ),
-      content: Center(
-        child: Text(
-          'Hello, World!',
-          style: FluentTheme.of(context).typography.title,
-        ),
-      ),
+      content: TrackListView(),
     );
   }
 }

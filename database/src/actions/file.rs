@@ -1,6 +1,8 @@
 use migration::{Func, SimpleExpr};
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QueryTrait,
+};
 use std::path::Path;
 
 use crate::entities::media_files;
@@ -97,4 +99,16 @@ pub async fn get_file_id_from_path(
     };
 
     Ok(file_info.id as usize)
+}
+
+pub async fn get_media_files(
+    db: &DatabaseConnection,
+    page_key: usize,
+    page_size: usize,
+) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
+    let pages = media_files::Entity::find()
+        .order_by_asc(media_files::Column::Id)
+        .paginate(db, page_size.try_into().unwrap());
+
+    pages.fetch_page(page_key.try_into().unwrap()).await
 }

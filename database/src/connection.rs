@@ -141,7 +141,7 @@ pub fn connect_recommendation_db(
     let path_str = path
         .into_os_string()
         .into_string()
-        .map_err(|path| ConnectRecommendationDbError::InvalidPath(path))?;
+        .map_err(ConnectRecommendationDbError::InvalidPath)?;
 
     let env = unsafe {
         EnvOpenOptions::new()

@@ -1,0 +1,7 @@
+syntax = "proto3";
+package connection;
+
+// [RINF:DART-SIGNAL]
+message MediaLibraryPath {
+  string path = 1;
+}

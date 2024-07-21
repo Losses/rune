@@ -1,7 +1,7 @@
 use rustfft::num_complex::Complex;
 use std::f32;
 
-pub fn amp_spectrum(complex_spectrum: &Vec<Complex<f32>>, buffer_size: usize) -> Vec<f32> {
+pub fn amp_spectrum(complex_spectrum: &[Complex<f32>], buffer_size: usize) -> Vec<f32> {
     let mut amp_spectrum = vec![0.0; buffer_size / 2];
     for i in 0..buffer_size / 2 {
         amp_spectrum[i] =
@@ -101,7 +101,7 @@ pub fn chroma(amp_spectrum: &[f32], chroma_filter_bank: &[Vec<f32>]) -> Vec<f32>
         .map(|row| row.iter().zip(amp_spectrum).map(|(&r, &a)| r * a).sum())
         .collect();
 
-    let max_val = chromagram.iter().cloned().fold(0. / 0., f32::max);
+    let max_val = chromagram.iter().cloned().fold(0., f32::max);
     if max_val != 0.0 {
         chromagram.iter_mut().for_each(|v| *v /= max_val);
     }
