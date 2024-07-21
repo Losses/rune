@@ -2,12 +2,14 @@ mod common;
 mod connection;
 mod media_file;
 mod messages;
+mod playback;
 use database::connection::connect_main_db;
 
 pub use tokio;
 
 use crate::connection::*;
 use crate::media_file::*;
+use crate::playback::*;
 
 rinf::write_interface!();
 
@@ -23,6 +25,7 @@ async fn main() {
             tokio::spawn(async move {
                 let db = connect_main_db(&path).await.unwrap();
                 let _ = fetch_media_files(&db).await;
+                let _ = handle_playback().await;
             });
             break;
         }

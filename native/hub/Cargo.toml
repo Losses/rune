@@ -17,7 +17,9 @@ prost = "0.12.6"
 tokio = { version = "1", features = ["sync", "rt", "time"] }
 sea-orm = "0.12.15"
 database = { path = "../../database" }
+playback = { path = "../../playback" }
 lazy_static = "1.5.0"
+dunce = "1.0.4"
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
