@@ -12,6 +12,8 @@ pub async fn receive_media_library_path() -> Result<()> {
     let mut receiver = MediaLibraryPath::get_dart_signal_receiver()?; // GENERATED
     while let Some(dart_signal) = receiver.recv().await {
         let media_library_path = dart_signal.message.path;
+
+        println!("Received path: {}", media_library_path);
         let mut path_guard = MEDIA_LIBRARY_PATH.lock().await;
         *path_guard = Some(media_library_path);
     }

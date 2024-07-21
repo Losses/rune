@@ -18,6 +18,7 @@ async fn main() {
     // Ensure that the path is set before calling fetch_media_files
     loop {
         if let Some(path) = get_media_library_path().await {
+            println!("Media Library Received, initialize other receivers");
             // Move the path into the async block
             tokio::spawn(async move {
                 let db = connect_main_db(&path).await.unwrap();
