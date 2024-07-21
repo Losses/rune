@@ -3,7 +3,7 @@ use metadata::describe::{describe_file, FileDescription};
 use metadata::scanner::{FileMetadata, MetadataScanner};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::entities::media_files;
 use crate::entities::media_metadata;
@@ -111,7 +111,8 @@ pub async fn update_file_metadata(
 
     // Then, insert new metadata
     let new_metadata: Vec<media_metadata::ActiveModel> = metadata
-        .metadata.clone()
+        .metadata
+        .clone()
         .into_iter()
         .map(|(key, value)| media_metadata::ActiveModel {
             file_id: ActiveValue::Set(existing_file.id),
@@ -139,13 +140,12 @@ pub async fn insert_new_file(
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
     };
-    let inserted_file = media_files::Entity::insert(new_file)
-        .exec(db)
-        .await?;
+    let inserted_file = media_files::Entity::insert(new_file).exec(db).await?;
 
     // Insert metadata
     let new_metadata: Vec<media_metadata::ActiveModel> = metadata
-        .metadata.clone()
+        .metadata
+        .clone()
         .into_iter()
         .map(|(key, value)| media_metadata::ActiveModel {
             file_id: ActiveValue::Set(inserted_file.last_insert_id),
@@ -160,7 +160,10 @@ pub async fn insert_new_file(
     Ok(())
 }
 
-async fn clean_up_database(db: &DatabaseConnection, root_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+async fn clean_up_database(
+    db: &DatabaseConnection,
+    root_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     let db_files = media_files::Entity::find().all(db).await?;
     for db_file in db_files {
         let full_path = root_path.join(PathBuf::from(&db_file.file_name));
@@ -175,7 +178,7 @@ async fn clean_up_database(db: &DatabaseConnection, root_path: &PathBuf) -> Resu
     Ok(())
 }
 
-pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &PathBuf, cleanup: bool) {
+pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, cleanup: bool) {
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = MetadataScanner::new(&root_path_str);
 
@@ -189,12 +192,10 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &PathBuf, cl
         for file in files {
             info!("Processing file: {:?}", file.path);
             match describe_file(&file.path, root_path) {
-                Ok(mut description) => {
-                    match process_file(db, &file, &mut description).await {
-                        Ok(_) => info!("File processed successfully: {:?}", file.path),
-                        Err(e) => error!("Error processing file {:?}: {:?}", file.path, e),
-                    }
-                }
+                Ok(mut description) => match process_file(db, &file, &mut description).await {
+                    Ok(_) => info!("File processed successfully: {:?}", file.path),
+                    Err(e) => error!("Error processing file {:?}: {:?}", file.path, e),
+                },
                 Err(e) => {
                     error!("Error describing file {:?}: {:?}", file.path, e);
                 }
@@ -204,7 +205,7 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &PathBuf, cl
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(&db, &root_path).await {
+        match clean_up_database(db, root_path).await {
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("Error during cleanup: {:?}", e),
         }

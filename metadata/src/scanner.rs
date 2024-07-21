@@ -1,15 +1,15 @@
 use log::error;
 use std::path::{Path, PathBuf};
-use walkdir::{WalkDir, DirEntry};
+use walkdir::{DirEntry, WalkDir};
 
 use crate::reader::get_metadata;
 
 fn is_audio_file(entry: &DirEntry) -> bool {
     if let Some(ext) = entry.path().extension() {
-        match ext.to_str().unwrap_or("").to_lowercase().as_str() {
-            "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" => true,
-            _ => false,
-        }
+        matches!(
+            ext.to_str().unwrap_or("").to_lowercase().as_str(),
+            "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a"
+        )
     } else {
         false
     }
@@ -80,9 +80,15 @@ impl<'a> MetadataScanner<'a> {
         let files = self.audio_scanner.read_files(count);
         for file in files {
             let abs_path = file.path().to_path_buf();
-            let rel_path = abs_path.strip_prefix(self.audio_scanner.root_path()).unwrap().to_path_buf();
+            let rel_path = abs_path
+                .strip_prefix(self.audio_scanner.root_path())
+                .unwrap()
+                .to_path_buf();
             match get_metadata(abs_path.to_str().unwrap(), None) {
-                Ok(metadata) => metadata_list.push(FileMetadata { path: rel_path, metadata }),
+                Ok(metadata) => metadata_list.push(FileMetadata {
+                    path: rel_path,
+                    metadata,
+                }),
                 Err(err) => {
                     error!("Error reading metadata for {}: {}", abs_path.display(), err);
                     // Continue to the next file instead of returning an empty list

@@ -54,9 +54,9 @@ const CHUNK_SIZE: usize = 1024 * 400;
 
 pub fn describe_file(
     rel_path: &PathBuf,
-    root_path: &PathBuf,
+    root_path: &Path,
 ) -> Result<FileDescription, Box<dyn std::error::Error>> {
-    let full_path = root_path.join(&rel_path);
+    let full_path = root_path.join(rel_path);
 
     // Get file name
     let file_name = full_path
@@ -87,7 +87,7 @@ pub fn describe_file(
     let last_modified = format!("{}", last_modified);
 
     Ok(FileDescription {
-        root_path: root_path.clone(),
+        root_path: root_path.to_path_buf(),
         rel_path: rel_path.clone(),
         file_name,
         directory,

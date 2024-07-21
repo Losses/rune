@@ -3,7 +3,7 @@ use log::{error, info};
 use sea_orm::entity::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::task;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
@@ -29,7 +29,10 @@ pub async fn analysis_audio_library(
 ) -> Result<(), sea_orm::DbErr> {
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
 
-    info!("Starting audio library analysis with batch size: {}", batch_size);
+    info!(
+        "Starting audio library analysis with batch size: {}",
+        batch_size
+    );
 
     loop {
         // Fetch the next batch of files
@@ -94,7 +97,7 @@ pub async fn analysis_audio_library(
 async fn process_file_if_needed(
     db: &DatabaseConnection,
     file: &media_files::Model,
-    root_path: &PathBuf,
+    root_path: &Path,
 ) {
     // Check if the file has already been analyzed
     let existing_analysis = media_analysis::Entity::find()
