@@ -1,12 +1,14 @@
-use sea_orm::DatabaseConnection;
 use std::path::Path;
+use std::sync::Arc;
+
+use sea_orm::DatabaseConnection;
 
 use database::actions::file::get_media_files;
 
 use crate::common::*;
 use crate::messages;
 
-pub async fn fetch_media_files(db: &DatabaseConnection) -> Result<()> {
+pub async fn fetch_media_files(db: Arc<DatabaseConnection>) -> Result<()> {
     use messages::media_file::*;
 
     let mut receiver = FetchMediaFiles::get_dart_signal_receiver()?; // GENERATED
@@ -17,7 +19,7 @@ pub async fn fetch_media_files(db: &DatabaseConnection) -> Result<()> {
         let page_size = fetch_media_files.page_size;
 
         let media_entries = get_media_files(
-            db,
+            &db,
             page_key.try_into().unwrap(),
             page_size.try_into().unwrap(),
         )

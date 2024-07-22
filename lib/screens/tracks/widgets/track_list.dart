@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../../messages/media_file.pb.dart';
+import '../../../messages/playback.pb.dart';
 
 class TrackListView extends StatefulWidget {
   const TrackListView({super.key});
@@ -54,9 +55,10 @@ class TrackListViewState extends State<TrackListView> {
         pagingController: _pagingController,
         builderDelegate: PagedChildBuilderDelegate<MediaFile>(
           itemBuilder: (context, item, index) => ListTile.selectable(
-            title: Text(item.path),
-            onSelectionChange: (v) => print(item),
-          ),
+              title: Text(item.path),
+              onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
+                  .sendSignalToRust() // GENERATED,
+              ),
         ),
       );
 

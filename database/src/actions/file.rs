@@ -18,6 +18,17 @@ pub async fn get_files_by_ids(
     Ok(files)
 }
 
+pub async fn get_file_by_id(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<Option<media_files::Model>, Box<dyn std::error::Error>> {
+    let file = media_files::Entity::find()
+        .filter(media_files::Column::Id.eq(id))
+        .one(db)
+        .await?;
+    Ok(file)
+}
+
 pub async fn get_random_files(
     db: &DatabaseConnection,
     n: usize,
@@ -90,7 +101,7 @@ pub async fn get_file_id_from_path(
 
     let file_info = match get_file_by_path(db, relative_path).await {
         Ok(Some(file_info)) => file_info,
-        Ok(None) => {
+        Ok(_none) => {
             return Err(format!("File is not in the database: {:?}", relative_path));
         }
         Err(e) => {

@@ -1,6 +1,7 @@
-use tokio::sync::Mutex;
 use crate::common::*;
 use crate::messages;
+use log::info;
+use tokio::sync::Mutex;
 
 lazy_static::lazy_static! {
     static ref MEDIA_LIBRARY_PATH: Mutex<Option<String>> = Mutex::new(None);
@@ -13,7 +14,7 @@ pub async fn receive_media_library_path() -> Result<()> {
     while let Some(dart_signal) = receiver.recv().await {
         let media_library_path = dart_signal.message.path;
 
-        println!("Received path: {}", media_library_path);
+        info!("Received path: {}", media_library_path);
         let mut path_guard = MEDIA_LIBRARY_PATH.lock().await;
         *path_guard = Some(media_library_path);
     }

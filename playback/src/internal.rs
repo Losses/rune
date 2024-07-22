@@ -50,7 +50,6 @@ impl PlayerInternal {
         commands: mpsc::UnboundedReceiver<PlayerCommand>,
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
     ) -> Self {
-
         Self {
             commands,
             event_sender,
@@ -152,8 +151,6 @@ impl PlayerInternal {
             sink.pause();
             info!("Playback paused");
             self.event_sender.send(PlayerEvent::Paused).unwrap();
-        } else {
-            error!("Pause command received but no track is loaded");
         }
     }
 
@@ -240,8 +237,6 @@ impl PlayerInternal {
             self.event_sender
                 .send(PlayerEvent::Progress { position })
                 .unwrap();
-        } else {
-            error!("Progress update attempted but no track is loaded");
         }
     }
 }

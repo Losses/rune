@@ -3,5 +3,5 @@ package playback;
 
 // [RINF:DART-SIGNAL]
 message PlayFileRequest {
-  string file_id = 1;
+  int32 file_id = 1;
 }
