@@ -5,3 +5,14 @@ package playback;
 message PlayFileRequest {
   int32 file_id = 1;
 }
+
+// [RINF:RUST-SIGNAL]
+message PlaybackStatus {
+  string state = 1;
+  float progress_seconds = 2;
+  float progress_percentage = 3;
+  string artist = 4;
+  string album = 5;
+  string title = 6;
+  double duration = 7;
+}

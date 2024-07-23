@@ -170,3 +170,21 @@ async fn insert_analysis_result(
         .await
         .unwrap();
 }
+
+pub async fn get_duration_by_file_id(
+    db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<f64, sea_orm::DbErr> {
+    let analysis_entry: Option<media_analysis::Model> = media_analysis::Entity::find()
+        .filter(media_analysis::Column::FileId.eq(file_id))
+        .one(db)
+        .await?;
+
+    if let Some(entry) = analysis_entry {
+        Ok(entry.duration)
+    } else {
+        Err(sea_orm::DbErr::RecordNotFound(
+            "Analysis record not found".to_string(),
+        ))
+    }
+}

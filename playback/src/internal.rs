@@ -15,16 +15,27 @@ pub enum PlayerCommand {
     Next,
     Previous,
     Seek(u32),
-    AddToPlaylist { path: PathBuf },
+    AddToPlaylist { id: i32, path: PathBuf },
     RemoveFromPlaylist { index: usize },
     ClearPlaylist,
 }
 
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
-    Stopped,
-    Playing,
-    Paused,
+    Stopped {
+        index: usize,
+        path: PathBuf,
+    },
+    Playing {
+        index: usize,
+        path: PathBuf,
+        position: Duration,
+    },
+    Paused {
+        index: usize,
+        path: PathBuf,
+        position: Duration,
+    },
     EndOfPlaylist,
     Error {
         index: usize,
@@ -32,15 +43,23 @@ pub enum PlayerEvent {
         error: String,
     },
     Progress {
+        index: usize,
+        path: PathBuf,
         position: Duration,
     },
+}
+
+pub struct PlaylistItem {
+    pub id: i32,
+    pub path: PathBuf,
 }
 
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
-    playlist: Vec<PathBuf>,
+    playlist: Vec<PlaylistItem>,
     current_track_index: Option<usize>,
+    current_track_path: Option<PathBuf>,
     sink: Option<Sink>,
     _stream: Option<OutputStream>,
 }
@@ -55,6 +74,7 @@ impl PlayerInternal {
             event_sender,
             playlist: Vec::new(),
             current_track_index: None,
+            current_track_path: None,
             sink: None,
             _stream: None,
         }
@@ -75,7 +95,7 @@ impl PlayerInternal {
                         PlayerCommand::Next => self.next(),
                         PlayerCommand::Previous => self.previous(),
                         PlayerCommand::Seek(position_ms) => self.seek(position_ms),
-                        PlayerCommand::AddToPlaylist { path } => self.add_to_playlist(path),
+                        PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path),
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index),
                         PlayerCommand::ClearPlaylist => self.clear_playlist(),
                     }
@@ -90,8 +110,8 @@ impl PlayerInternal {
     fn load(&mut self, index: Option<usize>) {
         if let Some(index) = index {
             debug!("Loading track at index: {}", index);
-            let path = &self.playlist[index];
-            let file = File::open(path);
+            let item = &self.playlist[index];
+            let file = File::open(item.path.clone());
             match file {
                 Ok(file) => {
                     let source = Decoder::new(BufReader::new(file));
@@ -103,15 +123,22 @@ impl PlayerInternal {
                             self.sink = Some(sink);
                             self._stream = Some(stream);
                             self.current_track_index = Some(index);
-                            info!("Track loaded: {:?}", path);
-                            self.event_sender.send(PlayerEvent::Playing).unwrap();
+                            self.current_track_path = Some(item.path.clone());
+                            info!("Track loaded: {:?}", item.path);
+                            self.event_sender
+                                .send(PlayerEvent::Playing {
+                                    index: self.current_track_index.unwrap(),
+                                    path: self.current_track_path.clone().unwrap(),
+                                    position: Duration::new(0, 0),
+                                })
+                                .unwrap();
                         }
                         Err(e) => {
                             error!("Failed to decode audio: {:?}", e);
                             self.event_sender
                                 .send(PlayerEvent::Error {
                                     index,
-                                    path: path.clone(),
+                                    path: item.path.clone(),
                                     error: "Failed to decode audio".to_string(),
                                 })
                                 .unwrap();
@@ -123,7 +150,7 @@ impl PlayerInternal {
                     self.event_sender
                         .send(PlayerEvent::Error {
                             index,
-                            path: path.clone(),
+                            path: item.path.clone(),
                             error: "Failed to open file".to_string(),
                         })
                         .unwrap();
@@ -138,7 +165,13 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.play();
             info!("Playback started");
-            self.event_sender.send(PlayerEvent::Playing).unwrap();
+            self.event_sender
+                .send(PlayerEvent::Playing {
+                    index: self.current_track_index.unwrap(),
+                    path: self.current_track_path.clone().unwrap(),
+                    position: sink.get_pos(),
+                })
+                .unwrap();
         } else {
             info!("Loading the first track");
             self.load(Some(0));
@@ -150,7 +183,13 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.pause();
             info!("Playback paused");
-            self.event_sender.send(PlayerEvent::Paused).unwrap();
+            self.event_sender
+                .send(PlayerEvent::Paused {
+                    index: self.current_track_index.unwrap(),
+                    path: self.current_track_path.clone().unwrap(),
+                    position: sink.get_pos(),
+                })
+                .unwrap();
         }
     }
 
@@ -158,7 +197,12 @@ impl PlayerInternal {
         if let Some(sink) = self.sink.take() {
             sink.stop();
             info!("Playback stopped");
-            self.event_sender.send(PlayerEvent::Stopped).unwrap();
+            self.event_sender
+                .send(PlayerEvent::Stopped {
+                    index: self.current_track_index.unwrap(),
+                    path: self.current_track_path.clone().unwrap(),
+                })
+                .unwrap();
         } else {
             error!("Stop command received but no track is loaded");
         }
@@ -198,15 +242,21 @@ impl PlayerInternal {
             sink.try_seek(std::time::Duration::from_millis(position_ms as u64))
                 .unwrap();
             info!("Seeking to position: {} ms", position_ms);
-            self.event_sender.send(PlayerEvent::Playing).unwrap();
+            self.event_sender
+                .send(PlayerEvent::Playing {
+                    index: self.current_track_index.unwrap(),
+                    path: self.current_track_path.clone().unwrap(),
+                    position: sink.get_pos(),
+                })
+                .unwrap();
         } else {
             error!("Seek command received but no track is loaded");
         }
     }
 
-    fn add_to_playlist(&mut self, path: PathBuf) {
+    fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
         debug!("Adding to playlist: {:?}", path);
-        self.playlist.push(path);
+        self.playlist.push(PlaylistItem { id, path });
     }
 
     fn remove_from_playlist(&mut self, index: usize) {
@@ -227,15 +277,22 @@ impl PlayerInternal {
         self.sink = None;
         self._stream = None;
         info!("Playlist cleared");
-        self.event_sender.send(PlayerEvent::Stopped).unwrap();
+        self.event_sender
+            .send(PlayerEvent::Stopped {
+                index: self.current_track_index.unwrap(),
+                path: self.current_track_path.clone().unwrap(),
+            })
+            .unwrap();
     }
 
     fn send_progress(&self) {
         if let Some(sink) = &self.sink {
-            let position = sink.get_pos();
-            debug!("Sending progress: {:?}", position);
             self.event_sender
-                .send(PlayerEvent::Progress { position })
+                .send(PlayerEvent::Progress {
+                    index: self.current_track_index.unwrap(),
+                    path: self.current_track_path.clone().unwrap(),
+                    position: sink.get_pos(),
+                })
                 .unwrap();
         }
     }

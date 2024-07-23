@@ -1,11 +1,14 @@
 use log::{error, info};
-use metadata::describe::{describe_file, FileDescription};
-use metadata::scanner::{FileMetadata, MetadataScanner};
-use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::entities::media_files;
+use sea_orm::entity::prelude::*;
+use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+
+use metadata::describe::{describe_file, FileDescription};
+use metadata::scanner::{FileMetadata, MetadataScanner};
+
+use crate::entities::{media_analysis, media_files};
 use crate::entities::media_metadata;
 
 pub async fn process_file(
@@ -212,4 +215,43 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
     }
 
     info!("Audio library scan completed.");
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct MetadataSummary {
+    pub artist: String,
+    pub album: String,
+    pub title: String,
+    pub duration: f64,
+}
+
+pub async fn get_metadata_summary_by_file_id(
+    db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<MetadataSummary, sea_orm::DbErr> {
+    let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
+        .filter(media_metadata::Column::FileId.eq(file_id))
+        .all(db)
+        .await?;
+
+    let analysis_entry: Option<media_analysis::Model> = media_analysis::Entity::find()
+        .filter(media_metadata::Column::FileId.eq(file_id))
+        .one(db)
+        .await?;
+
+    let mut metadata_map: HashMap<String, String> = HashMap::new();
+    for entry in metadata_entries {
+        metadata_map.insert(entry.meta_key, entry.meta_value);
+    }
+
+    let duration = analysis_entry.map_or(0.0, |entry| entry.duration);
+
+    let metadata = MetadataSummary {
+        artist: metadata_map.get("artist").cloned().unwrap_or_default(),
+        album: metadata_map.get("album").cloned().unwrap_or_default(),
+        title: metadata_map.get("title").cloned().unwrap_or_default(),
+        duration,
+    };
+
+    Ok(metadata)
 }

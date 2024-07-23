@@ -1,26 +1,76 @@
+// player.rs
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tokio::sync::mpsc;
+use std::time::Duration;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
+
+#[derive(Debug, Clone)]
+pub struct PlayerStatus {
+    pub index: Option<usize>,
+    pub path: Option<PathBuf>,
+    pub position: Duration,
+    pub state: PlaybackState,
+}
+
+#[derive(Debug, Clone)]
+pub enum PlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
+impl std::fmt::Display for PlaybackState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state_str = match self {
+            PlaybackState::Playing => "Playing",
+            PlaybackState::Paused => "Paused",
+            PlaybackState::Stopped => "Stopped",
+        };
+        write!(f, "{}", state_str)
+    }
+}
+
 
 // Define the Player struct, which includes a channel sender for sending commands
 pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
+    current_status: Arc<Mutex<PlayerStatus>>,
+    status_sender: broadcast::Sender<PlayerStatus>,
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Player {
     // Create a new Player instance and return the Player and the event receiver
-    pub fn new() -> (Self, mpsc::UnboundedReceiver<PlayerEvent>) {
+    pub fn new() -> Self {
         // Create an unbounded channel for sending commands
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         // Create an unbounded channel for receiving events
-        let (event_sender, event_receiver) = mpsc::unbounded_channel();
+        let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
+        // Create a broadcast channel for status updates
+        let (status_sender, _) = broadcast::channel(16);
+
+        // Create internal status for the whole player
+        let current_status = Arc::new(Mutex::new(PlayerStatus {
+            index: None,
+            path: None,
+            position: Duration::new(0, 0),
+            state: PlaybackState::Stopped,
+        }));
 
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let player = Player {
             commands: Arc::new(Mutex::new(cmd_tx)),
+            current_status: current_status.clone(),
+            status_sender: status_sender.clone(),
         };
 
         // Start a new thread to run the PlayerInternal logic
@@ -33,8 +83,62 @@ impl Player {
             runtime.block_on(internal.run());
         });
 
-        // Return the Player instance and the event receiver
-        (player, event_receiver)
+        // Start a new thread to handle events and update the status
+        let status_clone = current_status.clone();
+        let status_sender_clone = status_sender.clone();
+        thread::spawn(move || {
+            while let Some(event) = event_receiver.blocking_recv() {
+                let mut status = status_clone.lock().unwrap();
+                match event {
+                    PlayerEvent::Playing { index, path, position } => {
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.position = position;
+                        status.state = PlaybackState::Playing;
+                    }
+                    PlayerEvent::Paused { index, path, position } => {
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.position = position;
+                        status.state = PlaybackState::Paused;
+                    }
+                    PlayerEvent::Stopped { index, path } => {
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.position = Duration::new(0, 0);
+                        status.state = PlaybackState::Stopped;
+                    }
+                    PlayerEvent::Progress { index, path, position } => {
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.position = position;
+                    }
+                    PlayerEvent::EndOfPlaylist => {
+                        status.index = None;
+                        status.path = None;
+                        status.position = Duration::new(0, 0);
+                        status.state = PlaybackState::Stopped;
+                    }
+                    PlayerEvent::Error { index, path, error } => {
+                        // Handle error event, possibly log it
+                        eprintln!("Error at index {}: {:?} - {}", index, path, error);
+                    }
+                }
+                // Send the updated status to all subscribers
+                status_sender_clone.send(status.clone()).unwrap();
+            }
+        });
+
+        // Return the Player instance
+        player
+    }
+
+    pub fn get_status(&self) -> PlayerStatus {
+        self.current_status.lock().unwrap().clone()
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<PlayerStatus> {
+        self.status_sender.subscribe()
     }
 
     // Send a command to the internal player
@@ -75,8 +179,8 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, path: PathBuf) {
-        self.command(PlayerCommand::AddToPlaylist { path });
+    pub fn add_to_playlist(&self, id: i32, path: PathBuf) {
+        self.command(PlayerCommand::AddToPlaylist { id, path });
     }
 
     pub fn remove_from_playlist(&self, index: usize) {

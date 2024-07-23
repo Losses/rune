@@ -1,11 +1,12 @@
 use database::actions::file::get_file_by_id;
+use database::actions::metadata::{get_metadata_summary_by_file_id, MetadataSummary};
 use dunce::canonicalize;
-use log::{error, info};
+use log::info;
 use playback::player::Player;
-use playback::PlayerEvent;
 use sea_orm::DatabaseConnection;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use tokio::task;
 
 use crate::common::Result;
 use crate::connection;
@@ -15,53 +16,83 @@ pub async fn handle_playback(db: Arc<DatabaseConnection>) -> Result<()> {
     use messages::playback::*;
 
     info!("Initializing player.");
-    let (player, mut events) = Player::new();
-    let player = Arc::new(Mutex::new(player));
-    
+    let _player = Player::new();
+    let player = Arc::new(Mutex::new(_player));
+
     info!("Initializing playback receiver.");
-    let mut receiver = PlayFileRequest::get_dart_signal_receiver()?; // GENERATED
-    
+    let mut ui_receiver = PlayFileRequest::get_dart_signal_receiver()?; // GENERATED
+
+    let mut status_receiver = player.lock().unwrap().subscribe();
+
     tokio::spawn({
         let player = Arc::clone(&player);
         let db = Arc::clone(&db);
         async move {
-            while let Some(dart_signal) = receiver.recv().await {
+            while let Some(dart_signal) = ui_receiver.recv().await {
                 let play_file_request = dart_signal.message;
                 let file_id = play_file_request.file_id;
                 let lib_path = connection::get_media_library_path().await;
-                
+
                 play_file_by_id(&db, &player, file_id, Path::new(&lib_path.unwrap())).await;
             }
         }
     });
-    
+
     info!("Initializing event listeners.");
-    tokio::spawn(async move {
-        while let Some(event) = events.recv().await {
-            match event {
-                PlayerEvent::Playing => println!("Playing"),
-                PlayerEvent::Paused => println!("Paused"),
-                PlayerEvent::Stopped => println!("Stopped"),
-                PlayerEvent::Progress { position } => println!("Progress: {:#?} ms", position),
-                PlayerEvent::Error { index, path, error } => {
-                    error!("Error playing {}, {:?}: {}", index, path, error);
+    task::spawn(async move {
+        let db = Arc::clone(&db);
+        let mut cached_meta: Option<MetadataSummary> = None;
+        let mut last_index: Option<usize> = None;
+
+        while let Ok(status) = status_receiver.recv().await {
+            println!("Player status updated: {:?}", status);
+
+            let meta = match status.index {
+                Some(index) => {
+                    if last_index != Some(index) {
+                        // Update the cached metadata if the index has changed
+                        cached_meta =
+                            get_metadata_summary_by_file_id(&db, index.try_into().unwrap())
+                                .await
+                                .ok();
+                        last_index = Some(index);
+                    }
+                    cached_meta.clone().unwrap_or_default()
                 }
-                PlayerEvent::EndOfPlaylist => {
-                    error!("Playlist is done");
-                    break;
+                none => {
+                    // If the index is None, send empty metadata
+                    last_index = none;
+                    MetadataSummary::default()
                 }
+            };
+
+            let position = status.position;
+            let duration = meta.duration;
+            let progress_percentage = if duration == 0. {
+                0.
+            } else {
+                position.as_secs_f32() / (duration as f32)
+            };
+
+            messages::playback::PlaybackStatus {
+                state: status.state.to_string(),
+                progress_seconds: position.as_secs_f32(),
+                progress_percentage,
+                artist: meta.artist.clone(),
+                album: meta.album.clone(),
+                title: meta.title.clone(),
+                duration: meta.duration,
             }
+            .send_signal_to_dart();
         }
-    })
-    .await
-    .unwrap();
+    });
 
     Ok(())
 }
 
 pub async fn play_file_by_id(
     db: &DatabaseConnection,
-    player: &Mutex<playback::player::Player>,
+    player: &Mutex<Player>,
     file_id: i32,
     canonicalized_path: &Path,
 ) {
@@ -71,8 +102,9 @@ pub async fn play_file_by_id(
             player_guard.pause();
             player_guard.clear_playlist();
 
-            let file_path = canonicalize(canonicalized_path.join(file.directory).join(file.file_name)).unwrap();
-            player_guard.add_to_playlist(file_path);
+            let file_path =
+                canonicalize(canonicalized_path.join(file.directory).join(file.file_name)).unwrap();
+            player_guard.add_to_playlist(file_id, file_path);
             player_guard.play();
         }
         Ok(_none) => {
