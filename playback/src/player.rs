@@ -10,6 +10,7 @@ use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
+    pub id: Option<i32>,
     pub index: Option<usize>,
     pub path: Option<PathBuf>,
     pub position: Duration,
@@ -33,7 +34,6 @@ impl std::fmt::Display for PlaybackState {
         write!(f, "{}", state_str)
     }
 }
-
 
 // Define the Player struct, which includes a channel sender for sending commands
 pub struct Player {
@@ -60,6 +60,7 @@ impl Player {
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
+            id: None,
             index: None,
             path: None,
             position: Duration::new(0, 0),
@@ -90,25 +91,44 @@ impl Player {
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
                 match event {
-                    PlayerEvent::Playing { index, path, position } => {
+                    PlayerEvent::Playing {
+                        id,
+                        index,
+                        path,
+                        position,
+                    } => {
+                        status.id = Some(id);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.position = position;
                         status.state = PlaybackState::Playing;
                     }
-                    PlayerEvent::Paused { index, path, position } => {
+                    PlayerEvent::Paused {
+                        id,
+                        index,
+                        path,
+                        position,
+                    } => {
+                        status.id = Some(id);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.position = position;
                         status.state = PlaybackState::Paused;
                     }
-                    PlayerEvent::Stopped { index, path } => {
-                        status.index = Some(index);
-                        status.path = Some(path);
+                    PlayerEvent::Stopped {} => {
+                        status.id = None;
+                        status.index = None;
+                        status.path = None;
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
                     }
-                    PlayerEvent::Progress { index, path, position } => {
+                    PlayerEvent::Progress {
+                        id,
+                        index,
+                        path,
+                        position,
+                    } => {
+                        status.id = Some(id);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.position = position;
@@ -119,9 +139,9 @@ impl Player {
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
                     }
-                    PlayerEvent::Error { index, path, error } => {
+                    PlayerEvent::Error { id, index, path, error } => {
                         // Handle error event, possibly log it
-                        eprintln!("Error at index {}: {:?} - {}", index, path, error);
+                        eprintln!("Error at index {}({}): {:?} - {}", index, id, path, error);
                     }
                 }
                 // Send the updated status to all subscribers

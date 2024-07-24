@@ -22,27 +22,28 @@ pub enum PlayerCommand {
 
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
-    Stopped {
-        index: usize,
-        path: PathBuf,
-    },
+    Stopped,
     Playing {
+        id: i32,
         index: usize,
         path: PathBuf,
         position: Duration,
     },
     Paused {
+        id: i32,
         index: usize,
         path: PathBuf,
         position: Duration,
     },
     EndOfPlaylist,
     Error {
+        id: i32,
         index: usize,
         path: PathBuf,
         error: String,
     },
     Progress {
+        id: i32,
         index: usize,
         path: PathBuf,
         position: Duration,
@@ -58,6 +59,7 @@ pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
     playlist: Vec<PlaylistItem>,
+    current_track_id: Option<i32>,
     current_track_index: Option<usize>,
     current_track_path: Option<PathBuf>,
     sink: Option<Sink>,
@@ -73,6 +75,7 @@ impl PlayerInternal {
             commands,
             event_sender,
             playlist: Vec::new(),
+            current_track_id: None,
             current_track_index: None,
             current_track_path: None,
             sink: None,
@@ -81,7 +84,7 @@ impl PlayerInternal {
     }
 
     pub async fn run(&mut self) {
-        let mut progress_interval = interval(Duration::from_secs(1));
+        let mut progress_interval = interval(Duration::from_millis(100));
 
         loop {
             tokio::select! {
@@ -123,10 +126,12 @@ impl PlayerInternal {
                             self.sink = Some(sink);
                             self._stream = Some(stream);
                             self.current_track_index = Some(index);
+                            self.current_track_id = Some(item.id);
                             self.current_track_path = Some(item.path.clone());
                             info!("Track loaded: {:?}", item.path);
                             self.event_sender
                                 .send(PlayerEvent::Playing {
+                                    id: self.current_track_id.unwrap(),
                                     index: self.current_track_index.unwrap(),
                                     path: self.current_track_path.clone().unwrap(),
                                     position: Duration::new(0, 0),
@@ -137,6 +142,7 @@ impl PlayerInternal {
                             error!("Failed to decode audio: {:?}", e);
                             self.event_sender
                                 .send(PlayerEvent::Error {
+                                    id: self.current_track_id.unwrap(),
                                     index,
                                     path: item.path.clone(),
                                     error: "Failed to decode audio".to_string(),
@@ -149,6 +155,7 @@ impl PlayerInternal {
                     error!("Failed to open file: {:?}", e);
                     self.event_sender
                         .send(PlayerEvent::Error {
+                            id: self.current_track_id.unwrap(),
                             index,
                             path: item.path.clone(),
                             error: "Failed to open file".to_string(),
@@ -167,6 +174,7 @@ impl PlayerInternal {
             info!("Playback started");
             self.event_sender
                 .send(PlayerEvent::Playing {
+                    id: self.current_track_id.unwrap(),
                     index: self.current_track_index.unwrap(),
                     path: self.current_track_path.clone().unwrap(),
                     position: sink.get_pos(),
@@ -185,6 +193,7 @@ impl PlayerInternal {
             info!("Playback paused");
             self.event_sender
                 .send(PlayerEvent::Paused {
+                    id: self.current_track_id.unwrap(),
                     index: self.current_track_index.unwrap(),
                     path: self.current_track_path.clone().unwrap(),
                     position: sink.get_pos(),
@@ -197,12 +206,7 @@ impl PlayerInternal {
         if let Some(sink) = self.sink.take() {
             sink.stop();
             info!("Playback stopped");
-            self.event_sender
-                .send(PlayerEvent::Stopped {
-                    index: self.current_track_index.unwrap(),
-                    path: self.current_track_path.clone().unwrap(),
-                })
-                .unwrap();
+            self.event_sender.send(PlayerEvent::Stopped).unwrap();
         } else {
             error!("Stop command received but no track is loaded");
         }
@@ -244,6 +248,7 @@ impl PlayerInternal {
             info!("Seeking to position: {} ms", position_ms);
             self.event_sender
                 .send(PlayerEvent::Playing {
+                    id: self.current_track_id.unwrap(),
                     index: self.current_track_index.unwrap(),
                     path: self.current_track_path.clone().unwrap(),
                     position: sink.get_pos(),
@@ -277,18 +282,14 @@ impl PlayerInternal {
         self.sink = None;
         self._stream = None;
         info!("Playlist cleared");
-        self.event_sender
-            .send(PlayerEvent::Stopped {
-                index: self.current_track_index.unwrap(),
-                path: self.current_track_path.clone().unwrap(),
-            })
-            .unwrap();
+        self.event_sender.send(PlayerEvent::Stopped).unwrap();
     }
 
     fn send_progress(&self) {
         if let Some(sink) = &self.sink {
             self.event_sender
                 .send(PlayerEvent::Progress {
+                    id: self.current_track_id.unwrap(),
                     index: self.current_track_index.unwrap(),
                     path: self.current_track_path.clone().unwrap(),
                     position: sink.get_pos(),

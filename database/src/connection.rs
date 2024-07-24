@@ -1,7 +1,7 @@
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvOpenOptions};
-use log::LevelFilter;
+use log::{LevelFilter, info};
 use sea_orm::DbErr;
 use sea_orm::{ConnectOptions, Database};
 use std::error::Error;
@@ -71,9 +71,12 @@ pub async fn connect_main_db(
     opt.sqlx_logging(true)
         .sqlx_logging_level(LevelFilter::Debug);
 
+    info!("Initializing main database: {}", path_str);
+
     let db = Database::connect(opt).await?;
 
     initialize_db(&db).await?;
+
 
     Ok(db)
 }
@@ -142,6 +145,8 @@ pub fn connect_recommendation_db(
         .into_os_string()
         .into_string()
         .map_err(ConnectRecommendationDbError::InvalidPath)?;
+
+    info!("Initializing recommendation database: {}", path_str);
 
     let env = unsafe {
         EnvOpenOptions::new()

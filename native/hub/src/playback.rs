@@ -1,7 +1,7 @@
 use database::actions::file::get_file_by_id;
 use database::actions::metadata::{get_metadata_summary_by_file_id, MetadataSummary};
 use dunce::canonicalize;
-use log::info;
+use log::{info, debug, error};
 use playback::player::Player;
 use sea_orm::DatabaseConnection;
 use std::path::Path;
@@ -42,26 +42,35 @@ pub async fn handle_playback(db: Arc<DatabaseConnection>) -> Result<()> {
     task::spawn(async move {
         let db = Arc::clone(&db);
         let mut cached_meta: Option<MetadataSummary> = None;
-        let mut last_index: Option<usize> = None;
+        let mut last_id: Option<i32> = None;
 
         while let Ok(status) = status_receiver.recv().await {
-            println!("Player status updated: {:?}", status);
+            debug!("Player status updated: {:?}", status);
 
-            let meta = match status.index {
-                Some(index) => {
-                    if last_index != Some(index) {
+            let meta = match status.id {
+                Some(id) => {
+                    if last_id != Some(id) {
+                        println!("= CACHE NOW!");
                         // Update the cached metadata if the index has changed
-                        cached_meta =
-                            get_metadata_summary_by_file_id(&db, index.try_into().unwrap())
-                                .await
-                                .ok();
-                        last_index = Some(index);
+                        match get_metadata_summary_by_file_id(&db, id).await {
+                            Ok(metadata) => {
+                                cached_meta = Some(metadata);
+                                last_id = Some(id);
+                                info!("{:#?}", cached_meta);
+                            }
+                            Err(e) => {
+                                // Print the error if get_metadata_summary_by_file_id returns an error
+                                error!("Error fetching metadata: {:?}", e);
+                                cached_meta = None;
+                                last_id = Some(id);
+                            }
+                        }
                     }
                     cached_meta.clone().unwrap_or_default()
                 }
                 none => {
                     // If the index is None, send empty metadata
-                    last_index = none;
+                    last_id = none;
                     MetadataSummary::default()
                 }
             };

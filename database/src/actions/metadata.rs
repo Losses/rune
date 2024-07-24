@@ -235,7 +235,7 @@ pub async fn get_metadata_summary_by_file_id(
         .await?;
 
     let analysis_entry: Option<media_analysis::Model> = media_analysis::Entity::find()
-        .filter(media_metadata::Column::FileId.eq(file_id))
+        .filter(media_analysis::Column::FileId.eq(file_id))
         .one(db)
         .await?;
 
@@ -249,7 +249,7 @@ pub async fn get_metadata_summary_by_file_id(
     let metadata = MetadataSummary {
         artist: metadata_map.get("artist").cloned().unwrap_or_default(),
         album: metadata_map.get("album").cloned().unwrap_or_default(),
-        title: metadata_map.get("title").cloned().unwrap_or_default(),
+        title: metadata_map.get("track_title").cloned().unwrap_or_default(),
         duration,
     };
 
