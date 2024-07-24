@@ -4,6 +4,7 @@ mod media_file;
 mod messages;
 mod playback;
 
+use database::connection::connect_recommendation_db;
 use log::info;
 use std::sync::Arc;
 use tracing_subscriber::filter::EnvFilter;
@@ -36,12 +37,13 @@ async fn main() {
         if let Some(path) = get_media_library_path().await {
             info!("Media Library Received, initialize other receivers");
             // Move the path into the async block
-            let db = Arc::new(connect_main_db(&path).await.unwrap());
+            let main_db = Arc::new(connect_main_db(&path).await.unwrap());
+            let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
             info!("Initializing fetchers");
             // Pass the cloned Arc directly
-            tokio::spawn(fetch_media_files(db.clone()));
+            tokio::spawn(fetch_media_files(main_db.clone()));
             info!("Initializing playback");
-            tokio::spawn(handle_playback(db.clone()));
+            tokio::spawn(handle_playback(main_db.clone(), recommend_db.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

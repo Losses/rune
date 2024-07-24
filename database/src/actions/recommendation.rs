@@ -19,7 +19,7 @@ use crate::connection::{MainDbConnection, RecommendationDbConnection};
 /// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
 pub fn get_recommendation(
     db_conn: &RecommendationDbConnection,
-    item_id: usize,
+    item_id: i32,
     n: usize,
 ) -> Result<Vec<(u32, f32)>, Box<dyn std::error::Error>> {
     let env = db_conn.env.clone();
