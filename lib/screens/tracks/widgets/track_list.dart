@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../../utils/platform.dart';
 import '../../../messages/media_file.pb.dart';
 import '../../../messages/playback.pb.dart';
 
@@ -13,6 +15,9 @@ class TrackListView extends StatefulWidget {
 
 class TrackListViewState extends State<TrackListView> {
   static const _pageSize = 20;
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
 
   final PagingController<int, MediaFile> _pagingController =
       PagingController(firstPageKey: 0);
@@ -51,16 +56,61 @@ class TrackListViewState extends State<TrackListView> {
   }
 
   @override
-  Widget build(BuildContext context) => PagedListView<int, MediaFile>(
-        pagingController: _pagingController,
-        builderDelegate: PagedChildBuilderDelegate<MediaFile>(
-          itemBuilder: (context, item, index) => ListTile.selectable(
-              title: Text(item.path),
-              onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
-                  .sendSignalToRust() // GENERATED,
-              ),
-        ),
+  Widget build(BuildContext context) {
+    openContextMenu(Offset localPosition) {
+      final targetContext = contextAttachKey.currentContext;
+
+      if (targetContext == null) return;
+      final box = targetContext.findRenderObject() as RenderBox;
+      final position = box.localToGlobal(
+        localPosition,
+        ancestor: Navigator.of(context).context.findRenderObject(),
       );
+
+      contextController.showFlyout(
+        barrierColor: Colors.black.withOpacity(0.1),
+        position: position,
+        builder: (context) {
+          var items = [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.rocket),
+              text: const Text('Roaming'),
+              onPressed: () => {},
+            ),
+          ];
+
+          return MenuFlyout(
+            items: items,
+          );
+        },
+      );
+    }
+
+    return GestureDetector(
+      onSecondaryTapUp: isDesktop
+          ? (d) {
+              openContextMenu(d.localPosition);
+            }
+          : null,
+      onLongPressEnd: isDesktop
+          ? null
+          : (d) {
+              openContextMenu(d.localPosition);
+            },
+      child: FlyoutTarget(
+        key: contextAttachKey,
+        controller: contextController,
+        child:PagedListView<int, MediaFile>(
+      pagingController: _pagingController,
+      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+        itemBuilder: (context, item, index) => ListTile.selectable(
+            title: Text(item.path),
+            onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
+                .sendSignalToRust() // GENERATED,
+            ),
+      ),
+    )));
+  }
 
   @override
   void dispose() {
