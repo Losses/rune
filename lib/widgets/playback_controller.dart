@@ -33,7 +33,7 @@ class PlaybackControllerState extends State<PlaybackController> {
           children: [
             Text("Status: $state"),
             Text(
-                "Progress: ${progressSeconds.toStringAsFixed(2)} seconds (${progressPercentage.toStringAsFixed(2)}%)"),
+                "Progress: ${progressSeconds.toStringAsFixed(2)} seconds (${(progressPercentage * 100).toStringAsFixed(2)}%)"),
             Text("Artist: $artist"),
             Text("Album: $album"),
             Text("Title: $title"),

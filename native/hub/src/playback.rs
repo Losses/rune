@@ -18,20 +18,19 @@ use crate::messages;
 pub async fn handle_playback(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
+    lib_path: Arc<String>,
 ) -> Result<()> {
     info!("Initializing player.");
-    let _player = Player::new();
-    let player = Arc::new(Mutex::new(_player));
+    let player = Player::new();
+    let player = Arc::new(Mutex::new(player));
 
     info!("Initializing playback receiver.");
-    let main_db_clone1 = main_db.clone();
-    match play_file_request(&main_db_clone1, &player) {
+    match play_file_request(&main_db, &player) {
         Ok(r) => r,
         Err(e) => error!("Error occured while binding play file request: {:#?}", e),
     };
 
-    let main_db_clone2 = main_db.clone();
-    match recommend_request(&main_db_clone2, &recommend_db, &player).await {
+    match recommend_request(&main_db, &recommend_db, &lib_path, &player).await {
         Ok(r) => r,
         Err(e) => error!("Error occured while binding play file request: {:#?}", e),
     };
@@ -50,7 +49,6 @@ pub async fn handle_playback(
             let meta = match status.id {
                 Some(id) => {
                     if last_id != Some(id) {
-                        println!("= CACHE NOW!");
                         // Update the cached metadata if the index has changed
                         match get_metadata_summary_by_file_id(&main_db, id).await {
                             Ok(metadata) => {
@@ -149,6 +147,7 @@ pub async fn play_file_by_id(
 pub async fn recommend_request(
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
+    lib_path: &Arc<String>,
     player: &Arc<Mutex<Player>>,
 ) -> Result<()> {
     use messages::recommend::*;
@@ -158,11 +157,13 @@ pub async fn recommend_request(
         let player = Arc::clone(player);
         let main_db = Arc::clone(main_db);
         let recommend_db = Arc::clone(recommend_db);
+        let lib_path = Arc::clone(lib_path);
         async move {
             while let Some(dart_signal) = receiver.recv().await {
                 let recommended_ids = recommend_and_play(
                     &main_db,
                     &recommend_db,
+                    &lib_path,
                     &player,
                     dart_signal.message.file_id,
                 )
@@ -170,11 +171,12 @@ pub async fn recommend_request(
 
                 match recommended_ids {
                     Ok(recommended_ids) => {
-                        PlaybackRecommendation { recommended_ids }.send_signal_to_dart() // GENERATED
-                    },
+                        PlaybackRecommendation { recommended_ids }.send_signal_to_dart()
+                        // GENERATED
+                    }
                     Err(e) => {
                         error!("Recommendation error: {:#?}", e);
-                    } 
+                    }
                 }
             }
         }
@@ -186,6 +188,7 @@ pub async fn recommend_request(
 async fn recommend_and_play(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
+    lib_path: &Arc<String>,
     player: &Mutex<Player>,
     file_id: i32,
 ) -> Result<Vec<i32>> {
@@ -213,7 +216,12 @@ async fn recommend_and_play(
                 continue;
             }
         };
-        let file_path = canonicalize(Path::new(&file.directory).join(&file.file_name)).unwrap();
+        let file_path = canonicalize(
+            Path::new(&**lib_path)
+                .join(&file.directory)
+                .join(&file.file_name),
+        )
+        .unwrap();
         player.lock().unwrap().add_to_playlist(rec_id, file_path);
     }
     player.lock().unwrap().play();

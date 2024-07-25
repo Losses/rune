@@ -43,7 +43,8 @@ async fn main() {
             // Pass the cloned Arc directly
             tokio::spawn(fetch_media_files(main_db.clone()));
             info!("Initializing playback");
-            tokio::spawn(handle_playback(main_db.clone(), recommend_db.clone()));
+            let path_arc = Arc::new(path);
+            tokio::spawn(handle_playback(main_db.clone(), recommend_db.clone(), path_arc.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

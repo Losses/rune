@@ -3,8 +3,9 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../../utils/platform.dart';
-import '../../../messages/media_file.pb.dart';
 import '../../../messages/playback.pb.dart';
+import '../../../messages/media_file.pb.dart';
+import '../../../messages/recommend.pbserver.dart';
 
 class TrackListView extends StatefulWidget {
   const TrackListView({super.key});
@@ -15,9 +16,6 @@ class TrackListView extends StatefulWidget {
 
 class TrackListViewState extends State<TrackListView> {
   static const _pageSize = 20;
-
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
 
   final PagingController<int, MediaFile> _pagingController =
       PagingController(firstPageKey: 0);
@@ -57,6 +55,36 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   Widget build(BuildContext context) {
+    return PagedListView<int, MediaFile>(
+      pagingController: _pagingController,
+      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+        itemBuilder: (context, item, index) => TrackListItem(
+          item: item,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pagingController.dispose();
+    super.dispose();
+  }
+}
+
+class TrackListItem extends StatelessWidget {
+  final MediaFile item;
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
+
+  TrackListItem({
+    super.key,
+    required this.item,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     openContextMenu(Offset localPosition) {
       final targetContext = contextAttachKey.currentContext;
 
@@ -75,7 +103,10 @@ class TrackListViewState extends State<TrackListView> {
             MenuFlyoutItem(
               leading: const Icon(Symbols.rocket),
               text: const Text('Roaming'),
-              onPressed: () => {},
+              onPressed: () => {
+                RecommendAndPlayRequest(fileId: item.id)
+                    .sendSignalToRust() // GENERATED
+              },
             ),
           ];
 
@@ -87,34 +118,23 @@ class TrackListViewState extends State<TrackListView> {
     }
 
     return GestureDetector(
-      onSecondaryTapUp: isDesktop
-          ? (d) {
-              openContextMenu(d.localPosition);
-            }
-          : null,
-      onLongPressEnd: isDesktop
-          ? null
-          : (d) {
-              openContextMenu(d.localPosition);
-            },
-      child: FlyoutTarget(
-        key: contextAttachKey,
-        controller: contextController,
-        child:PagedListView<int, MediaFile>(
-      pagingController: _pagingController,
-      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
-        itemBuilder: (context, item, index) => ListTile.selectable(
-            title: Text(item.path),
-            onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
-                .sendSignalToRust() // GENERATED,
-            ),
-      ),
-    )));
-  }
-
-  @override
-  void dispose() {
-    _pagingController.dispose();
-    super.dispose();
+        onSecondaryTapUp: isDesktop
+            ? (d) {
+                openContextMenu(d.localPosition);
+              }
+            : null,
+        onLongPressEnd: isDesktop
+            ? null
+            : (d) {
+                openContextMenu(d.localPosition);
+              },
+        child: FlyoutTarget(
+            key: contextAttachKey,
+            controller: contextController,
+            child: ListTile.selectable(
+                title: Text(item.path),
+                onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
+                    .sendSignalToRust() // GENERATED,
+                )));
   }
 }
