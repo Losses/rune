@@ -139,8 +139,17 @@ impl Player {
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
                     }
-                    PlayerEvent::EndOfTrack { id, index, path } => {}
-                    PlayerEvent::Error { id, index, path, error } => {
+                    PlayerEvent::EndOfTrack {
+                        id: _,
+                        index: _,
+                        path: _,
+                    } => {}
+                    PlayerEvent::Error {
+                        id,
+                        index,
+                        path,
+                        error,
+                    } => {
                         // Handle error event, possibly log it
                         eprintln!("Error at index {}({}): {:?} - {}", index, id, path, error);
                     }
