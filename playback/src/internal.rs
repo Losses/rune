@@ -36,6 +36,11 @@ pub enum PlayerEvent {
         position: Duration,
     },
     EndOfPlaylist,
+    EndOfTrack {
+        id: i32,
+        index: usize,
+        path: PathBuf,
+    },
     Error {
         id: i32,
         index: usize,
@@ -177,7 +182,7 @@ impl PlayerInternal {
                     id: self.current_track_id.unwrap(),
                     index: self.current_track_index.unwrap(),
                     path: self.current_track_path.clone().unwrap(),
-                    position: sink.get_pos(),
+                    position: Duration::new(0, 0),
                 })
                 .unwrap();
         } else {
@@ -285,16 +290,28 @@ impl PlayerInternal {
         self.event_sender.send(PlayerEvent::Stopped).unwrap();
     }
 
-    fn send_progress(&self) {
+    fn send_progress(&mut self) {
         if let Some(sink) = &self.sink {
-            self.event_sender
-                .send(PlayerEvent::Progress {
-                    id: self.current_track_id.unwrap(),
-                    index: self.current_track_index.unwrap(),
-                    path: self.current_track_path.clone().unwrap(),
-                    position: sink.get_pos(),
-                })
-                .unwrap();
+            if sink.empty() {
+                self.event_sender
+                    .send(PlayerEvent::EndOfTrack {
+                        id: self.current_track_id.unwrap(),
+                        index: self.current_track_index.unwrap(),
+                        path: self.current_track_path.clone().unwrap(),
+                    })
+                    .unwrap();
+
+                self.next();
+            } else {
+                self.event_sender
+                    .send(PlayerEvent::Progress {
+                        id: self.current_track_id.unwrap(),
+                        index: self.current_track_index.unwrap(),
+                        path: self.current_track_path.clone().unwrap(),
+                        position: sink.get_pos(),
+                    })
+                    .unwrap();
+            }
         }
     }
 }

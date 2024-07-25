@@ -54,7 +54,6 @@ pub async fn handle_playback(
                             Ok(metadata) => {
                                 cached_meta = Some(metadata);
                                 last_id = Some(id);
-                                info!("{:#?}", cached_meta);
                             }
                             Err(e) => {
                                 // Print the error if get_metadata_summary_by_file_id returns an error
