@@ -6,7 +6,7 @@ use sea_orm::{
 use std::path::Path;
 
 use crate::actions::analysis::get_duration_by_file_id;
-use crate::actions::metadata::get_metadata_summary_by_file_id;
+use crate::actions::metadata::get_metadata_summary_by_file_ids;
 use crate::entities::media_files;
 
 pub async fn get_files_by_ids(
@@ -36,21 +36,6 @@ pub struct FileDetail {
     pub album: String,
     pub title: String,
     pub duration: f64,
-}
-
-pub async fn get_file_detail_by_id(
-    db: &DatabaseConnection,
-    file_id: i32,
-) -> Result<FileDetail, Box<dyn std::error::Error>> {
-    let metadata = get_metadata_summary_by_file_id(db, file_id).await.unwrap();
-    let duration = get_duration_by_file_id(db, file_id).await.unwrap();
-
-    Ok(FileDetail {
-        artist: metadata.artist,
-        album: metadata.album,
-        title: metadata.title,
-        duration,
-    })
 }
 
 pub async fn get_random_files(

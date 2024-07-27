@@ -1,4 +1,5 @@
 use log::{error, info};
+use thiserror::Error;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -8,8 +9,8 @@ use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use metadata::describe::{describe_file, FileDescription};
 use metadata::scanner::{FileMetadata, MetadataScanner};
 
-use crate::entities::{media_analysis, media_files};
 use crate::entities::media_metadata;
+use crate::entities::{media_analysis, media_files};
 
 pub async fn process_file(
     db: &DatabaseConnection,
@@ -217,41 +218,84 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
     info!("Audio library scan completed.");
 }
 
+#[derive(Error, Debug)]
+pub enum MetadataQueryError {
+    #[error("Database error: {0}")]
+    DbError(#[from] sea_orm::DbErr),
+    #[error("Metadata summary not found for file ID: {0}")]
+    NotFound(i32),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MetadataSummary {
+    pub id: i32,
     pub artist: String,
     pub album: String,
     pub title: String,
     pub duration: f64,
 }
 
-pub async fn get_metadata_summary_by_file_id(
+pub async fn get_metadata_summary_by_file_ids(
     db: &DatabaseConnection,
-    file_id: i32,
-) -> Result<MetadataSummary, sea_orm::DbErr> {
+    file_ids: Vec<i32>,
+) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
+    // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
-        .filter(media_metadata::Column::FileId.eq(file_id))
+        .filter(
+            media_metadata::Column::FileId
+                .is_in(file_ids.clone())
+                .and(media_metadata::Column::MetaKey.is_in(["artist", "album", "track_title"])),
+        )
         .all(db)
         .await?;
 
-    let analysis_entry: Option<media_analysis::Model> = media_analysis::Entity::find()
-        .filter(media_analysis::Column::FileId.eq(file_id))
-        .one(db)
+    // Fetch all analysis entries for the given file IDs
+    let analysis_entries: Vec<media_analysis::Model> = media_analysis::Entity::find()
+        .filter(media_analysis::Column::FileId.is_in(file_ids.clone()))
+        .all(db)
         .await?;
 
-    let mut metadata_map: HashMap<String, String> = HashMap::new();
+    // Create a map for metadata entries
+    let mut metadata_map: HashMap<i32, HashMap<String, String>> = HashMap::new();
     for entry in metadata_entries {
-        metadata_map.insert(entry.meta_key, entry.meta_value);
+        metadata_map
+            .entry(entry.file_id)
+            .or_default()
+            .insert(entry.meta_key, entry.meta_value);
     }
 
-    let duration = analysis_entry.map_or(0.0, |entry| entry.duration);
+    // Create a map for analysis entries
+    let mut analysis_map: HashMap<i32, f64> = HashMap::new();
+    for entry in analysis_entries {
+        analysis_map.insert(entry.file_id, entry.duration);
+    }
 
-    let metadata = MetadataSummary {
-        artist: metadata_map.get("artist").cloned().unwrap_or_default(),
-        album: metadata_map.get("album").cloned().unwrap_or_default(),
-        title: metadata_map.get("track_title").cloned().unwrap_or_default(),
-        duration,
-    };
+    // Prepare the final result
+    let mut results: Vec<MetadataSummary> = Vec::new();
+    for file_id in file_ids {
+        let _metadata: HashMap<String, String> = HashMap::new();
+        let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
+        let duration = *analysis_map.get(&file_id).unwrap_or(&0.0);
 
-    Ok(metadata)
+        let summary = MetadataSummary {
+            id: file_id,
+            artist: metadata.get("artist").cloned().unwrap_or_default(),
+            album: metadata.get("album").cloned().unwrap_or_default(),
+            title: metadata.get("track_title").cloned().unwrap_or_default(),
+            duration,
+        };
+
+        results.push(summary);
+    }
+
+    Ok(results)
+}
+
+pub async fn get_metadata_summary_by_file_id(
+    db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<MetadataSummary, MetadataQueryError> {
+    let results = get_metadata_summary_by_file_ids(db, vec![file_id]).await?;
+
+    results.into_iter().next().ok_or(MetadataQueryError::NotFound(file_id))
 }
