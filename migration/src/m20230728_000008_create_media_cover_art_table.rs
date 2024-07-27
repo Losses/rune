@@ -4,7 +4,7 @@ pub struct Migration;
 
 impl MigrationName for Migration {
     fn name(&self) -> &str {
-        "m20230728_000008_create_media_cover_arts_table"
+        "m20230728_000008_create_media_cover_art_table"
     }
 }
 
@@ -14,16 +14,16 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(MediaCoverArts::Table)
+                    .table(MediaCoverArt::Table)
                     .col(
-                        ColumnDef::new(MediaCoverArts::Id)
+                        ColumnDef::new(MediaCoverArt::Id)
                             .integer()
                             .not_null()
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(MediaCoverArts::FileHash).char_len(64).not_null())
-                    .col(ColumnDef::new(MediaCoverArts::Binary).var_binary(16777216).not_null())
+                    .col(ColumnDef::new(MediaCoverArt::FileHash).char_len(64).not_null())
+                    .col(ColumnDef::new(MediaCoverArt::Binary).var_binary(16777216).not_null())
                     .to_owned(),
             )
             .await
@@ -31,13 +31,13 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(MediaCoverArts::Table).to_owned())
+            .drop_table(Table::drop().table(MediaCoverArt::Table).to_owned())
             .await
     }
 }
 
 #[derive(Iden)]
-pub enum MediaCoverArts {
+pub enum MediaCoverArt {
     Table,
     Id,
     FileHash,

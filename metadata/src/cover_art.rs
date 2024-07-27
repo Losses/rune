@@ -1,4 +1,5 @@
 use lofty::file::TaggedFileExt;
+use std::path::Path;
 
 use crate::crc::media_crc32;
 
@@ -7,7 +8,7 @@ pub struct CoverArt {
     pub data: Vec<u8>,
 }
 
-pub fn extract_cover_art_binary(file_path: &str) -> Option<CoverArt> {
+pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {
     let tagged_file = lofty::read_from_path(file_path).ok()?;
 
     let tag = tagged_file

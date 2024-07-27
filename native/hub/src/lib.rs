@@ -1,9 +1,11 @@
 mod common;
 mod connection;
+mod cover_art;
 mod media_file;
 mod messages;
 mod playback;
 
+use cover_art::handle_cover_art;
 use database::connection::connect_recommendation_db;
 use log::info;
 use std::sync::Arc;
@@ -43,8 +45,14 @@ async fn main() {
             // Pass the cloned Arc directly
             tokio::spawn(fetch_media_files(main_db.clone()));
             info!("Initializing playback");
-            let path_arc = Arc::new(path);
-            tokio::spawn(handle_playback(main_db.clone(), recommend_db.clone(), path_arc.clone()));
+            let lib_path_arc = Arc::new(path);
+            tokio::spawn(handle_playback(
+                main_db.clone(),
+                recommend_db.clone(),
+                lib_path_arc.clone(),
+            ));
+            info!("Initializing cover arts");
+            tokio::spawn(handle_cover_art(main_db.clone(), lib_path_arc.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

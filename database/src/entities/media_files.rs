@@ -27,8 +27,8 @@ pub enum Relation {
     PlaylistItems,
     #[sea_orm(has_many = "super::user_logs::Entity")]
     UserLogs,
-    #[sea_orm(belongs_to = "super::media_cover_arts::Entity", from = "Column::CoverArtId", to = "super::media_cover_arts::Column::Id")]
-    MediaCoverArts,
+    #[sea_orm(belongs_to = "super::media_cover_art::Entity", from = "Column::CoverArtId", to = "super::media_cover_art::Column::Id")]
+    MediaCoverArt,
 }
 
 impl Related<super::media_analysis::Entity> for Entity {
@@ -55,13 +55,13 @@ impl Related<super::user_logs::Entity> for Entity {
     }
 }
 
-impl Related<super::media_cover_arts::Entity> for Entity {
+impl Related<super::media_cover_art::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::MediaCoverArts.def()
+        Relation::MediaCoverArt.def()
     }
 
     fn via() -> Option<RelationDef> {
-        Some(Relation::MediaCoverArts.def().rev())
+        Some(Relation::MediaCoverArt.def().rev())
     }
 }
 

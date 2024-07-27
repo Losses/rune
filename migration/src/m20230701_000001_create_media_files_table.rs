@@ -1,6 +1,6 @@
 use sea_orm_migration::prelude::*;
 
-use super::m20230728_000008_create_media_cover_arts_table::MediaCoverArts;
+use super::m20230728_000008_create_media_cover_art_table::MediaCoverArt;
 
 pub struct Migration;
 
@@ -34,7 +34,7 @@ impl MigrationTrait for Migration {
                         ForeignKey::create()
                             .name("fk_media_files_cover_art_id")
                             .from(MediaFiles::Table, MediaFiles::CoverArtId)
-                            .to(MediaCoverArts::Table, MediaCoverArts::Id)
+                            .to(MediaCoverArt::Table, MediaCoverArt::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade)
                     )
