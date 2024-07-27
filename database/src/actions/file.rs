@@ -5,8 +5,6 @@ use sea_orm::{
 };
 use std::path::Path;
 
-use crate::actions::analysis::get_duration_by_file_id;
-use crate::actions::metadata::get_metadata_summary_by_file_ids;
 use crate::entities::media_files;
 
 pub async fn get_files_by_ids(
@@ -29,13 +27,6 @@ pub async fn get_file_by_id(
         .one(db)
         .await?;
     Ok(file)
-}
-
-pub struct FileDetail {
-    pub artist: String,
-    pub album: String,
-    pub title: String,
-    pub duration: f64,
 }
 
 pub async fn get_random_files(
@@ -86,7 +77,7 @@ pub async fn get_file_id_from_path(
     db: &DatabaseConnection,
     root_path: &Path,
     file_path: &Path,
-) -> Result<usize, String> {
+) -> Result<i32, String> {
     // Check if the file exists as an absolute path
     let absolute_path = if file_path.is_absolute() {
         file_path.to_path_buf()
@@ -118,7 +109,7 @@ pub async fn get_file_id_from_path(
         }
     };
 
-    Ok(file_info.id as usize)
+    Ok(file_info.id)
 }
 
 pub async fn get_media_files(

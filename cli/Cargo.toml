@@ -1,0 +1,26 @@
+[package]
+name = "rune-cli"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "rune"
+path = "src/lib.rs"
+
+[dependencies]
+futures = "0.3.30"
+rodio = { version = "0.19.0", features = ["symphonia-all"] }
+tokio = { version = "1.38.0", features = ["rt-multi-thread", "macros"] }
+database = { path = "../database" }
+metadata = { path = "../metadata" }
+analysis = { path = "../analysis" }
+playback = { path = "../playback" }
+tracing-subscriber = "0.3.18"
+tracing = "0.1.40"
+serde = "1.0.204"
+serde_json = "1.0.120"
+clap = "4.5.9"
+pathdiff = "0.2.1"
+prettytable = "0.10.0"
+dunce = "1.0.4"
+log = "0.4.22"

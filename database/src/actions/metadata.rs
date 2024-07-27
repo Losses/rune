@@ -1,10 +1,11 @@
-use log::{error, info};
-use thiserror::Error;
+use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 
 use metadata::describe::{describe_file, FileDescription};
 use metadata::scanner::{FileMetadata, MetadataScanner};
@@ -12,95 +13,126 @@ use metadata::scanner::{FileMetadata, MetadataScanner};
 use crate::entities::media_metadata;
 use crate::entities::{media_analysis, media_files};
 
-pub async fn process_file(
+pub async fn process_files(
     db: &DatabaseConnection,
-    metadata: &FileMetadata,
-    description: &mut FileDescription,
+    metadatas: &[FileMetadata],
+    descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!(
-        "Starting to process file: {}, in dir: {}",
-        description.file_name.clone(),
-        description.directory.clone(),
-    );
-
-    // Check if the file already exists in the database
-    let existing_file = media_files::Entity::find()
-        .filter(media_files::Column::Directory.eq(description.directory.clone()))
-        .filter(media_files::Column::FileName.eq(description.file_name.clone()))
-        .one(db)
-        .await?;
-
-    if let Some(existing_file) = existing_file {
-        info!(
-            "File exists in the database: {}",
-            description.file_name.clone()
+    // Ensure the lengths of metadatas and descriptions match
+    if metadatas.len() != descriptions.len() {
+        return Err(
+            "The number of metadata entries does not match the number of descriptions".into(),
         );
-
-        // File exists in the database
-        if existing_file.last_modified == description.last_modified {
-            // If the file's last modified date hasn't changed, skip it
-            info!(
-                "File's last modified date hasn't changed, skipping: {}",
-                description.file_name.clone()
-            );
-            return Ok(());
-        } else {
-            // If the file's last modified date has changed, check the hash
-            info!(
-                "File's last modified date has changed, checking hash: {}",
-                description.file_name.clone()
-            );
-            let new_hash = description.get_crc()?;
-            if existing_file.file_hash == new_hash {
-                // If the hash is the same, update the last modified date
-                info!(
-                    "File hash is the same, updating last modified date: {}",
-                    description.file_name.clone()
-                );
-                update_last_modified(db, &existing_file, description).await?;
-            } else {
-                // If the hash is different, update the metadata
-                info!(
-                    "File hash is different, updating metadata: {}",
-                    description.file_name.clone()
-                );
-                update_file_metadata(db, &existing_file, description, metadata).await?;
-            }
-        }
-    } else {
-        // If the file is new, insert a new record
-        info!(
-            "File is new, inserting new record: {}",
-            description.file_name.clone()
-        );
-        insert_new_file(db, metadata, description).await?;
     }
 
-    info!(
-        "Finished processing file: {}",
-        description.file_name.clone()
-    );
+    info!("Starting to process multiple files");
+
+    // Start a transaction
+    let txn = db.begin().await?;
+
+    for (metadata, description) in metadatas.iter().zip(descriptions.iter_mut()) {
+        match description {
+            None => continue,
+            Some(description) => {
+                info!(
+                    "Processing file: {}, in dir: {}",
+                    description.file_name.clone(),
+                    description.directory.clone(),
+                );
+
+                // Check if the file already exists in the database
+                let existing_file = media_files::Entity::find()
+                    .filter(media_files::Column::Directory.eq(description.directory.clone()))
+                    .filter(media_files::Column::FileName.eq(description.file_name.clone()))
+                    .one(&txn)
+                    .await?;
+
+                if let Some(existing_file) = existing_file {
+                    debug!(
+                        "File exists in the database: {}",
+                        description.file_name.clone()
+                    );
+
+                    // File exists in the database
+                    if existing_file.last_modified == description.last_modified {
+                        // If the file's last modified date hasn't changed, skip it
+                        debug!(
+                            "File's last modified date hasn't changed, skipping: {}",
+                            description.file_name.clone()
+                        );
+                        continue;
+                    } else {
+                        // If the file's last modified date has changed, check the hash
+                        debug!(
+                            "File's last modified date has changed, checking hash: {}",
+                            description.file_name.clone()
+                        );
+                        let new_hash = description.get_crc()?;
+                        if existing_file.file_hash == new_hash {
+                            // If the hash is the same, update the last modified date
+                            debug!(
+                                "File hash is the same, updating last modified date: {}",
+                                description.file_name.clone()
+                            );
+                            update_last_modified(&txn, &existing_file, description).await?;
+                        } else {
+                            // If the hash is different, update the metadata
+                            debug!(
+                                "File hash is different, updating metadata: {}",
+                                description.file_name.clone()
+                            );
+                            update_file_metadata(&txn, &existing_file, description, metadata)
+                                .await?;
+                        }
+                    }
+                } else {
+                    // If the file is new, insert a new record
+                    debug!(
+                        "File is new, inserting new record: {}",
+                        description.file_name.clone()
+                    );
+                    insert_new_file(&txn, metadata, description).await?;
+                }
+            }
+        };
+    }
+
+    // Commit the transaction
+    txn.commit().await?;
+
+    info!("Finished processing multiple files");
 
     Ok(())
 }
 
-pub async fn update_last_modified(
-    db: &DatabaseConnection,
+pub trait DatabaseExecutor: Send + Sync {}
+
+impl DatabaseExecutor for DatabaseConnection {}
+impl DatabaseExecutor for DatabaseTransaction {}
+
+pub async fn update_last_modified<E>(
+    db: &E,
     existing_file: &media_files::Model,
     description: &FileDescription,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
     active_model.update(db).await?;
     Ok(())
 }
 
-pub async fn update_file_metadata(
-    db: &DatabaseConnection,
+pub async fn update_file_metadata<E>(
+    db: &E,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
     metadata: &FileMetadata,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.last_modified = ActiveValue::Set(description.last_modified.clone());
     active_model.file_hash = ActiveValue::Set(description.get_crc()?);
@@ -131,11 +163,14 @@ pub async fn update_file_metadata(
     Ok(())
 }
 
-pub async fn insert_new_file(
-    db: &DatabaseConnection,
+pub async fn insert_new_file<E>(
+    db: &E,
     metadata: &FileMetadata,
     description: &mut FileDescription,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     let new_file = media_files::ActiveModel {
         file_name: ActiveValue::Set(description.file_name.to_string()),
         directory: ActiveValue::Set(description.directory.clone()),
@@ -190,21 +225,22 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
 
     // Example usage: Read 5 audio files at a time until no more files are available.
     while !scanner.has_ended() {
-        info!("Reading metadata for the next 5 files.");
-        let files = scanner.read_metadata(5);
-
-        for file in files {
-            info!("Processing file: {:?}", file.path);
-            match describe_file(&file.path, root_path) {
-                Ok(mut description) => match process_file(db, &file, &mut description).await {
-                    Ok(_) => info!("File processed successfully: {:?}", file.path),
-                    Err(e) => error!("Error processing file {:?}: {:?}", file.path, e),
-                },
-                Err(e) => {
-                    error!("Error describing file {:?}: {:?}", file.path, e);
-                }
+        info!("Reading metadata for the next 8 files.");
+        let files = scanner.read_metadata(8);
+        let mut descriptions: Vec<Option<FileDescription>> = files
+            .clone()
+            .into_iter()
+            .map(|file| describe_file(&file.path, root_path))
+            .map(|result| result.ok())
+            .collect();
+        match process_files(db, &files, &mut descriptions).await {
+            Ok(_) => {
+                debug!("Finished one batch");
             }
-        }
+            Err(e) => {
+                error!("Error describing files: {:?}", e);
+            }
+        };
     }
 
     if cleanup {
@@ -229,6 +265,7 @@ pub enum MetadataQueryError {
 #[derive(Debug, Clone, Default)]
 pub struct MetadataSummary {
     pub id: i32,
+    pub path: String,
     pub artist: String,
     pub album: String,
     pub title: String,
@@ -239,6 +276,12 @@ pub async fn get_metadata_summary_by_file_ids(
     db: &DatabaseConnection,
     file_ids: Vec<i32>,
 ) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
+    // Fetch all file entries for the given file IDs
+    let file_entries: Vec<media_files::Model> = media_files::Entity::find()
+        .filter(media_files::Column::Id.is_in(file_ids.clone()))
+        .all(db)
+        .await?;
+
     // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
         .filter(
@@ -270,15 +313,24 @@ pub async fn get_metadata_summary_by_file_ids(
         analysis_map.insert(entry.file_id, entry.duration);
     }
 
+    // Create a map for file entries
+    let mut file_map: HashMap<i32, String> = HashMap::new();
+    for entry in file_entries {
+        let path = format!("{}/{}", entry.directory, entry.file_name);
+        file_map.insert(entry.id, path);
+    }
+
     // Prepare the final result
     let mut results: Vec<MetadataSummary> = Vec::new();
     for file_id in file_ids {
+        let path = file_map.get(&file_id).cloned().unwrap_or_default();
         let _metadata: HashMap<String, String> = HashMap::new();
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = *analysis_map.get(&file_id).unwrap_or(&0.0);
 
         let summary = MetadataSummary {
             id: file_id,
+            path,
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
             title: metadata.get("track_title").cloned().unwrap_or_default(),
@@ -297,5 +349,8 @@ pub async fn get_metadata_summary_by_file_id(
 ) -> Result<MetadataSummary, MetadataQueryError> {
     let results = get_metadata_summary_by_file_ids(db, vec![file_id]).await?;
 
-    results.into_iter().next().ok_or(MetadataQueryError::NotFound(file_id))
+    results
+        .into_iter()
+        .next()
+        .ok_or(MetadataQueryError::NotFound(file_id))
 }

@@ -53,6 +53,15 @@ impl QueryRoot {
         media_metadata::Entity::find_by_id(id).one(db).await
     }
 
+    async fn media_cover_art(
+        &self,
+        ctx: &Context<'_>,
+        id: i32,
+    ) -> Result<Option<media_cover_arts::Model>, sea_orm::DbErr> {
+        let db = ctx.data::<DatabaseConnection>().unwrap();
+        media_cover_arts::Entity::find_by_id(id).one(db).await
+    }
+
     async fn playlist_items(&self, ctx: &Context<'_>) -> Result<Vec<playlist_items::Model>, DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
         playlist_items::Entity::find().all(db).await
@@ -129,6 +138,14 @@ impl media_files::Model {
     ) -> Result<Vec<media_metadata::Model>, sea_orm::DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
         self.find_related(media_metadata::Entity).all(db).await
+    }
+
+    async fn cover_art(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Vec<media_cover_arts::Model>, sea_orm::DbErr> {
+        let db = ctx.data::<DatabaseConnection>().unwrap();
+        self.find_related(media_cover_arts::Entity).all(db).await
     }
 
     async fn playlist_items(

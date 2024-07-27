@@ -12,7 +12,7 @@ use database::connection::{MainDbConnection, RecommendationDbConnection};
 pub struct RecommendMusicOptions<'a> {
     pub canonicalized_path: &'a Path,
     pub path: &'a Path,
-    pub item_id: Option<usize>,
+    pub item_id: Option<i32>,
     pub file_path: Option<&'a PathBuf>,
     pub num: usize,
     pub format: Option<&'a str>,
@@ -76,7 +76,7 @@ pub async fn recommend_music(
         Some(_) => {
             eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
         }
-        None => {
+        _none => {
             display_recommendations_in_table(path, &recommendations, &files);
         }
     }
@@ -89,7 +89,7 @@ pub async fn save_recommendations_as_json(
 ) {
     let output_path = match output {
         Some(path) => path,
-        None => {
+        _none => {
             eprintln!("Output file path is required when format is specified");
             return;
         }
@@ -132,7 +132,7 @@ pub async fn save_recommendations_as_m3u8(
 ) {
     let output_path = match output {
         Some(path) => path,
-        None => {
+        _none => {
             eprintln!("Output file path is required when format is specified");
             return;
         }

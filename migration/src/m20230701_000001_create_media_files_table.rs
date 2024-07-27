@@ -1,5 +1,7 @@
 use sea_orm_migration::prelude::*;
 
+use super::m20230728_000008_create_media_cover_arts_table::MediaCoverArts;
+
 pub struct Migration;
 
 impl MigrationName for Migration {
@@ -27,6 +29,15 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(MediaFiles::Extension).string().not_null())
                     .col(ColumnDef::new(MediaFiles::FileHash).char_len(64).not_null())
                     .col(ColumnDef::new(MediaFiles::LastModified).timestamp().not_null())
+                    .col(ColumnDef::new(MediaFiles::CoverArtId).integer().null())
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_media_files_cover_art_id")
+                            .from(MediaFiles::Table, MediaFiles::CoverArtId)
+                            .to(MediaCoverArts::Table, MediaCoverArts::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade)
+                    )
                     .to_owned(),
             )
             .await
@@ -48,4 +59,5 @@ pub enum MediaFiles {
     Extension,
     FileHash,
     LastModified,
+    CoverArtId,
 }

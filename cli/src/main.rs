@@ -1,15 +1,15 @@
-use log::{error};
 use clap::{Parser, Subcommand};
 use dunce::canonicalize;
+use log::error;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::metadata::scan_audio_library;
 use database::connection::{connect_main_db, connect_recommendation_db};
 
-use player::analysis::*;
-use player::playback::*;
-use player::recommend::*;
+use rune::analysis::*;
+use rune::playback::*;
+use rune::recommend::*;
 
 #[derive(Parser)]
 #[command(name = "Media Manager")]
@@ -43,7 +43,7 @@ enum Commands {
     Recommend {
         /// The ID of the item to get recommendations for
         #[arg(short, long, group = "recommend_group")]
-        item_id: Option<usize>,
+        item_id: Option<i32>,
 
         /// The file path of the music to get recommendations for
         #[arg(short = 'p', long, group = "recommend_group")]

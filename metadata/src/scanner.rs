@@ -59,6 +59,7 @@ impl<'a> AudioScanner<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct FileMetadata {
     pub path: PathBuf,
     pub metadata: Vec<(String, String)>,

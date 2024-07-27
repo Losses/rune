@@ -4,5 +4,5 @@
 # various Rust configurations.
 
 [workspace]
-members = ["./native/*"]
+members = ["./native/*", "./cli"]
 resolver = "2"

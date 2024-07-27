@@ -14,6 +14,7 @@ pub struct Model {
     pub extension: String,
     pub file_hash: String,
     pub last_modified: String,
+    pub cover_art_id: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -26,6 +27,8 @@ pub enum Relation {
     PlaylistItems,
     #[sea_orm(has_many = "super::user_logs::Entity")]
     UserLogs,
+    #[sea_orm(belongs_to = "super::media_cover_arts::Entity", from = "Column::CoverArtId", to = "super::media_cover_arts::Column::Id")]
+    MediaCoverArts,
 }
 
 impl Related<super::media_analysis::Entity> for Entity {
@@ -49,6 +52,16 @@ impl Related<super::playlist_items::Entity> for Entity {
 impl Related<super::user_logs::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::UserLogs.def()
+    }
+}
+
+impl Related<super::media_cover_arts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::MediaCoverArts.def()
+    }
+
+    fn via() -> Option<RelationDef> {
+        Some(Relation::MediaCoverArts.def().rev())
     }
 }
 
