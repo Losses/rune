@@ -1,8 +1,5 @@
-use log::error;
 use std::path::{Path, PathBuf};
 use walkdir::{DirEntry, WalkDir};
-
-use crate::reader::get_metadata;
 
 fn is_audio_file(entry: &DirEntry) -> bool {
     if let Some(ext) = entry.path().extension() {
@@ -56,50 +53,5 @@ impl<'a> AudioScanner<'a> {
 
     pub fn root_path(&self) -> &Path {
         &self.root_path
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct FileMetadata {
-    pub path: PathBuf,
-    pub metadata: Vec<(String, String)>,
-}
-
-pub struct MetadataScanner<'a> {
-    audio_scanner: AudioScanner<'a>,
-}
-
-impl<'a> MetadataScanner<'a> {
-    pub fn new<P: AsRef<Path>>(path: &'a P) -> Self {
-        MetadataScanner {
-            audio_scanner: AudioScanner::new(path),
-        }
-    }
-
-    pub fn read_metadata(&mut self, count: usize) -> Vec<FileMetadata> {
-        let mut metadata_list = Vec::new();
-        let files = self.audio_scanner.read_files(count);
-        for file in files {
-            let abs_path = file.path().to_path_buf();
-            let rel_path = abs_path
-                .strip_prefix(self.audio_scanner.root_path())
-                .unwrap()
-                .to_path_buf();
-            match get_metadata(abs_path.to_str().unwrap(), None) {
-                Ok(metadata) => metadata_list.push(FileMetadata {
-                    path: rel_path,
-                    metadata,
-                }),
-                Err(err) => {
-                    error!("Error reading metadata for {}: {}", abs_path.display(), err);
-                    // Continue to the next file instead of returning an empty list
-                }
-            }
-        }
-        metadata_list
-    }
-
-    pub fn has_ended(&self) -> bool {
-        self.audio_scanner.has_ended()
     }
 }

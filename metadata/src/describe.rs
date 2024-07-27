@@ -16,6 +16,7 @@ fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
 pub struct FileDescription {
     pub root_path: PathBuf,
     pub rel_path: PathBuf,
+    pub full_path: PathBuf,
     pub file_name: String,
     pub directory: String,
     pub extension: String,
@@ -89,6 +90,7 @@ pub fn describe_file(
     Ok(FileDescription {
         root_path: root_path.to_path_buf(),
         rel_path: rel_path.clone(),
+        full_path: full_path.clone(),
         file_name,
         directory,
         extension,

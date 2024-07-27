@@ -1,6 +1,7 @@
 use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
 use thiserror::Error;
 
 use sea_orm::entity::prelude::*;
@@ -8,37 +9,50 @@ use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
 
 use metadata::describe::{describe_file, FileDescription};
-use metadata::scanner::{FileMetadata, MetadataScanner};
+use metadata::reader::get_metadata;
+use metadata::scanner::AudioScanner;
 
 use crate::entities::media_metadata;
 use crate::entities::{media_analysis, media_files};
 
+#[derive(Debug, Clone)]
+pub struct FileMetadata {
+    pub path: PathBuf,
+    pub metadata: Vec<(String, String)>,
+}
+
+pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
+    match get_metadata(description.full_path.to_str().unwrap(), None) {
+        Ok(metadata) => Some(FileMetadata {
+            path: description.rel_path.clone(),
+            metadata,
+        }),
+        Err(err) => {
+            error!(
+                "Error reading metadata for {}: {}",
+                description.rel_path.display(),
+                err
+            );
+            // Continue to the next file instead of returning an empty list
+            None
+        }
+    }
+}
+
 pub async fn process_files(
     db: &DatabaseConnection,
-    metadatas: &[FileMetadata],
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Ensure the lengths of metadatas and descriptions match
-    if metadatas.len() != descriptions.len() {
-        return Err(
-            "The number of metadata entries does not match the number of descriptions".into(),
-        );
-    }
-
     info!("Starting to process multiple files");
 
     // Start a transaction
     let txn = db.begin().await?;
 
-    for (metadata, description) in metadatas.iter().zip(descriptions.iter_mut()) {
+    for description in descriptions.iter_mut() {
         match description {
             None => continue,
             Some(description) => {
-                info!(
-                    "Processing file: {}, in dir: {}",
-                    description.file_name.clone(),
-                    description.directory.clone(),
-                );
+                info!("Processing file: {}", description.file_name.clone());
 
                 // Check if the file already exists in the database
                 let existing_file = media_files::Entity::find()
@@ -81,8 +95,21 @@ pub async fn process_files(
                                 "File hash is different, updating metadata: {}",
                                 description.file_name.clone()
                             );
-                            update_file_metadata(&txn, &existing_file, description, metadata)
-                                .await?;
+
+                            let file_metadata = read_metadata(description);
+
+                            match file_metadata {
+                                Some(x) => {
+                                    update_file_metadata(&txn, &existing_file, description, &x)
+                                        .await?;
+                                }
+                                _none => {
+                                    error!(
+                                        "Unable to get metadata of the file: {:?}",
+                                        description.rel_path,
+                                    );
+                                }
+                            }
                         }
                     }
                 } else {
@@ -91,7 +118,20 @@ pub async fn process_files(
                         "File is new, inserting new record: {}",
                         description.file_name.clone()
                     );
-                    insert_new_file(&txn, metadata, description).await?;
+
+                    let file_metadata = read_metadata(description);
+
+                    match file_metadata {
+                        Some(x) => {
+                            insert_new_file(&txn, &x, description).await?;
+                        }
+                        _none => {
+                            error!(
+                                "Unable to get metadata of the file: {:?}",
+                                description.rel_path,
+                            );
+                        }
+                    }
                 }
             }
         };
@@ -219,21 +259,22 @@ async fn clean_up_database(
 
 pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, cleanup: bool) {
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
-    let mut scanner = MetadataScanner::new(&root_path_str);
+    let mut scanner = AudioScanner::new(&root_path_str);
 
     info!("Starting audio library scan.");
 
     // Example usage: Read 5 audio files at a time until no more files are available.
     while !scanner.has_ended() {
         info!("Reading metadata for the next 8 files.");
-        let files = scanner.read_metadata(8);
+        let files = scanner.read_files(8);
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(&file.path, root_path))
+            .map(|file| describe_file(&file.path().to_path_buf(), root_path))
             .map(|result| result.ok())
             .collect();
-        match process_files(db, &files, &mut descriptions).await {
+
+        match process_files(db, &mut descriptions).await {
             Ok(_) => {
                 debug!("Finished one batch");
             }
