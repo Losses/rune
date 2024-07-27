@@ -14,7 +14,7 @@ pub enum PlayerCommand {
     Stop,
     Next,
     Previous,
-    Seek(u32),
+    Seek(f64),
     AddToPlaylist { id: i32, path: PathBuf },
     RemoveFromPlaylist { index: usize },
     ClearPlaylist,
@@ -102,7 +102,7 @@ impl PlayerInternal {
                         PlayerCommand::Stop => self.stop(),
                         PlayerCommand::Next => self.next(),
                         PlayerCommand::Previous => self.previous(),
-                        PlayerCommand::Seek(position_ms) => self.seek(position_ms),
+                        PlayerCommand::Seek(position) => self.seek(position),
                         PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path),
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index),
                         PlayerCommand::ClearPlaylist => self.clear_playlist(),
@@ -246,19 +246,23 @@ impl PlayerInternal {
         }
     }
 
-    fn seek(&mut self, position_ms: u32) {
+    fn seek(&mut self, position: f64) {
         if let Some(sink) = &self.sink {
-            sink.try_seek(std::time::Duration::from_millis(position_ms as u64))
-                .unwrap();
-            info!("Seeking to position: {} ms", position_ms);
-            self.event_sender
-                .send(PlayerEvent::Playing {
-                    id: self.current_track_id.unwrap(),
-                    index: self.current_track_index.unwrap(),
-                    path: self.current_track_path.clone().unwrap(),
-                    position: sink.get_pos(),
-                })
-                .unwrap();
+            match sink.try_seek(std::time::Duration::from_secs(position as u64)) {
+                Ok(_) => {
+                    info!("Seeking to position: {} s", position);
+                    match self.event_sender.send(PlayerEvent::Playing {
+                        id: self.current_track_id.unwrap(),
+                        index: self.current_track_index.unwrap(),
+                        path: self.current_track_path.clone().unwrap(),
+                        position: sink.get_pos(),
+                    }) {
+                        Ok(_) => (),
+                        Err(e) => error!("Failed to send Playing event: {:?}", e),
+                    }
+                }
+                Err(e) => error!("Failed to seek: {:?}", e),
+            }
         } else {
             error!("Seek command received but no track is loaded");
         }

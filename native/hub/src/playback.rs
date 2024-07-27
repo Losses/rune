@@ -32,7 +32,15 @@ pub async fn handle_playback(
 
     match recommend_request(&main_db, &recommend_db, &lib_path, &player).await {
         Ok(r) => r,
-        Err(e) => error!("Error occured while binding play file request: {:#?}", e),
+        Err(e) => error!("Error occured while binding recommend request: {:#?}", e),
+    };
+
+    match playback_control_request(&player).await {
+        Ok(r) => r,
+        Err(e) => error!(
+            "Error occured while binding playback contorl request: {:#?}",
+            e
+        ),
     };
 
     let mut status_receiver = player.lock().unwrap().subscribe();
@@ -232,4 +240,85 @@ async fn recommend_and_play(
         .collect();
 
     Ok(recommended_ids)
+}
+
+pub async fn playback_control_request(player: &Arc<Mutex<Player>>) -> Result<()> {
+    use messages::playback::*;
+
+    let mut play_receiver = PlayRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut pause_receiver = PauseRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut next_receiver = NextRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut previous_receiver = PreviousRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut seek_receiver = SeekRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut remove_receiver = RemoveRequest::get_dart_signal_receiver()?; // GENERATED
+
+    // Handle Play Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while (play_receiver.recv().await).is_some() {
+                let player_guard = player.lock().unwrap();
+                player_guard.play();
+            }
+        }
+    });
+
+    // Handle Pause Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while (pause_receiver.recv().await).is_some() {
+                let player_guard = player.lock().unwrap();
+                player_guard.pause();
+            }
+        }
+    });
+
+    // Handle Next Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while (next_receiver.recv().await).is_some() {
+                let player_guard = player.lock().unwrap();
+                player_guard.next();
+            }
+        }
+    });
+
+    // Handle Previous Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while (previous_receiver.recv().await).is_some() {
+                let player_guard = player.lock().unwrap();
+                player_guard.previous();
+            }
+        }
+    });
+
+    // Handle Seek Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while let Some(dart_signal) = seek_receiver.recv().await {
+                let seek_request = dart_signal.message;
+                let player_guard = player.lock().unwrap();
+                player_guard.seek(seek_request.position_seconds);
+            }
+        }
+    });
+
+    // Handle Remove Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while let Some(dart_signal) = remove_receiver.recv().await {
+                let remove_request = dart_signal.message;
+                let player_guard = player.lock().unwrap();
+                player_guard.remove_from_playlist(remove_request.index as usize);
+            }
+        }
+    });
+
+    Ok(())
 }

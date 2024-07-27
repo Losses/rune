@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../messages/playback.pb.dart';
 
@@ -38,26 +39,73 @@ class PlaybackControllerState extends State<PlaybackController> {
         final title = playbackStatus.title;
         final duration = playbackStatus.duration;
 
-        return Column(
+        return Row(
           children: [
-            Column(
-              children: [
-                Text(title),
-                Slider(
-                  value: progressPercentage * 100,
-                  onChanged: (v) => print(v),
-                  style: const SliderThemeData(useThumbBall: false),
+            Expanded(
+              child: Center(
+                child: Container(
+                  constraints:
+                      const BoxConstraints(minWidth: 200, maxWidth: 400),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title),
+                      Slider(
+                        value: progressPercentage * 100,
+                        onChanged: (v) =>
+                            SeekRequest(positionSeconds: (v / 100) * duration)
+                                .sendSignalToRust(),
+                        style: const SliderThemeData(useThumbBall: false),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(formatTime(progressSeconds)),
+                          Text('-${formatTime(duration - progressSeconds)}'),
+                        ],
+                      )
+                    ],
+                  ),
                 ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(formatTime(progressSeconds)),
-                    Text('-${formatTime(duration - progressSeconds)}'),
-                  ],
-                )
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: () {
+                    PreviousRequest().sendSignalToRust(); // GENERATED
+                  },
+                  icon: const Icon(Symbols.skip_previous),
+                ),
+                IconButton(
+                  onPressed: () {
+                    switch (state) {
+                      case "Paused" || "Stopped":
+                        PlayRequest().sendSignalToRust(); // GENERATED
+                      case "Playing":
+                        PauseRequest().sendSignalToRust(); // GENERATED
+                    }
+                  },
+                  icon: state == "Playing"
+                      ? const Icon(Symbols.pause)
+                      : const Icon(Symbols.play_arrow),
+                ),
+                IconButton(
+                  onPressed: () {
+                    NextRequest().sendSignalToRust(); // GENERATED
+                  },
+                  icon: const Icon(Symbols.skip_next),
+                ),
+                // IconButton(
+                //   onPressed: () {
+                //     RemoveRequest(index: 1)
+                //         .sendSignalToRust(); // Remove item at index 1
+                //   },
+                //   icon: const Icon(Symbols.play_arrow),
+                // ),
               ],
             ),
-            Text("Status: $state"),
           ],
         );
       },

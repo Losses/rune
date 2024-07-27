@@ -205,7 +205,7 @@ impl Player {
         self.command(PlayerCommand::Previous);
     }
 
-    pub fn seek(&self, position_ms: u32) {
+    pub fn seek(&self, position_ms: f64) {
         self.command(PlayerCommand::Seek(position_ms));
     }
 

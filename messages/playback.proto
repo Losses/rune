@@ -16,3 +16,25 @@ message PlaybackStatus {
   string title = 6;
   double duration = 7;
 }
+
+// [RINF:DART-SIGNAL]
+message PlayRequest {}
+
+// [RINF:DART-SIGNAL]
+message PauseRequest {}
+
+// [RINF:DART-SIGNAL]
+message NextRequest {}
+
+// [RINF:DART-SIGNAL]
+message PreviousRequest {}
+
+// [RINF:DART-SIGNAL]
+message SeekRequest {
+    double position_seconds = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message RemoveRequest {
+    uint32 index = 1;
+}
