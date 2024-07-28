@@ -117,9 +117,10 @@ pub async fn get_media_files(
     page_key: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
-    let pages = media_files::Entity::find()
-        .order_by_asc(media_files::Column::Id)
-        .paginate(db, page_size.try_into().unwrap());
-
-    pages.fetch_page(page_key.try_into().unwrap()).await
+    media_files::Entity::find()
+        .cursor_by(media_files::Column::Id)
+        .after(page_key as i32)
+        .first(page_size as u64)
+        .all(db)
+        .await
 }

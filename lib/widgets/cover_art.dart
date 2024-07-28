@@ -10,13 +10,15 @@ import '../utils/cover_art_cache.dart';
 final coverArtCache = CoverArtCache();
 
 class EmptyCoverArt extends StatelessWidget {
-  const EmptyCoverArt({super.key});
+  final double size;
+
+  const EmptyCoverArt({super.key, required this.size});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 24,
-      height: 24,
+      width: size,
+      height: size,
       color: Colors.green,
       child: const Icon(Symbols.album),
     );
@@ -25,8 +27,9 @@ class EmptyCoverArt extends StatelessWidget {
 
 class CoverArt extends StatefulWidget {
   final int fileId;
+  final double size;
 
-  const CoverArt({super.key, required this.fileId});
+  const CoverArt({super.key, required this.fileId, required this.size});
 
   @override
   CoverArtState createState() => CoverArtState();
@@ -52,7 +55,7 @@ class CoverArtState extends State<CoverArt> {
 
   Future<void> _checkCache() async {
     final cachedCoverArt = await coverArtCache.getCoverArt(widget.fileId);
-    if (cachedCoverArt != null) {
+    if (cachedCoverArt != null && mounted) {
       setState(() {
         _coverArt = cachedCoverArt;
       });
@@ -70,13 +73,15 @@ class CoverArtState extends State<CoverArt> {
     _subscription = CoverArtResponse.rustSignalStream.listen((event) async {
       final response = event.message;
       if (response.fileId == widget.fileId) {
-        if (mounted) {
-          final coverArtData = Uint8List.fromList(response.coverArt);
-          await coverArtCache.saveCoverArt(widget.fileId, coverArtData);
-          setState(() {
-            _coverArt = coverArtData;
-          });
-        }
+        if (!mounted) return;
+
+        final coverArtData = Uint8List.fromList(response.coverArt);
+        await coverArtCache.saveCoverArt(widget.fileId, coverArtData);
+        if (!mounted) return;
+
+        setState(() {
+          _coverArt = coverArtData;
+        });
       }
     });
   }
@@ -91,14 +96,14 @@ class CoverArtState extends State<CoverArt> {
         }
       },
       child: _coverArt == null
-          ? Container(
-              width: 24,
-              height: 24,
-              color: Colors.magenta,
+          ? SizedBox(
+              width: widget.size,
+              height: widget.size,
             )
           : _coverArt!.isEmpty
-              ? const EmptyCoverArt()
-              : Image.memory(_coverArt!, width: 24, height: 24),
+              ? EmptyCoverArt(size: widget.size)
+              : Image.memory(_coverArt!,
+                  width: widget.size, height: widget.size),
     );
   }
 }

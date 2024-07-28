@@ -60,6 +60,13 @@ pub struct PlaylistItem {
     pub path: PathBuf,
 }
 
+#[derive(Debug, PartialEq)]
+enum InternalPlaybackState {
+    Playing,
+    Paused,
+    Stopped,
+}
+
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
@@ -69,6 +76,7 @@ pub(crate) struct PlayerInternal {
     current_track_path: Option<PathBuf>,
     sink: Option<Sink>,
     _stream: Option<OutputStream>,
+    state: InternalPlaybackState,
 }
 
 impl PlayerInternal {
@@ -85,6 +93,7 @@ impl PlayerInternal {
             current_track_path: None,
             sink: None,
             _stream: None,
+            state: InternalPlaybackState::Stopped,
         }
     }
 
@@ -109,7 +118,9 @@ impl PlayerInternal {
                     }
                 },
                 _ = progress_interval.tick() => {
-                    self.send_progress();
+                    if self.state != InternalPlaybackState::Stopped {
+                        self.send_progress();
+                    }
                 }
             }
         }
@@ -142,6 +153,7 @@ impl PlayerInternal {
                                     position: Duration::new(0, 0),
                                 })
                                 .unwrap();
+                            self.state = InternalPlaybackState::Playing;
                         }
                         Err(e) => {
                             error!("Failed to decode audio: {:?}", e);
@@ -153,6 +165,7 @@ impl PlayerInternal {
                                     error: "Failed to decode audio".to_string(),
                                 })
                                 .unwrap();
+                            self.state = InternalPlaybackState::Stopped;
                         }
                     }
                 }
@@ -166,6 +179,7 @@ impl PlayerInternal {
                             error: "Failed to open file".to_string(),
                         })
                         .unwrap();
+                    self.state = InternalPlaybackState::Stopped;
                 }
             }
         } else {
@@ -185,6 +199,7 @@ impl PlayerInternal {
                     position: Duration::new(0, 0),
                 })
                 .unwrap();
+            self.state = InternalPlaybackState::Playing;
         } else {
             info!("Loading the first track");
             self.load(Some(0));
@@ -204,6 +219,7 @@ impl PlayerInternal {
                     position: sink.get_pos(),
                 })
                 .unwrap();
+            self.state = InternalPlaybackState::Paused;
         }
     }
 
@@ -212,6 +228,7 @@ impl PlayerInternal {
             sink.stop();
             info!("Playback stopped");
             self.event_sender.send(PlayerEvent::Stopped).unwrap();
+            self.state = InternalPlaybackState::Stopped;
         } else {
             error!("Stop command received but no track is loaded");
         }
@@ -226,6 +243,7 @@ impl PlayerInternal {
             } else {
                 info!("End of playlist reached");
                 self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
+                self.state = InternalPlaybackState::Stopped;
             }
         } else {
             error!("Next command received but no track is currently playing");
@@ -260,6 +278,7 @@ impl PlayerInternal {
                         Ok(_) => (),
                         Err(e) => error!("Failed to send Playing event: {:?}", e),
                     }
+                    self.state = InternalPlaybackState::Playing;
                 }
                 Err(e) => error!("Failed to seek: {:?}", e),
             }
@@ -292,6 +311,7 @@ impl PlayerInternal {
         self._stream = None;
         info!("Playlist cleared");
         self.event_sender.send(PlayerEvent::Stopped).unwrap();
+        self.state = InternalPlaybackState::Stopped;
     }
 
     fn send_progress(&mut self) {
@@ -305,7 +325,9 @@ impl PlayerInternal {
                     })
                     .unwrap();
 
-                self.next();
+                if self.state != InternalPlaybackState::Stopped {
+                    self.next();
+                }
             } else {
                 self.event_sender
                     .send(PlayerEvent::Progress {

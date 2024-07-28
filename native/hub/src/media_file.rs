@@ -1,5 +1,5 @@
 use dunce::canonicalize;
-use log::error;
+use log::{error, info};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -20,6 +20,11 @@ pub async fn fetch_media_files(db: Arc<DatabaseConnection>, lib_path: Arc<String
         let fetch_media_files = dart_signal.message;
         let page_key = fetch_media_files.page_key;
         let page_size = fetch_media_files.page_size;
+
+        info!(
+            "Fetching media list, page: {}, size: {}",
+            page_key, page_size
+        );
 
         let media_entries = get_media_files(
             &db,

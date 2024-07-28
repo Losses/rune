@@ -1,4 +1,4 @@
-use log::{info, warn};
+use log::{info, warn, debug};
 use std::sync::Arc;
 
 use database::actions::cover_art::get_cover_art;
@@ -18,7 +18,7 @@ pub async fn handle_cover_art(main_db: Arc<MainDbConnection>, lib_path: Arc<Stri
         let request = dart_signal.message;
         let file_id = request.file_id;
 
-        info!("Requesting cover art: {}", file_id);
+        debug!("Requesting cover art: {}", file_id);
 
         match get_cover_art(&main_db, &lib_path, file_id).await {
             Ok(cover_art) => {

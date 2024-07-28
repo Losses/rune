@@ -3,7 +3,7 @@ package media_file;
 
 // [RINF:DART-SIGNAL]
 message FetchMediaFiles {
-  int32 page_key = 1;
+  int32 cursor = 1;
   int32 page_size = 2;
 }
 

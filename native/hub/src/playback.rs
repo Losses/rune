@@ -88,8 +88,6 @@ pub async fn handle_playback(
                 position.as_secs_f32() / (duration as f32)
             };
 
-            println!("{}", duration);
-
             messages::playback::PlaybackStatus {
                 state: status.state.to_string(),
                 progress_seconds: position.as_secs_f32(),
