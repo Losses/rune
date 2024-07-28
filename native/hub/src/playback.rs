@@ -111,6 +111,8 @@ pub async fn handle_playback(
                 album: meta.album.clone(),
                 title: meta.title.clone(),
                 duration: meta.duration,
+                id: status.id.unwrap_or(0).try_into().unwrap(),
+                index: status.index.unwrap_or(0).try_into().unwrap(),
             }
             .send_signal_to_dart();
         }

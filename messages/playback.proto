@@ -15,6 +15,8 @@ message PlaybackStatus {
   string album = 5;
   string title = 6;
   double duration = 7;
+  uint32 index = 8;
+  uint32 id = 9;
 }
 
 // [RINF:DART-SIGNAL]

@@ -3,13 +3,29 @@ import 'package:provider/provider.dart';
 
 import '../messages/playback.pb.dart';
 
-class PlaylistProvider with ChangeNotifier {
-  List<PlaylistItem> _items = [];
+final class PlaylistEntry {
+  final int index;
+  final PlaylistItem entry;
 
-  List<PlaylistItem> get items => _items;
+  const factory PlaylistEntry(int index, PlaylistItem entry) = PlaylistEntry._;
+
+  const PlaylistEntry._(this.index, this.entry);
+
+  @override
+  String toString() => "PlaylistEntry($index: $entry)";
+}
+
+class PlaylistProvider with ChangeNotifier {
+  List<PlaylistEntry> _items = [];
+
+  List<PlaylistEntry> get items => _items;
 
   void updatePlaylist(List<PlaylistItem> newItems) {
-    _items = newItems;
+    _items = newItems
+        .asMap()
+        .entries
+        .map((entry) => PlaylistEntry(entry.key, entry.value))
+        .toList();
     notifyListeners();
   }
 

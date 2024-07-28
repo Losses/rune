@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/status.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:provider/provider.dart';
 
@@ -85,61 +86,88 @@ class PlaylistButton extends StatelessWidget {
       ),
       builder: (context) {
         Typography typography = FluentTheme.of(context).typography;
+        Color accentColor = FluentTheme.of(context).accentColor;
 
-        return Consumer<PlaylistProvider>(
-          builder: (context, playlistProvider, child) {
-            List<Widget> items = playlistProvider.items.map((item) {
-              return ListTile.selectable(
-                key: ValueKey(item.id),
-                title: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(item.title),
-                    Opacity(
-                      opacity: 0.46,
-                      child: Text(item.artist, style: typography.caption),
-                    ),
-                  ],
+        return Selector<PlaybackStatusProvider, (int?, int?)>(
+            selector: (context, playbackStatusProvider) => (
+                  playbackStatusProvider.playbackStatus?.index,
+                  playbackStatusProvider.playbackStatus?.id
                 ),
-                onPressed: () {
-                  // Play the music here
-                },
-              );
-            }).toList();
+            builder: (context, playbackStatusProvider, child) {
+              return Consumer<PlaylistProvider>(
+                  builder: (context, playlistProvider, child) {
+                List<Widget> items = playlistProvider.items.map((item) {
+                  var isCurrent = playbackStatusProvider.$1 == item.index &&
+                      playbackStatusProvider.$2 == item.entry.id;
+                  var color = isCurrent ? accentColor : null;
 
-            if (items.isEmpty) {
-              items.add(
-                ListTile.selectable(
-                  leading: const Icon(Symbols.info),
-                  title: const Text('No items in playlist'),
-                  onPressed: () {},
-                ),
-              );
-            }
-
-            void onReorder(int oldIndex, int newIndex) {
-              playlistProvider.reorderItems(oldIndex, newIndex);
-            }
-
-            return LayoutBuilder(
-                builder: (BuildContext context, BoxConstraints constraints) {
-              double maxHeight = constraints.maxHeight - 100;
-
-              return ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: maxHeight,
-                    maxWidth: 400,
-                  ),
-                  child: FlyoutContent(
-                    child: ReorderableColumn(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      onReorder: onReorder,
-                      children: items,
+                  return ListTile.selectable(
+                    key: ValueKey(item.entry.id),
+                    title: Transform.translate(
+                      offset: const Offset(-8, 0),
+                      child: Row(
+                        children: [
+                          isCurrent
+                              ? Icon(Symbols.play_arrow, color: color, size: 24)
+                              : const SizedBox(width: 24),
+                          const SizedBox(
+                            width: 4,
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item.entry.title,
+                                  style: typography.body?.apply(color: color)),
+                              Opacity(
+                                opacity: isCurrent ? 0.8 : 0.46,
+                                child: Text(item.entry.artist,
+                                    style: typography.caption
+                                        ?.apply(color: color)),
+                              ),
+                            ],
+                          )
+                        ],
+                      ),
                     ),
-                  ));
+                    onPressed: () {
+                      // Play the music here
+                    },
+                  );
+                }).toList();
+
+                if (items.isEmpty) {
+                  items.add(
+                    ListTile.selectable(
+                      leading: const Icon(Symbols.info),
+                      title: const Text('No items in playlist'),
+                      onPressed: () {},
+                    ),
+                  );
+                }
+
+                void onReorder(int oldIndex, int newIndex) {
+                  playlistProvider.reorderItems(oldIndex, newIndex);
+                }
+
+                return LayoutBuilder(builder:
+                    (BuildContext context, BoxConstraints constraints) {
+                  double maxHeight = constraints.maxHeight - 100;
+
+                  return ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight: maxHeight,
+                        maxWidth: 400,
+                      ),
+                      child: FlyoutContent(
+                        child: ReorderableColumn(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          onReorder: onReorder,
+                          children: items,
+                        ),
+                      ));
+                });
+              });
             });
-          },
-        );
       },
     );
   }
@@ -168,14 +196,14 @@ class PlaybackController extends StatefulWidget {
 class PlaybackControllerState extends State<PlaybackController> {
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder(
-      stream: PlaybackStatus.rustSignalStream, // GENERATED
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
+    return Consumer<PlaybackStatusProvider>(
+      builder: (context, playbackStatusProvider, child) {
+        final playbackStatus = playbackStatusProvider.playbackStatus;
+
+        if (playbackStatus == null) {
           return const Text("No playback data received yet");
         }
 
-        final playbackStatus = snapshot.data!.message;
         final state = playbackStatus.state;
         final progressSeconds = playbackStatus.progressSeconds;
         final progressPercentage = playbackStatus.progressPercentage;

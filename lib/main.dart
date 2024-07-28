@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 import 'package:go_router/go_router.dart';
 import 'package:player/providers/playlist.dart';
+import 'package:player/providers/status.dart';
 import 'package:player/widgets/playback_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:system_theme/system_theme.dart';
@@ -59,6 +60,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
       ],
       child: const MyApp(),
     ),
@@ -79,6 +81,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     PlaylistUpdateHandler.init(context);
+    PlaybackStatusUpdateHandler.init(context);
 
     return ChangeNotifierProvider.value(
       value: _appTheme,
