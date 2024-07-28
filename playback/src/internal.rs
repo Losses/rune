@@ -18,6 +18,7 @@ pub enum PlayerCommand {
     AddToPlaylist { id: i32, path: PathBuf },
     RemoveFromPlaylist { index: usize },
     ClearPlaylist,
+    MovePlayListItem { old_index: usize, new_index: usize },
 }
 
 #[derive(Debug, Clone)]
@@ -119,6 +120,7 @@ impl PlayerInternal {
                         PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path).await,
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
+                        PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await
                     }
                 },
                 _ = progress_interval.tick() => {
@@ -357,6 +359,42 @@ impl PlayerInternal {
                     .unwrap();
             }
         }
+    }
+
+    async fn move_playlist_item(&mut self, old_index: usize, new_index: usize) {
+        if old_index >= self.playlist.len() || new_index >= self.playlist.len() {
+            error!("Move command received but index is out of bounds");
+            return;
+        }
+
+        if old_index == new_index {
+            debug!("Move command received but old_index is the same as new_index");
+            return;
+        }
+
+        debug!(
+            "Moving playlist item from index {} to index {}",
+            old_index, new_index
+        );
+
+        let item = self.playlist.remove(old_index);
+        self.playlist.insert(new_index, item);
+
+        // Adjust current track index if necessary
+        if let Some(current_index) = self.current_track_index {
+            if old_index == current_index {
+                // The currently playing track was moved
+                self.current_track_index = Some(new_index);
+            } else if old_index < current_index && new_index >= current_index {
+                // The track was moved past the current track
+                self.current_track_index = Some(current_index - 1);
+            } else if old_index > current_index && new_index <= current_index {
+                // The track was moved before the current track
+                self.current_track_index = Some(current_index + 1);
+            }
+        }
+
+        self.schedule_playlist_update();
     }
 
     fn schedule_playlist_update(&mut self) {

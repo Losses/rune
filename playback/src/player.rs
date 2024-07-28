@@ -250,4 +250,11 @@ impl Player {
     pub fn clear_playlist(&self) {
         self.command(PlayerCommand::ClearPlaylist);
     }
+
+    pub fn move_playlist_item(&self, old_index: usize, new_index: usize) {
+        self.command(PlayerCommand::MovePlayListItem {
+            old_index,
+            new_index,
+        })
+    }
 }

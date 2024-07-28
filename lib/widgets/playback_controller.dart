@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/playlist.dart';
+import 'package:reorderables/reorderables.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/playlist.dart';
 import '../messages/playback.pb.dart';
 
 String formatTime(double seconds) {
@@ -87,9 +88,10 @@ class PlaylistButton extends StatelessWidget {
 
         return Consumer<PlaylistProvider>(
           builder: (context, playlistProvider, child) {
-            var items = playlistProvider.items.map((item) {
-              return MenuFlyoutItem(
-                text: Column(
+            List<Widget> items = playlistProvider.items.map((item) {
+              return ListTile.selectable(
+                key: ValueKey(item.id),
+                title: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(item.title),
@@ -107,12 +109,16 @@ class PlaylistButton extends StatelessWidget {
 
             if (items.isEmpty) {
               items.add(
-                MenuFlyoutItem(
+                ListTile.selectable(
                   leading: const Icon(Symbols.info),
-                  text: const Text('No items in playlist'),
+                  title: const Text('No items in playlist'),
                   onPressed: () {},
                 ),
               );
+            }
+
+            void onReorder(int oldIndex, int newIndex) {
+              playlistProvider.reorderItems(oldIndex, newIndex);
             }
 
             return LayoutBuilder(
@@ -120,13 +126,17 @@ class PlaylistButton extends StatelessWidget {
               double maxHeight = constraints.maxHeight - 100;
 
               return ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: maxHeight,
-                ),
-                child: MenuFlyout(
-                  items: items,
-                ),
-              );
+                  constraints: BoxConstraints(
+                    maxHeight: maxHeight,
+                    maxWidth: 400,
+                  ),
+                  child: FlyoutContent(
+                    child: ReorderableColumn(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      onReorder: onReorder,
+                      children: items,
+                    ),
+                  ));
             });
           },
         );

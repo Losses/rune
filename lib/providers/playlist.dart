@@ -12,6 +12,18 @@ class PlaylistProvider with ChangeNotifier {
     _items = newItems;
     notifyListeners();
   }
+
+  void reorderItems(int oldIndex, int newIndex) {
+    if (newIndex > oldIndex) {
+      newIndex -= 1;
+    }
+    final item = items.removeAt(oldIndex);
+    items.insert(newIndex, item);
+    notifyListeners();
+
+    MovePlaylistItemRequest(oldIndex: oldIndex, newIndex: newIndex)
+        .sendSignalToRust();
+  }
 }
 
 class PlaylistUpdateHandler {

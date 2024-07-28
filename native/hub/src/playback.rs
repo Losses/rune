@@ -45,6 +45,14 @@ pub async fn handle_playback(
         ),
     };
 
+    match move_playlist_item_request(&player) {
+        Ok(r) => r,
+        Err(e) => error!(
+            "Error occured while binding move playlist item request: {:#?}",
+            e
+        ),
+    };
+
     let mut status_receiver = player.lock().unwrap().subscribe_status();
     let mut playlist_receiver = player.lock().unwrap().subscribe_playlist();
 
@@ -111,7 +119,6 @@ pub async fn handle_playback(
         let main_db = Arc::clone(&main_db_for_playlist);
 
         while let Ok(playlist) = playlist_receiver.recv().await {
-            println!("Received event!");
             send_playlist_update(&main_db, &playlist).await;
         }
     });
@@ -361,4 +368,27 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
             error!("Error happened while updating playlist: {:?}", e)
         }
     }
+}
+
+fn move_playlist_item_request(player: &Arc<Mutex<Player>>) -> Result<()> {
+    use messages::playback::*;
+    let mut ui_receiver = MovePlaylistItemRequest::get_dart_signal_receiver()?; // GENERATED
+
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while let Some(dart_signal) = ui_receiver.recv().await {
+                let request = dart_signal.message;
+                let old_index = request.old_index;
+                let new_index = request.new_index;
+
+                player.lock().unwrap().move_playlist_item(
+                    old_index.try_into().unwrap(),
+                    new_index.try_into().unwrap(),
+                );
+            }
+        }
+    });
+
+    Ok(())
 }
