@@ -14,6 +14,7 @@ pub enum PlayerCommand {
     Stop,
     Next,
     Previous,
+    Switch(usize),
     Seek(f64),
     AddToPlaylist { id: i32, path: PathBuf },
     RemoveFromPlaylist { index: usize },
@@ -116,6 +117,7 @@ impl PlayerInternal {
                         PlayerCommand::Stop => self.stop(),
                         PlayerCommand::Next => self.next(),
                         PlayerCommand::Previous => self.previous(),
+                        PlayerCommand::Switch(index) => self.switch(index),
                         PlayerCommand::Seek(position) => self.seek(position),
                         PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path).await,
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
@@ -278,6 +280,16 @@ impl PlayerInternal {
             }
         } else {
             error!("Previous command received but no track is currently playing");
+        }
+    }
+
+    fn switch(&mut self, index: usize) {
+        if index > 0 || index < self.playlist.len() {
+            self.current_track_index = Some(index);
+            debug!("Moving to previous track: {}", index);
+            self.load(Some(index));
+        } else {
+            error!("Previous command received but already at the first track");
         }
     }
 

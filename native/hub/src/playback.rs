@@ -273,6 +273,7 @@ pub async fn playback_control_request(player: &Arc<Mutex<Player>>) -> Result<()>
     let mut pause_receiver = PauseRequest::get_dart_signal_receiver()?; // GENERATED
     let mut next_receiver = NextRequest::get_dart_signal_receiver()?; // GENERATED
     let mut previous_receiver = PreviousRequest::get_dart_signal_receiver()?; // GENERATED
+    let mut switch_receiver = SwitchRequest::get_dart_signal_receiver()?; // GENERATED
     let mut seek_receiver = SeekRequest::get_dart_signal_receiver()?; // GENERATED
     let mut remove_receiver = RemoveRequest::get_dart_signal_receiver()?; // GENERATED
 
@@ -316,6 +317,18 @@ pub async fn playback_control_request(player: &Arc<Mutex<Player>>) -> Result<()>
             while (previous_receiver.recv().await).is_some() {
                 let player_guard = player.lock().unwrap();
                 player_guard.previous();
+            }
+        }
+    });
+
+    // Handle Seek Request
+    tokio::spawn({
+        let player = Arc::clone(player);
+        async move {
+            while let Some(dart_signal) = switch_receiver.recv().await {
+                let switch_request = dart_signal.message;
+                let player_guard = player.lock().unwrap();
+                player_guard.switch(switch_request.index.try_into().unwrap());
             }
         }
     });

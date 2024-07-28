@@ -32,6 +32,11 @@ message NextRequest {}
 message PreviousRequest {}
 
 // [RINF:DART-SIGNAL]
+message SwitchRequest {
+    uint32 index = 1;
+}
+
+// [RINF:DART-SIGNAL]
 message SeekRequest {
     double position_seconds = 1;
 }

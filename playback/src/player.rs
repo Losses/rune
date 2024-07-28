@@ -235,6 +235,10 @@ impl Player {
         self.command(PlayerCommand::Previous);
     }
 
+    pub fn switch(&self, index: usize) {
+        self.command(PlayerCommand::Switch(index));
+    }
+
     pub fn seek(&self, position_ms: f64) {
         self.command(PlayerCommand::Seek(position_ms));
     }

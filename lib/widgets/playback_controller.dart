@@ -129,9 +129,8 @@ class PlaylistButton extends StatelessWidget {
                         ],
                       ),
                     ),
-                    onPressed: () {
-                      // Play the music here
-                    },
+                    onPressed: () =>
+                        SwitchRequest(index: item.index).sendSignalToRust(),
                   );
                 }).toList();
 
