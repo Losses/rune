@@ -6,10 +6,12 @@ use std::sync::{Arc, Mutex};
 use tokio::task;
 
 use database::actions::file::get_file_by_id;
-use database::actions::metadata::{get_metadata_summary_by_file_id, MetadataSummary};
+use database::actions::metadata::{
+    get_metadata_summary_by_file_id, get_metadata_summary_by_file_ids, MetadataSummary,
+};
 use database::actions::recommendation::get_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
-use playback::player::Player;
+use playback::player::{Player, PlaylistStatus};
 
 use crate::common::Result;
 use crate::connection;
@@ -43,11 +45,16 @@ pub async fn handle_playback(
         ),
     };
 
-    let mut status_receiver = player.lock().unwrap().subscribe();
+    let mut status_receiver = player.lock().unwrap().subscribe_status();
+    let mut playlist_receiver = player.lock().unwrap().subscribe_playlist();
+
+    // Clone main_db for each task
+    let main_db_for_status = Arc::clone(&main_db);
+    let main_db_for_playlist = Arc::clone(&main_db);
 
     info!("Initializing event listeners.");
     task::spawn(async move {
-        let main_db = Arc::clone(&main_db);
+        let main_db = Arc::clone(&main_db_for_status);
         let mut cached_meta: Option<MetadataSummary> = None;
         let mut last_id: Option<i32> = None;
 
@@ -98,6 +105,14 @@ pub async fn handle_playback(
                 duration: meta.duration,
             }
             .send_signal_to_dart();
+        }
+    });
+    task::spawn(async move {
+        let main_db = Arc::clone(&main_db_for_playlist);
+
+        while let Ok(playlist) = playlist_receiver.recv().await {
+            println!("Received event!");
+            send_playlist_update(&main_db, &playlist).await;
         }
     });
 
@@ -321,4 +336,29 @@ pub async fn playback_control_request(player: &Arc<Mutex<Player>>) -> Result<()>
     });
 
     Ok(())
+}
+
+pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistStatus) {
+    use messages::playback::*;
+
+    let file_ids: Vec<i32> = playlist.items.clone();
+
+    match get_metadata_summary_by_file_ids(db, file_ids).await {
+        Ok(summaries) => {
+            let items = summaries
+                .into_iter()
+                .map(|item| PlaylistItem {
+                    id: item.id,
+                    artist: item.artist,
+                    album: item.album,
+                    title: item.title,
+                    duration: item.duration,
+                })
+                .collect();
+            PlaylistUpdate { items }.send_signal_to_dart(); // GENERATED
+        }
+        Err(e) => {
+            error!("Error happened while updating playlist: {:?}", e)
+        }
+    }
 }

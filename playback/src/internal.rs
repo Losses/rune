@@ -53,8 +53,10 @@ pub enum PlayerEvent {
         path: PathBuf,
         position: Duration,
     },
+    PlaylistUpdated(Vec<i32>),
 }
 
+#[derive(Debug, Clone)]
 pub struct PlaylistItem {
     pub id: i32,
     pub path: PathBuf,
@@ -290,12 +292,14 @@ impl PlayerInternal {
     fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
         debug!("Adding to playlist: {:?}", path);
         self.playlist.push(PlaylistItem { id, path });
+        self.send_playlist_updated();
     }
 
     fn remove_from_playlist(&mut self, index: usize) {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", index);
             self.playlist.remove(index);
+            self.send_playlist_updated();
         } else {
             error!(
                 "Remove command received but index {} is out of bounds",
@@ -311,6 +315,7 @@ impl PlayerInternal {
         self._stream = None;
         info!("Playlist cleared");
         self.event_sender.send(PlayerEvent::Stopped).unwrap();
+        self.send_playlist_updated();
         self.state = InternalPlaybackState::Stopped;
     }
 
@@ -339,5 +344,13 @@ impl PlayerInternal {
                     .unwrap();
             }
         }
+    }
+
+    fn send_playlist_updated(&self) {
+        self.event_sender
+            .send(PlayerEvent::PlaylistUpdated(
+                self.playlist.clone().into_iter().map(|x| x.id).collect(),
+            ))
+            .unwrap();
     }
 }

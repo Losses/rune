@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/playlist.dart';
+import 'package:provider/provider.dart';
 
 import '../messages/playback.pb.dart';
 
@@ -13,6 +15,116 @@ String formatTime(double seconds) {
   String secondsStr = remainingSeconds.toString().padLeft(2, '0');
 
   return '$minutesStr:$secondsStr';
+}
+
+class PreviousButton extends StatelessWidget {
+  const PreviousButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () {
+        PreviousRequest().sendSignalToRust(); // GENERATED
+      },
+      icon: const Icon(Symbols.skip_previous),
+    );
+  }
+}
+
+class PlayPauseButton extends StatelessWidget {
+  final String state;
+
+  const PlayPauseButton({required this.state, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () {
+        switch (state) {
+          case "Paused":
+          case "Stopped":
+            PlayRequest().sendSignalToRust(); // GENERATED
+            break;
+          case "Playing":
+            PauseRequest().sendSignalToRust(); // GENERATED
+            break;
+        }
+      },
+      icon: state == "Playing"
+          ? const Icon(Symbols.pause)
+          : const Icon(Symbols.play_arrow),
+    );
+  }
+}
+
+class NextButton extends StatelessWidget {
+  const NextButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () {
+        NextRequest().sendSignalToRust(); // GENERATED
+      },
+      icon: const Icon(Symbols.skip_next),
+    );
+  }
+}
+
+class PlaylistButton extends StatelessWidget {
+  PlaylistButton({super.key});
+
+  final contextController = FlyoutController();
+
+  openContextMenu(BuildContext context) {
+    contextController.showFlyout(
+      barrierColor: Colors.black.withOpacity(0.1),
+      autoModeConfiguration: FlyoutAutoConfiguration(
+        preferredMode: FlyoutPlacementMode.topCenter,
+      ),
+      builder: (context) {
+        return Consumer<PlaylistProvider>(
+          builder: (context, playlistProvider, child) {
+            var items = playlistProvider.items.map((item) {
+              return MenuFlyoutItem(
+                text: Text(item.title),
+                onPressed: () {
+                  // Play the music here
+                },
+              );
+            }).toList();
+
+            if (items.isEmpty) {
+              items.add(
+                MenuFlyoutItem(
+                  leading: const Icon(Symbols.info),
+                  text: const Text('No items in playlist'),
+                  onPressed: () {},
+                ),
+              );
+            }
+
+            return MenuFlyout(
+              items: items,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FlyoutTarget(
+      controller: contextController,
+      child: IconButton(
+        onPressed: () {
+          openContextMenu(context);
+        },
+        icon: const Icon(Symbols.list_alt),
+      ),
+    );
+  }
 }
 
 class PlaybackController extends StatefulWidget {
@@ -72,38 +184,10 @@ class PlaybackControllerState extends State<PlaybackController> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                IconButton(
-                  onPressed: () {
-                    PreviousRequest().sendSignalToRust(); // GENERATED
-                  },
-                  icon: const Icon(Symbols.skip_previous),
-                ),
-                IconButton(
-                  onPressed: () {
-                    switch (state) {
-                      case "Paused" || "Stopped":
-                        PlayRequest().sendSignalToRust(); // GENERATED
-                      case "Playing":
-                        PauseRequest().sendSignalToRust(); // GENERATED
-                    }
-                  },
-                  icon: state == "Playing"
-                      ? const Icon(Symbols.pause)
-                      : const Icon(Symbols.play_arrow),
-                ),
-                IconButton(
-                  onPressed: () {
-                    NextRequest().sendSignalToRust(); // GENERATED
-                  },
-                  icon: const Icon(Symbols.skip_next),
-                ),
-                // IconButton(
-                //   onPressed: () {
-                //     RemoveRequest(index: 1)
-                //         .sendSignalToRust(); // Remove item at index 1
-                //   },
-                //   icon: const Icon(Symbols.play_arrow),
-                // ),
+                const PreviousButton(),
+                PlayPauseButton(state: state),
+                const NextButton(),
+                PlaylistButton(),
               ],
             ),
           ],

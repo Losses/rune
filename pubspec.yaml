@@ -52,6 +52,7 @@ dependencies:
   path: ^1.9.0
   crypto: ^3.0.3
   crclib: ^3.0.0
+  reorderables: ^0.6.0
 
 dev_dependencies:
   build_runner: ^2.4.11

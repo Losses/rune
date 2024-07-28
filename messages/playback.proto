@@ -38,3 +38,17 @@ message SeekRequest {
 message RemoveRequest {
     uint32 index = 1;
 }
+
+// [RINF:RUST-SIGNAL]
+message PlaylistItem {
+  int32 id = 1;
+  string artist = 2;
+  string album = 3;
+  string title = 4;
+  double duration = 5;
+}
+
+// [RINF:RUST-SIGNAL]
+message PlaylistUpdate {
+  repeated PlaylistItem items = 1;
+}

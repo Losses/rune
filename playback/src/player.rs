@@ -1,12 +1,11 @@
-// player.rs
-
+use log::{debug, error};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal, PlaylistItem};
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
@@ -15,6 +14,12 @@ pub struct PlayerStatus {
     pub path: Option<PathBuf>,
     pub position: Duration,
     pub state: PlaybackState,
+    pub playlist: Vec<i32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PlaylistStatus {
+    pub items: Vec<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +45,7 @@ pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
     current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: broadcast::Sender<PlayerStatus>,
+    playlist_sender: broadcast::Sender<PlaylistStatus>,
 }
 
 impl Default for Player {
@@ -57,6 +63,8 @@ impl Player {
         let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
         // Create a broadcast channel for status updates
         let (status_sender, _) = broadcast::channel(16);
+        // Create a broadcast channel for playlist updates
+        let (playlist_sender, _) = broadcast::channel(16);
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
@@ -65,6 +73,7 @@ impl Player {
             path: None,
             position: Duration::new(0, 0),
             state: PlaybackState::Stopped,
+            playlist: Vec::new(),
         }));
 
         // Create the Player instance and wrap the command sender in Arc<Mutex>
@@ -72,6 +81,7 @@ impl Player {
             commands: Arc::new(Mutex::new(cmd_tx)),
             current_status: current_status.clone(),
             status_sender: status_sender.clone(),
+            playlist_sender: playlist_sender.clone(),
         };
 
         // Start a new thread to run the PlayerInternal logic
@@ -87,6 +97,7 @@ impl Player {
         // Start a new thread to handle events and update the status
         let status_clone = current_status.clone();
         let status_sender_clone = status_sender.clone();
+        let playlist_sender_clone = playlist_sender.clone();
         thread::spawn(move || {
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
@@ -153,6 +164,17 @@ impl Player {
                         // Handle error event, possibly log it
                         eprintln!("Error at index {}({}): {:?} - {}", index, id, path, error);
                     }
+                    PlayerEvent::PlaylistUpdated(playlist) => {
+                        status.playlist = playlist.clone();
+                        debug!("Sending playlist status");
+                        if let Err(e) = playlist_sender_clone.send(PlaylistStatus {
+                            items: playlist.clone(),
+                        }) {
+                            error!("Failed to send playlist status: {:?}", e);
+                        } else {
+                            debug!("Playlist status sent successfully");
+                        }
+                    }
                 }
                 // Send the updated status to all subscribers
                 status_sender_clone.send(status.clone()).unwrap();
@@ -167,8 +189,16 @@ impl Player {
         self.current_status.lock().unwrap().clone()
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<PlayerStatus> {
+    pub fn get_playlist(&self) -> Vec<i32> {
+        self.current_status.lock().unwrap().playlist.clone()
+    }
+
+    pub fn subscribe_status(&self) -> broadcast::Receiver<PlayerStatus> {
         self.status_sender.subscribe()
+    }
+
+    pub fn subscribe_playlist(&self) -> broadcast::Receiver<PlaylistStatus> {
+        self.playlist_sender.subscribe()
     }
 
     // Send a command to the internal player

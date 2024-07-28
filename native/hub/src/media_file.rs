@@ -18,17 +18,17 @@ pub async fn fetch_media_files(db: Arc<DatabaseConnection>, lib_path: Arc<String
 
     while let Some(dart_signal) = receiver.recv().await {
         let fetch_media_files = dart_signal.message;
-        let page_key = fetch_media_files.page_key;
+        let cursor = fetch_media_files.cursor;
         let page_size = fetch_media_files.page_size;
 
         info!(
             "Fetching media list, page: {}, size: {}",
-            page_key, page_size
+            cursor, page_size
         );
 
         let media_entries = get_media_files(
             &db,
-            page_key.try_into().unwrap(),
+            cursor.try_into().unwrap(),
             page_size.try_into().unwrap(),
         )
         .await?;

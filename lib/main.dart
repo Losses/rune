@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 import 'package:go_router/go_router.dart';
+import 'package:player/providers/playlist.dart';
 import 'package:player/widgets/playback_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:system_theme/system_theme.dart';
@@ -54,7 +55,14 @@ void main() async {
     });
   }
 
-  runApp(const MyApp());
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+      ],
+      child: const MyApp(),
+    ),
+  );
 
   Future.wait([
     DeferredWidget.preload(home.loadLibrary),
@@ -70,6 +78,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    PlaylistUpdateHandler.init(context);
+
     return ChangeNotifierProvider.value(
       value: _appTheme,
       builder: (context, child) {
@@ -386,7 +396,8 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
     builder: (context, state, child) {
       return MyHomePage(
         shellContext: _shellNavigatorKey.currentContext,
-        child: Column(children: [Expanded(child: child), const PlaybackController()]),
+        child: Column(
+            children: [Expanded(child: child), const PlaybackController()]),
       );
     },
     routes: <GoRoute>[

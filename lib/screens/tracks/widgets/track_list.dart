@@ -32,7 +32,7 @@ class TrackListViewState extends State<TrackListView> {
   Future<void> _fetchPage(int cursor) async {
     try {
       final fetchMediaFiles = FetchMediaFiles(
-        pageKey: cursor,
+        cursor: cursor,
         pageSize: _pageSize,
       );
       fetchMediaFiles.sendSignalToRust(); // GENERATED
@@ -87,52 +87,52 @@ class TrackListItem extends StatelessWidget {
     required this.item,
   });
 
+  openContextMenu(Offset localPosition, BuildContext context) {
+    final targetContext = contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    contextController.showFlyout(
+      barrierColor: Colors.black.withOpacity(0.1),
+      position: position,
+      builder: (context) {
+        var items = [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.rocket),
+            text: const Text('Roaming'),
+            onPressed: () => {
+              RecommendAndPlayRequest(fileId: item.id)
+                  .sendSignalToRust() // GENERATED
+            },
+          ),
+        ];
+
+        return MenuFlyout(
+          items: items,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    openContextMenu(Offset localPosition) {
-      final targetContext = contextAttachKey.currentContext;
-
-      if (targetContext == null) return;
-      final box = targetContext.findRenderObject() as RenderBox;
-      final position = box.localToGlobal(
-        localPosition,
-        ancestor: Navigator.of(context).context.findRenderObject(),
-      );
-
-      contextController.showFlyout(
-        barrierColor: Colors.black.withOpacity(0.1),
-        position: position,
-        builder: (context) {
-          var items = [
-            MenuFlyoutItem(
-              leading: const Icon(Symbols.rocket),
-              text: const Text('Roaming'),
-              onPressed: () => {
-                RecommendAndPlayRequest(fileId: item.id)
-                    .sendSignalToRust() // GENERATED
-              },
-            ),
-          ];
-
-          return MenuFlyout(
-            items: items,
-          );
-        },
-      );
-    }
-
     Typography typography = FluentTheme.of(context).typography;
 
     return GestureDetector(
         onSecondaryTapUp: isDesktop
             ? (d) {
-                openContextMenu(d.localPosition);
+                openContextMenu(d.localPosition, context);
               }
             : null,
         onLongPressEnd: isDesktop
             ? null
             : (d) {
-                openContextMenu(d.localPosition);
+                openContextMenu(d.localPosition, context);
               },
         child: FlyoutTarget(
             key: contextAttachKey,
