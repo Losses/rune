@@ -34,54 +34,84 @@ pub async fn analysis_audio_library(
         batch_size
     );
 
-    loop {
-        // Fetch the next batch of files
-        let files: Vec<media_files::Model> =
-            cursor.first(batch_size.try_into().unwrap()).all(db).await?;
+    let (tx, rx) = async_channel::bounded(batch_size);
 
-        if files.is_empty() {
-            info!("No more files to process. Exiting loop.");
-            break;
-        }
+    // Producer task: fetch batches of files and send them to the consumer
+    let producer = async {
+        loop {
+            // Fetch the next batch of files
+            let files: Vec<media_files::Model> =
+                cursor.first(batch_size.try_into().unwrap()).all(db).await?;
 
-        info!("Processing batch of {} files", files.len());
+            if files.is_empty() {
+                info!("No more files to process. Exiting loop.");
+                break;
+            }
 
-        // Process each file in parallel using multiple cores
-        let tasks: Vec<_> = files
-            .clone()
-            .into_iter()
-            .map(|file| {
-                let db = db.clone();
-                let root_path = root_path.to_path_buf();
-                let file_id = file.id;
-                task::spawn(async move {
-                    info!("Processing file with ID: {}", file_id);
-                    process_file_if_needed(&db, &file, &root_path).await
-                })
-            })
-            .collect();
+            for file in &files {
+                tx.send(file.clone()).await.unwrap();
+            }
 
-        // Wait for all tasks to complete
-        let results: Vec<_> = stream::iter(tasks)
-            .buffer_unordered(batch_size)
-            .collect()
-            .await;
-
-        // Check for any errors
-        for result in results {
-            if let Err(e) = result {
-                error!("Error processing file: {:?}", e);
+            // Move the cursor to the next batch
+            if let Some(last_file) = files.last() {
+                info!("Moving cursor after file ID: {}", last_file.id);
+                cursor.after(last_file.id);
+            } else {
+                break;
             }
         }
 
-        // Move the cursor to the next batch
-        if let Some(last_file) = files.last() {
-            info!("Moving cursor after file ID: {}", last_file.id);
-            cursor.after(last_file.id);
-        } else {
-            break;
+        drop(tx); // Close the channel to signal consumers to stop
+        Ok::<(), sea_orm::DbErr>(())
+    };
+
+    // Consumer task: process files as they are received
+    let consumer = async {
+        let mut tasks = Vec::new();
+
+        while let Ok(file) = rx.recv().await {
+            let db = db.clone();
+            let root_path = root_path.to_path_buf();
+            let file_id = file.id;
+
+            let task = task::spawn(async move {
+                info!("Processing file with ID: {}", file_id);
+                process_file_if_needed(&db, &file, &root_path).await
+            });
+
+            tasks.push(task);
+
+            // Process tasks in parallel up to the batch size
+            if tasks.len() >= batch_size {
+                let results: Vec<_> = stream::iter(tasks).buffer_unordered(batch_size).collect().await;
+                tasks = Vec::new();
+
+                for result in results {
+                    if let Err(e) = result {
+                        error!("Error processing file: {:?}", e);
+                    }
+                }
+            }
         }
-    }
+
+        // Process remaining tasks
+        if !tasks.is_empty() {
+            let results: Vec<_> = stream::iter(tasks).buffer_unordered(batch_size).collect().await;
+            for result in results {
+                if let Err(e) = result {
+                    error!("Error processing file: {:?}", e);
+                }
+            }
+        }
+
+        Ok::<(), sea_orm::DbErr>(())
+    };
+
+    // Run producer and consumer concurrently
+    let (producer_result, consumer_result) = futures::join!(producer, consumer);
+
+    producer_result?;
+    consumer_result?;
 
     info!("Audio library analysis completed.");
     Ok(())
