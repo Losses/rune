@@ -83,11 +83,22 @@ class PlaylistButton extends StatelessWidget {
         preferredMode: FlyoutPlacementMode.topCenter,
       ),
       builder: (context) {
+        Typography typography = FluentTheme.of(context).typography;
+
         return Consumer<PlaylistProvider>(
           builder: (context, playlistProvider, child) {
             var items = playlistProvider.items.map((item) {
               return MenuFlyoutItem(
-                text: Text(item.title),
+                text: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.title),
+                    Opacity(
+                      opacity: 0.46,
+                      child: Text(item.artist, style: typography.caption),
+                    ),
+                  ],
+                ),
                 onPressed: () {
                   // Play the music here
                 },
@@ -104,9 +115,19 @@ class PlaylistButton extends StatelessWidget {
               );
             }
 
-            return MenuFlyout(
-              items: items,
-            );
+            return LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+              double maxHeight = constraints.maxHeight - 100;
+
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: maxHeight,
+                ),
+                child: MenuFlyout(
+                  items: items,
+                ),
+              );
+            });
           },
         );
       },

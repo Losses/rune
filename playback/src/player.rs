@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal, PlaylistItem};
+use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {

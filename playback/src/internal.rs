@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
+use tokio::time::{interval, sleep_until, Duration, Instant};
 
 #[derive(Debug)]
 pub enum PlayerCommand {
@@ -79,6 +79,7 @@ pub(crate) struct PlayerInternal {
     sink: Option<Sink>,
     _stream: Option<OutputStream>,
     state: InternalPlaybackState,
+    debounce_timer: Option<Instant>,
 }
 
 impl PlayerInternal {
@@ -96,6 +97,7 @@ impl PlayerInternal {
             sink: None,
             _stream: None,
             state: InternalPlaybackState::Stopped,
+            debounce_timer: None,
         }
     }
 
@@ -114,15 +116,26 @@ impl PlayerInternal {
                         PlayerCommand::Next => self.next(),
                         PlayerCommand::Previous => self.previous(),
                         PlayerCommand::Seek(position) => self.seek(position),
-                        PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path),
-                        PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index),
-                        PlayerCommand::ClearPlaylist => self.clear_playlist(),
+                        PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path).await,
+                        PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
+                        PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                     }
                 },
                 _ = progress_interval.tick() => {
                     if self.state != InternalPlaybackState::Stopped {
                         self.send_progress();
                     }
+                },
+                _ = async {
+                    if let Some(timer) = self.debounce_timer {
+                        sleep_until(timer).await;
+                        true
+                    } else {
+                        false
+                    }
+                }, if self.debounce_timer.is_some() => {
+                    self.debounce_timer = None;
+                    self.send_playlist_updated();
                 }
             }
         }
@@ -289,17 +302,17 @@ impl PlayerInternal {
         }
     }
 
-    fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
+    async fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
         debug!("Adding to playlist: {:?}", path);
         self.playlist.push(PlaylistItem { id, path });
-        self.send_playlist_updated();
+        self.schedule_playlist_update();
     }
 
-    fn remove_from_playlist(&mut self, index: usize) {
+    async fn remove_from_playlist(&mut self, index: usize) {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", index);
             self.playlist.remove(index);
-            self.send_playlist_updated();
+            self.schedule_playlist_update();
         } else {
             error!(
                 "Remove command received but index {} is out of bounds",
@@ -308,14 +321,14 @@ impl PlayerInternal {
         }
     }
 
-    fn clear_playlist(&mut self) {
+    async fn clear_playlist(&mut self) {
         self.playlist.clear();
         self.current_track_index = None;
         self.sink = None;
         self._stream = None;
         info!("Playlist cleared");
         self.event_sender.send(PlayerEvent::Stopped).unwrap();
-        self.send_playlist_updated();
+        self.schedule_playlist_update();
         self.state = InternalPlaybackState::Stopped;
     }
 
@@ -344,6 +357,11 @@ impl PlayerInternal {
                     .unwrap();
             }
         }
+    }
+
+    fn schedule_playlist_update(&mut self) {
+        let debounce_duration = Duration::from_millis(60);
+        self.debounce_timer = Some(Instant::now() + debounce_duration);
     }
 
     fn send_playlist_updated(&self) {
