@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:player/providers/status.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:provider/provider.dart';
@@ -86,7 +87,10 @@ class PlaylistButton extends StatelessWidget {
       ),
       builder: (context) {
         Typography typography = FluentTheme.of(context).typography;
-        Color accentColor = FluentTheme.of(context).accentColor;
+        Color accentColor = Color.alphaBlend(
+            FluentTheme.of(context).activeColor.withAlpha(100),
+            FluentTheme.of(context).accentColor,
+            );
 
         return Selector<PlaybackStatusProvider, (int?, int?)>(
             selector: (context, playbackStatusProvider) => (

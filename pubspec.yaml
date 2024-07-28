@@ -53,6 +53,7 @@ dependencies:
   crypto: ^3.0.3
   crclib: ^3.0.0
   reorderables: ^0.6.0
+  material_color_utilities: ^0.8.0
 
 dev_dependencies:
   build_runner: ^2.4.11
