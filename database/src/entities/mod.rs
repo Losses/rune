@@ -3,9 +3,9 @@
 pub mod prelude;
 
 pub mod media_analysis;
+pub mod media_cover_art;
 pub mod media_files;
 pub mod media_metadata;
-pub mod media_cover_art;
 pub mod playlist_items;
 pub mod playlists;
 pub mod smart_playlists;

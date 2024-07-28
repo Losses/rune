@@ -9,5 +9,5 @@ message CoverArtRequest {
 // [RINF:RUST-SIGNAL]
 message CoverArtResponse {
   int32 file_id = 1;
-  bytes cover_art = 2;
+  optional bytes cover_art = 2;
 }

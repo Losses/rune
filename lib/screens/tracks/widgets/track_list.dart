@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/cover_art.dart';
 
 import '../../../utils/platform.dart';
 import '../../../messages/playback.pb.dart';
@@ -132,7 +133,12 @@ class TrackListItem extends StatelessWidget {
             key: contextAttachKey,
             controller: contextController,
             child: ListTile.selectable(
-                title: Text(item.path),
+                title: Row(
+                  children: [
+                    CoverArt(fileId: item.id),
+                    Text(item.path),
+                  ],
+                ),
                 onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
                     .sendSignalToRust() // GENERATED,
                 )));

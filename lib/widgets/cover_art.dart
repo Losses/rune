@@ -1,7 +1,27 @@
+import 'dart:async';
 import 'dart:typed_data';
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 
 import '../messages/cover_art.pb.dart';
+import '../utils/cover_art_cache.dart';
+
+final coverArtCache = CoverArtCache();
+
+class EmptyCoverArt extends StatelessWidget {
+  const EmptyCoverArt({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 24,
+      height: 24,
+      color: Colors.green,
+      child: const Icon(Symbols.album),
+    );
+  }
+}
 
 class CoverArt extends StatefulWidget {
   final int fileId;
@@ -13,38 +33,72 @@ class CoverArt extends StatefulWidget {
 }
 
 class CoverArtState extends State<CoverArt> {
-  late Stream<CoverArtResponse> _coverArtStream;
+  bool _hasRequested = false;
+  Uint8List? _coverArt;
+  StreamSubscription? _subscription;
 
   @override
   void initState() {
     super.initState();
-    _coverArtStream = CoverArtResponse.rustSignalStream
-        as Stream<CoverArtResponse>; // GENERATED
-    _requestCoverArt();
+    _checkCache();
+    _listenToCoverArtResponse();
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkCache() async {
+    final cachedCoverArt = await coverArtCache.getCoverArt(widget.fileId);
+    if (cachedCoverArt != null) {
+      setState(() {
+        _coverArt = cachedCoverArt;
+      });
+    }
   }
 
   void _requestCoverArt() {
-    CoverArtRequest(fileId: widget.fileId).sendSignalToRust(); // GENERATED
+    if (!_hasRequested && _coverArt == null) {
+      CoverArtRequest(fileId: widget.fileId).sendSignalToRust(); // GENERATED
+      _hasRequested = true;
+    }
+  }
+
+  void _listenToCoverArtResponse() {
+    _subscription = CoverArtResponse.rustSignalStream.listen((event) async {
+      final response = event.message;
+      if (response.fileId == widget.fileId) {
+        if (mounted) {
+          final coverArtData = Uint8List.fromList(response.coverArt);
+          await coverArtCache.saveCoverArt(widget.fileId, coverArtData);
+          setState(() {
+            _coverArt = coverArtData;
+          });
+        }
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<CoverArtResponse>(
-      stream: _coverArtStream,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const CircularProgressIndicator();
-        } else if (snapshot.hasError) {
-          return Text('Error: ${snapshot.error}');
-        } else if (!snapshot.hasData ||
-            snapshot.data!.fileId != widget.fileId) {
-          return const Text('No cover art available');
-        } else {
-          final coverArt = snapshot.data!.coverArt;
-          final coverArtBytes = Uint8List.fromList(coverArt);
-          return Image.memory(coverArtBytes);
+    return VisibilityDetector(
+      key: Key('cover-art-${widget.fileId}'),
+      onVisibilityChanged: (visibilityInfo) {
+        if (visibilityInfo.visibleFraction > 0 && _coverArt == null) {
+          _requestCoverArt();
         }
       },
+      child: _coverArt == null
+          ? Container(
+              width: 24,
+              height: 24,
+              color: Colors.magenta,
+            )
+          : _coverArt!.isEmpty
+              ? const EmptyCoverArt()
+              : Image.memory(_coverArt!, width: 24, height: 24),
     );
   }
 }

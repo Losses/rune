@@ -27,3 +27,9 @@ impl Related<super::playlist_items::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelatedEntity)]
+pub enum RelatedEntity {
+    #[sea_orm(entity = "super::playlist_items::Entity")]
+    PlaylistItems,
+}

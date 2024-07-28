@@ -8,14 +8,14 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub file_id: i32,
     pub file_hash: String,
+    #[sea_orm(column_type = "Binary(BlobSize::Blob(None))")]
     pub binary: Vec<u8>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(belongs_to = "super::media_files::Entity", from = "Column::FileId", to = "super::media_files::Column::Id")]
+    #[sea_orm(has_many = "super::media_files::Entity")]
     MediaFiles,
 }
 
@@ -23,10 +23,12 @@ impl Related<super::media_files::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaFiles.def()
     }
-
-    fn via() -> Option<RelationDef> {
-        Some(Relation::MediaFiles.def().rev())
-    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelatedEntity)]
+pub enum RelatedEntity {
+    #[sea_orm(entity = "super::media_files::Entity")]
+    MediaFiles,
+}

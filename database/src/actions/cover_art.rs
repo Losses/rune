@@ -49,7 +49,6 @@ pub async fn get_cover_art(
                     // If there is no file with the same CRC, store the cover art in the database and update the file's cover_art_id
                     let new_cover_art = media_cover_art::ActiveModel {
                         id: ActiveValue::NotSet,
-                        file_id: ActiveValue::Set(file_id),
                         file_hash: ActiveValue::Set(cover_art.crc.clone()),
                         binary: ActiveValue::Set(cover_art.data.clone()),
                     };
@@ -87,7 +86,6 @@ pub async fn get_cover_art(
                     // If the magic value does not exist, create one and update the file's cover_art_id
                     let new_magic_cover_art = media_cover_art::ActiveModel {
                         id: ActiveValue::NotSet,
-                        file_id: ActiveValue::Set(file_id),
                         file_hash: ActiveValue::Set(String::new()),
                         binary: ActiveValue::Set(Vec::new()),
                     };

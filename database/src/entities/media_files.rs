@@ -21,19 +21,31 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::media_analysis::Entity")]
     MediaAnalysis,
+    #[sea_orm(
+        belongs_to = "super::media_cover_art::Entity",
+        from = "Column::CoverArtId",
+        to = "super::media_cover_art::Column::Id",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    MediaCoverArt,
     #[sea_orm(has_many = "super::media_metadata::Entity")]
     MediaMetadata,
     #[sea_orm(has_many = "super::playlist_items::Entity")]
     PlaylistItems,
     #[sea_orm(has_many = "super::user_logs::Entity")]
     UserLogs,
-    #[sea_orm(belongs_to = "super::media_cover_art::Entity", from = "Column::CoverArtId", to = "super::media_cover_art::Column::Id")]
-    MediaCoverArt,
 }
 
 impl Related<super::media_analysis::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::MediaAnalysis.def()
+    }
+}
+
+impl Related<super::media_cover_art::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::MediaCoverArt.def()
     }
 }
 
@@ -55,14 +67,18 @@ impl Related<super::user_logs::Entity> for Entity {
     }
 }
 
-impl Related<super::media_cover_art::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::MediaCoverArt.def()
-    }
-
-    fn via() -> Option<RelationDef> {
-        Some(Relation::MediaCoverArt.def().rev())
-    }
-}
-
 impl ActiveModelBehavior for ActiveModel {}
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelatedEntity)]
+pub enum RelatedEntity {
+    #[sea_orm(entity = "super::media_analysis::Entity")]
+    MediaAnalysis,
+    #[sea_orm(entity = "super::media_cover_art::Entity")]
+    MediaCoverArt,
+    #[sea_orm(entity = "super::media_metadata::Entity")]
+    MediaMetadata,
+    #[sea_orm(entity = "super::playlist_items::Entity")]
+    PlaylistItems,
+    #[sea_orm(entity = "super::user_logs::Entity")]
+    UserLogs,
+}
