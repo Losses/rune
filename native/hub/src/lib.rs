@@ -41,18 +41,18 @@ async fn main() {
             // Move the path into the async block
             let main_db = Arc::new(connect_main_db(&path).await.unwrap());
             let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
+            let lib_path = Arc::new(path);
             info!("Initializing fetchers");
             // Pass the cloned Arc directly
-            tokio::spawn(fetch_media_files(main_db.clone()));
+            tokio::spawn(fetch_media_files(main_db.clone(), lib_path.clone()));
             info!("Initializing playback");
-            let lib_path_arc = Arc::new(path);
             tokio::spawn(handle_playback(
                 main_db.clone(),
                 recommend_db.clone(),
-                lib_path_arc.clone(),
+                lib_path.clone(),
             ));
             info!("Initializing cover arts");
-            tokio::spawn(handle_cover_art(main_db.clone(), lib_path_arc.clone()));
+            tokio::spawn(handle_cover_art(main_db.clone(), lib_path.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

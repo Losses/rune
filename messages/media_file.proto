@@ -11,6 +11,10 @@ message FetchMediaFiles {
 message MediaFile {
     int32 id = 1;
     string path = 2;
+    string artist = 3;
+    string album = 4;
+    string title = 5;
+    double duration = 6;
 }
 
 // [RINF:RUST-SIGNAL]

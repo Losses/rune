@@ -306,7 +306,8 @@ pub enum MetadataQueryError {
 #[derive(Debug, Clone, Default)]
 pub struct MetadataSummary {
     pub id: i32,
-    pub path: String,
+    pub directory: String,
+    pub file_name: String,
     pub artist: String,
     pub album: String,
     pub title: String,
@@ -355,23 +356,23 @@ pub async fn get_metadata_summary_by_file_ids(
     }
 
     // Create a map for file entries
-    let mut file_map: HashMap<i32, String> = HashMap::new();
+    let mut file_map: HashMap<i32, media_files::Model> = HashMap::new();
     for entry in file_entries {
-        let path = format!("{}/{}", entry.directory, entry.file_name);
-        file_map.insert(entry.id, path);
+        file_map.insert(entry.id, entry);
     }
 
     // Prepare the final result
     let mut results: Vec<MetadataSummary> = Vec::new();
     for file_id in file_ids {
-        let path = file_map.get(&file_id).cloned().unwrap_or_default();
+        let file = file_map.get(&file_id).cloned().unwrap();
         let _metadata: HashMap<String, String> = HashMap::new();
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = *analysis_map.get(&file_id).unwrap_or(&0.0);
 
         let summary = MetadataSummary {
             id: file_id,
-            path,
+            directory: file.directory,
+            file_name: file.file_name,
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
             title: metadata.get("track_title").cloned().unwrap_or_default(),
