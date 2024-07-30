@@ -50,13 +50,19 @@ impl RealTimeFFT {
             // Execute FFT
             fft.process(&mut buffer);
 
+            let amp_spectrum: Vec<f32> = buffer
+                .into_iter()
+                .map(|x| ((x.re.powi(2) + x.im.powi(2)).sqrt()))
+                .collect();
+
+            let max_value = amp_spectrum
+                .iter()
+                .cloned()
+                .max_by(|a, b| a.partial_cmp(b).unwrap())
+                .unwrap();
+
             // Send the FFT result
-            let _ = fft_result_tx.send(
-                buffer
-                    .into_iter()
-                    .map(|x| ((x.re.powi(2) + x.im.powi(2)).sqrt()) / window_size as f32)
-                    .collect(),
-            );
+            let _ = fft_result_tx.send(amp_spectrum.into_iter().map(|x| x / max_value).collect());
         });
     }
 

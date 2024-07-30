@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:reorderables/reorderables.dart';
@@ -117,18 +117,23 @@ class PlaylistButton extends StatelessWidget {
                           const SizedBox(
                             width: 4,
                           ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(item.entry.title,
-                                  style: typography.body?.apply(color: color)),
-                              Opacity(
-                                opacity: isCurrent ? 0.8 : 0.46,
-                                child: Text(item.entry.artist,
-                                    style: typography.caption
-                                        ?.apply(color: color)),
-                              ),
-                            ],
+                          SizedBox(
+                            width: 320,
+                            child: Column(
+                              children: [
+                                Text(item.entry.title,
+                                    overflow: TextOverflow.ellipsis,
+                                    style:
+                                        typography.body?.apply(color: color)),
+                                Opacity(
+                                  opacity: isCurrent ? 0.8 : 0.46,
+                                  child: Text(item.entry.artist,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: typography.caption
+                                          ?.apply(color: color)),
+                                ),
+                              ],
+                            ),
                           )
                         ],
                       ),
@@ -192,8 +197,12 @@ class PlaylistButton extends StatelessWidget {
 class FFTVisualize extends StatelessWidget {
   const FFTVisualize({super.key});
 
+  final radius = 12.0;
+
   @override
   Widget build(BuildContext context) {
+    final color = FluentTheme.of(context).accentColor;
+
     return StreamBuilder(
       stream: RealtimeFFT.rustSignalStream, // GENERATED
       builder: (context, snapshot) {
@@ -202,10 +211,22 @@ class FFTVisualize extends StatelessWidget {
           return const Text("Nothing received yet");
         }
         final fftValue = rustSignal.message.value;
-        return CustomPaint(
-          size: Size(fftValue.length.toDouble(), 100),
-          painter: FFTPainter(fftValue),
-        );
+        return Transform.translate(
+            offset: Offset(0, radius / 3 * 2 + radius * 1.5),
+            child: Opacity(
+              opacity: 0.87,
+              child: ImageFiltered(
+                imageFilter:
+                    ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: radius / 3 * 2),
+                  child: CustomPaint(
+                    size: Size(fftValue.length.toDouble(), 100),
+                    painter: FFTPainter(fftValue, color),
+                  ),
+                ),
+              ),
+            ));
       },
     );
   }
@@ -213,20 +234,19 @@ class FFTVisualize extends StatelessWidget {
 
 class FFTPainter extends CustomPainter {
   final List<double> fftValues;
+  final Color color;
 
-  FFTPainter(this.fftValues);
+  FFTPainter(this.fftValues, this.color);
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.blue
+      ..color = color
       ..strokeWidth = size.width / fftValues.length;
 
     for (int i = 0; i < fftValues.length; i++) {
       final x = i * (size.width / fftValues.length);
-      final y = size.height -
-          (fftValues[i] / fftValues.reduce((a, b) => a > b ? a : b)) *
-              size.height;
+      final y = size.height - fftValues[i] * size.height;
       canvas.drawLine(Offset(x, size.height), Offset(x, y), paint);
     }
   }
@@ -262,7 +282,7 @@ class PlaybackControllerState extends State<PlaybackController> {
         final duration = playbackStatus.duration;
 
         return SizedBox(
-          height: 100,
+          height: 80,
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
@@ -277,9 +297,12 @@ class PlaybackControllerState extends State<PlaybackController> {
                           constraints: const BoxConstraints(
                               minWidth: 200, maxWidth: 400),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(title),
+                              Text(
+                                title,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               Slider(
                                 value: progressPercentage * 100,
                                 onChanged: (v) => SeekRequest(

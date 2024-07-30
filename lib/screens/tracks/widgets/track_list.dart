@@ -154,11 +154,18 @@ class TrackListItem extends StatelessWidget {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(item.title),
+                        Text(
+                          item.title,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 8),
                         Opacity(
                           opacity: 0.46,
-                          child: Text(item.artist, style: typography.caption),
+                          child: Text(
+                            item.artist,
+                            style: typography.caption,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                       ],
                     )
