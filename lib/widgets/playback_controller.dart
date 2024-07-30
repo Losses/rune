@@ -1,10 +1,10 @@
+import 'dart:ui';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:material_color_utilities/material_color_utilities.dart';
-import 'package:player/providers/status.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:provider/provider.dart';
 
+import '../providers/status.dart';
 import '../providers/playlist.dart';
 import '../messages/playback.pb.dart';
 
@@ -88,9 +88,9 @@ class PlaylistButton extends StatelessWidget {
       builder: (context) {
         Typography typography = FluentTheme.of(context).typography;
         Color accentColor = Color.alphaBlend(
-            FluentTheme.of(context).activeColor.withAlpha(100),
-            FluentTheme.of(context).accentColor,
-            );
+          FluentTheme.of(context).activeColor.withAlpha(100),
+          FluentTheme.of(context).accentColor,
+        );
 
         return Selector<PlaybackStatusProvider, (int?, int?)>(
             selector: (context, playbackStatusProvider) => (
@@ -189,6 +189,54 @@ class PlaylistButton extends StatelessWidget {
   }
 }
 
+class FFTVisualize extends StatelessWidget {
+  const FFTVisualize({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: RealtimeFFT.rustSignalStream, // GENERATED
+      builder: (context, snapshot) {
+        final rustSignal = snapshot.data;
+        if (rustSignal == null) {
+          return const Text("Nothing received yet");
+        }
+        final fftValue = rustSignal.message.value;
+        return CustomPaint(
+          size: Size(fftValue.length.toDouble(), 100),
+          painter: FFTPainter(fftValue),
+        );
+      },
+    );
+  }
+}
+
+class FFTPainter extends CustomPainter {
+  final List<double> fftValues;
+
+  FFTPainter(this.fftValues);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.blue
+      ..strokeWidth = size.width / fftValues.length;
+
+    for (int i = 0; i < fftValues.length; i++) {
+      final x = i * (size.width / fftValues.length);
+      final y = size.height -
+          (fftValues[i] / fftValues.reduce((a, b) => a > b ? a : b)) *
+              size.height;
+      canvas.drawLine(Offset(x, size.height), Offset(x, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return true;
+  }
+}
+
 class PlaybackController extends StatefulWidget {
   const PlaybackController({super.key});
 
@@ -213,46 +261,61 @@ class PlaybackControllerState extends State<PlaybackController> {
         final title = playbackStatus.title;
         final duration = playbackStatus.duration;
 
-        return Row(
-          children: [
-            Expanded(
-              child: Center(
-                child: Container(
-                  constraints:
-                      const BoxConstraints(minWidth: 200, maxWidth: 400),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(title),
-                      Slider(
-                        value: progressPercentage * 100,
-                        onChanged: (v) =>
-                            SeekRequest(positionSeconds: (v / 100) * duration)
-                                .sendSignalToRust(),
-                        style: const SliderThemeData(useThumbBall: false),
+        return SizedBox(
+          height: 100,
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              const FFTVisualize(),
+              Container(
+                alignment: Alignment.center,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Center(
+                        child: Container(
+                          constraints: const BoxConstraints(
+                              minWidth: 200, maxWidth: 400),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(title),
+                              Slider(
+                                value: progressPercentage * 100,
+                                onChanged: (v) => SeekRequest(
+                                        positionSeconds: (v / 100) * duration)
+                                    .sendSignalToRust(),
+                                style:
+                                    const SliderThemeData(useThumbBall: false),
+                              ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(formatTime(progressSeconds)),
+                                  Text(
+                                      '-${formatTime(duration - progressSeconds)}'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(formatTime(progressSeconds)),
-                          Text('-${formatTime(duration - progressSeconds)}'),
-                        ],
-                      )
-                    ],
-                  ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const PreviousButton(),
+                        PlayPauseButton(state: state),
+                        const NextButton(),
+                        PlaylistButton(),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const PreviousButton(),
-                PlayPauseButton(state: state),
-                const NextButton(),
-                PlaylistButton(),
-              ],
-            ),
-          ],
+            ],
+          ),
         );
       },
     );

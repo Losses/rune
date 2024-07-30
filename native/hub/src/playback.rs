@@ -55,6 +55,7 @@ pub async fn handle_playback(
 
     let mut status_receiver = player.lock().unwrap().subscribe_status();
     let mut playlist_receiver = player.lock().unwrap().subscribe_playlist();
+    let mut realtime_fft_receiver = player.lock().unwrap().subscribe_realtime_fft();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
@@ -117,11 +118,18 @@ pub async fn handle_playback(
             .send_signal_to_dart();
         }
     });
+
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_playlist);
 
         while let Ok(playlist) = playlist_receiver.recv().await {
             send_playlist_update(&main_db, &playlist).await;
+        }
+    });
+
+    task::spawn(async move {
+        while let Ok(value) = realtime_fft_receiver.recv().await {
+            send_realtime_fft(value).await;
         }
     });
 
@@ -383,6 +391,12 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
             error!("Error happened while updating playlist: {:?}", e)
         }
     }
+}
+
+pub async fn send_realtime_fft(value: Vec<f32>) {
+    use messages::playback::*;
+
+    RealtimeFft { value }.send_signal_to_dart(); // GENERATED
 }
 
 fn move_playlist_item_request(player: &Arc<Mutex<Player>>) -> Result<()> {

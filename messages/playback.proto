@@ -65,3 +65,8 @@ message PlaylistItem {
 message PlaylistUpdate {
   repeated PlaylistItem items = 1;
 }
+
+// [RINF:RUST-SIGNAL]
+message RealtimeFFT {
+  repeated float value = 1;
+}

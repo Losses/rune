@@ -46,6 +46,7 @@ pub struct Player {
     current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: broadcast::Sender<PlayerStatus>,
     playlist_sender: broadcast::Sender<PlaylistStatus>,
+    realtime_fft_sender: broadcast::Sender<Vec<f32>>,
 }
 
 impl Default for Player {
@@ -65,6 +66,8 @@ impl Player {
         let (status_sender, _) = broadcast::channel(16);
         // Create a broadcast channel for playlist updates
         let (playlist_sender, _) = broadcast::channel(16);
+        // Create a broadcast channel for playlist updates
+        let (realtime_fft_sender, _) = broadcast::channel(16);
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
@@ -82,6 +85,7 @@ impl Player {
             current_status: current_status.clone(),
             status_sender: status_sender.clone(),
             playlist_sender: playlist_sender.clone(),
+            realtime_fft_sender: realtime_fft_sender.clone(),
         };
 
         // Start a new thread to run the PlayerInternal logic
@@ -98,6 +102,7 @@ impl Player {
         let status_clone = current_status.clone();
         let status_sender_clone = status_sender.clone();
         let playlist_sender_clone = playlist_sender.clone();
+        let realtime_fft_sender_clone = realtime_fft_sender.clone();
         thread::spawn(move || {
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
@@ -175,6 +180,14 @@ impl Player {
                             debug!("Playlist status sent successfully");
                         }
                     }
+                    PlayerEvent::RealtimeFFT(data) => {
+                        match realtime_fft_sender_clone.send(data) {
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!("Unable to send realtime FFT data: {:?}", e);
+                            }
+                        };
+                    }
                 }
                 // Send the updated status to all subscribers
                 status_sender_clone.send(status.clone()).unwrap();
@@ -199,6 +212,10 @@ impl Player {
 
     pub fn subscribe_playlist(&self) -> broadcast::Receiver<PlaylistStatus> {
         self.playlist_sender.subscribe()
+    }
+
+    pub fn subscribe_realtime_fft(&self) -> broadcast::Receiver<Vec<f32>> {
+        self.realtime_fft_sender.subscribe()
     }
 
     // Send a command to the internal player

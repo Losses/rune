@@ -1,10 +1,13 @@
 use log::{debug, error, info};
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
+
+use crate::realtime_fft::RealTimeFFT;
 
 #[derive(Debug)]
 pub enum PlayerCommand {
@@ -56,6 +59,7 @@ pub enum PlayerEvent {
         position: Duration,
     },
     PlaylistUpdated(Vec<i32>),
+    RealtimeFFT(Vec<f32>),
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +78,7 @@ enum InternalPlaybackState {
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
+    realtime_fft: Arc<Mutex<RealTimeFFT>>,
     playlist: Vec<PlaylistItem>,
     current_track_id: Option<i32>,
     current_track_index: Option<usize>,
@@ -98,6 +103,7 @@ impl PlayerInternal {
             current_track_path: None,
             sink: None,
             _stream: None,
+            realtime_fft: Arc::new(Mutex::new(RealTimeFFT::new(512))),
             state: InternalPlaybackState::Stopped,
             debounce_timer: None,
         }
@@ -106,6 +112,7 @@ impl PlayerInternal {
     pub async fn run(&mut self) {
         let mut progress_interval = interval(Duration::from_millis(100));
 
+        let mut fft_receiver = self.realtime_fft.lock().unwrap().subscribe();
         loop {
             tokio::select! {
                 Some(cmd) = self.commands.recv() => {
@@ -124,6 +131,9 @@ impl PlayerInternal {
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                         PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await
                     }
+                },
+                Ok(fft_data) = fft_receiver.recv() => {
+                    self.event_sender.send(PlayerEvent::RealtimeFFT(fft_data)).unwrap();
                 },
                 _ = progress_interval.tick() => {
                     if self.state != InternalPlaybackState::Stopped {
@@ -153,11 +163,31 @@ impl PlayerInternal {
             match file {
                 Ok(file) => {
                     let source = Decoder::new(BufReader::new(file));
+
                     match source {
                         Ok(source) => {
                             let (stream, stream_handle) = OutputStream::try_default().unwrap();
                             let sink = Sink::try_new(&stream_handle).unwrap();
-                            sink.append(source);
+                            // Create a channel to transfer FFT data
+                            let (fft_tx, mut fft_rx) = mpsc::unbounded_channel();
+
+                            // Create a new thread for calculating realtime FFT
+                            let realtime_fft = Arc::clone(&self.realtime_fft);
+                            tokio::spawn(async move {
+                                while let Some(data) = fft_rx.recv().await {
+                                    realtime_fft.lock().unwrap().add_data(data);
+                                }
+                            });
+
+                            sink.append(source.periodic_access(
+                                Duration::from_millis(10),
+                                move |sample| {
+                                    let data: Vec<i16> =
+                                        sample.take(sample.channels() as usize).collect();
+                                    fft_tx.send(data).unwrap();
+                                },
+                            ));
+
                             self.sink = Some(sink);
                             self._stream = Some(stream);
                             self.current_track_index = Some(index);
