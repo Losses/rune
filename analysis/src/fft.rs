@@ -17,6 +17,14 @@ pub struct AudioDescription {
     pub spectrum: Vec<Complex<f32>>,
 }
 
+pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
+    (0..window_size)
+        .map(|n| {
+            0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0)).cos())
+        })
+        .collect()
+}
+
 pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
     // Open the media source.
     let src = std::fs::File::open(file_path).expect("failed to open media");
@@ -86,11 +94,7 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
     let mut total_samples = 0;
 
     // Precompute Hanning window
-    let hanning_window: Vec<f32> = (0..window_size)
-        .map(|n| {
-            0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0)).cos())
-        })
-        .collect();
+    let hanning_window: Vec<f32> = build_hanning_window(window_size);
 
     // Buffer to hold audio samples until we have enough for one window
     let mut sample_buffer: Vec<f32> = Vec::new();

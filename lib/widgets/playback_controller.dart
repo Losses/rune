@@ -211,22 +211,25 @@ class FFTVisualize extends StatelessWidget {
           return const Text("Nothing received yet");
         }
         final fftValue = rustSignal.message.value;
-        return Transform.translate(
-            offset: Offset(0, radius / 3 * 2 + radius * 1.5),
-            child: Opacity(
-              opacity: 0.87,
-              child: ImageFiltered(
-                imageFilter:
-                    ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
-                child: Padding(
-                  padding: EdgeInsets.only(bottom: radius / 3 * 2),
-                  child: CustomPaint(
-                    size: Size(fftValue.length.toDouble(), 100),
-                    painter: FFTPainter(fftValue, color),
-                  ),
-                ),
-              ),
-            ));
+        return LayoutBuilder(builder: (context, constraints) {
+          double parentHeight = constraints.maxHeight;
+
+          return OverflowBox(
+              maxHeight: parentHeight * 2,
+              alignment: Alignment.topCenter,
+              child: SizedBox(
+                height: parentHeight * 2,
+                child: Opacity(
+                    opacity: 0.87,
+                    child: ImageFiltered(
+                      imageFilter:
+                          ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
+                      child: CustomPaint(
+                        painter: FFTPainter(fftValue, color),
+                      ),
+                    )),
+              ));
+        });
       },
     );
   }
@@ -244,10 +247,12 @@ class FFTPainter extends CustomPainter {
       ..color = color
       ..strokeWidth = size.width / fftValues.length;
 
+    final midY = size.height / 2;
+
     for (int i = 0; i < fftValues.length; i++) {
       final x = i * (size.width / fftValues.length);
-      final y = size.height - fftValues[i] * size.height;
-      canvas.drawLine(Offset(x, size.height), Offset(x, y), paint);
+      final y = fftValues[i] * size.height / 2;
+      canvas.drawLine(Offset(x, midY - y), Offset(x, midY + y), paint);
     }
   }
 

@@ -6,7 +6,22 @@ use tokio::sync::broadcast;
 pub struct RealTimeFFT {
     window_size: usize,
     window: Arc<Mutex<Vec<f32>>>,
+    fft_window: Vec<f32>,
     fft_result_tx: broadcast::Sender<Vec<f32>>,
+}
+
+pub fn build_nuttall_window(window_size: usize) -> Vec<f32> {
+    let a0 = 0.355768;
+    let a1 = 0.487396;
+    let a2 = 0.144232;
+    let a3 = 0.012604;
+
+    (0..window_size)
+        .map(|n| {
+            let factor = 2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0);
+            a0 - a1 * factor.cos() + a2 * (2.0 * factor).cos() - a3 * (3.0 * factor).cos()
+        })
+        .collect()
 }
 
 impl RealTimeFFT {
@@ -17,6 +32,7 @@ impl RealTimeFFT {
             window_size,
             window: Arc::new(Mutex::new(window)),
             fft_result_tx,
+            fft_window: build_nuttall_window(window_size),
         }
     }
 
@@ -35,6 +51,7 @@ impl RealTimeFFT {
 
         let fft_window = window.clone();
         let fft_result_tx = self.fft_result_tx.clone();
+        let hanning_window = self.fft_window.clone();
 
         // Calculate the data in a new thread
         thread::spawn(move || {
@@ -50,10 +67,11 @@ impl RealTimeFFT {
             // Execute FFT
             fft.process(&mut buffer);
 
-            let amp_spectrum: Vec<f32> = buffer
-                .into_iter()
-                .map(|x| ((x.re.powi(2) + x.im.powi(2)).sqrt()))
-                .collect();
+            let mut amp_spectrum: Vec<f32> = buffer.iter().map(|c| c.norm()).collect();
+
+            for (i, value) in amp_spectrum.iter_mut().enumerate() {
+                *value *= hanning_window[i];
+            }
 
             let max_value = amp_spectrum
                 .iter()
