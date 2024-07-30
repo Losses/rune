@@ -26,7 +26,7 @@ pub fn build_nuttall_window(window_size: usize) -> Vec<f32> {
 
 impl RealTimeFFT {
     pub fn new(window_size: usize) -> Self {
-        let (fft_result_tx, _) = broadcast::channel(16);
+        let (fft_result_tx, _) = broadcast::channel(30);
         let window = vec![0.0; window_size];
         RealTimeFFT {
             window_size,

@@ -180,7 +180,7 @@ impl PlayerInternal {
                             });
 
                             sink.append(source.periodic_access(
-                                Duration::from_millis(40),
+                                Duration::from_millis(16),
                                 move |sample| {
                                     let data: Vec<i16> =
                                         sample.take(sample.channels() as usize).collect();

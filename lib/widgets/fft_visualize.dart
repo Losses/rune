@@ -1,46 +1,107 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../messages/playback.pb.dart';
 
-class FFTVisualize extends StatelessWidget {
+class FFTVisualize extends StatefulWidget {
   const FFTVisualize({super.key});
 
+  @override
+  FFTVisualizeState createState() => FFTVisualizeState();
+}
+
+class FFTVisualizeState extends State<FFTVisualize>
+    with TickerProviderStateMixin {
   final radius = 12.0;
+  List<double> _currentFftValues = [];
+  List<double> _targetFftValues = [];
+  Ticker? _ticker;
+  bool _hasData = false;
+  int _lastUpdateTime = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    RealtimeFFT.rustSignalStream.listen((rustSignal) {
+      setState(() {
+        _targetFftValues = rustSignal.message.value;
+        _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
+        if (!_hasData) {
+          _hasData = true;
+          _ticker?.start();
+        }
+      });
+    });
+
+    _ticker = createTicker((Duration elapsed) {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - _lastUpdateTime > 42) {
+        if (mounted) {
+          final reduced = _currentFftValues.reduce((a, b) => a + b);
+          if (!_hasData && reduced < 1e-2) {
+            _currentFftValues = List.filled(_currentFftValues.length, 0.0);
+            _ticker?.stop();
+          }
+
+          setState(() {
+            _targetFftValues = List.filled(_currentFftValues.length, 0.0);
+            _hasData = false;
+          });
+        }
+      }
+
+      setState(() {
+        _lerpedFftValues();
+      });
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final color = FluentTheme.of(context).accentColor;
 
-    return StreamBuilder(
-      stream: RealtimeFFT.rustSignalStream, // GENERATED
-      builder: (context, snapshot) {
-        final rustSignal = snapshot.data;
-        if (rustSignal == null) {
-          return const Text("Nothing received yet");
-        }
-        final fftValue = rustSignal.message.value;
-        return LayoutBuilder(builder: (context, constraints) {
-          double parentHeight = constraints.maxHeight;
+    return LayoutBuilder(builder: (context, constraints) {
+      double parentHeight = constraints.maxHeight;
 
-          return OverflowBox(
-              maxHeight: parentHeight * 2,
-              alignment: Alignment.topCenter,
-              child: SizedBox(
-                height: parentHeight * 2,
-                child: Opacity(
-                    opacity: 0.87,
-                    child: ImageFiltered(
-                      imageFilter:
-                          ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
-                      child: CustomPaint(
-                        painter: FFTPainter(fftValue, color),
-                      ),
-                    )),
-              ));
-        });
-      },
-    );
+      return OverflowBox(
+          maxHeight: parentHeight * 2,
+          alignment: Alignment.topCenter,
+          child: SizedBox(
+            height: parentHeight * 2,
+            child: Opacity(
+                opacity: 0.87,
+                child: ImageFiltered(
+                  imageFilter:
+                      ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
+                  child: CustomPaint(
+                    painter: FFTPainter(_currentFftValues, color),
+                  ),
+                )),
+          ));
+    });
+  }
+
+  void _lerpedFftValues() {
+    if (_targetFftValues.isEmpty) {
+      return;
+    }
+
+    if (_currentFftValues.isEmpty) {
+      _currentFftValues = List.filled(_targetFftValues.length, 0.0);
+    }
+
+    for (int i = 0; i < _currentFftValues.length; i++) {
+      _currentFftValues[i] =
+          ui.lerpDouble(_currentFftValues[i], _targetFftValues[i], 0.2)!;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.dispose();
+    super.dispose();
   }
 }
 
