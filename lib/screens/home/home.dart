@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../messages/connection.pb.dart';
 
@@ -20,8 +23,19 @@ class _HomePageState extends State<HomePage> {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Button(
             onPressed: () async {
+              // Allow manually define the library path by running with
+              // `flutter run --dart-define=LIBRARY_PATH=/path/to/library`
+              String libraryPath = const String.fromEnvironment('LIBRARY_PATH',
+                  defaultValue: "");
+              if (libraryPath.isEmpty) {
+                final result = await FilePicker.platform.getDirectoryPath();
+                if (result == null) {
+                  return;
+                }
+                libraryPath = result;
+              }
               MediaLibraryPath(
-                path: '/home/losses/Music/party',
+                path: libraryPath,
               ).sendSignalToRust(); // GENERATED
             },
             child: const Text("Send Media Library Path to Rust"),
