@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:provider/provider.dart';
 
-import '../../utils/file_storage_service.dart';
-import '../../messages/connection.pb.dart';
+import '../../providers/library_path.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -12,83 +12,86 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  final FileStorageService _fileStorageService = FileStorageService();
-
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      header: const PageHeader(
-        title: Text('Hello World with Fluent UI'),
-      ),
-      content: Center(
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Button(
-            onPressed: () async {
-              // Allow manually define the library path by running with
-              // `flutter run --dart-define=LIBRARY_PATH=/path/to/library`
-              String libraryPath = const String.fromEnvironment('LIBRARY_PATH',
-                  defaultValue: "");
-              if (libraryPath.isEmpty) {
-                final result = await getDirectoryPath();
-                if (result == null) {
-                  return;
-                }
-                libraryPath = result;
-              }
-
-              // Store the selected library path
-              await _fileStorageService.storeFilePath(libraryPath);
-
-              // Send the signal to Rust
-              MediaLibraryPath(
-                path: libraryPath,
-              ).sendSignalToRust(); // GENERATED
-            },
-            child: const Text("Select Library"),
+    return Consumer<LibraryPathProvider>(builder: (context, provider, child) {
+      return ScaffoldPage(
+          header: const PageHeader(
+            title: Text('Hello World with Fluent UI'),
           ),
-          Button(
-            onPressed: () async {
-              // Show a dialog with the list of previously opened libraries
-              showDialog(
-                context: context,
-                builder: (context) {
-                  List<String> allOpenedFiles =
-                      _fileStorageService.getAllOpenedFiles();
-                  return ContentDialog(
-                    title: const Text('Select from History'),
-                    content: SizedBox(
-                      width: double.maxFinite,
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: allOpenedFiles.length,
-                        itemBuilder: (context, index) {
-                          return ListTile(
-                            title: Text(allOpenedFiles[index]),
-                            onPressed: () {
-                              // Send the signal to Rust with the selected path
-                              MediaLibraryPath(
-                                path: allOpenedFiles[index],
-                              ).sendSignalToRust(); // GENERATED
-                              Navigator.pop(context); // Close the dialog
-                            },
-                          );
-                        },
-                      ),
-                    ),
-                    actions: [
-                      Button(
-                        child: const Text('Close'),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                    ],
-                  );
-                },
-              );
-            },
-            child: const Text("Select from History"),
-          ),
-        ]),
-      ),
-    );
+          content: Center(
+            child:
+                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              if (provider.currentPath != null)
+                Text('Current Path: ${provider.currentPath}'),
+              if (provider.currentPath == null)
+                Button(
+                  onPressed: () async {
+                    String libraryPath = const String.fromEnvironment(
+                        'LIBRARY_PATH',
+                        defaultValue: "");
+                    if (libraryPath.isEmpty) {
+                      final result = await getDirectoryPath();
+                      if (result == null) {
+                        return;
+                      }
+                      libraryPath = result;
+                    }
+
+                    if (!context.mounted) return;
+                    // Store the selected library path and update the provider
+                    await Provider.of<LibraryPathProvider>(context,
+                            listen: false)
+                        .setLibraryPath(libraryPath);
+                  },
+                  child: const Text("Select Library"),
+                ),
+              if (provider.currentPath == null)
+                Button(
+                  onPressed: () async {
+                    showDialog(
+                      context: context,
+                      builder: (context) {
+                        List<String> allOpenedFiles =
+                            Provider.of<LibraryPathProvider>(context,
+                                    listen: false)
+                                .getAllOpenedFiles();
+                        return ContentDialog(
+                          title: const Text('Select from History'),
+                          content: SizedBox(
+                            width: double.maxFinite,
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: allOpenedFiles.length,
+                              itemBuilder: (context, index) {
+                                return ListTile(
+                                  title: Text(allOpenedFiles[index]),
+                                  onPressed: () {
+                                    // Update the current path in the provider
+                                    Provider.of<LibraryPathProvider>(context,
+                                            listen: false)
+                                        .setLibraryPath(allOpenedFiles[index]);
+
+                                    Navigator.pop(context); // Close the dialog
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                          actions: [
+                            Button(
+                              child: const Text('Close'),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  },
+                  child: const Text("Select from History"),
+                ),
+            ]),
+          ));
+    });
   }
 }

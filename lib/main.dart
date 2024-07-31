@@ -2,25 +2,28 @@ import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 import 'package:flutter_acrylic/window_effect.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/providers/playlist.dart';
-import 'package:player/providers/status.dart';
-import 'package:player/widgets/playback_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:url_launcher/link.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:rinf/rinf.dart';
 
 import 'routes/home.dart' deferred as home;
 import 'routes/tracks.dart' deferred as tracks;
 import 'routes/settings.dart' deferred as settings;
 
+import 'providers/library_path.dart';
+import 'providers/playlist.dart';
+import 'providers/status.dart';
+
 import 'widgets/theme_gradient.dart';
 import 'widgets/deferred_widget.dart';
+import 'widgets/playback_controller.dart';
 
 import 'theme.dart';
-import 'package:rinf/rinf.dart';
-import './messages/generated.dart';
+import 'messages/generated.dart';
 
 const String appTitle = 'Rune Player';
 
@@ -35,6 +38,7 @@ bool get isDesktop {
 }
 
 void main() async {
+  await GetStorage.init();
   await initializeRust(assignRustSignal);
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -60,6 +64,7 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (_) => LibraryPathProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
       ],
