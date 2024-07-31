@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:system_theme/system_theme.dart';
@@ -25,12 +26,17 @@ class AppTheme extends ChangeNotifier {
 
   final NavigationIndicators indicator = NavigationIndicators.sticky;
 
-  WindowEffect windowEffect = WindowEffect.mica;
+  WindowEffect windowEffect =
+      Platform.isLinux ? WindowEffect.solid : WindowEffect.mica;
 
   void setEffect(BuildContext context) {
     Window.setEffect(
-      effect: WindowEffect.mica,
-      color: FluentTheme.of(context).micaBackgroundColor.withOpacity(0.05),
+      effect: windowEffect,
+      color: windowEffect != WindowEffect.mica
+          ? FluentTheme.of(context).brightness == Brightness.light
+              ? const Color(0xFFF6F6F6)
+              : const Color(0xFF1F1F1F)
+          : FluentTheme.of(context).micaBackgroundColor.withOpacity(0.05),
       dark: FluentTheme.of(context).brightness.isDark,
     );
   }

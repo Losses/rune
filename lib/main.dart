@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
+import 'package:flutter_acrylic/window_effect.dart';
 import 'package:go_router/go_router.dart';
 import 'package:player/providers/playlist.dart';
 import 'package:player/providers/status.dart';
@@ -87,6 +88,7 @@ class MyApp extends StatelessWidget {
       value: _appTheme,
       builder: (context, child) {
         final appTheme = context.watch<AppTheme>();
+
         return FluentApp.router(
           title: appTitle,
           themeMode: appTheme.mode,
@@ -109,14 +111,19 @@ class MyApp extends StatelessWidget {
           ),
           locale: appTheme.locale,
           builder: (context, child) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              appTheme.setEffect(context);
+            });
+
             return Directionality(
               textDirection: appTheme.textDirection,
               child: NavigationPaneTheme(
                 data: NavigationPaneThemeData(
-                  backgroundColor: appTheme.windowEffect !=
-                          flutter_acrylic.WindowEffect.disabled
+                  backgroundColor: appTheme.windowEffect == WindowEffect.mica
                       ? Colors.transparent
-                      : null,
+                      : FluentTheme.of(context).brightness == Brightness.light
+                          ? const Color(0xFFF6F6F6)
+                          : const Color(0xFF1F1F1F),
                 ),
                 child: child!,
               ),
