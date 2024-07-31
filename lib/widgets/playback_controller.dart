@@ -22,12 +22,14 @@ String formatTime(double seconds) {
 }
 
 class PreviousButton extends StatelessWidget {
-  const PreviousButton({super.key});
+  final bool disabled;
+
+  const PreviousButton({required this.disabled, super.key});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: () {
+      onPressed: disabled ? null : () {
         PreviousRequest().sendSignalToRust(); // GENERATED
       },
       icon: const Icon(Symbols.skip_previous),
@@ -36,14 +38,16 @@ class PreviousButton extends StatelessWidget {
 }
 
 class PlayPauseButton extends StatelessWidget {
+  final bool disabled;
+
   final String state;
 
-  const PlayPauseButton({required this.state, super.key});
+  const PlayPauseButton({required this.disabled, required this.state, super.key});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: () {
+      onPressed: disabled ? null : () {
         switch (state) {
           case "Paused":
           case "Stopped":
@@ -62,12 +66,14 @@ class PlayPauseButton extends StatelessWidget {
 }
 
 class NextButton extends StatelessWidget {
-  const NextButton({super.key});
+  final bool disabled;
+
+  const NextButton({required this.disabled, super.key});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: () {
+      onPressed: disabled ? null : () {
         NextRequest().sendSignalToRust(); // GENERATED
       },
       icon: const Icon(Symbols.skip_next),
@@ -195,7 +201,6 @@ class PlaylistButton extends StatelessWidget {
   }
 }
 
-
 class PlaybackController extends StatefulWidget {
   const PlaybackController({super.key});
 
@@ -208,17 +213,7 @@ class PlaybackControllerState extends State<PlaybackController> {
   Widget build(BuildContext context) {
     return Consumer<PlaybackStatusProvider>(
       builder: (context, playbackStatusProvider, child) {
-        final playbackStatus = playbackStatusProvider.playbackStatus;
-
-        if (playbackStatus == null) {
-          return const Text("No playback data received yet");
-        }
-
-        final state = playbackStatus.state;
-        final progressSeconds = playbackStatus.progressSeconds;
-        final progressPercentage = playbackStatus.progressPercentage;
-        final title = playbackStatus.title;
-        final duration = playbackStatus.duration;
+        final s = playbackStatusProvider.playbackStatus;
 
         return SizedBox(
           height: 80,
@@ -235,41 +230,49 @@ class PlaybackControllerState extends State<PlaybackController> {
                         child: Container(
                           constraints: const BoxConstraints(
                               minWidth: 200, maxWidth: 400),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                title,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Slider(
-                                value: progressPercentage * 100,
-                                onChanged: (v) => SeekRequest(
-                                        positionSeconds: (v / 100) * duration)
-                                    .sendSignalToRust(),
-                                style:
-                                    const SliderThemeData(useThumbBall: false),
-                              ),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(formatTime(progressSeconds)),
-                                  Text(
-                                      '-${formatTime(duration - progressSeconds)}'),
-                                ],
-                              ),
-                            ],
-                          ),
+                          child: s == null
+                              ? const Text("No playback data received yet")
+                              : Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      s.title,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Slider(
+                                      value: s.progressPercentage * 100,
+                                      onChanged: (v) => SeekRequest(
+                                              positionSeconds:
+                                                  (v / 100) * s.duration)
+                                          .sendSignalToRust(),
+                                      style: const SliderThemeData(
+                                          useThumbBall: false),
+                                    ),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(formatTime(s.progressSeconds)),
+                                        Text(
+                                            '-${formatTime(s.duration - s.progressSeconds)}'),
+                                      ],
+                                    ),
+                                  ],
+                                ),
                         ),
                       ),
                     ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const PreviousButton(),
-                        PlayPauseButton(state: state),
-                        const NextButton(),
+                        PreviousButton(
+                          disabled: s == null,
+                        ),
+                        PlayPauseButton(
+                            disabled: s == null, state: s?.state ?? "Stopped"),
+                        NextButton(
+                          disabled: s == null,
+                        ),
                         PlaylistButton(),
                       ],
                     ),
