@@ -13,6 +13,7 @@ import 'package:rinf/rinf.dart';
 import 'routes/home.dart' deferred as home;
 import 'routes/tracks.dart' deferred as tracks;
 import 'routes/settings.dart' deferred as settings;
+import 'routes/cover_wall.dart' deferred as coverWall;
 
 import 'providers/library_path.dart';
 import 'providers/playlist.dart';
@@ -76,6 +77,7 @@ void main() async {
     DeferredWidget.preload(home.loadLibrary),
     DeferredWidget.preload(tracks.loadLibrary),
     DeferredWidget.preload(settings.loadLibrary),
+    DeferredWidget.preload(coverWall.loadLibrary),
   ]);
 }
 
@@ -440,6 +442,15 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
         builder: (context, state) => DeferredWidget(
           tracks.loadLibrary,
           () => settings.SettingsPage(),
+        ),
+      ),
+
+      /// Cover Wall
+      GoRoute(
+        path: '/cover_wall',
+        builder: (context, state) => DeferredWidget(
+          tracks.loadLibrary,
+          () => coverWall.CoverWall(),
         ),
       ),
     ],

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:provider/provider.dart';
@@ -29,9 +30,11 @@ class PreviousButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: disabled ? null : () {
-        PreviousRequest().sendSignalToRust(); // GENERATED
-      },
+      onPressed: disabled
+          ? null
+          : () {
+              PreviousRequest().sendSignalToRust(); // GENERATED
+            },
       icon: const Icon(Symbols.skip_previous),
     );
   }
@@ -42,22 +45,25 @@ class PlayPauseButton extends StatelessWidget {
 
   final String state;
 
-  const PlayPauseButton({required this.disabled, required this.state, super.key});
+  const PlayPauseButton(
+      {required this.disabled, required this.state, super.key});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: disabled ? null : () {
-        switch (state) {
-          case "Paused":
-          case "Stopped":
-            PlayRequest().sendSignalToRust(); // GENERATED
-            break;
-          case "Playing":
-            PauseRequest().sendSignalToRust(); // GENERATED
-            break;
-        }
-      },
+      onPressed: disabled
+          ? null
+          : () {
+              switch (state) {
+                case "Paused":
+                case "Stopped":
+                  PlayRequest().sendSignalToRust(); // GENERATED
+                  break;
+                case "Playing":
+                  PauseRequest().sendSignalToRust(); // GENERATED
+                  break;
+              }
+            },
       icon: state == "Playing"
           ? const Icon(Symbols.pause)
           : const Icon(Symbols.play_arrow),
@@ -73,9 +79,11 @@ class NextButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: disabled ? null : () {
-        NextRequest().sendSignalToRust(); // GENERATED
-      },
+      onPressed: disabled
+          ? null
+          : () {
+              NextRequest().sendSignalToRust(); // GENERATED
+            },
       icon: const Icon(Symbols.skip_next),
     );
   }
@@ -153,6 +161,7 @@ class PlaylistButton extends StatelessWidget {
                 if (items.isEmpty) {
                   items.add(
                     ListTile.selectable(
+                      key: const Key("disabled"),
                       leading: const Icon(Symbols.info),
                       title: const Text('No items in playlist'),
                       onPressed: () {},
@@ -197,6 +206,27 @@ class PlaylistButton extends StatelessWidget {
         },
         icon: const Icon(Symbols.list_alt),
       ),
+    );
+  }
+}
+
+class CoverWallButton extends StatelessWidget {
+  const CoverWallButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: () {
+        final routeState = GoRouterState.of(context);
+        final route = GoRouter.of(context);
+
+        if (routeState.fullPath == '/cover_wall') {
+          route.pop();
+        } else {
+          route.push('/cover_wall');
+        }
+      },
+      icon: const Icon(Symbols.photo_frame),
     );
   }
 }
@@ -274,6 +304,7 @@ class PlaybackControllerState extends State<PlaybackController> {
                           disabled: s == null,
                         ),
                         PlaylistButton(),
+                        const CoverWallButton(),
                       ],
                     ),
                   ],
