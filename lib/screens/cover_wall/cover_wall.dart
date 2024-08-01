@@ -1,6 +1,13 @@
 import 'dart:math';
+import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+
+double stringToDouble(String input) {
+  var hash = xxh3.string(input).number();
+
+  return hash / 0x7FFFFFFFFFFFFFFF;
+}
 
 class RandomGridConfig {
   final int size;
@@ -18,28 +25,29 @@ class RandomGrid extends StatefulWidget {
 }
 
 class RandomGridState extends State<RandomGrid> {
-  late Random _random;
-
   @override
   void initState() {
     super.initState();
-    _random = Random(widget.seed);
   }
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final gridSize = max(constraints.maxWidth, constraints.maxHeight) / 24;
-        final crossAxisCount = (constraints.maxWidth / gridSize).floor();
-        final mainAxisCount = (constraints.maxHeight / gridSize).floor();
+        final gridSize =
+            max(max(constraints.maxWidth, constraints.maxHeight) / 24, 64);
+        final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
+        final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        return StaggeredGrid.count(
-          crossAxisCount: crossAxisCount,
-          mainAxisSpacing: 2,
-          crossAxisSpacing: 2,
-          children: _generateTiles(crossAxisCount, mainAxisCount),
-        );
+        return ClipRect(
+            child: Align(
+                alignment: Alignment.center,
+                child: StaggeredGrid.count(
+                  crossAxisCount: crossAxisCount,
+                  mainAxisSpacing: 2,
+                  crossAxisSpacing: 2,
+                  children: _generateTiles(crossAxisCount, mainAxisCount),
+                )));
       },
     );
   }
@@ -53,8 +61,9 @@ class RandomGridState extends State<RandomGrid> {
         tiles,
         occupiedCells,
         [
-          const RandomGridConfig(size: 3, probability: 0.2),
-          const RandomGridConfig(size: 4, probability: 0.4),
+          const RandomGridConfig(size: 2, probability: 0.3),
+          const RandomGridConfig(size: 3, probability: 0.6),
+          const RandomGridConfig(size: 4, probability: 0.8),
         ],
         crossAxisCount,
         mainAxisCount);
@@ -70,14 +79,18 @@ class RandomGridState extends State<RandomGrid> {
   ) {
     for (int row = 0; row < mainAxisCount; row++) {
       for (int col = 0; col < crossAxisCount; col++) {
-        if (occupiedCells.contains('$col-$row')) {
+        final gridKey = '$col-$row';
+
+        if (occupiedCells.contains(gridKey)) {
           continue;
         }
 
-        double randomValue = _random.nextDouble();
+        double randomValue1 = stringToDouble('$gridKey-${widget.seed}');
+        int coverIndex =
+            (stringToDouble('$gridKey-i-${widget.seed}') * 30).round();
 
         for (var cfg in config) {
-          if (randomValue <= cfg.probability) {
+          if (randomValue1 <= cfg.probability) {
             int size = cfg.size;
 
             if (_canPlaceTile(
@@ -88,7 +101,7 @@ class RandomGridState extends State<RandomGrid> {
                   crossAxisCellCount: size,
                   mainAxisCellCount: size,
                   child: GridTile(
-                      index: _random.nextInt(30),
+                      index: coverIndex,
                       row: row,
                       col: col,
                       size: size,
@@ -104,7 +117,7 @@ class RandomGridState extends State<RandomGrid> {
                   crossAxisCellCount: 1,
                   mainAxisCellCount: 1,
                   child: GridTile(
-                      index: _random.nextInt(30),
+                      index: coverIndex,
                       row: row,
                       col: col,
                       size: 1,
@@ -123,7 +136,7 @@ class RandomGridState extends State<RandomGrid> {
               crossAxisCellCount: 1,
               mainAxisCellCount: 1,
               child: GridTile(
-                  index: _random.nextInt(30),
+                  index: coverIndex,
                   row: row,
                   col: col,
                   size: 1,
