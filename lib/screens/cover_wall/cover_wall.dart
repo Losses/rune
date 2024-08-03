@@ -40,14 +40,17 @@ class RandomGridState extends State<RandomGrid> {
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
         return ClipRect(
-            child: Align(
-                alignment: Alignment.center,
-                child: StaggeredGrid.count(
+            child: OverflowBox(
+                alignment: Alignment.topLeft,
+                maxWidth: (crossAxisCount * gridSize).toDouble(),
+                maxHeight: (mainAxisCount * gridSize).toDouble(),
+                child: Center(
+                    child: StaggeredGrid.count(
                   crossAxisCount: crossAxisCount,
                   mainAxisSpacing: 2,
                   crossAxisSpacing: 2,
                   children: _generateTiles(crossAxisCount, mainAxisCount),
-                )));
+                ))));
       },
     );
   }
