@@ -83,7 +83,8 @@ async fn main() {
 
                 info!("Initializing Player events");
                 tokio::spawn(initialize_player(main_db.clone(), player.clone()));
-
+                
+                info!("Initializing UI events");
                 loop {
                     select_signal!(
                         FetchMediaFilesRequest => (main_db, lib_path),
@@ -102,8 +103,6 @@ async fn main() {
                 }
             });
 
-            // info!("Initializing cover arts");
-            // tokio::spawn(handle_cover_art(main_db.clone(), lib_path.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
