@@ -2,11 +2,17 @@ import 'dart:math';
 import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/messages/cover_art.pb.dart';
+import 'package:player/widgets/cover_art.dart';
+
+const int count = 40;
+
+final maxHashValue = BigInt.from(1) << 64;
 
 double stringToDouble(String input) {
-  var hash = xxh3.string(input).number();
+  var hash = xxh3.string(input).bigInt();
 
-  return hash / 0x7FFFFFFFFFFFFFFF;
+  return hash / maxHashValue;
 }
 
 class RandomGridConfig {
@@ -18,7 +24,8 @@ class RandomGridConfig {
 
 class RandomGrid extends StatefulWidget {
   final int seed;
-  const RandomGrid({super.key, required this.seed});
+  final List<int> coverArtIds;
+  const RandomGrid({super.key, required this.seed, required this.coverArtIds});
 
   @override
   RandomGridState createState() => RandomGridState();
@@ -39,18 +46,23 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        return ClipRect(
-            child: OverflowBox(
-                alignment: Alignment.topLeft,
-                maxWidth: (crossAxisCount * gridSize).toDouble(),
-                maxHeight: (mainAxisCount * gridSize).toDouble(),
-                child: Center(
-                    child: StaggeredGrid.count(
-                  crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: 2,
-                  crossAxisSpacing: 2,
-                  children: _generateTiles(crossAxisCount, mainAxisCount),
-                ))));
+        return ColorFiltered(
+            colorFilter: const ColorFilter.mode(
+              Colors.black,
+              BlendMode.saturation,
+            ),
+            child: ClipRect(
+                child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    maxWidth: (crossAxisCount * gridSize).toDouble(),
+                    maxHeight: (mainAxisCount * gridSize).toDouble(),
+                    child: Center(
+                        child: StaggeredGrid.count(
+                      crossAxisCount: crossAxisCount,
+                      mainAxisSpacing: 2,
+                      crossAxisSpacing: 2,
+                      children: _generateTiles(crossAxisCount, mainAxisCount),
+                    )))));
       },
     );
   }
@@ -64,9 +76,9 @@ class RandomGridState extends State<RandomGrid> {
         tiles,
         occupiedCells,
         [
+          const RandomGridConfig(size: 4, probability: 0.2),
+          const RandomGridConfig(size: 3, probability: 0.3),
           const RandomGridConfig(size: 2, probability: 0.3),
-          const RandomGridConfig(size: 3, probability: 0.6),
-          const RandomGridConfig(size: 4, probability: 0.8),
         ],
         crossAxisCount,
         mainAxisCount);
@@ -89,8 +101,8 @@ class RandomGridState extends State<RandomGrid> {
         }
 
         double randomValue1 = stringToDouble('$gridKey-${widget.seed}');
-        int coverIndex =
-            (stringToDouble('$gridKey-i-${widget.seed}') * 30).round();
+        double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
+        int coverIndex = (randomValue2 * (count - 1)).round();
 
         for (var cfg in config) {
           if (randomValue1 <= cfg.probability) {
@@ -104,17 +116,22 @@ class RandomGridState extends State<RandomGrid> {
                   crossAxisCellCount: size,
                   mainAxisCellCount: size,
                   child: GridTile(
-                      index: coverIndex,
+                      index: row + col * mainAxisCount,
                       row: row,
                       col: col,
                       size: size,
-                      child: Text("$col x $row")),
+                      coverArtId: widget.coverArtIds[coverIndex],
+                      child: CoverArt(
+                        coverArtId: widget.coverArtIds[coverIndex],
+                        size: size * 64.0,
+                      )),
                 ),
               );
               break; // Once a tile is placed, move to the next cell
             } else if (_canPlaceTile(
                 col, row, 1, crossAxisCount, mainAxisCount, occupiedCells)) {
               _markOccupiedCells(col, row, 1, occupiedCells);
+
               tiles.add(
                 StaggeredGridTile.count(
                   crossAxisCellCount: 1,
@@ -124,7 +141,10 @@ class RandomGridState extends State<RandomGrid> {
                       row: row,
                       col: col,
                       size: 1,
-                      child: Text("$col x $row")),
+                      coverArtId: widget.coverArtIds[coverIndex],
+                      child: CoverArt(
+                        coverArtId: widget.coverArtIds[coverIndex],
+                      )),
                 ),
               );
             }
@@ -143,7 +163,11 @@ class RandomGridState extends State<RandomGrid> {
                   row: row,
                   col: col,
                   size: 1,
-                  child: Text("$col x $row")),
+                  coverArtId: widget.coverArtIds[coverIndex],
+                  child: CoverArt(
+                    coverArtId: widget.coverArtIds[coverIndex],
+                    size: 64.0,
+                  )),
             ),
           );
         }
@@ -180,6 +204,7 @@ class GridTile extends StatelessWidget {
   final int row;
   final int col;
   final int size;
+  final int coverArtId;
   final Widget child;
 
   const GridTile(
@@ -188,6 +213,7 @@ class GridTile extends StatelessWidget {
       required this.row,
       required this.col,
       required this.size,
+      required this.coverArtId,
       required this.child});
 
   @override
@@ -209,11 +235,36 @@ class CoverWall extends StatefulWidget {
 }
 
 class _CoverWallState extends State<CoverWall> {
+  List<int> coverArtIds = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _fetchRandomCoverArtIds();
+  }
+
+  Future<void> _fetchRandomCoverArtIds() async {
+    GetRandomCoverArtIdsRequest(count: count).sendSignalToRust();
+    GetRandomCoverArtIdsResponse.rustSignalStream.listen((event) {
+      final response = event.message;
+
+      if (!mounted) return;
+      setState(() {
+        coverArtIds = response.coverArtIds;
+        _isLoading = false;
+      });
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    return const ScaffoldPage(
+    return ScaffoldPage(
       content: Center(
-        child: RandomGrid(seed: 42),
+        child: _isLoading
+            ? Container()
+            : RandomGrid(seed: 42, coverArtIds: coverArtIds),
       ),
     );
   }

@@ -17,7 +17,7 @@ pub async fn get_cover_art_by_file_id_request(
     let request = dart_signal.message;
     let file_id = request.file_id;
 
-    debug!("Requesting cover art: {}", file_id);
+    debug!("Requesting cover art by file ID: {}", file_id);
 
     match sync_cover_art_by_file_id(&main_db, &lib_path, file_id).await {
         Ok(cover_art) => {
@@ -71,6 +71,9 @@ pub async fn get_cover_art_by_cover_art_id_request(
     dart_signal: DartSignal<GetCoverArtByCoverArtIdRequest>,
 ) {
     let cover_art_id = dart_signal.message.cover_art_id;
+
+    debug!("Requesting cover art by cover art ID: {}", cover_art_id);
+
     match get_cover_art_by_id(&main_db, cover_art_id).await {
         Ok(entry) => match entry {
             Some(entry) => CoverArtByCoverArtIdResponse {

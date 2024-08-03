@@ -6,8 +6,7 @@ mod messages;
 mod playback;
 mod player;
 
-// use cover_art::handle_cover_art;
-use log::info;
+use log::{debug, info};
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing_subscriber::filter::EnvFilter;
@@ -18,12 +17,11 @@ use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
 use ::playback::player::Player;
 
-use crate::player::initialize_player;
-
 use crate::connection::*;
 use crate::cover_art::*;
 use crate::media_file::*;
 use crate::playback::*;
+use crate::player::initialize_player;
 
 use messages::cover_art::*;
 use messages::media_file::*;
@@ -37,15 +35,19 @@ macro_rules! select_signal {
                 let mut [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver().unwrap();
             )*
 
-            tokio::select! {
-                $(
-                    dart_signal = [<receiver_ $type:snake>].recv() => {
-                        if let Some(dart_signal) = dart_signal {
-                            let handler_fn = [<$type:snake>];
-                            let _ = handler_fn($($arg.clone()),*, dart_signal).await;
+            loop {
+                tokio::select! {
+                    $(
+                        dart_signal = [<receiver_ $type:snake>].recv() => {
+                            if let Some(dart_signal) = dart_signal {
+                                debug!("Processing signal: {}", stringify!($type));
+                                let handler_fn = [<$type:snake>];
+                                let _ = handler_fn($($arg.clone()),*, dart_signal).await;
+                            }
                         }
-                    }
-                )*
+                    )*
+                    else => continue,
+                }
             }
         }
     };
@@ -86,24 +88,23 @@ async fn main() {
                 tokio::spawn(initialize_player(main_db.clone(), player.clone()));
 
                 info!("Initializing UI events");
-                loop {
-                    select_signal!(
-                        FetchMediaFilesRequest => (main_db, lib_path),
-                        PlayFileRequest => (main_db, player),
-                        RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
-                        PlayRequest => (player),
-                        PauseRequest => (player),
-                        NextRequest => (player),
-                        PreviousRequest => (player),
-                        SwitchRequest => (player),
-                        SeekRequest => (player),
-                        RemoveRequest => (player),
-                        MovePlaylistItemRequest => (player),
-                        GetCoverArtByFileIdRequest => (main_db, lib_path),
-                        GetCoverArtByCoverArtIdRequest => (main_db),
-                        GetRandomCoverArtIdsRequest => (main_db),
-                    );
-                }
+
+                select_signal!(
+                    FetchMediaFilesRequest => (main_db, lib_path),
+                    PlayFileRequest => (main_db, player),
+                    RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
+                    PlayRequest => (player),
+                    PauseRequest => (player),
+                    NextRequest => (player),
+                    PreviousRequest => (player),
+                    SwitchRequest => (player),
+                    SeekRequest => (player),
+                    RemoveRequest => (player),
+                    MovePlaylistItemRequest => (player),
+                    GetCoverArtByFileIdRequest => (main_db, lib_path),
+                    GetCoverArtByCoverArtIdRequest => (main_db),
+                    GetRandomCoverArtIdsRequest => (main_db),
+                );
             });
 
             break;
