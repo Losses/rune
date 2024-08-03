@@ -31,7 +31,7 @@ class TrackListViewState extends State<TrackListView> {
 
   Future<void> _fetchPage(int cursor) async {
     try {
-      final fetchMediaFiles = FetchMediaFiles(
+      final fetchMediaFiles = FetchMediaFilesRequest(
         cursor: cursor,
         pageSize: _pageSize,
       );

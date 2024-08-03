@@ -77,7 +77,6 @@ pub async fn connect_main_db(
 
     initialize_db(&db).await?;
 
-
     Ok(db)
 }
 

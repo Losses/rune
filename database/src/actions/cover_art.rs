@@ -1,12 +1,17 @@
 use dunce::canonicalize;
-use sea_orm::{ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
+use sea_orm::{
+    ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult,
+    Order, QueryFilter, QueryTrait,
+};
 use std::path::Path;
 
-use metadata::cover_art::extract_cover_art_binary;
+use migration::{Func, SimpleExpr};
+
+use metadata::cover_art::{self, extract_cover_art_binary};
 
 use crate::entities::{media_cover_art, media_files};
 
-pub async fn get_cover_art(
+pub async fn sync_cover_art_by_file_id(
     db: &DatabaseConnection,
     lib_path: &str,
     file_id: i32,
@@ -108,4 +113,40 @@ pub async fn get_cover_art(
     } else {
         Ok(None)
     }
+}
+
+pub async fn get_cover_art_by_id(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<Option<Vec<u8>>, sea_orm::DbErr> {
+    let result = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::Id.eq(id))
+        .one(db)
+        .await?;
+
+    match result {
+        Some(result) => Ok(Some(result.binary)),
+        _none => Ok(None),
+    }
+}
+
+pub async fn get_random_cover_art_ids(
+    db: &DatabaseConnection,
+    n: usize,
+) -> Result<Vec<media_cover_art::Model>, Box<dyn std::error::Error>> {
+    let mut query: sea_orm::sea_query::SelectStatement = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::Binary.gt(0))
+        .as_query()
+        .to_owned();
+
+    let select = query
+        .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+        .limit(n as u64);
+    let statement = db.get_database_backend().build(select);
+
+    let files = media_cover_art::Model::find_by_statement(statement)
+        .all(db)
+        .await?;
+
+    Ok(files)
 }

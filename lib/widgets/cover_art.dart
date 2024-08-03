@@ -64,7 +64,8 @@ class CoverArtState extends State<CoverArt> {
 
   void _requestCoverArt() {
     if (!_hasRequested && _coverArt == null) {
-      CoverArtRequest(fileId: widget.fileId).sendSignalToRust(); // GENERATED
+      GetCoverArtByFileIdRequest(fileId: widget.fileId)
+          .sendSignalToRust(); // GENERATED
       _hasRequested = true;
     }
   }

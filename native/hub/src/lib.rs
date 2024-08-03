@@ -4,20 +4,51 @@ mod cover_art;
 mod media_file;
 mod messages;
 mod playback;
+mod player;
 
-use cover_art::handle_cover_art;
-use database::connection::connect_recommendation_db;
+// use cover_art::handle_cover_art;
 use log::info;
+use player::initialize_player;
 use std::sync::Arc;
+use std::sync::Mutex;
 use tracing_subscriber::filter::EnvFilter;
-
-use database::connection::connect_main_db;
 
 pub use tokio;
 
+use ::database::connection::connect_main_db;
+use ::database::connection::connect_recommendation_db;
+use ::playback::player::Player;
+
 use crate::connection::*;
+use crate::cover_art::*;
 use crate::media_file::*;
 use crate::playback::*;
+
+use messages::cover_art::*;
+use messages::media_file::*;
+use messages::playback::*;
+use messages::recommend::*;
+
+macro_rules! select_signal {
+    ( $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
+        paste::paste! {
+            $(
+                let mut [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver().unwrap();
+            )*
+
+            tokio::select! {
+                $(
+                    dart_signal = [<receiver_ $type:snake>].recv() => {
+                        if let Some(dart_signal) = dart_signal {
+                            let handler_fn = [<$type:snake>];
+                            let _ = handler_fn($($arg.clone()),*, dart_signal).await;
+                        }
+                    }
+                )*
+            }
+        }
+    };
+}
 
 rinf::write_interface!();
 
@@ -38,21 +69,41 @@ async fn main() {
     loop {
         if let Some(path) = get_media_library_path().await {
             info!("Media Library Received, initialize other receivers");
-            // Move the path into the async block
-            let main_db = Arc::new(connect_main_db(&path).await.unwrap());
-            let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
-            let lib_path = Arc::new(path);
-            info!("Initializing fetchers");
-            // Pass the cloned Arc directly
-            tokio::spawn(fetch_media_files(main_db.clone(), lib_path.clone()));
-            info!("Initializing playback");
-            tokio::spawn(handle_playback(
-                main_db.clone(),
-                recommend_db.clone(),
-                lib_path.clone(),
-            ));
-            info!("Initializing cover arts");
-            tokio::spawn(handle_cover_art(main_db.clone(), lib_path.clone()));
+
+            tokio::spawn(async {
+                // Move the path into the async block
+                info!("Initializing database");
+                let main_db = Arc::new(connect_main_db(&path).await.unwrap());
+                let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
+                let lib_path = Arc::new(path);
+
+                info!("Initializing player");
+                let player = Player::new();
+                let player = Arc::new(Mutex::new(player));
+
+                info!("Initializing Player events");
+                tokio::spawn(initialize_player(main_db.clone(), player.clone()));
+
+                loop {
+                    select_signal!(
+                        FetchMediaFilesRequest => (main_db, lib_path),
+                        PlayFileRequest => (main_db, player),
+                        RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
+                        PlayRequest => (player),
+                        PauseRequest => (player),
+                        NextRequest => (player),
+                        PreviousRequest => (player),
+                        SwitchRequest => (player),
+                        SeekRequest => (player),
+                        RemoveRequest => (player),
+                        MovePlaylistItemRequest => (player),
+                        GetCoverArtByFileIdRequest => (main_db, lib_path)
+                    );
+                }
+            });
+
+            // info!("Initializing cover arts");
+            // tokio::spawn(handle_cover_art(main_db.clone(), lib_path.clone()));
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

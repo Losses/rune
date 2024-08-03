@@ -2,7 +2,7 @@ syntax = "proto3";
 package media_file;
 
 // [RINF:DART-SIGNAL]
-message FetchMediaFiles {
+message FetchMediaFilesRequest {
   int32 cursor = 1;
   int32 page_size = 2;
 }

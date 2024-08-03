@@ -24,6 +24,8 @@ class FFTVisualizeState extends State<FFTVisualize>
   void initState() {
     super.initState();
     RealtimeFFT.rustSignalStream.listen((rustSignal) {
+      if (!mounted) return;
+
       setState(() {
         _targetFftValues = rustSignal.message.value;
         _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
