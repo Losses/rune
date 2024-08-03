@@ -1,12 +1,13 @@
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use rinf::DartSignal;
 use std::sync::Arc;
 
+use database::actions::cover_art::get_cover_art_by_id;
+use database::actions::cover_art::get_random_cover_art_ids;
 use database::actions::cover_art::sync_cover_art_by_file_id;
 use database::connection::MainDbConnection;
 
-use crate::messages::cover_art::CoverArtResponse;
-use crate::messages::cover_art::GetCoverArtByFileIdRequest;
+use crate::messages::cover_art::*;
 
 pub async fn get_cover_art_by_file_id_request(
     main_db: Arc<MainDbConnection>,
@@ -23,14 +24,14 @@ pub async fn get_cover_art_by_file_id_request(
             match cover_art {
                 Some(cover_art) => {
                     if !cover_art.is_empty() {
-                        CoverArtResponse {
+                        CoverArtByFileIdResponse {
                             file_id,
                             cover_art: Some(cover_art),
                         }
                         .send_signal_to_dart();
                         // GENERATED
                     } else {
-                        CoverArtResponse {
+                        CoverArtByFileIdResponse {
                             file_id,
                             cover_art: None,
                         }
@@ -39,7 +40,7 @@ pub async fn get_cover_art_by_file_id_request(
                     }
                 }
                 _none => {
-                    CoverArtResponse {
+                    CoverArtByFileIdResponse {
                         file_id,
                         cover_art: None,
                     }
@@ -50,13 +51,60 @@ pub async fn get_cover_art_by_file_id_request(
             }
         }
         Err(e) => {
-            CoverArtResponse {
+            CoverArtByFileIdResponse {
                 file_id,
                 cover_art: None,
             }
             .send_signal_to_dart();
             // GENERATED
             warn!("Cover art request failed: {}: {:?}", file_id, e);
+        }
+    }
+}
+
+pub async fn get_cover_art_by_cover_art_id_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<GetCoverArtByCoverArtIdRequest>,
+) {
+    let cover_art_id = dart_signal.message.cover_art_id;
+    match get_cover_art_by_id(&main_db, cover_art_id).await {
+        Ok(entry) => match entry {
+            Some(entry) => CoverArtByCoverArtIdResponse {
+                cover_art_id,
+                cover_art: Some(entry),
+            }
+            .send_signal_to_dart(),
+            _none => CoverArtByCoverArtIdResponse {
+                cover_art_id,
+                cover_art: None,
+            }
+            .send_signal_to_dart(),
+        },
+        Err(_) => CoverArtByCoverArtIdResponse {
+            cover_art_id,
+            cover_art: None,
+        }
+        .send_signal_to_dart(),
+    };
+}
+
+pub async fn get_random_cover_art_ids_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<GetRandomCoverArtIdsRequest>,
+) {
+    let count = dart_signal.message.count;
+
+    match get_random_cover_art_ids(&main_db, count as usize).await {
+        Ok(items) => GetRandomCoverArtIdsResponse {
+            cover_art_ids: items.into_iter().map(|x| x.id).collect(),
+        }
+        .send_signal_to_dart(),
+        Err(_) => {
+            GetRandomCoverArtIdsResponse {
+                cover_art_ids: Vec::new(),
+            }
+            .send_signal_to_dart();
+            error!("Unable to get random cover art ids");
         }
     }
 }

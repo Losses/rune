@@ -71,7 +71,7 @@ class CoverArtState extends State<CoverArt> {
   }
 
   void _listenToCoverArtResponse() {
-    _subscription = CoverArtResponse.rustSignalStream.listen((event) async {
+    _subscription = CoverArtByFileIdResponse.rustSignalStream.listen((event) async {
       final response = event.message;
       if (response.fileId == widget.fileId) {
         if (!mounted) return;

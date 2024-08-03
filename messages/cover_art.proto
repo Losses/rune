@@ -11,8 +11,24 @@ message GetCoverArtByCoverArtIdRequest {
   int32 cover_art_id = 1;
 }
 
+// [RINF:DART-SIGNAL]
+message GetRandomCoverArtIdsRequest {
+  int32 count = 1;
+}
+
 // [RINF:RUST-SIGNAL]
-message CoverArtResponse {
+message CoverArtByFileIdResponse {
   int32 file_id = 1;
   optional bytes cover_art = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message CoverArtByCoverArtIdResponse {
+  int32 cover_art_id = 1;
+  optional bytes cover_art = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message GetRandomCoverArtIdsResponse {
+  repeated int32 cover_art_ids = 1;
 }

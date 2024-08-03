@@ -8,7 +8,6 @@ mod player;
 
 // use cover_art::handle_cover_art;
 use log::info;
-use player::initialize_player;
 use std::sync::Arc;
 use std::sync::Mutex;
 use tracing_subscriber::filter::EnvFilter;
@@ -18,6 +17,8 @@ pub use tokio;
 use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
 use ::playback::player::Player;
+
+use crate::player::initialize_player;
 
 use crate::connection::*;
 use crate::cover_art::*;
@@ -83,7 +84,7 @@ async fn main() {
 
                 info!("Initializing Player events");
                 tokio::spawn(initialize_player(main_db.clone(), player.clone()));
-                
+
                 info!("Initializing UI events");
                 loop {
                     select_signal!(
@@ -98,7 +99,9 @@ async fn main() {
                         SeekRequest => (player),
                         RemoveRequest => (player),
                         MovePlaylistItemRequest => (player),
-                        GetCoverArtByFileIdRequest => (main_db, lib_path)
+                        GetCoverArtByFileIdRequest => (main_db, lib_path),
+                        GetCoverArtByCoverArtIdRequest => (main_db),
+                        GetRandomCoverArtIdsRequest => (main_db),
                     );
                 }
             });

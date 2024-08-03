@@ -7,7 +7,7 @@ use std::path::Path;
 
 use migration::{Func, SimpleExpr};
 
-use metadata::cover_art::{self, extract_cover_art_binary};
+use metadata::cover_art::extract_cover_art_binary;
 
 use crate::entities::{media_cover_art, media_files};
 
