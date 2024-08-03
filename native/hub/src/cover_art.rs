@@ -22,10 +22,11 @@ pub async fn get_cover_art_by_file_id_request(
     match sync_cover_art_by_file_id(&main_db, &lib_path, file_id).await {
         Ok(cover_art) => {
             match cover_art {
-                Some(cover_art) => {
+                Some((cover_art_id, cover_art)) => {
                     if !cover_art.is_empty() {
                         CoverArtByFileIdResponse {
                             file_id,
+                            cover_art_id,
                             cover_art: Some(cover_art),
                         }
                         .send_signal_to_dart();
@@ -33,6 +34,7 @@ pub async fn get_cover_art_by_file_id_request(
                     } else {
                         CoverArtByFileIdResponse {
                             file_id,
+                            cover_art_id,
                             cover_art: None,
                         }
                         .send_signal_to_dart();
@@ -42,6 +44,7 @@ pub async fn get_cover_art_by_file_id_request(
                 _none => {
                     CoverArtByFileIdResponse {
                         file_id,
+                        cover_art_id: -1,
                         cover_art: None,
                     }
                     .send_signal_to_dart();
@@ -53,6 +56,7 @@ pub async fn get_cover_art_by_file_id_request(
         Err(e) => {
             CoverArtByFileIdResponse {
                 file_id,
+                cover_art_id: -1,
                 cover_art: None,
             }
             .send_signal_to_dart();

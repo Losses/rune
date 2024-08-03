@@ -26,10 +26,13 @@ class EmptyCoverArt extends StatelessWidget {
 }
 
 class CoverArt extends StatefulWidget {
-  final int fileId;
+  final int? fileId;
+  final int? coverArtId;
   final double size;
 
-  const CoverArt({super.key, required this.fileId, required this.size});
+  const CoverArt({super.key, this.fileId, this.coverArtId, required this.size})
+      : assert(fileId != null || coverArtId != null,
+            'Either fileId or coverArtId must be provided');
 
   @override
   CoverArtState createState() => CoverArtState();
@@ -39,6 +42,8 @@ class CoverArtState extends State<CoverArt> {
   bool _hasRequested = false;
   Uint8List? _coverArt;
   StreamSubscription? _subscription;
+
+  late int? coverArtId = widget.coverArtId;
 
   @override
   void initState() {
@@ -54,7 +59,11 @@ class CoverArtState extends State<CoverArt> {
   }
 
   Future<void> _checkCache() async {
-    final cachedCoverArt = await coverArtCache.getCoverArt(widget.fileId);
+    Uint8List? cachedCoverArt;
+    if (widget.coverArtId != null) {
+      cachedCoverArt = await coverArtCache.getCoverArt(widget.coverArtId!);
+    }
+
     if (cachedCoverArt != null && mounted) {
       setState(() {
         _coverArt = cachedCoverArt;
@@ -64,33 +73,54 @@ class CoverArtState extends State<CoverArt> {
 
   void _requestCoverArt() {
     if (!_hasRequested && _coverArt == null) {
-      GetCoverArtByFileIdRequest(fileId: widget.fileId)
-          .sendSignalToRust(); // GENERATED
+      if (widget.fileId != null) {
+        GetCoverArtByFileIdRequest(fileId: widget.fileId!).sendSignalToRust();
+      } else if (widget.coverArtId != null) {
+        GetCoverArtByCoverArtIdRequest(coverArtId: widget.coverArtId!)
+            .sendSignalToRust();
+      }
       _hasRequested = true;
     }
   }
 
   void _listenToCoverArtResponse() {
-    _subscription = CoverArtByFileIdResponse.rustSignalStream.listen((event) async {
+    _subscription =
+        CoverArtByFileIdResponse.rustSignalStream.listen((event) async {
       final response = event.message;
-      if (response.fileId == widget.fileId) {
-        if (!mounted) return;
-
-        final coverArtData = Uint8List.fromList(response.coverArt);
-        await coverArtCache.saveCoverArt(widget.fileId, coverArtData);
-        if (!mounted) return;
-
-        setState(() {
-          _coverArt = coverArtData;
-        });
+      if (widget.fileId != null && response.fileId == widget.fileId) {
+        coverArtId = response.coverArtId;
+        _handleCoverArtResponse(response.coverArt, widget.fileId);
       }
+    });
+
+    _subscription =
+        CoverArtByCoverArtIdResponse.rustSignalStream.listen((event) async {
+      final response = event.message;
+      if (widget.coverArtId != null &&
+          response.coverArtId == widget.coverArtId) {
+        _handleCoverArtResponse(response.coverArt, widget.coverArtId);
+      }
+    });
+  }
+
+  Future<void> _handleCoverArtResponse(List<int>? coverArt, int? id) async {
+    if (!mounted) return;
+
+    final coverArtData =
+        coverArt != null ? Uint8List.fromList(coverArt) : Uint8List(0);
+    await coverArtCache.saveCoverArt(coverArtId, coverArtData);
+
+    if (!mounted) return;
+
+    setState(() {
+      _coverArt = coverArtData;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return VisibilityDetector(
-      key: Key('cover-art-${widget.fileId}'),
+      key: Key('cover-art-${widget.fileId ?? widget.coverArtId}'),
       onVisibilityChanged: (visibilityInfo) {
         if (visibilityInfo.visibleFraction > 0 && _coverArt == null) {
           _requestCoverArt();

@@ -33,7 +33,11 @@ class CoverArtCache {
     return hash.toRadixString(16); // Convert to hexadecimal string
   }
 
-  Future<void> saveCoverArt(int fileId, Uint8List data) async {
+  Future<void> saveCoverArt(int? fileId, Uint8List data) async {
+    if (fileId == null) {
+      throw 'Cover art id not defined';
+    }
+
     await _ensureCacheDirExists();
     final hash = _generateHash(data);
     final cacheDir = await _getCacheDir();
@@ -58,4 +62,3 @@ class CoverArtCache {
     return null;
   }
 }
-

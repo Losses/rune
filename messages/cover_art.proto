@@ -19,7 +19,8 @@ message GetRandomCoverArtIdsRequest {
 // [RINF:RUST-SIGNAL]
 message CoverArtByFileIdResponse {
   int32 file_id = 1;
-  optional bytes cover_art = 2;
+  int32 cover_art_id = 2;
+  optional bytes cover_art = 3;
 }
 
 // [RINF:RUST-SIGNAL]
