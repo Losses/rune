@@ -15,7 +15,7 @@ pub async fn sync_cover_art_by_file_id(
     db: &DatabaseConnection,
     lib_path: &str,
     file_id: i32,
-) -> Result<Option<Vec<u8>>, sea_orm::DbErr> {
+) -> Result<Option<(i32, Vec<u8>)>, sea_orm::DbErr> {
     // Query file information
     let file: Option<media_files::Model> = media_files::Entity::find_by_id(file_id).one(db).await?;
 
@@ -24,8 +24,9 @@ pub async fn sync_cover_art_by_file_id(
             // If cover_art_id already exists, directly retrieve the cover art from the database
             let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
                 .one(db)
-                .await?;
-            Ok(Some(cover_art.unwrap().binary))
+                .await?
+                .unwrap();
+            Ok(Some((cover_art.id, cover_art.binary)))
         } else {
             let file_path = canonicalize(
                 Path::new(lib_path)
@@ -49,7 +50,7 @@ pub async fn sync_cover_art_by_file_id(
                         .exec(db)
                         .await?;
 
-                    Ok(Some(existing_cover_art.binary))
+                    Ok(Some((existing_cover_art.id, existing_cover_art.binary)))
                 } else {
                     // If there is no file with the same CRC, store the cover art in the database and update the file's cover_art_id
                     let new_cover_art = media_cover_art::ActiveModel {
@@ -69,7 +70,7 @@ pub async fn sync_cover_art_by_file_id(
                         .exec(db)
                         .await?;
 
-                    Ok(Some(cover_art.data))
+                    Ok(Some((new_cover_art_id, cover_art.data)))
                 }
             } else {
                 // If the audio file has no cover art, check if there is a magic value with an empty CRC in the database
@@ -86,7 +87,7 @@ pub async fn sync_cover_art_by_file_id(
                         .exec(db)
                         .await?;
 
-                    Ok(Some(magic_cover_art.binary))
+                    Ok(Some((magic_cover_art.id, magic_cover_art.binary)))
                 } else {
                     // If the magic value does not exist, create one and update the file's cover_art_id
                     let new_magic_cover_art = media_cover_art::ActiveModel {
@@ -106,7 +107,7 @@ pub async fn sync_cover_art_by_file_id(
                         .exec(db)
                         .await?;
 
-                    Ok(Some(Vec::new()))
+                    Ok(Some((new_magic_cover_art_id, Vec::new())))
                 }
             }
         }
