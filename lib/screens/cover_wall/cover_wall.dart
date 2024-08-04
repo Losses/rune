@@ -2,8 +2,11 @@ import 'dart:math';
 import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/cover_art.pb.dart';
-import 'package:player/widgets/cover_art.dart';
+import 'package:mesh_gradient/mesh_gradient.dart';
+import 'package:player/widgets/gradient_container.dart';
+
+import '../../messages/cover_art.pb.dart';
+import '../../widgets/cover_art.dart';
 
 const int count = 40;
 
@@ -46,31 +49,51 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
+        final gradient = SizedBox.expand(
+            child: MeshGradient(
+          points: [
+            MeshGradientPoint(
+              position: const Offset(
+                0.2,
+                0.6,
+              ),
+              color: FluentTheme.of(context).accentColor,
+            ),
+            MeshGradientPoint(
+              position: const Offset(
+                0.4,
+                0.5,
+              ),
+              color: const Color.fromARGB(255, 69, 18, 255),
+            ),
+            MeshGradientPoint(
+              position: const Offset(
+                0.7,
+                0.4,
+              ),
+              color: FluentTheme.of(context).accentColor,
+            ),
+          ],
+          options: MeshGradientOptions(),
+        ));
+
+        final coverArtWall = ClipRect(
+            child: OverflowBox(
+                alignment: Alignment.topLeft,
+                maxWidth: (crossAxisCount * gridSize).toDouble(),
+                maxHeight: (mainAxisCount * gridSize).toDouble(),
+                child: Center(
+                    child: StaggeredGrid.count(
+                  crossAxisCount: crossAxisCount,
+                  mainAxisSpacing: 2,
+                  crossAxisSpacing: 2,
+                  children: _generateTiles(
+                      crossAxisCount, mainAxisCount, gridSize.toDouble()),
+                ))));
+
         return Stack(
           children: [
-            ColorFiltered(
-                colorFilter: ColorFilter.mode(
-                  FluentTheme.of(context).accentColor.darker,
-                  BlendMode.multiply,
-                ),
-                child: ColorFiltered(
-                    colorFilter: const ColorFilter.mode(
-                      Colors.black,
-                      BlendMode.saturation,
-                    ),
-                    child: ClipRect(
-                        child: OverflowBox(
-                            alignment: Alignment.topLeft,
-                            maxWidth: (crossAxisCount * gridSize).toDouble(),
-                            maxHeight: (mainAxisCount * gridSize).toDouble(),
-                            child: Center(
-                                child: StaggeredGrid.count(
-                              crossAxisCount: crossAxisCount,
-                              mainAxisSpacing: 2,
-                              crossAxisSpacing: 2,
-                              children:
-                                  _generateTiles(crossAxisCount, mainAxisCount),
-                            )))))),
+            coverArtWall,
             Container(
                 decoration: BoxDecoration(
                     gradient: RadialGradient(
@@ -87,7 +110,8 @@ class RandomGridState extends State<RandomGrid> {
     );
   }
 
-  List<Widget> _generateTiles(int crossAxisCount, int mainAxisCount) {
+  List<Widget> _generateTiles(
+      int crossAxisCount, int mainAxisCount, double gridSize) {
     List<Widget> tiles = [];
     Set<String> occupiedCells = {};
 
@@ -95,6 +119,7 @@ class RandomGridState extends State<RandomGrid> {
     _generateTilesOfSize(
         tiles,
         occupiedCells,
+        gridSize,
         [
           const RandomGridConfig(size: 4, probability: 0.2),
           const RandomGridConfig(size: 3, probability: 0.3),
@@ -108,6 +133,7 @@ class RandomGridState extends State<RandomGrid> {
   void _generateTilesOfSize(
     List<Widget> tiles,
     Set<String> occupiedCells,
+    double gridSize,
     List<RandomGridConfig> config,
     int crossAxisCount,
     int mainAxisCount,
@@ -143,7 +169,7 @@ class RandomGridState extends State<RandomGrid> {
                       coverArtId: widget.coverArtIds[coverIndex],
                       child: CoverArt(
                         coverArtId: widget.coverArtIds[coverIndex],
-                        size: null,
+                        size: size * gridSize,
                       )),
                 ),
               );
@@ -164,6 +190,7 @@ class RandomGridState extends State<RandomGrid> {
                       coverArtId: widget.coverArtIds[coverIndex],
                       child: CoverArt(
                         coverArtId: widget.coverArtIds[coverIndex],
+                        size: 1 * gridSize,
                       )),
                 ),
               );

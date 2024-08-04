@@ -29,7 +29,8 @@ class CoverArt extends StatefulWidget {
   final int? coverArtId;
   final double? size;
 
-  const CoverArt({super.key, this.fileId, this.coverArtId, this.size})
+  const CoverArt(
+      {super.key, this.fileId, this.coverArtId, this.size})
       : assert(fileId != null || coverArtId != null,
             'Either fileId or coverArtId must be provided');
 
