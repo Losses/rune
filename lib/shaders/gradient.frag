@@ -6,18 +6,27 @@ out vec4 fragColor;
 uniform vec2 resolution;
 uniform sampler2D image;
 
-uniform vec2 u_res;
 uniform float u_time;
 uniform vec2 u_mouse;
-uniform vec4 u_params;
-uniform vec4 u_params2;
-uniform vec4 u_altparams;
-uniform vec3 u_color;
-uniform vec3 u_color2;
+
 uniform float u_mode;
 uniform float u_swap;
 
+uniform vec4 u_params;
+uniform vec4 u_params2;
+uniform vec4 u_altparams;
+
+uniform vec3 u_color;
+uniform vec3 u_color2;
+
+
 const float MPI = 6.28318530718;
+
+const float PI = 3.14159265358979323846;
+
+float degreesToRadians(float degrees) {
+    return degrees * (PI / 180.0);
+}
 
 // cos mix
 vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
@@ -29,6 +38,7 @@ vec3 hueShift(vec3 color, float hueAdjust) {
     const vec3 kRGBToYPrime = vec3(0.299, 0.587, 0.114);
     const vec3 kRGBToI = vec3(0.596, -0.275, -0.321);
     const vec3 kRGBToQ = vec3(0.212, -0.523, 0.311);
+
     const vec3 kYIQToR = vec3(1.0, 0.956, 0.621);
     const vec3 kYIQToG = vec3(1.0, -0.272, -0.647);
     const vec3 kYIQToB = vec3(1.0, -1.107, 1.704);
@@ -122,58 +132,79 @@ float cnoise(vec3 P) {
     return 2.2 * n_xyz;
 }
 
-// colors
-const vec3 col1 = vec3(0.5, 0.5, 0.5);
-const vec3 col2 = vec3(0.5, 0.5, 0.5);
-const vec3 col3 = vec3(1.0, 1.0, 1.0);
+// Animation parameters
+const vec3 amplitude = vec3(0.5, 0.5, 0.5);
+const vec3 frequency = vec3(0.5, 0.5, 0.5);
+const vec3 phase_shift = vec3(0.3, 0.3, 0.3);
 
 void main() {
-    vec2 uv = gl_FragCoord.xy / u_res;
+    // params
+    float MULT_X = u_params.x;
+    float MULT_Y = u_params.y;
+    float HUE = u_params.z; // 0 / 360
+    float BRIGHTNESS = u_params.w;
+    float MOUSE_BRIGHTNESS = u_params2.x; // -1 / 1 -- -1 being black and 100% power
+    float SCALE = mix(u_params2.y, u_altparams.x, u_swap);
+    float NOISE_FACTOR = u_params2.z;
+    float BW = mix(u_params2.w, u_altparams.y, u_swap);
+
+    // shader
+    vec2 uv = gl_FragCoord.xy / resolution.xy;
+    vec2 mouse_uv = ((u_mouse / resolution.xy) - 0.5) * 2;
+
     vec2 scale_uv = uv;
     scale_uv -= vec2(.5);
-    scale_uv *= mix(u_params2.y, u_altparams.x, u_swap);
+    scale_uv *= SCALE;
 
-    float noise = cnoise(vec3(scale_uv, u_time)) * u_params2.z;
+    // noise
+    float noise = cnoise(vec3(scale_uv, u_time)) * NOISE_FACTOR;
 
+    // mouse
     float c_d = distance(scale_uv.x, .5);
     c_d = smoothstep(0., .6, c_d);
-    vec2 m_uv = scale_uv * (c_d + cos(scale_uv.x * u_params.x) * noise - sin(scale_uv.y * u_params.y) * noise);
+    vec2 m_uv = scale_uv * (c_d + cos(scale_uv.x * MULT_X) * noise - sin(scale_uv.y * MULT_Y) * noise);
 
+    // end uv deformation
     scale_uv += vec2(.5);
 
+    // # COMPUTE
     vec3 current_color = mix(u_color, u_color2, u_swap);
     vec3 col = palette(
-        u_time + cos((m_uv.x) + (m_uv.y)),
-        col1, col2, col2, current_color
+        u_time + cos((m_uv.x) + (m_uv.y)), 
+        current_color, amplitude, frequency, phase_shift
     );
 
-    float dist = distance(m_uv, u_mouse * mix(u_params2.y, u_altparams.x, u_swap) / 2.);
+    // mouse 
+    float dist = distance(m_uv, mouse_uv * SCALE/2.);
+
     dist = 1. - dist;
     dist = smoothstep(.3, 1., dist);
 
-    vec3 shift_col = hueShift(col, sin(u_time * MPI));
+    vec3 shift_col = hueShift(col, sin(u_time) * MPI);
 
     col = mix(
-        col,
-        shift_col * col + (dist * u_params2.x),
+        col, 
+        shift_col * col + (dist * MOUSE_BRIGHTNESS), 
         dist
     );
 
-    col = hueShift(col, u_params.z);
-    col *= u_params.w;
+    // // final shift
+    col = hueShift(col, degreesToRadians(HUE));
+    col *= BRIGHTNESS;
 
     float bw_col = (col.r + col.g + col.b) * .3;
-    col = mix(col, vec3(bw_col), mix(u_params2.w, u_altparams.y, u_swap));
+    col = mix(col, vec3(bw_col), BW);
 
     if (u_mode > .5) {
         col = vec3(1.) - col;
     }
 
     vec2 fragCoord = (FlutterFragCoord().xy / resolution.xy);
-    vec3 imageColor = texture(image, fragCoord).xyz;
+    vec4 imageColor = texture(image, fragCoord);
     float luminance = imageColor.r * 0.299 + imageColor.g * 0.587 + imageColor.b * 0.114;
     vec3 grayColor = vec3(luminance);
 
-    // fragColor = vec4(grayColor * col, 1.0);
-    fragColor = vec4(grayColor, 1.0);
+    // fragColor = vec4(col, 1.0);
+    // fragColor = vec4(grayColor, 1.0);
+    fragColor = vec4(grayColor * col, imageColor.a);
 }

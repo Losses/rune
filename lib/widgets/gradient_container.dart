@@ -59,7 +59,7 @@ class GradientContainer extends StatefulWidget {
 
   const GradientContainer({
     required this.child,
-    this.mode = 0.0,
+    this.mode = 1.0,
     this.swap = 0.0,
     required this.gradientParams,
     required this.effectParams,
@@ -79,6 +79,8 @@ class GradientContainerState extends State<GradientContainer> {
   double _time = 0.0;
   Offset _mousePosition = Offset.zero;
 
+  final GlobalKey _containerKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -87,7 +89,7 @@ class GradientContainerState extends State<GradientContainer> {
     // Start a timer to update the time every frame
     _timer = Timer.periodic(const Duration(milliseconds: 16), (Timer timer) {
       setState(() {
-        _time += 0.016; // Increment time by 16 milliseconds
+        _time += 0.016 / 10; // Increment time by 16 milliseconds
       });
     });
 
@@ -96,12 +98,19 @@ class GradientContainerState extends State<GradientContainer> {
   }
 
   Future<ui.FragmentProgram> _loadShader() async {
-    return ui.FragmentProgram.fromAsset('shaders/black_white_gradient.frag');
+    try {
+      return await ui.FragmentProgram.fromAsset('lib/shaders/gradient.frag');
+    } catch (e) {
+      rethrow;
+    }
   }
 
   void _updateMousePosition(PointerEvent event) {
+    final RenderBox renderBox =
+        _containerKey.currentContext!.findRenderObject() as RenderBox;
+    final Offset localPosition = renderBox.globalToLocal(event.position);
     setState(() {
-      _mousePosition = event.localPosition;
+      _mousePosition = localPosition;
     });
   }
 
@@ -128,35 +137,49 @@ class GradientContainerState extends State<GradientContainer> {
           (ui.Image image, Size size, Canvas canvas) {
             final fragmentShader = shader.fragmentShader();
             fragmentShader
+              ..setImageSampler(0, image)
+              // resolution
               ..setFloat(0, size.width)
               ..setFloat(1, size.height)
-              ..setImageSampler(0, image)
+              // u_time
               ..setFloat(2, _time)
-              ..setFloat(3, widget.mode)
-              ..setFloat(4, widget.swap)
-              ..setFloat(5, widget.gradientParams.multX)
-              ..setFloat(6, widget.gradientParams.multY)
-              ..setFloat(7, widget.gradientParams.hue)
-              ..setFloat(8, widget.gradientParams.brightness)
-              ..setFloat(9, _mousePosition.dx)
-              ..setFloat(10, _mousePosition.dy)
-              ..setFloat(11, widget.effectParams.scale)
-              ..setFloat(12, widget.effectParams.noise)
-              ..setFloat(13, widget.effectParams.bw)
-              ..setFloat(14, widget.altParams.scale2)
-              ..setFloat(15, widget.altParams.bw2)
-              ..setFloat(16, 0.0) // Placeholder for future use
+              // u_mouse
+              ..setFloat(3, _mousePosition.dx)
+              ..setFloat(4, _mousePosition.dy)
+              // u_mode
+              ..setFloat(5, widget.mode)
+              // u_swap
+              ..setFloat(6, widget.swap)
+              // u_params
+              ..setFloat(7, widget.gradientParams.multX)
+              ..setFloat(8, widget.gradientParams.multY)
+              ..setFloat(9, widget.gradientParams.hue)
+              ..setFloat(10, widget.gradientParams.brightness)
+              // u_params2
+              ..setFloat(11, widget.effectParams.mouseInfluence)
+              ..setFloat(12, widget.effectParams.scale)
+              ..setFloat(13, widget.effectParams.noise)
+              ..setFloat(14, widget.effectParams.bw)
+              // u_altparams
+              ..setFloat(15, widget.altParams.scale2)
+              ..setFloat(16, widget.altParams.bw2)
               ..setFloat(17, 0.0) // Placeholder for future use
-              ..setFloat(18, widget.color.red / 255.0)
-              ..setFloat(19, widget.color.green / 255.0)
-              ..setFloat(20, widget.color.blue / 255.0)
-              ..setFloat(21, widget.color2.red / 255.0)
-              ..setFloat(22, widget.color2.green / 255.0)
-              ..setFloat(23, widget.color2.blue / 255.0);
+              ..setFloat(18, 0.0) // Placeholder for future use
+              // u_color
+              ..setFloat(19, widget.color.red / 255.0)
+              ..setFloat(20, widget.color.green / 255.0)
+              ..setFloat(21, widget.color.blue / 255.0)
+              // u_color2
+              ..setFloat(22, widget.color2.red / 255.0)
+              ..setFloat(23, widget.color2.green / 255.0)
+              ..setFloat(24, widget.color2.blue / 255.0);
 
             canvas.drawRect(
-                Offset.zero & size, Paint()..shader = fragmentShader);
+              Offset.zero & size,
+              Paint()..shader = fragmentShader,
+            );
           },
+          key: _containerKey,
           child: widget.child,
         );
       },
