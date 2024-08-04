@@ -46,23 +46,43 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        return ColorFiltered(
-            colorFilter: const ColorFilter.mode(
-              Colors.black,
-              BlendMode.saturation,
-            ),
-            child: ClipRect(
-                child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    maxWidth: (crossAxisCount * gridSize).toDouble(),
-                    maxHeight: (mainAxisCount * gridSize).toDouble(),
-                    child: Center(
-                        child: StaggeredGrid.count(
-                      crossAxisCount: crossAxisCount,
-                      mainAxisSpacing: 2,
-                      crossAxisSpacing: 2,
-                      children: _generateTiles(crossAxisCount, mainAxisCount),
-                    )))));
+        return Stack(
+          children: [
+            ColorFiltered(
+                colorFilter: ColorFilter.mode(
+                  FluentTheme.of(context).accentColor.darker,
+                  BlendMode.multiply,
+                ),
+                child: ColorFiltered(
+                    colorFilter: const ColorFilter.mode(
+                      Colors.black,
+                      BlendMode.saturation,
+                    ),
+                    child: ClipRect(
+                        child: OverflowBox(
+                            alignment: Alignment.topLeft,
+                            maxWidth: (crossAxisCount * gridSize).toDouble(),
+                            maxHeight: (mainAxisCount * gridSize).toDouble(),
+                            child: Center(
+                                child: StaggeredGrid.count(
+                              crossAxisCount: crossAxisCount,
+                              mainAxisSpacing: 2,
+                              crossAxisSpacing: 2,
+                              children:
+                                  _generateTiles(crossAxisCount, mainAxisCount),
+                            )))))),
+            Container(
+                decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                  colors: [
+                    Colors.black.withAlpha(20),
+                    Colors.black.withAlpha(255),
+                  ],
+                  radius: 1.5,
+                )),
+                height: (mainAxisCount * gridSize).toDouble()),
+          ],
+        );
       },
     );
   }
@@ -123,7 +143,7 @@ class RandomGridState extends State<RandomGrid> {
                       coverArtId: widget.coverArtIds[coverIndex],
                       child: CoverArt(
                         coverArtId: widget.coverArtIds[coverIndex],
-                        size: size * 64.0,
+                        size: null,
                       )),
                 ),
               );
