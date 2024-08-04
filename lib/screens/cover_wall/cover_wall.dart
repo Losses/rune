@@ -2,7 +2,6 @@ import 'dart:math';
 import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:mesh_gradient/mesh_gradient.dart';
 import 'package:player/widgets/gradient_container.dart';
 
 import '../../messages/cover_art.pb.dart';
@@ -49,61 +48,47 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        final gradient = SizedBox.expand(
-            child: MeshGradient(
-          points: [
-            MeshGradientPoint(
-              position: const Offset(
-                0.2,
-                0.6,
-              ),
-              color: FluentTheme.of(context).accentColor,
-            ),
-            MeshGradientPoint(
-              position: const Offset(
-                0.4,
-                0.5,
-              ),
-              color: const Color.fromARGB(255, 69, 18, 255),
-            ),
-            MeshGradientPoint(
-              position: const Offset(
-                0.7,
-                0.4,
-              ),
-              color: FluentTheme.of(context).accentColor,
-            ),
-          ],
-          options: MeshGradientOptions(),
-        ));
-
         final coverArtWall = ClipRect(
             child: OverflowBox(
                 alignment: Alignment.topLeft,
                 maxWidth: (crossAxisCount * gridSize).toDouble(),
                 maxHeight: (mainAxisCount * gridSize).toDouble(),
                 child: Center(
-                    child: StaggeredGrid.count(
-                  crossAxisCount: crossAxisCount,
-                  mainAxisSpacing: 2,
-                  crossAxisSpacing: 2,
-                  children: _generateTiles(
-                      crossAxisCount, mainAxisCount, gridSize.toDouble()),
-                ))));
+                    child: GradientContainer(
+                        gradientParams: GradientParams(
+                          multX: 2.0,
+                          multY: 2.0,
+                          hue: 180.0,
+                          brightness: 0.8,
+                        ),
+                        effectParams: EffectParams(
+                          mouseInfluence: -1.0,
+                          scale: 1.0,
+                          noise: 1.5,
+                          bw: 0.0,
+                        ),
+                        color: Colors.red,
+                        child: StaggeredGrid.count(
+                          crossAxisCount: crossAxisCount,
+                          mainAxisSpacing: 2,
+                          crossAxisSpacing: 2,
+                          children: _generateTiles(crossAxisCount,
+                              mainAxisCount, gridSize.toDouble()),
+                        )))));
 
         return Stack(
           children: [
             coverArtWall,
-            Container(
-                decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                  colors: [
-                    Colors.black.withAlpha(20),
-                    Colors.black.withAlpha(255),
-                  ],
-                  radius: 1.5,
-                )),
-                height: (mainAxisCount * gridSize).toDouble()),
+            // Container(
+            //     decoration: BoxDecoration(
+            //         gradient: RadialGradient(
+            //       colors: [
+            //         Colors.black.withAlpha(20),
+            //         Colors.black.withAlpha(255),
+            //       ],
+            //       radius: 1.5,
+            //     )),
+            //     height: (mainAxisCount * gridSize).toDouble()),
           ],
         );
       },
