@@ -62,6 +62,10 @@ void main() async {
     });
   }
 
+  Future.wait([
+    DeferredWidget.preload(home.loadLibrary),
+  ]);
+
   runApp(
     MultiProvider(
       providers: [
@@ -72,13 +76,6 @@ void main() async {
       child: const MyApp(),
     ),
   );
-
-  Future.wait([
-    DeferredWidget.preload(home.loadLibrary),
-    DeferredWidget.preload(tracks.loadLibrary),
-    DeferredWidget.preload(settings.loadLibrary),
-    DeferredWidget.preload(cover_wall.loadLibrary),
-  ]);
 }
 
 final _appTheme = AppTheme();
@@ -273,9 +270,8 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
 
     final routeState = GoRouterState.of(context);
 
-    return Column(children: [
-      Expanded(
-          child: NavigationView(
+    return Stack(alignment: Alignment.bottomCenter, children: [
+      NavigationView(
         key: viewKey,
         paneBodyBuilder: (item, child) {
           final name =
@@ -304,7 +300,9 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
               child: const ThemeGradient(),
             ),
           ),
-          displayMode: routeState.fullPath != "/cover_wall" ? appTheme.displayMode : PaneDisplayMode.minimal,
+          displayMode: routeState.fullPath != "/cover_wall"
+              ? appTheme.displayMode
+              : PaneDisplayMode.minimal,
           indicator: () {
             switch (appTheme.indicator) {
               case NavigationIndicators.end:
@@ -317,7 +315,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
           items: originalItems,
           footerItems: footerItems,
         ),
-      )),
+      ),
       const PlaybackController()
     ]);
   }
@@ -444,7 +442,7 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
       GoRoute(
         path: '/settings',
         builder: (context, state) => DeferredWidget(
-          tracks.loadLibrary,
+          settings.loadLibrary,
           () => settings.SettingsPage(),
         ),
       ),
@@ -453,8 +451,8 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
       GoRoute(
         path: '/cover_wall',
         builder: (context, state) => DeferredWidget(
-          tracks.loadLibrary,
-          () => cover_wall.CoverWall(),
+          cover_wall.loadLibrary,
+          () => cover_wall.CoverWallPage(),
         ),
       ),
     ],

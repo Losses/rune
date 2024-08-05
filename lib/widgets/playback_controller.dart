@@ -10,6 +10,17 @@ import '../messages/playback.pb.dart';
 
 import './fft_visualize.dart';
 
+const controllerHeight = 80.0;
+
+class PlaybackPlaceholder extends StatelessWidget {
+  const PlaybackPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(height: controllerHeight);
+  }
+}
+
 String formatTime(double seconds) {
   int totalSeconds = seconds.floor();
 
@@ -231,45 +242,6 @@ class CoverWallButton extends StatelessWidget {
     );
   }
 }
-
-// class CoverWallButton extends StatefulWidget {
-//   const CoverWallButton({super.key});
-
-//   @override
-//   CoverWallButtonState createState() => CoverWallButtonState();
-// }
-
-// class CoverWallButtonState extends State<CoverWallButton> {
-//   String? lastPath;
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return IconButton(
-//       onPressed: () {
-//         final routeState = GoRouterState.of(context);
-//         final route = GoRouter.of(context);
-
-//         if (routeState.fullPath == "/cover_wall") {
-//           if (route.canPop()) {
-//             context.pop();
-//           } else {
-//             if (lastPath != null) {
-//               route.go(lastPath!);
-//             } else {
-//               route.push("/");
-//             }
-//           }
-//         } else {
-//           setState(() {
-//             lastPath = routeState.fullPath;
-//           });
-//           route.push("/cover_wall");
-//         }
-//       },
-//       icon: const Icon(Symbols.photo_frame),
-//     );
-//   }
-// }
 
 class PlaybackController extends StatefulWidget {
   const PlaybackController({super.key});
