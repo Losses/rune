@@ -63,7 +63,7 @@ class RandomGridState extends State<RandomGrid> {
                         ),
                         effectParams: EffectParams(
                           mouseInfluence: -0.2,
-                          scale: 1,
+                          scale: 1.25,
                           noise: 1.5,
                           bw: 0.0,
                         ),
@@ -79,16 +79,16 @@ class RandomGridState extends State<RandomGrid> {
         return Stack(
           children: [
             coverArtWall,
-            // Container(
-            //     decoration: BoxDecoration(
-            //         gradient: RadialGradient(
-            //       colors: [
-            //         Colors.black.withAlpha(20),
-            //         Colors.black.withAlpha(255),
-            //       ],
-            //       radius: 1.5,
-            //     )),
-            //     height: (mainAxisCount * gridSize).toDouble()),
+            Container(
+                decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                  colors: [
+                    Colors.black.withAlpha(20),
+                    Colors.black.withAlpha(255),
+                  ],
+                  radius: 1.5,
+                )),
+                height: (mainAxisCount * gridSize).toDouble()),
           ],
         );
       },

@@ -133,9 +133,9 @@ float cnoise(vec3 P) {
 }
 
 // Animation parameters
-const vec3 amplitude = vec3(0.5, 0.5, 0.5);
+const vec3 amplitude = vec3(0.3, 0.3, 0.3);
 const vec3 frequency = vec3(0.5, 0.5, 0.5);
-const vec3 phase_shift = vec3(0.3, 0.3, 0.3);
+const vec3 phase_shift = vec3(0.2, 0.2, 0.2);
 
 void main() {
     // params
@@ -180,7 +180,7 @@ void main() {
     dist = 1. - dist;
     dist = smoothstep(.3, 1., dist);
 
-    vec3 shift_col = hueShift(col, sin(u_time) * MPI);
+    vec3 shift_col = hueShift(col, sin(u_time) * MPI / 30.);
 
     col = mix(
         col, 
@@ -198,6 +198,8 @@ void main() {
     if (u_mode > .5) {
         col = vec3(1.) - col;
     }
+
+    col = clamp(col, 0.0, 1.0);
 
     vec2 fragCoord = (FlutterFragCoord().xy / resolution.xy);
     vec4 imageColor = texture(image, fragCoord);
