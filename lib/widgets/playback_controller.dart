@@ -146,6 +146,7 @@ class PlaylistButton extends StatelessWidget {
                           SizedBox(
                             width: 320,
                             child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(item.entry.title,
                                     overflow: TextOverflow.ellipsis,
@@ -258,7 +259,7 @@ class PlaybackControllerState extends State<PlaybackController> {
         final s = playbackStatusProvider.playbackStatus;
 
         return SizedBox(
-          height: 80,
+          height: playbackControllerHeight,
           child: Stack(
             fit: StackFit.expand,
             children: <Widget>[
@@ -272,35 +273,37 @@ class PlaybackControllerState extends State<PlaybackController> {
                         child: Container(
                           constraints: const BoxConstraints(
                               minWidth: 200, maxWidth: 400),
-                          child: s == null
-                              ? const Text("No playback data received yet")
-                              : Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      s.title,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    Slider(
-                                      value: s.progressPercentage * 100,
-                                      onChanged: (v) => SeekRequest(
-                                              positionSeconds:
-                                                  (v / 100) * s.duration)
-                                          .sendSignalToRust(),
-                                      style: const SliderThemeData(
-                                          useThumbBall: false),
-                                    ),
-                                    Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(formatTime(s.progressSeconds)),
-                                        Text(
-                                            '-${formatTime(s.duration - s.progressSeconds)}'),
-                                      ],
-                                    ),
-                                  ],
-                                ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                s != null ? s.title : "",
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Slider(
+                                value:
+                                    s != null ? s.progressPercentage * 100 : 0,
+                                onChanged: s != null
+                                    ? (v) => SeekRequest(
+                                            positionSeconds:
+                                                (v / 100) * s.duration)
+                                        .sendSignalToRust()
+                                    : null,
+                                style:
+                                    const SliderThemeData(useThumbBall: false),
+                              ),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(formatTime(
+                                      s != null ? s.progressSeconds : 0)),
+                                  Text(
+                                      '-${formatTime(s != null ? s.duration - s.progressSeconds : 0)}'),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),

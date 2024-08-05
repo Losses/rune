@@ -2,8 +2,12 @@ import 'dart:math';
 import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/status.dart';
+import 'package:player/utils/ax_shadow.dart';
 import 'package:player/widgets/gradient_container.dart';
 import 'package:player/widgets/playback_controller.dart';
+import 'package:provider/provider.dart';
 
 import '../../../messages/cover_art.pb.dart';
 import '../../../widgets/cover_art.dart';
@@ -16,6 +20,64 @@ double stringToDouble(String input) {
   var hash = xxh3.string(input).bigInt();
 
   return hash / maxHashValue;
+}
+
+class PlayingTrack extends StatelessWidget {
+  const PlayingTrack({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Typography typography = FluentTheme.of(context).typography;
+
+    return Selector<PlaybackStatusProvider, (int?, String?, String?, String?)>(
+        selector: (context, playbackStatusProvider) => (
+              playbackStatusProvider.playbackStatus?.id,
+              playbackStatusProvider.playbackStatus?.artist,
+              playbackStatusProvider.playbackStatus?.album,
+              playbackStatusProvider.playbackStatus?.title,
+            ),
+        builder: (context, p, child) {
+          if (p.$1 == null) return Container();
+          return Container(
+            padding: const EdgeInsets.fromLTRB(
+                48, 48, 48, playbackControllerHeight + 48),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white, width: 4),
+                    boxShadow: axShadow(9),
+                  ),
+                  child: CoverArt(
+                    key: p.$1 != null ? Key(p.$1.toString()) : null,
+                    fileId: p.$1,
+                    size: 120,
+                  ),
+                ),
+                const SizedBox(
+                  width: 24,
+                ),
+                Column(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(p.$3 ?? "Unknown Album", style: typography.bodyLarge),
+                    Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
+                    const SizedBox(height: 12),
+                    Text(p.$2 ?? "Unknown Artist"),
+                    const SizedBox(height: 4),
+                    IconButton(
+                        icon: const Icon(Symbols.favorite),
+                        onPressed: () => {}),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+  }
 }
 
 class RandomGridConfig {
@@ -91,6 +153,7 @@ class RandomGridState extends State<RandomGrid> {
                   radius: 1.5,
                 )),
                 height: (mainAxisCount * gridSize).toDouble()),
+            const PlayingTrack(),
             Container(
                 decoration: BoxDecoration(
                     gradient: LinearGradient(
