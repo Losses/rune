@@ -24,8 +24,6 @@ class AppTheme extends ChangeNotifier {
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
-  final NavigationIndicators indicator = NavigationIndicators.sticky;
-
   WindowEffect windowEffect =
       Platform.isLinux ? WindowEffect.solid : WindowEffect.mica;
 

@@ -261,7 +261,6 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
     FluentLocalizations.of(context);
 
     final appTheme = context.watch<AppTheme>();
-    final theme = FluentTheme.of(context);
     if (widget.shellContext != null) {
       if (router.canPop() == false) {
         setState(() {});
@@ -270,53 +269,36 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
 
     final routeState = GoRouterState.of(context);
 
-    return Stack(alignment: Alignment.bottomCenter, children: [
-      NavigationView(
-        key: viewKey,
-        paneBodyBuilder: (item, child) {
-          final name =
-              item?.key is ValueKey ? (item!.key as ValueKey).value : null;
-          return FocusTraversalGroup(
-            key: ValueKey('body$name'),
-            child: widget.child,
-          );
-        },
-        pane: NavigationPane(
-          selected: _calculateSelectedIndex(context),
-          header: SizedBox(
-            height: kOneLineTileHeight,
-            child: ShaderMask(
-              shaderCallback: (rect) {
-                final color = appTheme.color.defaultBrushFor(
-                  theme.brightness,
-                );
-                return LinearGradient(
-                  colors: [
-                    color,
-                    color,
-                  ],
-                ).createShader(rect);
-              },
-              child: const ThemeGradient(),
-            ),
-          ),
-          displayMode: routeState.fullPath != "/cover_wall"
-              ? appTheme.displayMode
-              : PaneDisplayMode.minimal,
-          indicator: () {
-            switch (appTheme.indicator) {
-              case NavigationIndicators.end:
-                return const EndNavigationIndicator();
-              case NavigationIndicators.sticky:
-              default:
-                return const StickyNavigationIndicator();
-            }
-          }(),
-          items: originalItems,
-          footerItems: footerItems,
+    final navigation = NavigationView(
+      key: viewKey,
+      paneBodyBuilder: (item, child) {
+        final name =
+            item?.key is ValueKey ? (item!.key as ValueKey).value : null;
+        return FocusTraversalGroup(
+          key: ValueKey('body$name'),
+          child: widget.child,
+        );
+      },
+      pane: NavigationPane(
+        selected: _calculateSelectedIndex(context),
+        header: const SizedBox(
+          height: kOneLineTileHeight,
+          child: ThemeGradient(),
         ),
+        displayMode: routeState.fullPath != "/cover_wall"
+            ? appTheme.displayMode
+            : PaneDisplayMode.minimal,
+        indicator: const StickyNavigationIndicator(),
+        items: originalItems,
+        footerItems: footerItems,
       ),
-      const PlaybackController()
+    );
+
+    return Stack(alignment: Alignment.bottomCenter, children: [
+      SizedBox.expand(
+        child: navigation,
+      ),
+      const PlaybackController(),
     ]);
   }
 

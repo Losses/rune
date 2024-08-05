@@ -12,10 +12,6 @@ class CoverWallPage extends StatefulWidget {
 class _CoverWallPageState extends State<CoverWallPage> {
   @override
   Widget build(BuildContext context) {
-    return const Column(children: [
-      Expanded(
-        child: CoverWallView(),
-      )
-    ]);
+    return const CoverWallView();
   }
 }
