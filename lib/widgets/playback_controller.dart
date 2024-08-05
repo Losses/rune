@@ -218,18 +218,58 @@ class CoverWallButton extends StatelessWidget {
     return IconButton(
       onPressed: () {
         final routeState = GoRouterState.of(context);
-        final route = GoRouter.of(context);
 
-        if (routeState.fullPath == '/cover_wall') {
-          route.pop();
+        if (routeState.fullPath == "/cover_wall") {
+          if (context.canPop()) {
+            context.pop();
+          }
         } else {
-          route.push('/cover_wall');
+          context.push("/cover_wall");
         }
       },
       icon: const Icon(Symbols.photo_frame),
     );
   }
 }
+
+// class CoverWallButton extends StatefulWidget {
+//   const CoverWallButton({super.key});
+
+//   @override
+//   CoverWallButtonState createState() => CoverWallButtonState();
+// }
+
+// class CoverWallButtonState extends State<CoverWallButton> {
+//   String? lastPath;
+
+//   @override
+//   Widget build(BuildContext context) {
+//     return IconButton(
+//       onPressed: () {
+//         final routeState = GoRouterState.of(context);
+//         final route = GoRouter.of(context);
+
+//         if (routeState.fullPath == "/cover_wall") {
+//           if (route.canPop()) {
+//             context.pop();
+//           } else {
+//             if (lastPath != null) {
+//               route.go(lastPath!);
+//             } else {
+//               route.push("/");
+//             }
+//           }
+//         } else {
+//           setState(() {
+//             lastPath = routeState.fullPath;
+//           });
+//           route.push("/cover_wall");
+//         }
+//       },
+//       icon: const Icon(Symbols.photo_frame),
+//     );
+//   }
+// }
 
 class PlaybackController extends StatefulWidget {
   const PlaybackController({super.key});

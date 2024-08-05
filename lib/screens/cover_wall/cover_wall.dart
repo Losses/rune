@@ -292,12 +292,10 @@ class _CoverWallState extends State<CoverWall> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldPage(
-      content: Center(
-        child: _isLoading
-            ? Container()
-            : RandomGrid(seed: 42, coverArtIds: coverArtIds),
-      ),
+    return Center(
+      child: _isLoading
+          ? Container()
+          : RandomGrid(seed: 42, coverArtIds: coverArtIds),
     );
   }
 }

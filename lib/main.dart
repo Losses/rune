@@ -162,8 +162,6 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> with WindowListener {
   bool value = false;
 
-  // int index = 0;
-
   final viewKey = GlobalKey(debugLabel: 'Navigation View Key');
 
   late final List<NavigationPaneItem> originalItems = [
@@ -189,7 +187,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
         onTap: () {
           final path = (item.key as ValueKey).value;
           if (GoRouterState.of(context).uri.toString() != path) {
-            context.go(path);
+            context.push(path);
           }
           item.onTap?.call();
         },
@@ -218,7 +216,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
       body: const SizedBox.shrink(),
       onTap: () {
         if (GoRouterState.of(context).uri.toString() != '/settings') {
-          context.go('/settings');
+          context.push('/settings');
         }
       },
     ),
@@ -272,49 +270,56 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
         setState(() {});
       }
     }
-    return NavigationView(
-      key: viewKey,
-      paneBodyBuilder: (item, child) {
-        final name =
-            item?.key is ValueKey ? (item!.key as ValueKey).value : null;
-        return FocusTraversalGroup(
-          key: ValueKey('body$name'),
-          child: widget.child,
-        );
-      },
-      pane: NavigationPane(
-        selected: _calculateSelectedIndex(context),
-        header: SizedBox(
-          height: kOneLineTileHeight,
-          child: ShaderMask(
-            shaderCallback: (rect) {
-              final color = appTheme.color.defaultBrushFor(
-                theme.brightness,
-              );
-              return LinearGradient(
-                colors: [
-                  color,
-                  color,
-                ],
-              ).createShader(rect);
-            },
-            child: const ThemeGradient(),
+
+    final routeState = GoRouterState.of(context);
+
+    return Column(children: [
+      Expanded(
+          child: NavigationView(
+        key: viewKey,
+        paneBodyBuilder: (item, child) {
+          final name =
+              item?.key is ValueKey ? (item!.key as ValueKey).value : null;
+          return FocusTraversalGroup(
+            key: ValueKey('body$name'),
+            child: widget.child,
+          );
+        },
+        pane: NavigationPane(
+          selected: _calculateSelectedIndex(context),
+          header: SizedBox(
+            height: kOneLineTileHeight,
+            child: ShaderMask(
+              shaderCallback: (rect) {
+                final color = appTheme.color.defaultBrushFor(
+                  theme.brightness,
+                );
+                return LinearGradient(
+                  colors: [
+                    color,
+                    color,
+                  ],
+                ).createShader(rect);
+              },
+              child: const ThemeGradient(),
+            ),
           ),
+          displayMode: routeState.fullPath != "/cover_wall" ? appTheme.displayMode : PaneDisplayMode.minimal,
+          indicator: () {
+            switch (appTheme.indicator) {
+              case NavigationIndicators.end:
+                return const EndNavigationIndicator();
+              case NavigationIndicators.sticky:
+              default:
+                return const StickyNavigationIndicator();
+            }
+          }(),
+          items: originalItems,
+          footerItems: footerItems,
         ),
-        displayMode: appTheme.displayMode,
-        indicator: () {
-          switch (appTheme.indicator) {
-            case NavigationIndicators.end:
-              return const EndNavigationIndicator();
-            case NavigationIndicators.sticky:
-            default:
-              return const StickyNavigationIndicator();
-          }
-        }(),
-        items: originalItems,
-        footerItems: footerItems,
-      ),
-    );
+      )),
+      const PlaybackController()
+    ]);
   }
 
   @override
@@ -413,8 +418,7 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
     builder: (context, state, child) {
       return MyHomePage(
         shellContext: _shellNavigatorKey.currentContext,
-        child: Column(
-            children: [Expanded(child: child), const PlaybackController()]),
+        child: child,
       );
     },
     routes: <GoRoute>[
