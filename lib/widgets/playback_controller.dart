@@ -10,14 +10,14 @@ import '../messages/playback.pb.dart';
 
 import './fft_visualize.dart';
 
-const controllerHeight = 80.0;
+const playbackControllerHeight = 80.0;
 
 class PlaybackPlaceholder extends StatelessWidget {
   const PlaybackPlaceholder({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const SizedBox(height: controllerHeight);
+    return const SizedBox(height: playbackControllerHeight);
   }
 }
 

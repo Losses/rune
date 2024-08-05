@@ -3,6 +3,7 @@ import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:player/widgets/gradient_container.dart';
+import 'package:player/widgets/playback_controller.dart';
 
 import '../../../messages/cover_art.pb.dart';
 import '../../../widgets/cover_art.dart';
@@ -77,6 +78,7 @@ class RandomGridState extends State<RandomGrid> {
                         )))));
 
         return Stack(
+          alignment: Alignment.bottomCenter,
           children: [
             coverArtWall,
             Container(
@@ -89,6 +91,17 @@ class RandomGridState extends State<RandomGrid> {
                   radius: 1.5,
                 )),
                 height: (mainAxisCount * gridSize).toDouble()),
+            Container(
+                decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                  begin: const Alignment(0.0, -1.0),
+                  end: const Alignment(0.0, 1.0),
+                  colors: [
+                    Colors.black.withAlpha(0),
+                    Colors.black.withAlpha(200),
+                  ],
+                )),
+                height: playbackControllerHeight),
           ],
         );
       },
