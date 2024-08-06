@@ -8,6 +8,10 @@ mod m20230701_000005_create_playlists_table;
 mod m20230701_000006_create_playlist_items_table;
 mod m20230701_000007_create_smart_playlists_table;
 mod m20230728_000008_create_media_cover_art_table;
+mod m20230806_000009_create_artists_table;
+mod m20230806_000010_create_media_file_artists_table;
+mod m20230806_000011_create_albums_table;
+mod m20230806_000012_create_media_file_albums_table;
 
 pub struct Migrator;
 
@@ -23,6 +27,10 @@ impl MigratorTrait for Migrator {
             Box::new(m20230701_000006_create_playlist_items_table::Migration),
             Box::new(m20230701_000007_create_smart_playlists_table::Migration),
             Box::new(m20230728_000008_create_media_cover_art_table::Migration),
+            Box::new(m20230806_000009_create_artists_table::Migration),
+            Box::new(m20230806_000010_create_media_file_artists_table::Migration),
+            Box::new(m20230806_000011_create_albums_table::Migration),
+            Box::new(m20230806_000012_create_media_file_albums_table::Migration),
         ]
     }
 }

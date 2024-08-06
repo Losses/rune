@@ -1,3 +1,4 @@
+use metadata::describe::FileDescription;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
 use std::path::Path;
@@ -122,4 +123,55 @@ pub async fn get_media_files(
         .first(page_size as u64)
         .all(db)
         .await
+}
+
+pub async fn get_file_ids_by_descriptions(
+    db: &DatabaseConnection,
+    descriptions: &[Option<FileDescription>],
+) -> Result<Vec<i32>, DbErr> {
+    if descriptions.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut conditions = sea_orm::Condition::any();
+
+    for description in descriptions {
+        match description {
+            Some(x) => {
+                conditions = conditions.add(
+                    media_files::Column::Directory
+                        .eq(x.directory.clone())
+                        .and(media_files::Column::FileName.eq(x.file_name.clone())),
+                );
+            }
+            _none => {}
+        }
+    }
+
+    let file_entries = media_files::Entity::find()
+        .filter(conditions)
+        .all(db)
+        .await?;
+
+    let file_ids = file_entries.into_iter().map(|entry| entry.id).collect();
+
+    Ok(file_ids)
+}
+
+pub async fn get_duration_by_file_id(
+    db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<f64, sea_orm::DbErr> {
+    let analysis_entry: Option<media_files::Model> = media_files::Entity::find()
+        .filter(media_files::Column::Id.eq(file_id))
+        .one(db)
+        .await?;
+
+    if let Some(entry) = analysis_entry {
+        Ok(entry.duration)
+    } else {
+        Err(sea_orm::DbErr::RecordNotFound(
+            "Analysis record not found".to_string(),
+        ))
+    }
 }

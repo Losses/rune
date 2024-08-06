@@ -5,6 +5,9 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
+use analysis::fft::{get_codec_information, get_format};
+use symphonia::core::codecs::CODEC_TYPE_NULL;
+
 use crate::crc::media_crc32;
 
 fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
@@ -49,6 +52,18 @@ impl FileDescription {
             Ok(self.file_hash.clone().unwrap())
         }
     }
+
+    pub fn get_codec_information(&mut self) -> Result<(u32, f64), symphonia::core::errors::Error> {
+        let format =
+            get_format(self.full_path.to_str().unwrap()).expect("no supported audio tracks");
+        let track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .expect("No supported audio tracks");
+
+        get_codec_information(track)
+    }
 }
 
 const CHUNK_SIZE: usize = 1024 * 400;
@@ -72,8 +87,10 @@ pub fn describe_file(
             .parent()
             .and_then(Path::to_str)
             .map(String::from)
-            .unwrap_or_else(|| String::from("")).into(),
-    ).unwrap();
+            .unwrap_or_else(|| String::from(""))
+            .into(),
+    )
+    .unwrap();
 
     // Get file extension
     let extension = full_path

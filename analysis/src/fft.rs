@@ -6,6 +6,8 @@ use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use symphonia::core::formats::FormatOptions;
+use symphonia::core::formats::FormatReader;
+use symphonia::core::formats::Track;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
@@ -25,7 +27,7 @@ pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
         .collect()
 }
 
-pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
+pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>, Error> {
     // Open the media source.
     let src = std::fs::File::open(file_path).expect("failed to open media");
 
@@ -47,25 +49,20 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         .expect("unsupported format");
 
     // Get the instantiated format reader.
-    let mut format = probed.format;
+    let format = probed.format;
 
-    // Find the first audio track with a known (decodeable) codec.
-    let track = format
-        .tracks()
-        .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-        .expect("no supported audio tracks");
+    Ok(format)
+}
 
+pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::core::errors::Error> {
     let sample_rate = track
         .codec_params
         .sample_rate
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No sample rate found"))
-        .unwrap();
+        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No sample rate found"))?;
     let duration = track
         .codec_params
         .n_frames
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No duration found"))
-        .unwrap();
+        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No duration found"))?;
 
     let time_base = track
         .codec_params
@@ -73,6 +70,21 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         .unwrap_or_else(|| symphonia::core::units::TimeBase::new(1, sample_rate));
     let duration_in_seconds =
         time_base.calc_time(duration).seconds as f64 + time_base.calc_time(duration).frac;
+
+    Ok((sample_rate, duration_in_seconds))
+}
+
+pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
+    // Get the audio track.
+    let mut format = get_format(file_path).expect("no supported audio tracks");
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .expect("No supported audio tracks");
+
+    // Get codec information.
+    let (sample_rate, duration_in_seconds) = get_codec_information(track).unwrap();
 
     // Use the default options for the decoder.
     let dec_opts: DecoderOptions = Default::default();

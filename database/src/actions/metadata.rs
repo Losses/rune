@@ -6,14 +6,18 @@ use thiserror::Error;
 
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
-use sea_orm::{DatabaseConnection, DatabaseTransaction, TransactionTrait};
+use sea_orm::{DatabaseConnection, TransactionTrait};
 
 use metadata::describe::{describe_file, FileDescription};
 use metadata::reader::get_metadata;
 use metadata::scanner::AudioScanner;
 
+use crate::actions::file::get_file_ids_by_descriptions;
+use crate::actions::index::index_media_files;
+use crate::entities::media_files;
 use crate::entities::media_metadata;
-use crate::entities::{media_analysis, media_files};
+
+use super::utils::DatabaseExecutor;
 
 #[derive(Debug, Clone)]
 pub struct FileMetadata {
@@ -37,6 +41,115 @@ pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
             None
         }
     }
+}
+
+pub async fn sync_file_descriptions(
+    db: &DatabaseConnection,
+    descriptions: &mut [Option<FileDescription>],
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting to process multiple files");
+
+    // Start a transaction
+    let txn = db.begin().await?;
+
+    for description in descriptions.iter_mut() {
+        match description {
+            None => continue,
+            Some(description) => {
+                info!("Processing file: {}", description.file_name.clone());
+
+                // Check if the file already exists in the database
+                let existing_file = media_files::Entity::find()
+                    .filter(media_files::Column::Directory.eq(description.directory.clone()))
+                    .filter(media_files::Column::FileName.eq(description.file_name.clone()))
+                    .one(&txn)
+                    .await?;
+
+                if let Some(existing_file) = existing_file {
+                    debug!(
+                        "File exists in the database: {}",
+                        description.file_name.clone()
+                    );
+
+                    // File exists in the database
+                    if existing_file.last_modified == description.last_modified {
+                        // If the file's last modified date hasn't changed, skip it
+                        debug!(
+                            "File's last modified date hasn't changed, skipping: {}",
+                            description.file_name.clone()
+                        );
+                        continue;
+                    } else {
+                        // If the file's last modified date has changed, check the hash
+                        debug!(
+                            "File's last modified date has changed, checking hash: {}",
+                            description.file_name.clone()
+                        );
+                        let new_hash = description.get_crc()?;
+                        if existing_file.file_hash == new_hash {
+                            // If the hash is the same, update the last modified date
+                            debug!(
+                                "File hash is the same, updating last modified date: {}",
+                                description.file_name.clone()
+                            );
+                            update_last_modified(&txn, &existing_file, description).await?;
+                        } else {
+                            // If the hash is different, update the metadata
+                            debug!(
+                                "File hash is different, updating metadata: {}",
+                                description.file_name.clone()
+                            );
+
+                            update_file_codec_information(&txn, &existing_file, description)
+                                .await?;
+
+                            let file_metadata = read_metadata(description);
+
+                            match file_metadata {
+                                Some(x) => {
+                                    update_file_metadata(&txn, &existing_file, description, &x)
+                                        .await?;
+                                }
+                                _none => {
+                                    error!(
+                                        "Unable to get metadata of the file: {:?}",
+                                        description.rel_path,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // If the file is new, insert a new record
+                    debug!(
+                        "File is new, inserting new record: {}",
+                        description.file_name.clone()
+                    );
+
+                    let file_metadata = read_metadata(description);
+
+                    match file_metadata {
+                        Some(x) => {
+                            insert_new_file(&txn, &x, description).await?;
+                        }
+                        _none => {
+                            error!(
+                                "Unable to get metadata of the file: {:?}",
+                                description.rel_path,
+                            );
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    // Commit the transaction
+    txn.commit().await?;
+
+    info!("Finished syncing file data");
+
+    Ok(())
 }
 
 pub async fn process_files(
@@ -96,6 +209,9 @@ pub async fn process_files(
                                 description.file_name.clone()
                             );
 
+                            update_file_codec_information(&txn, &existing_file, description)
+                                .await?;
+
                             let file_metadata = read_metadata(description);
 
                             match file_metadata {
@@ -144,11 +260,6 @@ pub async fn process_files(
 
     Ok(())
 }
-
-pub trait DatabaseExecutor: Send + Sync {}
-
-impl DatabaseExecutor for DatabaseConnection {}
-impl DatabaseExecutor for DatabaseTransaction {}
 
 pub async fn update_last_modified<E>(
     db: &E,
@@ -203,6 +314,24 @@ where
     Ok(())
 }
 
+pub async fn update_file_codec_information<E>(
+    db: &E,
+    existing_file: &media_files::Model,
+    description: &mut FileDescription,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    let (sample_rate, duration_in_seconds) = description.get_codec_information().unwrap();
+
+    let mut active_model: media_files::ActiveModel = existing_file.clone().into();
+    active_model.sample_rate = ActiveValue::Set(sample_rate.try_into().unwrap());
+    active_model.duration = ActiveValue::Set(duration_in_seconds);
+    active_model.update(db).await?;
+
+    Ok(())
+}
+
 pub async fn insert_new_file<E>(
     db: &E,
     metadata: &FileMetadata,
@@ -211,11 +340,14 @@ pub async fn insert_new_file<E>(
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
+    let (sample_rate, duration_in_seconds) = description.get_codec_information().unwrap();
     let new_file = media_files::ActiveModel {
         file_name: ActiveValue::Set(description.file_name.to_string()),
         directory: ActiveValue::Set(description.directory.clone()),
         extension: ActiveValue::Set(description.extension.clone()),
         file_hash: ActiveValue::Set(description.get_crc()?.clone()),
+        sample_rate: ActiveValue::Set(sample_rate.try_into().unwrap()),
+        duration: ActiveValue::Set(duration_in_seconds),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
     };
@@ -261,11 +393,11 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = AudioScanner::new(&root_path_str);
 
-    info!("Starting audio library scan.");
+    info!("Starting audio library scan");
 
-    // Example usage: Read 5 audio files at a time until no more files are available.
+    // Example usage: Read 8 audio files at a time until no more files are available.
     while !scanner.has_ended() {
-        info!("Reading metadata for the next 8 files.");
+        info!("Reading metadata for the next 8 files");
         let files = scanner.read_files(8);
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
@@ -274,13 +406,22 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
             .map(|result| result.ok())
             .collect();
 
-        match process_files(db, &mut descriptions).await {
+        match sync_file_descriptions(db, &mut descriptions).await {
             Ok(_) => {
                 debug!("Finished one batch");
             }
             Err(e) => {
                 error!("Error describing files: {:?}", e);
             }
+        };
+
+        let file_ids = get_file_ids_by_descriptions(db, &descriptions)
+            .await
+            .unwrap();
+
+        match index_media_files(db, file_ids).await {
+            Ok(_) => {}
+            Err(e) => error!("Error indexing files: {:?}", e),
         };
     }
 
@@ -334,12 +475,6 @@ pub async fn get_metadata_summary_by_file_ids(
         .all(db)
         .await?;
 
-    // Fetch all analysis entries for the given file IDs
-    let analysis_entries: Vec<media_analysis::Model> = media_analysis::Entity::find()
-        .filter(media_analysis::Column::FileId.is_in(file_ids.clone()))
-        .all(db)
-        .await?;
-
     // Create a map for metadata entries
     let mut metadata_map: HashMap<i32, HashMap<String, String>> = HashMap::new();
     for entry in metadata_entries {
@@ -347,12 +482,6 @@ pub async fn get_metadata_summary_by_file_ids(
             .entry(entry.file_id)
             .or_default()
             .insert(entry.meta_key, entry.meta_value);
-    }
-
-    // Create a map for analysis entries
-    let mut analysis_map: HashMap<i32, f64> = HashMap::new();
-    for entry in analysis_entries {
-        analysis_map.insert(entry.file_id, entry.duration);
     }
 
     // Create a map for file entries
@@ -367,7 +496,7 @@ pub async fn get_metadata_summary_by_file_ids(
         let file = file_map.get(&file_id).cloned().unwrap();
         let _metadata: HashMap<String, String> = HashMap::new();
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
-        let duration = *analysis_map.get(&file_id).unwrap_or(&0.0);
+        let duration = file.duration;
 
         let summary = MetadataSummary {
             id: file_id,

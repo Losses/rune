@@ -28,15 +28,25 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(MediaFiles::Directory).string().not_null())
                     .col(ColumnDef::new(MediaFiles::Extension).string().not_null())
                     .col(ColumnDef::new(MediaFiles::FileHash).char_len(64).not_null())
-                    .col(ColumnDef::new(MediaFiles::LastModified).timestamp().not_null())
+                    .col(
+                        ColumnDef::new(MediaFiles::LastModified)
+                            .timestamp()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(MediaFiles::CoverArtId).integer().null())
+                    .col(
+                        ColumnDef::new(MediaFiles::SampleRate)
+                            .integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(MediaFiles::Duration).double().not_null())
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk_media_files_cover_art_id")
                             .from(MediaFiles::Table, MediaFiles::CoverArtId)
                             .to(MediaCoverArt::Table, MediaCoverArt::Id)
                             .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
                     )
                     .to_owned(),
             )
@@ -60,4 +70,6 @@ pub enum MediaFiles {
     FileHash,
     LastModified,
     CoverArtId,
+    SampleRate,
+    Duration,
 }

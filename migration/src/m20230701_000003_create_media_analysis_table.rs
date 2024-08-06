@@ -25,8 +25,6 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(MediaAnalysis::FileId).integer().not_null())
-                    .col(ColumnDef::new(MediaAnalysis::SampleRate).integer().not_null())
-                    .col(ColumnDef::new(MediaAnalysis::Duration).double().not_null())
                     .col(ColumnDef::new(MediaAnalysis::SpectralCentroid).double())
                     .col(ColumnDef::new(MediaAnalysis::SpectralFlatness).double())
                     .col(ColumnDef::new(MediaAnalysis::SpectralSlope).double())
@@ -71,8 +69,6 @@ pub enum MediaAnalysis {
     Table,
     Id,
     FileId,
-    SampleRate,
-    Duration,
     SpectralCentroid,
     SpectralFlatness,
     SpectralSlope,

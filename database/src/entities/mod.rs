@@ -2,8 +2,12 @@
 
 pub mod prelude;
 
+pub mod albums;
+pub mod artists;
 pub mod media_analysis;
 pub mod media_cover_art;
+pub mod media_file_albums;
+pub mod media_file_artists;
 pub mod media_files;
 pub mod media_metadata;
 pub mod playlist_items;

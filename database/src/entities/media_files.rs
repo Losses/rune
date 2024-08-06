@@ -3,7 +3,7 @@
 use async_graphql::SimpleObject;
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, SimpleObject)]
 #[graphql(complex, name = "MediaFiles")]
 #[sea_orm(table_name = "media_files")]
 pub struct Model {
@@ -15,6 +15,9 @@ pub struct Model {
     pub file_hash: String,
     pub last_modified: String,
     pub cover_art_id: Option<i32>,
+    pub sample_rate: i32,
+    #[sea_orm(column_type = "Double")]
+    pub duration: f64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

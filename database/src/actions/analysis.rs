@@ -83,7 +83,10 @@ pub async fn analysis_audio_library(
 
             // Process tasks in parallel up to the batch size
             if tasks.len() >= batch_size {
-                let results: Vec<_> = stream::iter(tasks).buffer_unordered(batch_size).collect().await;
+                let results: Vec<_> = stream::iter(tasks)
+                    .buffer_unordered(batch_size)
+                    .collect()
+                    .await;
                 tasks = Vec::new();
 
                 for result in results {
@@ -96,7 +99,10 @@ pub async fn analysis_audio_library(
 
         // Process remaining tasks
         if !tasks.is_empty() {
-            let results: Vec<_> = stream::iter(tasks).buffer_unordered(batch_size).collect().await;
+            let results: Vec<_> = stream::iter(tasks)
+                .buffer_unordered(batch_size)
+                .collect()
+                .await;
             for result in results {
                 if let Err(e) = result {
                     error!("Error processing file: {:?}", e);
@@ -171,8 +177,6 @@ async fn insert_analysis_result(
 ) {
     let new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
-        sample_rate: ActiveValue::Set(result.stat.sample_rate as i32),
-        duration: ActiveValue::Set(result.stat.duration),
         spectral_centroid: ActiveValue::Set(Some(result.spectral_centroid as f64)),
         spectral_flatness: ActiveValue::Set(Some(result.spectral_flatness as f64)),
         spectral_slope: ActiveValue::Set(Some(result.spectral_slope as f64)),
@@ -199,22 +203,4 @@ async fn insert_analysis_result(
         .exec(db)
         .await
         .unwrap();
-}
-
-pub async fn get_duration_by_file_id(
-    db: &DatabaseConnection,
-    file_id: i32,
-) -> Result<f64, sea_orm::DbErr> {
-    let analysis_entry: Option<media_analysis::Model> = media_analysis::Entity::find()
-        .filter(media_analysis::Column::FileId.eq(file_id))
-        .one(db)
-        .await?;
-
-    if let Some(entry) = analysis_entry {
-        Ok(entry.duration)
-    } else {
-        Err(sea_orm::DbErr::RecordNotFound(
-            "Analysis record not found".to_string(),
-        ))
-    }
 }

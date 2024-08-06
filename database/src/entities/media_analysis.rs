@@ -9,9 +9,6 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub file_id: i32,
-    pub sample_rate: i32,
-    #[sea_orm(column_type = "Double")]
-    pub duration: f64,
     #[sea_orm(column_type = "Double", nullable)]
     pub spectral_centroid: Option<f64>,
     #[sea_orm(column_type = "Double", nullable)]
