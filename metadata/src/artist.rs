@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
-    static ref SPLITTERS: Vec<&'static str> = vec![", ", " × ", " ft. ", " feat. " , " & "];
+    static ref SPLITTERS: Vec<&'static str> = vec![", ", " × ", " x ", " ft. ", " feat. " , " & "];
     static ref WHITELIST: Vec<&'static str> = vec![];
     static ref SPLITTERS_REGEX: Regex = {
         let splitters_pattern = SPLITTERS
@@ -17,19 +17,23 @@ lazy_static! {
 pub fn split_artists(input: &str) -> Vec<String> {
     let parts_with_splitters: Vec<&str> = SPLITTERS_REGEX.split(input).collect();
     let mut parts: Vec<String> = Vec::new();
+    let mut start = 0; // Start index in characters
 
     for i in 0..parts_with_splitters.len() {
         let part = parts_with_splitters[i].trim();
         if !part.is_empty() {
             parts.push(part.to_string());
         }
+
         // Add the splitter back if it's not the last part
         if i < parts_with_splitters.len() - 1 {
-            let splitter = SPLITTERS_REGEX
-                .find(&input[parts_with_splitters[i].len()..])
-                .unwrap()
-                .as_str();
-            parts.push(splitter.to_string());
+            // Find the splitter in the remaining part of the input
+            if let Some(mat) = SPLITTERS_REGEX.find(&input[start..]) {
+                let splitter = mat.as_str();
+                parts.push(splitter.to_string());
+                // Update the start index to the end of the matched splitter
+                start += mat.end();
+            }
         }
     }
 

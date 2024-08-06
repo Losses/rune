@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use dunce::canonicalize;
 use log::error;
+use rune::index::index_audio_library;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
@@ -28,6 +29,9 @@ struct Cli {
 enum Commands {
     /// Scan the audio library
     Scan,
+
+    /// Index the audio files in the library
+    Index,
 
     /// Analyze the audio files in the library
     Analyze,
@@ -115,6 +119,9 @@ async fn main() {
         Commands::Scan => {
             scan_audio_library(&main_db, &path, true).await;
             println!("Library scanned successfully.");
+        }
+        Commands::Index => {
+            index_audio_library(&main_db).await;
         }
         Commands::Analyze => {
             analyze_audio_library(&main_db, &analysis_db, &path).await;

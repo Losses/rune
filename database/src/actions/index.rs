@@ -1,8 +1,8 @@
-use log::info;
+use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
 
-use crate::entities::{albums, artists, media_file_albums, media_file_artists};
+use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
 
 use super::metadata::get_metadata_summary_by_file_ids;
 
@@ -97,5 +97,81 @@ pub async fn index_media_files(
     }
 
     txn.commit().await?;
+    Ok(())
+}
+
+pub async fn index_audio_library(
+    db: &DatabaseConnection,
+    batch_size: usize,
+) -> Result<(), sea_orm::DbErr> {
+    let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
+
+    info!(
+        "Starting indexing library analysis with batch size: {}",
+        batch_size
+    );
+
+    let (tx, rx) = async_channel::bounded(batch_size);
+
+    // Producer task: fetch batches of files and send them to the consumer
+    let producer = async {
+        loop {
+            // Fetch the next batch of files
+            let files: Vec<media_files::Model> =
+                cursor.first(batch_size.try_into().unwrap()).all(db).await?;
+
+            if files.is_empty() {
+                info!("No more files to process. Exiting loop.");
+                break;
+            }
+
+            for file in &files {
+                tx.send(file.clone()).await.unwrap();
+            }
+
+            // Move the cursor to the next batch
+            if let Some(last_file) = files.last() {
+                info!("Moving cursor after file ID: {}", last_file.id);
+                cursor.after(last_file.id);
+            } else {
+                break;
+            }
+        }
+
+        drop(tx); // Close the channel to signal consumers to stop
+        Ok::<(), sea_orm::DbErr>(())
+    };
+
+    // Consumer task: process files as they are received
+    let consumer = async {
+        let mut file_ids: Vec<i32> = Vec::new();
+
+        while let Ok(file) = rx.recv().await {
+            let db = db.clone();
+            let file_id = file.id;
+
+            file_ids.push(file_id);
+
+            if file_ids.len() >= batch_size {
+                match index_media_files(&db, file_ids).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!("Failed to index files: {}", e);
+                    }
+                };
+                file_ids = Vec::new();
+            }
+        }
+
+        Ok::<(), sea_orm::DbErr>(())
+    };
+
+    // Run producer and consumer concurrently
+    let (producer_result, consumer_result) = futures::join!(producer, consumer);
+
+    producer_result?;
+    consumer_result?;
+
+    info!("Audio indexing analysis completed.");
     Ok(())
 }
