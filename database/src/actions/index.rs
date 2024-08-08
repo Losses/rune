@@ -2,6 +2,7 @@ use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
 
+use crate::actions::utils::generate_group_name;
 use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
 
 use super::metadata::get_metadata_summary_by_file_ids;
@@ -24,6 +25,7 @@ pub async fn index_media_files(
         for artist_name in artists {
             let artist = artists::ActiveModel {
                 name: Set(artist_name.clone()),
+                group: Set(generate_group_name(&artist_name)),
                 ..Default::default()
             };
 
@@ -64,6 +66,7 @@ pub async fn index_media_files(
         let album_name = summary.album;
         let album = albums::ActiveModel {
             name: Set(album_name.clone()),
+            group: Set(generate_group_name(&album_name)),
             ..Default::default()
         };
 

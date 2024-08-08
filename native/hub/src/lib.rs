@@ -1,3 +1,4 @@
+mod artist;
 mod common;
 mod connection;
 mod cover_art;
@@ -17,12 +18,14 @@ use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
 use ::playback::player::Player;
 
+use crate::artist::*;
 use crate::connection::*;
 use crate::cover_art::*;
 use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 
+use messages::artist::*;
 use messages::cover_art::*;
 use messages::media_file::*;
 use messages::playback::*;
@@ -104,6 +107,8 @@ async fn main() {
                     GetCoverArtByFileIdRequest => (main_db, lib_path),
                     GetCoverArtByCoverArtIdRequest => (main_db),
                     GetRandomCoverArtIdsRequest => (main_db),
+                    FetchArtistsGroupSummaryRequest => (main_db),
+                    FetchArtistsGroupsRequest => (main_db),
                 );
             });
 

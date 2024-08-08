@@ -28,6 +28,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
+                    .col(
+                        ColumnDef::new(Albums::Group)
+                            .string()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await
@@ -45,4 +50,5 @@ pub enum Albums {
     Table,
     Id,
     Name,
+    Group,
 }

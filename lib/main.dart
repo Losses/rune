@@ -4,6 +4,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 import 'package:flutter_acrylic/window_effect.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:go_router/go_router.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:url_launcher/link.dart';
@@ -12,6 +13,7 @@ import 'package:rinf/rinf.dart';
 
 import 'routes/home.dart' deferred as home;
 import 'routes/tracks.dart' deferred as tracks;
+import 'routes/artists.dart' deferred as artists;
 import 'routes/settings.dart' deferred as settings;
 import 'routes/cover_wall.dart' deferred as cover_wall;
 
@@ -164,13 +166,19 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
   late final List<NavigationPaneItem> originalItems = [
     PaneItem(
       key: const ValueKey('/'),
-      icon: const Icon(FluentIcons.home),
+      icon: const Icon(Symbols.home),
       title: const Text('Home'),
       body: const SizedBox.shrink(),
     ),
     PaneItem(
+      key: const ValueKey('/artists'),
+      icon: const Icon(Symbols.face),
+      title: const Text('artists'),
+      body: const SizedBox.shrink(),
+    ),
+    PaneItem(
       key: const ValueKey('/tracks'),
-      icon: const Icon(FluentIcons.focus),
+      icon: const Icon(Symbols.library_music),
       title: const Text('Tracks'),
       body: const SizedBox.shrink(),
     ),
@@ -208,7 +216,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
   late final List<NavigationPaneItem> footerItems = [
     PaneItem(
       key: const ValueKey('/settings'),
-      icon: const Icon(FluentIcons.settings),
+      icon: const Icon(Symbols.settings),
       title: const Text('Settings'),
       body: const SizedBox.shrink(),
       onTap: () {
@@ -402,7 +410,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
       );
     },
     routes: <GoRoute>[
-      /// Home
       GoRoute(
         path: '/',
         builder: (context, state) => DeferredWidget(
@@ -411,7 +418,14 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
         ),
       ),
 
-      /// Tracks
+      GoRoute(
+        path: '/artists',
+        builder: (context, state) => DeferredWidget(
+          artists.loadLibrary,
+          () => artists.ArtistsPage(),
+        ),
+      ),
+
       GoRoute(
         path: '/tracks',
         builder: (context, state) => DeferredWidget(
@@ -420,7 +434,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
         ),
       ),
 
-      /// Settings
       GoRoute(
         path: '/settings',
         builder: (context, state) => DeferredWidget(
@@ -429,7 +442,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
         ),
       ),
 
-      /// Cover Wall
       GoRoute(
         path: '/cover_wall',
         builder: (context, state) => DeferredWidget(
