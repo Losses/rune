@@ -1,18 +1,19 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/smooth_horizontal_scroll.dart';
 
 import '../../../utils/platform.dart';
 import '../../../messages/artist.pb.dart';
 
-class ArtistListView extends StatefulWidget {
-  const ArtistListView({super.key});
+class ArtistsListView extends StatefulWidget {
+  const ArtistsListView({super.key});
 
   @override
-  ArtistListViewState createState() => ArtistListViewState();
+  ArtistsListViewState createState() => ArtistsListViewState();
 }
 
-class ArtistListViewState extends State<ArtistListView> {
+class ArtistsListViewState extends State<ArtistsListView> {
   static const _pageSize = 3;
 
   final PagingController<int, ArtistsGroup> _pagingController =
@@ -95,15 +96,22 @@ class ArtistListViewState extends State<ArtistListView> {
         } else if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         } else {
-          return PagedListView<int, ArtistsGroup>(
-            pagingController: _pagingController,
-            builderDelegate: PagedChildBuilderDelegate<ArtistsGroup>(
-              itemBuilder: (context, item, index) => ArtistListItem(
-                index: index,
-                groupTitle: item.groupTitle,
-                items: item.artists,
-              ),
-            ),
+          return SizedBox(
+            width: MediaQuery.of(context).size.width,
+            child: SmoothHorizontalScroll(
+                builder: (context, scrollController) =>
+                    PagedListView<int, ArtistsGroup>(
+                      pagingController: _pagingController,
+                      scrollDirection: Axis.horizontal,
+                      scrollController: scrollController,
+                      builderDelegate: PagedChildBuilderDelegate<ArtistsGroup>(
+                        itemBuilder: (context, item, index) => ArtistListItem(
+                          index: index,
+                          groupTitle: item.groupTitle,
+                          items: item.artists,
+                        ),
+                      ),
+                    )),
           );
         }
       },
@@ -168,28 +176,26 @@ class ArtistListItem extends StatelessWidget {
     return FlyoutTarget(
         key: contextAttachKey,
         controller: contextController,
-        child: ListTile.selectable(
-            title: Column(
-              children: [
-                Text(groupTitle),
-                Column(
-                  children: items
-                      .map((x) => GestureDetector(
-                          onSecondaryTapUp: isDesktop
-                              ? (d) {
-                                  openContextMenu(d.localPosition, context);
-                                }
-                              : null,
-                          onLongPressEnd: isDesktop
-                              ? null
-                              : (d) {
-                                  openContextMenu(d.localPosition, context);
-                                },
-                          child: Text(x.name)))
-                      .toList(),
-                )
-              ],
-            ),
-            onSelectionChange: (v) => {}));
+        child: Column(
+          children: [
+            Text(groupTitle),
+            Column(
+              children: items
+                  .map((x) => GestureDetector(
+                      onSecondaryTapUp: isDesktop
+                          ? (d) {
+                              openContextMenu(d.localPosition, context);
+                            }
+                          : null,
+                      onLongPressEnd: isDesktop
+                          ? null
+                          : (d) {
+                              openContextMenu(d.localPosition, context);
+                            },
+                      child: Text(x.name)))
+                  .toList(),
+            )
+          ],
+        ));
   }
 }
