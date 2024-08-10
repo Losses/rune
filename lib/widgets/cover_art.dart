@@ -39,6 +39,7 @@ class CoverArt extends StatefulWidget {
 
 class CoverArtState extends State<CoverArt> {
   File? _coverArt;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -55,6 +56,7 @@ class CoverArtState extends State<CoverArt> {
     if (mounted) {
       setState(() {
         _coverArt = cachedCoverArt;
+        _isLoading = false;
       });
     }
   }
@@ -62,17 +64,26 @@ class CoverArtState extends State<CoverArt> {
   @override
   Widget build(BuildContext context) {
     return VisibilityDetector(
-        key: Key('cover-art-${widget.fileId ?? widget.coverArtId}'),
-        onVisibilityChanged: (visibilityInfo) {
-          if (visibilityInfo.visibleFraction > 0 && _coverArt == null) {
-            _loadCoverArt();
-          }
-        },
-        child: _coverArt == null
-            ? EmptyCoverArt(size: widget.size ?? double.infinity)
-            : Image.file(_coverArt!,
-                width: widget.size ?? double.infinity,
-                height: widget.size ?? double.infinity,
-                fit: BoxFit.cover));
+      key: Key('cover-art-${widget.fileId ?? widget.coverArtId}'),
+      onVisibilityChanged: (visibilityInfo) {
+        if (visibilityInfo.visibleFraction > 0 && _coverArt == null && !_isLoading) {
+          setState(() {
+            _isLoading = true;
+          });
+          _loadCoverArt();
+        }
+      },
+      child: _isLoading
+          ? SizedBox(
+              width: widget.size ?? double.infinity,
+              height: widget.size ?? double.infinity,
+            )
+          : (_coverArt == null
+              ? EmptyCoverArt(size: widget.size ?? double.infinity)
+              : Image.file(_coverArt!,
+                  width: widget.size ?? double.infinity,
+                  height: widget.size ?? double.infinity,
+                  fit: BoxFit.cover)),
+    );
   }
 }
