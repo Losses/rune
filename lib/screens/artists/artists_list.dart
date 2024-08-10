@@ -107,7 +107,7 @@ class ArtistsListViewState extends State<ArtistsListView> {
                       scrollDirection: Axis.horizontal,
                       scrollController: scrollController,
                       builderDelegate: PagedChildBuilderDelegate<ArtistsGroup>(
-                        itemBuilder: (context, item, index) => ArtistListItem(
+                        itemBuilder: (context, item, index) => ArtistGroup(
                           index: index,
                           groupTitle: item.groupTitle,
                           items: item.artists,
@@ -127,19 +127,15 @@ class ArtistsListViewState extends State<ArtistsListView> {
   }
 }
 
-class ArtistListItem extends StatelessWidget {
-  final List<Artist> items;
-  final String groupTitle;
-  final int index;
+class ArtistTile extends StatelessWidget {
+  final Artist artist;
 
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
 
-  ArtistListItem({
+  ArtistTile({
     super.key,
-    required this.index,
-    required this.groupTitle,
-    required this.items,
+    required this.artist,
   });
 
   openContextMenu(Offset localPosition, BuildContext context) {
@@ -176,73 +172,103 @@ class ArtistListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FlyoutTarget(
-        key: contextAttachKey,
-        controller: contextController,
-        child: Container(
-          padding: const EdgeInsets.only(left: 16, right: 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(groupTitle),
-              Expanded(
-                  child: StartGrid(
-                cellSize: 120,
-                gapSize: 4,
-                children: items
-                    .map((x) => GestureDetector(
-                        onSecondaryTapUp: isDesktop
-                            ? (d) {
-                                openContextMenu(d.localPosition, context);
-                              }
-                            : null,
-                        onLongPressEnd: isDesktop
-                            ? null
-                            : (d) {
-                                openContextMenu(d.localPosition, context);
-                              },
-                        child: Button(
-                            style: const ButtonStyle(
-                                padding:
-                                    WidgetStatePropertyAll(EdgeInsets.all(0))),
-                            onPressed: () => {},
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(3),
-                              child: SizedBox(
-                                width: double.infinity,
-                                height: double.infinity,
-                                child: Stack(
-                                  alignment: Alignment.bottomLeft,
-                                  children: [
-                                    FlipCoverGrid(
-                                        numbers: x.coverIds, id: x.name),
-                                    IgnorePointer(
-                                        ignoring: true,
-                                        child: Container(
-                                            decoration: BoxDecoration(
-                                                gradient: LinearGradient(
-                                              begin: const Alignment(0.0, -1.0),
-                                              end: const Alignment(0.0, 1.0),
-                                              colors: [
-                                                Colors.black.withAlpha(0),
-                                                Colors.black.withAlpha(160),
-                                              ],
-                                            )),
-                                            height: 80)),
-                                    Padding(
-                                      padding: const EdgeInsets.all(6),
-                                      child: Text(
-                                        x.name,
-                                        textAlign: TextAlign.start,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ))))
-                    .toList(),
-              ))
-            ],
+      key: contextAttachKey,
+      controller: contextController,
+      child: GestureDetector(
+        onSecondaryTapUp: isDesktop
+            ? (d) {
+                openContextMenu(d.localPosition, context);
+              }
+            : null,
+        onLongPressEnd: isDesktop
+            ? null
+            : (d) {
+                openContextMenu(d.localPosition, context);
+              },
+        child: Button(
+          style: const ButtonStyle(
+              padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
+          onPressed: () => {},
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: SizedBox(
+              width: double.infinity,
+              height: double.infinity,
+              child: Stack(
+                alignment: Alignment.bottomLeft,
+                children: [
+                  FlipCoverGrid(numbers: artist.coverIds, id: artist.name),
+                  IgnorePointer(
+                    ignoring: true,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: const Alignment(0.0, -1.0),
+                          end: const Alignment(0.0, 1.0),
+                          colors: [
+                            Colors.black.withAlpha(0),
+                            Colors.black.withAlpha(160),
+                          ],
+                        ),
+                      ),
+                      height: 80,
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Text(
+                      artist.name,
+                      textAlign: TextAlign.start,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        ));
+        ),
+      ),
+    );
+  }
+}
+
+class ArtistGroup extends StatelessWidget {
+  final List<Artist> items;
+  final String groupTitle;
+  final int index;
+
+  const ArtistGroup({
+    super.key,
+    required this.index,
+    required this.groupTitle,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.only(left: 16, right: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(groupTitle, style: theme.typography.bodyLarge),
+          ),
+          Expanded(
+            child: StartGrid(
+              cellSize: 120,
+              gapSize: 4,
+              children: items
+                  .map((x) => ArtistTile(
+                        artist: x,
+                      ))
+                  .toList(),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
