@@ -127,13 +127,13 @@ class ArtistsListViewState extends State<ArtistsListView> {
   }
 }
 
-class ArtistTile extends StatelessWidget {
+class ArtistItem extends StatelessWidget {
   final Artist artist;
 
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
 
-  ArtistTile({
+  ArtistItem({
     super.key,
     required this.artist,
   });
@@ -261,7 +261,7 @@ class ArtistGroup extends StatelessWidget {
               cellSize: 120,
               gapSize: 4,
               children: items
-                  .map((x) => ArtistTile(
+                  .map((x) => ArtistItem(
                         artist: x,
                       ))
                   .toList(),

@@ -124,23 +124,25 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
       );
     }
 
-    return GridView.builder(
-      gridDelegate:
-          SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: _gridSize),
-      itemCount: _gridSize * _gridSize,
-      itemBuilder: (context, index) {
-        return FlipCard(
-          speed: widget.speed,
-          direction: FlipDirection.VERTICAL,
-          controller: _controllers[index],
-          flipOnTouch: false,
-          onFlipDone: (isFront) {
-            _replaceNumber(index);
-          },
-          front: _buildCard(_frontNumbers[index]),
-          back: _buildCard(_backNumbers[index]),
-        );
-      },
+    return RepaintBoundary(
+      child: GridView.builder(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: _gridSize),
+        itemCount: _gridSize * _gridSize,
+        itemBuilder: (context, index) {
+          return FlipCard(
+            speed: widget.speed,
+            direction: FlipDirection.VERTICAL,
+            controller: _controllers[index],
+            flipOnTouch: false,
+            onFlipDone: (isFront) {
+              _replaceNumber(index);
+            },
+            front: _buildCard(_frontNumbers[index]),
+            back: _buildCard(_backNumbers[index]),
+          );
+        },
+      ),
     );
   }
 
@@ -151,12 +153,14 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   }
 
   Widget _buildCard(int number) {
-    return SizedBox(
-      width: double.infinity,
-      height: double.infinity,
-      child: Center(
-        child: CoverArt(
-          coverArtId: number,
+    return RepaintBoundary(
+      child: SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: Center(
+          child: CoverArt(
+            coverArtId: number,
+          ),
         ),
       ),
     );
