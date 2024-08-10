@@ -136,7 +136,7 @@ pub async fn get_random_cover_art_ids(
     n: usize,
 ) -> Result<Vec<media_cover_art::Model>, Box<dyn std::error::Error>> {
     let mut query: sea_orm::sea_query::SelectStatement = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::Binary.gt(0))
+        .filter(media_cover_art::Column::FileHash.ne(String::new()))
         .as_query()
         .to_owned();
 

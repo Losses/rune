@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/flip_grid.dart';
 
 import '../../../utils/platform.dart';
 import '../../../messages/artist.pb.dart';
@@ -200,22 +201,44 @@ class ArtistListItem extends StatelessWidget {
                                 openContextMenu(d.localPosition, context);
                               },
                         child: Button(
-                          style: const ButtonStyle(
-                              padding:
-                                  WidgetStatePropertyAll(EdgeInsets.all(0))),
-                          onPressed: () => {},
-                          child: Container(
-                            width: double.infinity,
-                            height: double.infinity,
-                            alignment: Alignment.bottomLeft,
-                            decoration: BoxDecoration(
+                            style: const ButtonStyle(
+                                padding:
+                                    WidgetStatePropertyAll(EdgeInsets.all(0))),
+                            onPressed: () => {},
+                            child: ClipRRect(
                               borderRadius: BorderRadius.circular(3),
-                              color: Colors.green,
-                            ),
-                            padding: const EdgeInsets.all(8),
-                            child: Text(x.name, textAlign: TextAlign.start,),
-                          ),
-                        )))
+                              child: SizedBox(
+                                width: double.infinity,
+                                height: double.infinity,
+                                child: Stack(
+                                  alignment: Alignment.bottomLeft,
+                                  children: [
+                                    FlipCoverGrid(
+                                        numbers: x.coverIds, id: x.name),
+                                    IgnorePointer(
+                                        ignoring: true,
+                                        child: Container(
+                                            decoration: BoxDecoration(
+                                                gradient: LinearGradient(
+                                              begin: const Alignment(0.0, -1.0),
+                                              end: const Alignment(0.0, 1.0),
+                                              colors: [
+                                                Colors.black.withAlpha(0),
+                                                Colors.black.withAlpha(160),
+                                              ],
+                                            )),
+                                            height: 80)),
+                                    Padding(
+                                      padding: const EdgeInsets.all(6),
+                                      child: Text(
+                                        x.name,
+                                        textAlign: TextAlign.start,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ))))
                     .toList(),
               ))
             ],

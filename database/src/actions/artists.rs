@@ -4,6 +4,7 @@ use std::collections::HashSet;
 use sea_orm::prelude::*;
 use sea_orm::{ColumnTrait, EntityTrait, QuerySelect};
 
+use crate::entities::media_cover_art;
 use crate::entities::{artists, media_file_artists, media_files};
 
 pub async fn count_artists_by_first_letter(
@@ -27,6 +28,14 @@ pub async fn get_artists_groups(
     db: &DatabaseConnection,
     groups: Vec<String>,
 ) -> Result<Vec<(String, Vec<ArtistGroupParseResult>)>, sea_orm::DbErr> {
+    // Step 0: Get the magic coverart ID
+    let magic_cover_art = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::FileHash.eq(String::new()))
+        .one(db)
+        .await;
+
+    let magic_cover_art_id = magic_cover_art.ok().flatten().map_or(-1, |s| s.id);
+
     // Step 1: Fetch artists belonging to the specified groups
     let artists: Vec<artists::Model> = artists::Entity::find()
         .filter(artists::Column::Group.is_in(groups.clone()))
@@ -64,6 +73,7 @@ pub async fn get_artists_groups(
     for (artist_id, media_file_ids) in artist_to_media_file_ids {
         let media_files = media_files::Entity::find()
             .filter(media_files::Column::Id.is_in(media_file_ids))
+            .filter(media_files::Column::CoverArtId.ne(magic_cover_art_id))
             .all(db)
             .await?;
 

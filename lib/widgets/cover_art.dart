@@ -29,8 +29,7 @@ class CoverArt extends StatefulWidget {
   final int? coverArtId;
   final double? size;
 
-  const CoverArt(
-      {super.key, this.fileId, this.coverArtId, this.size})
+  const CoverArt({super.key, this.fileId, this.coverArtId, this.size})
       : assert(fileId != null || coverArtId != null,
             'Either fileId or coverArtId must be provided');
 
@@ -70,7 +69,10 @@ class CoverArtState extends State<CoverArt> {
           }
         },
         child: _coverArt == null
-            ? EmptyCoverArt(size: widget.size)
-            : Image.file(_coverArt!, width: widget.size, height: widget.size));
+            ? EmptyCoverArt(size: widget.size ?? double.infinity)
+            : Image.file(_coverArt!,
+                width: widget.size ?? double.infinity,
+                height: widget.size ?? double.infinity,
+                fit: BoxFit.cover));
   }
 }
