@@ -1,10 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/smooth_horizontal_scroll.dart';
 
 import '../../../utils/platform.dart';
 import '../../../messages/artist.pb.dart';
+import '../../../widgets/start_grid.dart';
+import '../../../widgets/smooth_horizontal_scroll.dart';
 
 class ArtistsListView extends StatefulWidget {
   const ArtistsListView({super.key});
@@ -176,26 +177,49 @@ class ArtistListItem extends StatelessWidget {
     return FlyoutTarget(
         key: contextAttachKey,
         controller: contextController,
-        child: Column(
-          children: [
-            Text(groupTitle),
-            Column(
-              children: items
-                  .map((x) => GestureDetector(
-                      onSecondaryTapUp: isDesktop
-                          ? (d) {
-                              openContextMenu(d.localPosition, context);
-                            }
-                          : null,
-                      onLongPressEnd: isDesktop
-                          ? null
-                          : (d) {
-                              openContextMenu(d.localPosition, context);
-                            },
-                      child: Text(x.name)))
-                  .toList(),
-            )
-          ],
+        child: Container(
+          padding: const EdgeInsets.only(left: 16, right: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(groupTitle),
+              Expanded(
+                  child: StartGrid(
+                cellSize: 120,
+                gapSize: 4,
+                children: items
+                    .map((x) => GestureDetector(
+                        onSecondaryTapUp: isDesktop
+                            ? (d) {
+                                openContextMenu(d.localPosition, context);
+                              }
+                            : null,
+                        onLongPressEnd: isDesktop
+                            ? null
+                            : (d) {
+                                openContextMenu(d.localPosition, context);
+                              },
+                        child: Button(
+                          style: const ButtonStyle(
+                              padding:
+                                  WidgetStatePropertyAll(EdgeInsets.all(0))),
+                          onPressed: () => {},
+                          child: Container(
+                            width: double.infinity,
+                            height: double.infinity,
+                            alignment: Alignment.bottomLeft,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(3),
+                              color: Colors.green,
+                            ),
+                            padding: const EdgeInsets.all(8),
+                            child: Text(x.name, textAlign: TextAlign.start,),
+                          ),
+                        )))
+                    .toList(),
+              ))
+            ],
+          ),
         ));
   }
 }
