@@ -130,100 +130,50 @@ class ArtistsListViewState extends State<ArtistsListView> {
 class ArtistItem extends StatelessWidget {
   final Artist artist;
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
-
-  ArtistItem({
+  const ArtistItem({
     super.key,
     required this.artist,
   });
 
-  openContextMenu(Offset localPosition, BuildContext context) {
-    final targetContext = contextAttachKey.currentContext;
-
-    if (targetContext == null) return;
-    final box = targetContext.findRenderObject() as RenderBox;
-    final position = box.localToGlobal(
-      localPosition,
-      ancestor: Navigator.of(context).context.findRenderObject(),
-    );
-
-    contextController.showFlyout(
-      barrierColor: Colors.black.withOpacity(0.1),
-      position: position,
-      builder: (context) {
-        var items = [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.rocket),
-            text: const Text('Roaming'),
-            onPressed: () => {
-              // Do something here
-            },
-          ),
-        ];
-
-        return MenuFlyout(
-          items: items,
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return FlyoutTarget(
-      key: contextAttachKey,
-      controller: contextController,
-      child: GestureDetector(
-        onSecondaryTapUp: isDesktop
-            ? (d) {
-                openContextMenu(d.localPosition, context);
-              }
-            : null,
-        onLongPressEnd: isDesktop
-            ? null
-            : (d) {
-                openContextMenu(d.localPosition, context);
-              },
-        child: Button(
-          style: const ButtonStyle(
-              padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
-          onPressed: () => {},
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: SizedBox(
-              width: double.infinity,
-              height: double.infinity,
-              child: Stack(
-                alignment: Alignment.bottomLeft,
-                children: [
-                  FlipCoverGrid(numbers: artist.coverIds, id: artist.name),
-                  IgnorePointer(
-                    ignoring: true,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: const Alignment(0.0, -1.0),
-                          end: const Alignment(0.0, 1.0),
-                          colors: [
-                            Colors.black.withAlpha(0),
-                            Colors.black.withAlpha(160),
-                          ],
-                        ),
-                      ),
-                      height: 80,
+    return Button(
+      style:
+          const ButtonStyle(padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
+      onPressed: () => {},
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: SizedBox(
+          width: double.infinity,
+          height: double.infinity,
+          child: Stack(
+            alignment: Alignment.bottomLeft,
+            children: [
+              FlipCoverGrid(numbers: artist.coverIds, id: artist.name),
+              IgnorePointer(
+                ignoring: true,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: const Alignment(0.0, -1.0),
+                      end: const Alignment(0.0, 1.0),
+                      colors: [
+                        Colors.black.withAlpha(0),
+                        Colors.black.withAlpha(160),
+                      ],
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: Text(
-                      artist.name,
-                      textAlign: TextAlign.start,
-                    ),
-                  ),
-                ],
+                  height: 80,
+                ),
               ),
-            ),
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  artist.name,
+                  textAlign: TextAlign.start,
+                ),
+              ),
+            ],
           ),
         ),
       ),
