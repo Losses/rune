@@ -13,6 +13,7 @@ import 'package:rinf/rinf.dart';
 
 import 'routes/home.dart' deferred as home;
 import 'routes/tracks.dart' deferred as tracks;
+import 'routes/albums.dart' deferred as albums;
 import 'routes/artists.dart' deferred as artists;
 import 'routes/settings.dart' deferred as settings;
 import 'routes/cover_wall.dart' deferred as cover_wall;
@@ -174,6 +175,12 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
       key: const ValueKey('/artists'),
       icon: const Icon(Symbols.face),
       title: const Text('artists'),
+      body: const SizedBox.shrink(),
+    ),
+    PaneItem(
+      key: const ValueKey('/albums'),
+      icon: const Icon(Symbols.album),
+      title: const Text('albums'),
       body: const SizedBox.shrink(),
     ),
     PaneItem(
@@ -417,7 +424,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
           () => home.HomePage(),
         ),
       ),
-
       GoRoute(
         path: '/artists',
         builder: (context, state) => DeferredWidget(
@@ -425,7 +431,13 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
           () => artists.ArtistsPage(),
         ),
       ),
-
+      GoRoute(
+        path: '/albums',
+        builder: (context, state) => DeferredWidget(
+          albums.loadLibrary,
+          () => albums.AlbumsPage(),
+        ),
+      ),
       GoRoute(
         path: '/tracks',
         builder: (context, state) => DeferredWidget(
@@ -433,7 +445,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
           () => tracks.TracksPage(),
         ),
       ),
-
       GoRoute(
         path: '/settings',
         builder: (context, state) => DeferredWidget(
@@ -441,7 +452,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
           () => settings.SettingsPage(),
         ),
       ),
-
       GoRoute(
         path: '/cover_wall',
         builder: (context, state) => DeferredWidget(

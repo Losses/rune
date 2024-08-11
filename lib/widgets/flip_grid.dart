@@ -12,9 +12,14 @@ class FlipCoverGrid extends StatefulWidget {
   final List<int> numbers;
   final String id;
   final int speed;
+  final BoringAvatarsType emptyTileType;
 
   const FlipCoverGrid(
-      {super.key, required this.id, required this.numbers, this.speed = 500});
+      {super.key,
+      required this.id,
+      required this.numbers,
+      this.speed = 500,
+      this.emptyTileType = BoringAvatarsType.bauhaus});
 
   @override
   FlipCoverGridState createState() => FlipCoverGridState();
@@ -119,7 +124,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
       return BoringAvatars(
         name: widget.id,
         colors: colors,
-        type: BoringAvatarsType.bauhaus,
+        type: widget.emptyTileType,
         square: true,
       );
     }

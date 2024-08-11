@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/screens/artists/artists_list.dart';
-import 'package:player/widgets/playback_controller.dart';
+
+import './artists_list.dart';
+
+import '../../widgets/playback_controller.dart';
 
 class ArtistsPage extends StatefulWidget {
   const ArtistsPage({super.key});
