@@ -97,6 +97,7 @@ async fn main() {
 
                 select_signal!(
                     FetchMediaFilesRequest => (main_db, lib_path),
+                    CompoundQueryMediaFilesRequest => (main_db, lib_path),
                     PlayFileRequest => (main_db, player),
                     RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
                     PlayRequest => (player),

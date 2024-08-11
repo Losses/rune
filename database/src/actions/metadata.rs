@@ -455,15 +455,12 @@ pub struct MetadataSummary {
     pub duration: f64,
 }
 
-pub async fn get_metadata_summary_by_file_ids(
+pub async fn get_metadata_summary_by_files(
     db: &DatabaseConnection,
-    file_ids: Vec<i32>,
+    files: Vec<media_files::Model>,
 ) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
-    // Fetch all file entries for the given file IDs
-    let file_entries: Vec<media_files::Model> = media_files::Entity::find()
-        .filter(media_files::Column::Id.is_in(file_ids.clone()))
-        .all(db)
-        .await?;
+    // Extract file IDs from the provided file entries
+    let file_ids: Vec<i32> = files.iter().map(|file| file.id).collect();
 
     // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
@@ -484,24 +481,18 @@ pub async fn get_metadata_summary_by_file_ids(
             .insert(entry.meta_key, entry.meta_value);
     }
 
-    // Create a map for file entries
-    let mut file_map: HashMap<i32, media_files::Model> = HashMap::new();
-    for entry in file_entries {
-        file_map.insert(entry.id, entry);
-    }
-
     // Prepare the final result
     let mut results: Vec<MetadataSummary> = Vec::new();
-    for file_id in file_ids {
-        let file = file_map.get(&file_id).cloned().unwrap();
+    for file in files {
+        let file_id = file.id;
         let _metadata: HashMap<String, String> = HashMap::new();
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = file.duration;
 
         let summary = MetadataSummary {
             id: file_id,
-            directory: file.directory,
-            file_name: file.file_name,
+            directory: file.directory.clone(),
+            file_name: file.file_name.clone(),
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
             title: metadata.get("track_title").cloned().unwrap_or_default(),
@@ -512,6 +503,20 @@ pub async fn get_metadata_summary_by_file_ids(
     }
 
     Ok(results)
+}
+
+pub async fn get_metadata_summary_by_file_ids(
+    db: &DatabaseConnection,
+    file_ids: Vec<i32>,
+) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
+    // Fetch all file entries for the given file IDs
+    let file_entries: Vec<media_files::Model> = media_files::Entity::find()
+        .filter(media_files::Column::Id.is_in(file_ids.clone()))
+        .all(db)
+        .await?;
+
+    // Use the get_metadata_summary_by_files function to get the metadata summaries
+    get_metadata_summary_by_files(db, file_entries).await
 }
 
 pub async fn get_metadata_summary_by_file_id(

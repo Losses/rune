@@ -1,11 +1,14 @@
 use metadata::describe::FileDescription;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
+use sea_orm::{
+    ColumnTrait, Condition, EntityTrait, FromQueryResult, Order, QueryFilter, QuerySelect,
+    QueryTrait,
+};
 use std::path::Path;
 
 use migration::{Func, SimpleExpr};
 
-use crate::entities::media_files;
+use crate::entities::{media_file_albums, media_file_artists, media_files};
 
 pub async fn get_files_by_ids(
     db: &DatabaseConnection,
@@ -114,12 +117,12 @@ pub async fn get_file_id_from_path(
 
 pub async fn get_media_files(
     db: &DatabaseConnection,
-    page_key: usize,
+    cursor: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
     media_files::Entity::find()
         .cursor_by(media_files::Column::Id)
-        .after(page_key as i32)
+        .after(cursor as i32)
         .first(page_size as u64)
         .all(db)
         .await
@@ -174,4 +177,53 @@ pub async fn get_duration_by_file_id(
             "Analysis record not found".to_string(),
         ))
     }
+}
+
+pub async fn compound_query_media_files(
+    db: &DatabaseConnection,
+    artist_ids: Option<Vec<i32>>,
+    album_ids: Option<Vec<i32>>,
+    cursor: usize,
+    page_size: usize,
+) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
+    // Base query for media_files
+    let mut query = media_files::Entity::find();
+
+    // Filter by artist_ids if provided
+    if let Some(artist_ids) = artist_ids {
+        let artist_subquery = media_file_artists::Entity::find()
+            .select_only()
+            .filter(media_file_artists::Column::ArtistId.is_in(artist_ids))
+            .column(media_file_artists::Column::MediaFileId)
+            .into_query();
+
+        query = query.filter(
+            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(artist_subquery)),
+        );
+    }
+
+    // Filter by album_ids if provided
+    if let Some(album_ids) = album_ids {
+        let album_subquery = media_file_albums::Entity::find()
+            .select_only()
+            .filter(media_file_albums::Column::AlbumId.is_in(album_ids))
+            .column(media_file_albums::Column::MediaFileId)
+            .into_query();
+
+        query = query.filter(
+            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(album_subquery)),
+        );
+    }
+
+    // Use cursor pagination
+    let mut cursor_by_id = query.cursor_by(media_files::Column::Id);
+
+    // Retrieve the specified number of rows
+    let media_files = cursor_by_id
+        .after(cursor as i32)
+        .first(page_size as u64)
+        .all(db)
+        .await?;
+
+    Ok(media_files)
 }
