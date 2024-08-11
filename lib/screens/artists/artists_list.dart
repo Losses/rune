@@ -1,10 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/flip_grid.dart';
 
+import '../../../widgets/flip_grid.dart';
+import '../../widgets/start_screen.dart';
 import '../../../messages/artist.pb.dart';
-import '../../../widgets/start_grid.dart';
-import '../../../widgets/smooth_horizontal_scroll.dart';
 
 class ArtistsListView extends StatefulWidget {
   const ArtistsListView({super.key});
@@ -21,29 +20,28 @@ class ArtistsListViewState extends State<ArtistsListView> {
 
   late Future<List<ArtistsGroupSummary>> summary;
 
-  @override
-  void initState() {
-    super.initState();
-    summary = fetchSummary();
-    _pagingController.addPageRequestListener((cursor) {
-      _fetchPage(cursor);
-    });
-  }
-
-  Future<List<ArtistsGroupSummary>> fetchSummary() async {
+  Future<List<Group<Artist>>> fetchArtistSummary() async {
     final fetchArtistsGroupSummary = FetchArtistsGroupSummaryRequest();
     fetchArtistsGroupSummary.sendSignalToRust(); // GENERATED
 
     // Listen for the response from Rust
     final rustSignal = await ArtistGroupSummaryResponse.rustSignalStream.first;
     final artistGroupList = rustSignal.message;
-    return artistGroupList.artistsGroups;
+
+    return artistGroupList.artistsGroups.map((summary) {
+      return Group<Artist>(
+        groupTitle: summary.groupTitle,
+        items: [], // Initially empty, will be filled in fetchPage
+      );
+    }).toList();
   }
 
-  Future<void> _fetchPage(int cursor) async {
+  Future<void> fetchArtistPage(
+    PagingController<int, Group<Artist>> controller,
+    int cursor,
+  ) async {
     try {
-      // Ensure summary is loaded
-      final summaries = await summary;
+      final summaries = await fetchArtistSummary();
 
       // Calculate the start and end index for the current page
       final startIndex = cursor * _pageSize;
@@ -51,7 +49,7 @@ class ArtistsListViewState extends State<ArtistsListView> {
 
       // Check if we have more data to load
       if (startIndex >= summaries.length) {
-        _pagingController.appendLastPage([]);
+        controller.appendLastPage([]);
         return;
       }
 
@@ -74,47 +72,30 @@ class ArtistsListViewState extends State<ArtistsListView> {
       final rustSignal = await ArtistsGroups.rustSignalStream.first;
       final artistsGroups = rustSignal.message.groups;
 
-      // Check if we have reached the last page
+      final groups = artistsGroups.map((group) {
+        return Group<Artist>(
+          groupTitle: group.groupTitle,
+          items: group.artists,
+        );
+      }).toList();
+
       final isLastPage = endIndex >= summaries.length;
       if (isLastPage) {
-        _pagingController.appendLastPage(artistsGroups);
+        controller.appendLastPage(groups);
       } else {
-        _pagingController.appendPage(artistsGroups, cursor + 1);
+        controller.appendPage(groups, cursor + 1);
       }
     } catch (error) {
-      _pagingController.error = error;
+      controller.error = error;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<ArtistsGroupSummary>>(
-      future: summary,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return Container();
-        } else if (snapshot.hasError) {
-          return Center(child: Text('Error: ${snapshot.error}'));
-        } else {
-          return SizedBox(
-            width: MediaQuery.of(context).size.width,
-            child: SmoothHorizontalScroll(
-                builder: (context, scrollController) =>
-                    PagedListView<int, ArtistsGroup>(
-                      pagingController: _pagingController,
-                      scrollDirection: Axis.horizontal,
-                      scrollController: scrollController,
-                      builderDelegate: PagedChildBuilderDelegate<ArtistsGroup>(
-                        itemBuilder: (context, item, index) => ArtistGroup(
-                          index: index,
-                          groupTitle: item.groupTitle,
-                          items: item.artists,
-                        ),
-                      ),
-                    )),
-          );
-        }
-      },
+    return StartScreen<Artist>(
+      fetchSummary: fetchArtistSummary,
+      fetchPage: fetchArtistPage,
+      itemBuilder: (context, artist) => ArtistItem(artist: artist),
     );
   }
 
@@ -174,48 +155,6 @@ class ArtistItem extends StatelessWidget {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class ArtistGroup extends StatelessWidget {
-  final List<Artist> items;
-  final String groupTitle;
-  final int index;
-
-  const ArtistGroup({
-    super.key,
-    required this.index,
-    required this.groupTitle,
-    required this.items,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.only(left: 16, right: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(groupTitle, style: theme.typography.bodyLarge),
-          ),
-          Expanded(
-            child: StartGrid(
-              cellSize: 120,
-              gapSize: 4,
-              children: items
-                  .map((x) => ArtistItem(
-                        artist: x,
-                      ))
-                  .toList(),
-            ),
-          ),
-        ],
       ),
     );
   }

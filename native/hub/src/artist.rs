@@ -1,18 +1,19 @@
-use database::actions::artists::count_artists_by_first_letter;
-use database::actions::artists::get_artists_groups;
 use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
 
+use database::actions::artists::get_artists_groups;
+use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
+use database::entities::artists;
 
+use crate::messages::artist::Artist;
 use crate::messages::artist::ArtistGroupSummaryResponse;
+use crate::messages::artist::ArtistsGroup;
 use crate::messages::artist::ArtistsGroupSummary;
+use crate::messages::artist::ArtistsGroups;
 use crate::messages::artist::FetchArtistsGroupSummaryRequest;
-use crate::Artist;
-use crate::ArtistsGroup;
-use crate::ArtistsGroups;
-use crate::FetchArtistsGroupsRequest;
+use crate::messages::artist::FetchArtistsGroupsRequest;
 
 pub async fn fetch_artists_group_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -20,7 +21,9 @@ pub async fn fetch_artists_group_summary_request(
 ) {
     debug!("Requesting summary group");
 
-    match count_artists_by_first_letter(&main_db).await {
+    let count_artists = create_count_by_first_letter::<artists::Entity>();
+
+    match count_artists(&main_db).await {
         Ok(entry) => {
             let artists_groups = entry
                 .into_iter()
