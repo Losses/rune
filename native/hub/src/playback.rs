@@ -6,6 +6,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use database::actions::file::get_file_by_id;
+use database::actions::file::get_files_by_ids;
 use database::actions::recommendation::get_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use playback::player::Player;
@@ -77,35 +78,49 @@ pub async fn recommend_and_play_request(
         }
     };
 
+    let files = get_files_by_ids(
+        &main_db,
+        &recommendations
+            .into_iter()
+            .map(|x| x.0 as i32)
+            .collect::<Vec<i32>>(),
+    )
+    .await;
+
+    let requests = match files {
+        Ok(files) => files
+            .into_iter()
+            .map(|file| {
+                let file_path = canonicalize(
+                    Path::new(&**lib_path)
+                        .join(&file.directory)
+                        .join(&file.file_name),
+                )
+                .unwrap();
+
+                (file.id, file_path)
+            })
+            .collect::<Vec<_>>(),
+        Err(e) => {
+            error!("Unable to get files: {}", e);
+            Vec::new()
+        }
+    };
+
     // Clear the playlist and add new recommendations
     player.lock().unwrap().pause();
     player.lock().unwrap().clear_playlist();
 
-    for (_rec_id, _) in &recommendations {
-        let rec_id = (*_rec_id).try_into().unwrap();
-        let file = match get_file_by_id(&main_db, rec_id).await {
-            Ok(Some(file)) => file,
-            Ok(None) => continue,
-            Err(e) => {
-                error!("Error getting file by id {}: {}", rec_id, e);
-                continue;
-            }
-        };
-        let file_path = canonicalize(
-            Path::new(&**lib_path)
-                .join(&file.directory)
-                .join(&file.file_name),
-        )
-        .unwrap();
-        player.lock().unwrap().add_to_playlist(rec_id, file_path);
+    for request in &requests {
+        player
+            .lock()
+            .unwrap()
+            .add_to_playlist(request.0, request.1.clone());
     }
     player.lock().unwrap().play();
 
     // Send the recommendation IDs back to Dart
-    let recommended_ids: Vec<i32> = recommendations
-        .into_iter()
-        .map(|(id, _)| id as i32)
-        .collect();
+    let recommended_ids: Vec<i32> = requests.into_iter().map(|(id, _)| id).collect();
 
     PlaybackRecommendation { recommended_ids }.send_signal_to_dart();
 
