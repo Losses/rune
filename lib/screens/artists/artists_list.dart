@@ -1,9 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:player/widgets/flip_grid.dart';
 
-import '../../../utils/platform.dart';
 import '../../../messages/artist.pb.dart';
 import '../../../widgets/start_grid.dart';
 import '../../../widgets/smooth_horizontal_scroll.dart';
