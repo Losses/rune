@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:player/utils/router_extra.dart';
 
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
@@ -21,13 +22,15 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
   Widget build(BuildContext context) {
     final FluentThemeData theme = FluentTheme.of(context);
     final Typography typography = theme.typography;
+    final extra = GoRouterState.of(context).extra;
 
     return ScaffoldPage(
       header: HyperlinkButton(
         style: ButtonStyle(
           textStyle: WidgetStateProperty.all(typography.title),
         ),
-        child: Text('Tracks', style: TextStyle(color: theme.activeColor)),
+        child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
+            style: TextStyle(color: theme.activeColor)),
         onPressed: () => {context.pop()},
       ),
       content: Column(children: [

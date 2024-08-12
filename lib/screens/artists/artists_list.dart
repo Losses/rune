@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
+import 'package:player/utils/router_extra.dart';
 
 import '../../widgets/start_screen.dart';
 import '../../../widgets/flip_tile.dart';
@@ -69,7 +70,10 @@ class ArtistItem extends StatelessWidget {
       name: artist.name,
       coverIds: artist.coverIds,
       emptyTileType: BoringAvatarsType.bauhaus,
-      onPressed: () => {context.push('/artists/${artist.id}')},
+      onPressed: () => {
+        context.push('/artists/${artist.id}',
+            extra: QueryTracksExtra(artist.name))
+      },
     );
   }
 }

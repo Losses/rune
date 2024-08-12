@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
+import 'package:player/utils/router_extra.dart';
 
 import '../../widgets/start_screen.dart';
 import '../../widgets/grouped_list_base.dart';
@@ -69,7 +70,9 @@ class AlbumItem extends StatelessWidget {
       name: album.name,
       coverIds: album.coverIds,
       emptyTileType: BoringAvatarsType.marble,
-      onPressed: () => {context.push('/albums/${album.id}')},
+      onPressed: () => {
+        context.push('/albums/${album.id}', extra: QueryTracksExtra(album.name))
+      },
     );
   }
 }
