@@ -1,15 +1,17 @@
-import 'package:fluent_ui/fluent_ui.dart' hide Page;
-import 'package:flutter/foundation.dart';
-import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
-import 'package:flutter_acrylic/window_effect.dart';
-import 'package:get_storage/get_storage.dart';
-import 'package:go_router/go_router.dart';
-import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
-import 'package:system_theme/system_theme.dart';
-import 'package:url_launcher/link.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:player/utils/attach_navigation_event.dart';
+import 'package:player/utils/navigation_indicator_helper.dart';
 import 'package:rinf/rinf.dart';
+import 'package:url_launcher/link.dart';
+import 'package:provider/provider.dart';
+import 'package:flutter/foundation.dart';
+import 'package:go_router/go_router.dart';
+import 'package:get_storage/get_storage.dart';
+import 'package:system_theme/system_theme.dart';
+import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:window_manager/window_manager.dart';
+import 'package:flutter_acrylic/window_effect.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'routes/home.dart' deferred as home;
 import 'routes/tracks.dart' deferred as tracks;
@@ -17,10 +19,11 @@ import 'routes/albums.dart' deferred as albums;
 import 'routes/artists.dart' deferred as artists;
 import 'routes/settings.dart' deferred as settings;
 import 'routes/cover_wall.dart' deferred as cover_wall;
+import 'routes/query_tracks.dart' deferred as query_tracks;
 
-import 'providers/library_path.dart';
-import 'providers/playlist.dart';
 import 'providers/status.dart';
+import 'providers/playlist.dart';
+import 'providers/library_path.dart';
 
 import 'widgets/theme_gradient.dart';
 import 'widgets/deferred_widget.dart';
@@ -164,9 +167,9 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
 
   final viewKey = GlobalKey(debugLabel: 'Navigation View Key');
 
-  late final List<NavigationPaneItem> originalItems = [
+  late final originalItems = attachNavigationEvent(context, [
     PaneItem(
-      key: const ValueKey('/'),
+      key: const ValueKey('/home'),
       icon: const Icon(Symbols.home),
       title: const Text('Home'),
       body: const SizedBox.shrink(),
@@ -189,50 +192,19 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
       title: const Text('Tracks'),
       body: const SizedBox.shrink(),
     ),
-  ].map<NavigationPaneItem>((e) {
-    PaneItem buildPaneItem(PaneItem item) {
-      return PaneItem(
-        key: item.key,
-        icon: item.icon,
-        title: item.title,
-        body: item.body,
-        onTap: () {
-          final path = (item.key as ValueKey).value;
-          if (GoRouterState.of(context).uri.toString() != path) {
-            context.push(path);
-          }
-          item.onTap?.call();
-        },
-      );
-    }
+  ]);
 
-    if (e is PaneItemExpander) {
-      return PaneItemExpander(
-        key: e.key,
-        icon: e.icon,
-        title: e.title,
-        body: e.body,
-        items: e.items.map((item) {
-          if (item is PaneItem) return buildPaneItem(item);
-          return item;
-        }).toList(),
-      );
-    }
-    return buildPaneItem(e);
-  }).toList();
-  late final List<NavigationPaneItem> footerItems = [
+  late final footerItems = attachNavigationEvent(context, [
     PaneItem(
       key: const ValueKey('/settings'),
       icon: const Icon(Symbols.settings),
       title: const Text('Settings'),
       body: const SizedBox.shrink(),
-      onTap: () {
-        if (GoRouterState.of(context).uri.toString() != '/settings') {
-          context.push('/settings');
-        }
-      },
     ),
-  ];
+  ]);
+
+  late final NavigationIndicatorHelper navigationIndicatorHelper =
+      NavigationIndicatorHelper(originalItems, footerItems, routes);
 
   @override
   void initState() {
@@ -244,31 +216,6 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
   void dispose() {
     windowManager.removeListener(this);
     super.dispose();
-  }
-
-  int _calculateSelectedIndex(BuildContext context) {
-    final location = GoRouterState.of(context).uri.toString();
-    int indexOriginal = originalItems
-        .where((item) => item.key != null)
-        .toList()
-        .indexWhere((item) => item.key == Key(location));
-
-    if (indexOriginal == -1) {
-      int indexFooter = footerItems
-          .where((element) => element.key != null)
-          .toList()
-          .indexWhere((element) => element.key == Key(location));
-      if (indexFooter == -1) {
-        return 0;
-      }
-      return originalItems
-              .where((element) => element.key != null)
-              .toList()
-              .length +
-          indexFooter;
-    } else {
-      return indexOriginal;
-    }
   }
 
   @override
@@ -295,7 +242,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
         );
       },
       pane: NavigationPane(
-        selected: _calculateSelectedIndex(context),
+        selected: navigationIndicatorHelper.calculateSelectedIndex(context),
         header: const SizedBox(
           height: kOneLineTileHeight,
           child: ThemeGradient(),
@@ -405,9 +352,73 @@ class LinkPaneItemAction extends PaneItem {
   }
 }
 
+final routes = <GoRoute>[
+  GoRoute(
+    path: '/home',
+    builder: (context, state) => DeferredWidget(
+      home.loadLibrary,
+      () => home.HomePage(),
+    ),
+  ),
+  GoRoute(
+    path: '/artists',
+    builder: (context, state) => DeferredWidget(
+      artists.loadLibrary,
+      () => artists.ArtistsPage(),
+    ),
+  ),
+  GoRoute(
+    path: '/artists/:artistId',
+    builder: (context, state) => DeferredWidget(
+      query_tracks.loadLibrary,
+      () => query_tracks.QueryTracksPage(
+        artistIds: [int.parse(state.pathParameters['artistId'] ?? "0")],
+      ),
+    ),
+  ),
+  GoRoute(
+    path: '/albums',
+    builder: (context, state) => DeferredWidget(
+      albums.loadLibrary,
+      () => albums.AlbumsPage(),
+    ),
+  ),
+  GoRoute(
+    path: '/albums/:albumId',
+    builder: (context, state) => DeferredWidget(
+      query_tracks.loadLibrary,
+      () => query_tracks.QueryTracksPage(
+        albumIds: [int.parse(state.pathParameters['albumId'] ?? "0")],
+      ),
+    ),
+  ),
+  GoRoute(
+    path: '/tracks',
+    builder: (context, state) => DeferredWidget(
+      tracks.loadLibrary,
+      () => tracks.TracksPage(),
+    ),
+  ),
+  GoRoute(
+    path: '/settings',
+    builder: (context, state) => DeferredWidget(
+      settings.loadLibrary,
+      () => settings.SettingsPage(),
+    ),
+  ),
+  GoRoute(
+    path: '/cover_wall',
+    builder: (context, state) => DeferredWidget(
+      cover_wall.loadLibrary,
+      () => cover_wall.CoverWallPage(),
+    ),
+  ),
+];
+
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
-final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
+final router =
+    GoRouter(navigatorKey: rootNavigatorKey, initialLocation: "/home", routes: [
   ShellRoute(
     navigatorKey: _shellNavigatorKey,
     builder: (context, state, child) {
@@ -416,49 +427,6 @@ final router = GoRouter(navigatorKey: rootNavigatorKey, routes: [
         child: child,
       );
     },
-    routes: <GoRoute>[
-      GoRoute(
-        path: '/',
-        builder: (context, state) => DeferredWidget(
-          home.loadLibrary,
-          () => home.HomePage(),
-        ),
-      ),
-      GoRoute(
-        path: '/artists',
-        builder: (context, state) => DeferredWidget(
-          artists.loadLibrary,
-          () => artists.ArtistsPage(),
-        ),
-      ),
-      GoRoute(
-        path: '/albums',
-        builder: (context, state) => DeferredWidget(
-          albums.loadLibrary,
-          () => albums.AlbumsPage(),
-        ),
-      ),
-      GoRoute(
-        path: '/tracks',
-        builder: (context, state) => DeferredWidget(
-          tracks.loadLibrary,
-          () => tracks.TracksPage(),
-        ),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => DeferredWidget(
-          settings.loadLibrary,
-          () => settings.SettingsPage(),
-        ),
-      ),
-      GoRoute(
-        path: '/cover_wall',
-        builder: (context, state) => DeferredWidget(
-          cover_wall.loadLibrary,
-          () => cover_wall.CoverWallPage(),
-        ),
-      ),
-    ],
+    routes: routes,
   ),
 ]);

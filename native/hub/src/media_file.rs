@@ -88,8 +88,8 @@ pub async fn compound_query_media_files_request(
     let album_ids = query_media_files.album_ids;
 
     info!(
-        "Compound query media list, page: {}, size: {}",
-        cursor, page_size
+        "Compound query media list with artist_ids: {:?}, album_ids: {:?}, page: {}, size: {}",
+        artist_ids, album_ids, cursor, page_size
     );
 
     let artist_ids_option = if artist_ids.is_empty() {
@@ -118,7 +118,8 @@ pub async fn compound_query_media_files_request(
     match media_summaries.await {
         Ok(media_summaries) => {
             let media_files = parse_media_files(media_summaries, lib_path).await?;
-            MediaFileList { media_files }.send_signal_to_dart(); // GENERATED
+            CompoundQueryMediaFilesResponse { media_files }.send_signal_to_dart();
+            // GENERATED
         }
         Err(e) => {
             error!("Error happened while getting media summaries: {:#?}", e)

@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/widgets/grouped_list_base.dart';
 
 import '../../widgets/start_screen.dart';
+import '../../widgets/grouped_list_base.dart';
 import '../../../widgets/flip_tile.dart';
 import '../../../messages/album.pb.dart';
 
@@ -49,8 +50,8 @@ class AlbumsListViewState
   }
 
   @override
-  Widget itemBuilder(BuildContext context, Album album) {
-    return AlbumItem(album: album);
+  Widget itemBuilder(BuildContext context, Album item) {
+    return AlbumItem(album: item);
   }
 }
 
@@ -68,7 +69,7 @@ class AlbumItem extends StatelessWidget {
       name: album.name,
       coverIds: album.coverIds,
       emptyTileType: BoringAvatarsType.marble,
-      onPressed: () => {},
+      onPressed: () => {context.push('/albums/${album.id}')},
     );
   }
 }

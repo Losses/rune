@@ -1,10 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/widgets/grouped_list_base.dart';
 
 import '../../widgets/start_screen.dart';
 import '../../../widgets/flip_tile.dart';
 import '../../../messages/artist.pb.dart';
+import '../../../widgets/grouped_list_base.dart';
 
 class ArtistsListView extends GroupedListBase<Artist, ArtistsGroupSummary> {
   const ArtistsListView({super.key});
@@ -49,8 +50,8 @@ class ArtistsListViewState
   }
 
   @override
-  Widget itemBuilder(BuildContext context, Artist artist) {
-    return ArtistItem(artist: artist);
+  Widget itemBuilder(BuildContext context, Artist item) {
+    return ArtistItem(artist: item);
   }
 }
 
@@ -68,7 +69,7 @@ class ArtistItem extends StatelessWidget {
       name: artist.name,
       coverIds: artist.coverIds,
       emptyTileType: BoringAvatarsType.bauhaus,
-      onPressed: () => {},
+      onPressed: () => {context.push('/artists/${artist.id}')},
     );
   }
 }

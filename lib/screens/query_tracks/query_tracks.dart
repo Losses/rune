@@ -1,0 +1,44 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
+
+import '../../screens/query_tracks/widgets/query_tracks.dart';
+
+import '../../widgets/playback_controller.dart';
+
+class QueryTracksPage extends StatefulWidget {
+  final List<int> artistIds;
+  final List<int> albumIds;
+
+  const QueryTracksPage(
+      {super.key, this.artistIds = const [], this.albumIds = const []});
+
+  @override
+  State<QueryTracksPage> createState() => _QueryTracksPageState();
+}
+
+class _QueryTracksPageState extends State<QueryTracksPage> {
+  @override
+  Widget build(BuildContext context) {
+    final FluentThemeData theme = FluentTheme.of(context);
+    final Typography typography = theme.typography;
+
+    return ScaffoldPage(
+      header: HyperlinkButton(
+        style: ButtonStyle(
+          textStyle: WidgetStateProperty.all(typography.title),
+        ),
+        child: Text('Tracks', style: TextStyle(color: theme.activeColor)),
+        onPressed: () => {context.pop()},
+      ),
+      content: Column(children: [
+        Expanded(
+          child: QueryTrackListView(
+            artistIds: widget.artistIds,
+            albumIds: widget.albumIds,
+          ),
+        ),
+        const PlaybackPlaceholder(),
+      ]),
+    );
+  }
+}
