@@ -1,5 +1,4 @@
-import 'package:player/utils/attach_navigation_event.dart';
-import 'package:player/utils/navigation_indicator_helper.dart';
+import 'package:player/widgets/flip_animation.dart';
 import 'package:rinf/rinf.dart';
 import 'package:url_launcher/link.dart';
 import 'package:provider/provider.dart';
@@ -25,9 +24,13 @@ import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/library_path.dart';
 
+import 'widgets/navigation_bar.dart';
 import 'widgets/theme_gradient.dart';
 import 'widgets/deferred_widget.dart';
 import 'widgets/playback_controller.dart';
+
+import 'utils/attach_navigation_event.dart';
+import 'utils/navigation_indicator_helper.dart';
 
 import 'theme.dart';
 import 'messages/generated.dart';
@@ -256,12 +259,14 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
       ),
     );
 
-    return Stack(alignment: Alignment.bottomCenter, children: [
+    return FlipAnimationContext(
+        child: Stack(alignment: Alignment.bottomCenter, children: [
       SizedBox.expand(
         child: navigation,
       ),
       const PlaybackController(),
-    ]);
+      NavigationBar(items: navigationItems),
+    ]));
   }
 
   @override
@@ -361,6 +366,13 @@ final routes = <GoRoute>[
     ),
   ),
   GoRoute(
+    path: '/library',
+    builder: (context, state) => DeferredWidget(
+      home.loadLibrary,
+      () => home.HomePage(),
+    ),
+  ),
+  GoRoute(
     path: '/artists',
     builder: (context, state) => DeferredWidget(
       artists.loadLibrary,
@@ -430,3 +442,17 @@ final router =
     routes: routes,
   ),
 ]);
+
+final List<NavigationItem> navigationItems = [
+  NavigationItem('Home', '/home', children: [
+    NavigationItem('Library', '/library', children: [
+      NavigationItem('Artists', '/artists', children: [
+        NavigationItem('Artist Query', '/artists/:artistId', hidden: true),
+      ]),
+      NavigationItem('Albums', '/albums', children: [
+        NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
+      ]),
+    ]),
+    NavigationItem('Settings', '/settings'),
+  ]),
+];

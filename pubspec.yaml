@@ -62,6 +62,7 @@ dependencies:
   flutter_shaders: ^0.1.2
   flip_card: ^0.7.0
   flutter_boring_avatars: ^1.1.0
+  logger: ^2.4.0
 
 dev_dependencies:
   build_runner: ^2.4.11
