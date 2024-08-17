@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/logger.dart';
@@ -83,9 +84,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     }
   }
 
-  flipAnimation(String fromKey, String toKey) {
+  Future<void> flipAnimation(String fromKey, String toKey) async {
     cacheBoundingBoxWithKey(fromKey);
     cacheBoundingBoxWithKey(toKey);
+
+    final completer = Completer<void>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       cacheBoundingBoxWithKey(fromKey);
@@ -95,11 +98,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       final toBoundingBox = _cachedBoundingBox[toKey];
 
       if (fromBoundingBox == null) {
-        logger.w("Bounding box not found: $fromKey");
+        completer.completeError("Bounding box not found: $fromKey");
         return;
       }
       if (toBoundingBox == null) {
-        logger.w("Bounding box not found: $toKey");
+        completer.completeError("Bounding box not found: $toKey");
         return;
       }
 
@@ -120,6 +123,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
           onAnimationComplete: () {
             overlayEntry.remove();
             _overlayEntries.remove(overlayEntry);
+            completer.complete();
           },
         ),
       );
@@ -130,6 +134,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 
       (overlayEntry.builder(context) as FlipTextAnimation).createState();
     });
+
+    return completer.future;
   }
 
   BoundingBox? getBoundingBox(String key, GlobalKey globalKey) {
@@ -160,8 +166,13 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 class FlipText extends StatefulWidget {
   final String flipKey;
   final String text;
+  final bool hidden;
 
-  const FlipText({super.key, required this.flipKey, required this.text});
+  const FlipText(
+      {super.key,
+      required this.flipKey,
+      required this.text,
+      required this.hidden});
 
   @override
   FlipTextState createState() => FlipTextState();
@@ -196,7 +207,13 @@ class FlipTextState extends State<FlipText> {
 
   @override
   Widget build(BuildContext context) {
-    return Text(key: _globalKey, widget.text);
+    return Visibility(
+      maintainSize: true,
+      maintainAnimation: true,
+      maintainState: true,
+      visible: !widget.hidden,
+      child: Text(key: _globalKey, widget.text),
+    );
   }
 }
 

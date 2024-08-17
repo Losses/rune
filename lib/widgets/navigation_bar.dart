@@ -123,12 +123,29 @@ class NavigationBarState extends State<NavigationBar> {
     });
   }
 
+  bool playing = false;
+  String fromKey = '';
+  String toKey = '';
+
+  playFlipAnimation(BuildContext context, String from, String to) async {
+    final flipAnimation = FlipAnimationManager.of(context);
+
+    playing = true;
+    fromKey = from;
+    toKey = to;
+    await flipAnimation?.flipAnimation(from, to);
+    playing = false;
+    setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final path = GoRouterState.of(context).fullPath;
     final item = widget.query.getItem(path);
     final children =
         widget.query.getChildren(path)?.where((x) => !x.hidden).toList();
+
+    final titleFlipKey = 'title:${item?.path}';
 
     final parentWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
@@ -137,17 +154,18 @@ class NavigationBarState extends State<NavigationBar> {
               Padding(
                 padding: const EdgeInsets.only(right: 12),
                 child: GestureDetector(
-                    onTap: () {
+                    onTap: () async {
+                      if (playing) return;
                       _onBack(context);
-                      final flipAnimation = FlipAnimationManager.of(context);
                       final id = item.path;
-
-                      flipAnimation?.flipAnimation('title:$id', 'child:$id');
+                      playFlipAnimation(context, 'title:$id', 'child:$id');
                     },
                     child: FlipText(
-                        key: UniqueKey(),
-                        flipKey: 'title:${item.path}',
-                        text: item.title)),
+                      key: UniqueKey(),
+                      flipKey: titleFlipKey,
+                      text: item.title,
+                      hidden: playing,
+                    )),
               )
             ]
           : [],
@@ -156,20 +174,23 @@ class NavigationBarState extends State<NavigationBar> {
     final childrenWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
       children: children?.map((route) {
+            final flipKey = 'child:${route.path}';
+
             return Padding(
               padding: const EdgeInsets.only(right: 12),
               child: GestureDetector(
-                  onTap: () {
+                  onTap: () async {
+                    if (playing) return;
                     _onRouteSelected(route);
-                    final flipAnimation = FlipAnimationManager.of(context);
                     final id = route.path;
-
-                    flipAnimation?.flipAnimation('child:$id', 'title:$id');
+                    playFlipAnimation(context, 'child:$id', 'title:$id');
                   },
                   child: FlipText(
-                      key: UniqueKey(),
-                      flipKey: 'child:${route.path}',
-                      text: route.title)),
+                    key: UniqueKey(),
+                    flipKey: flipKey,
+                    text: route.title,
+                    hidden: playing && (fromKey == flipKey || toKey == flipKey),
+                  )),
             );
           }).toList() ??
           [],
