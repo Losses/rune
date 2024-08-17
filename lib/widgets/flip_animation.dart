@@ -108,12 +108,19 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
           : toBoundingBox.context;
       final textWidget = mountedContext.widget as Text?;
 
+      // Declare the overlayEntry variable first
+      late OverlayEntry overlayEntry;
+
       // Create a text overlay in the animation layer and perform a smooth transition animation
-      final overlayEntry = OverlayEntry(
+      overlayEntry = OverlayEntry(
         builder: (context) => FlipTextAnimation(
           fromBoundingBox: fromBoundingBox,
           toBoundingBox: toBoundingBox,
           text: textWidget?.data ?? '',
+          onAnimationComplete: () {
+            overlayEntry.remove();
+            _overlayEntries.remove(overlayEntry);
+          },
         ),
       );
 
@@ -121,12 +128,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 
       Overlay.of(context, rootOverlay: true).insert(overlayEntry);
 
-      (overlayEntry.builder(context) as FlipTextAnimation)
-          .createState()
-          .startAnimation();
-
-      overlayEntry.remove();
-      _overlayEntries.remove(overlayEntry);
+      (overlayEntry.builder(context) as FlipTextAnimation).createState();
     });
   }
 
@@ -202,12 +204,14 @@ class FlipTextAnimation extends StatefulWidget {
   final BoundingBox fromBoundingBox;
   final BoundingBox toBoundingBox;
   final String text;
+  final VoidCallback onAnimationComplete;
 
   const FlipTextAnimation({
     super.key,
     required this.fromBoundingBox,
     required this.toBoundingBox,
     required this.text,
+    required this.onAnimationComplete,
   });
 
   @override
@@ -224,7 +228,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     super.initState();
 
     _controller = AnimationController(
-      duration: const Duration(seconds: 1),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
 
@@ -236,11 +240,17 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       curve: Curves.easeInOut,
     ));
 
+    _controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        widget.onAnimationComplete();
+      }
+    });
+
     _controller.forward();
   }
 
-  Future<void> startAnimation() {
-    return _controller.forward();
+  void startAnimation() {
+    _controller.forward();
   }
 
   @override
