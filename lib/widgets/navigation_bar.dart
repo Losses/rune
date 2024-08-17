@@ -83,7 +83,7 @@ class NavigationQuery {
     }
 
     // Filter out the item itself from the list of siblings
-    return siblings.where((item) => item.path != path).toList();
+    return siblings.toList();
   }
 }
 
@@ -130,6 +130,31 @@ class NavigationBarState extends State<NavigationBar> {
     final children =
         widget.query.getChildren(path)?.where((x) => !x.hidden).toList();
     final parent = widget.query.getParent(path ?? widget.defaultPath);
+    final slibings = widget.query.getSiblings(item?.path ?? widget.defaultPath);
+
+    print(slibings);
+
+    final parentWidget = Row(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: slibings?.map((route) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: GestureDetector(
+                  onTap: () {
+                    _onBack(context);
+                    final flipAnimation = FlipAnimationManager.of(context);
+                    final id = item?.path ?? parent?.path;
+
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      flipAnimation?.flipAnimation('title:$id', 'child:$id');
+                    });
+                  },
+                  child: FlipText(
+                      flipKey: 'title:${route.path}', text: route.title)),
+            );
+          }).toList() ??
+          [],
+    );
 
     final childrenWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
@@ -143,11 +168,11 @@ class NavigationBarState extends State<NavigationBar> {
                     final id = route.path;
 
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      flipAnimation?.flipAnimation('title-$id', 'child-$id');
+                      flipAnimation?.flipAnimation('child:$id', 'title:$id');
                     });
                   },
                   child: FlipText(
-                      flipKey: 'child-${route.path}', text: route.title)),
+                      flipKey: 'child:${route.path}', text: route.title)),
             );
           }).toList() ??
           [],
@@ -160,21 +185,7 @@ class NavigationBarState extends State<NavigationBar> {
         : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              GestureDetector(
-                onTap: () {
-                  _onBack(context);
-                  final flipAnimation = FlipAnimationManager.of(context);
-                  final id = item?.path ?? parent.path;
-
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    flipAnimation?.flipAnimation('title-$id', 'child-$id');
-                  });
-                },
-                child: FlipText(
-                  flipKey: 'title-${item?.path ?? parent.path}',
-                  text: item?.title ?? parent.title,
-                ),
-              ),
+              parentWidget,
               childrenWidget,
             ],
           );
