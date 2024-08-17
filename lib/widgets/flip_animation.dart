@@ -50,49 +50,65 @@ class FlipAnimationManager extends StatefulWidget {
 
 class FlipAnimationManagerState extends State<FlipAnimationManager> {
   final Map<String, GlobalKey> _registeredKeys = {};
-  final Map<String, Offset> _cachedOffset = {};
+  final Map<String, BoundingBox> _cachedBoundingBox = {};
   final List<OverlayEntry> _overlayEntries = [];
 
   void registerKey(String key, GlobalKey globalKey) {
-    // logger.i('Registering flip item: $key');
     _registeredKeys[key] = globalKey;
-    // _cachedOffset[key] =
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      cacheBoundingBoxWithKey(key);
+    });
   }
 
   void unregisterKey(String key) {
     _registeredKeys.remove(key);
   }
 
-  Future<void> flipAnimation(String fromKey, String toKey) async {
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Check if both keys are registered in the container
-      if (!_registeredKeys.containsKey(fromKey)) {
-        logger.w('From key not found: $fromKey');
+  void cacheBoundingBoxWithKey(String key) {
+    if (_registeredKeys.containsKey(key)) {
+      final globalKey = _registeredKeys[key];
+
+      final boundingBox = getBoundingBox(key, globalKey!);
+
+      if (boundingBox != null) {
+        _cachedBoundingBox[key] = boundingBox;
+
+        logger.i("Cached bounding box cached: $key");
+      } else {
+        logger.w("Cached bounding not found: $key");
+      }
+    } else {
+      logger.w("Key not registered: $key");
+    }
+  }
+
+  flipAnimation(String fromKey, String toKey) {
+    cacheBoundingBoxWithKey(fromKey);
+    cacheBoundingBoxWithKey(toKey);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      cacheBoundingBoxWithKey(fromKey);
+      cacheBoundingBoxWithKey(toKey);
+
+      final fromBoundingBox = _cachedBoundingBox[fromKey];
+      final toBoundingBox = _cachedBoundingBox[toKey];
+
+      if (fromBoundingBox == null) {
+        logger.w("Bounding box not found: $fromKey");
         return;
       }
-
-      if (!_registeredKeys.containsKey(toKey)) {
-        logger.w('To key not found: $toKey');
-        return;
-      }
-
-      final fromGlobalKey = _registeredKeys[fromKey]!;
-      final toGlobalKey = _registeredKeys[toKey]!;
-
-      // Get the positions and sizes of the two elements
-      final fromPositionAndSize = getPositionAndSize(fromGlobalKey);
-      final toPositionAndSize = getPositionAndSize(toGlobalKey);
-
-      if (fromPositionAndSize == null || toPositionAndSize == null) {
+      if (toBoundingBox == null) {
+        logger.w("Bounding box not found: $toKey");
         return;
       }
 
       // Create a text overlay in the animation layer and perform a smooth transition animation
       final overlayEntry = OverlayEntry(
         builder: (context) => FlipTextAnimation(
-          fromBoundingBox: fromPositionAndSize,
-          toBoundingBox: toPositionAndSize,
-          text: (fromPositionAndSize.context.widget as Text).data ?? '',
+          fromBoundingBox: fromBoundingBox,
+          toBoundingBox: toBoundingBox,
+          text: (fromBoundingBox.context.widget as Text).data ?? '',
         ),
       );
 
@@ -100,8 +116,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 
       Overlay.of(context, rootOverlay: true).insert(overlayEntry);
 
-      // Wait for the animation to complete
-      await (overlayEntry.builder(context) as FlipTextAnimation)
+      (overlayEntry.builder(context) as FlipTextAnimation)
           .createState()
           .startAnimation();
 
@@ -110,10 +125,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     });
   }
 
-  BoundingBox? getPositionAndSize(GlobalKey key) {
-    final context = key.currentContext;
+  BoundingBox? getBoundingBox(String key, GlobalKey globalKey) {
+    final context = globalKey.currentContext;
 
     if (context == null) {
+      logger.w("Context not found: $key");
       return null;
     }
 
@@ -150,16 +166,25 @@ class FlipTextState extends State<FlipText> {
 
   registerKey() {
     _flipAnimation = FlipAnimationManager.of(context);
+
     if (_flipAnimation == null) {
       logger.w("Flip context not found for ${widget.flipKey}");
       return;
+    } else {
+      _flipAnimation!.registerKey(widget.flipKey, _globalKey);
     }
+  }
 
-    _flipAnimation?.registerKey(widget.flipKey, _globalKey);
+  @override
+  void initState() {
+    logger.i('==> Initializing component: ${widget.flipKey}');
+    super.initState();
+    registerKey();
   }
 
   @override
   void didChangeDependencies() {
+    logger.i('==> Updating: ${widget.flipKey}');
     super.didChangeDependencies();
     registerKey();
   }
