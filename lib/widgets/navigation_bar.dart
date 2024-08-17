@@ -145,7 +145,9 @@ class NavigationBarState extends State<NavigationBar> {
                       flipAnimation?.flipAnimation('title:$id', 'child:$id');
                     },
                     child: FlipText(
-                        flipKey: 'title:${item.path}', text: item.title)),
+                        key: UniqueKey(),
+                        flipKey: 'title:${item.path}',
+                        text: item.title)),
               )
             ]
           : [],
@@ -165,7 +167,9 @@ class NavigationBarState extends State<NavigationBar> {
                     flipAnimation?.flipAnimation('child:$id', 'title:$id');
                   },
                   child: FlipText(
-                      flipKey: 'child:${route.path}', text: route.title)),
+                      key: UniqueKey(),
+                      flipKey: 'child:${route.path}',
+                      text: route.title)),
             );
           }).toList() ??
           [],

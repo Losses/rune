@@ -74,12 +74,12 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       if (boundingBox != null) {
         _cachedBoundingBox[key] = boundingBox;
 
-        logger.i("Cached bounding box cached: $key");
+        // logger.i("Cached bounding box cached: $key");
       } else {
-        logger.w("Cached bounding not found: $key");
+        // logger.w("Cached bounding not found: $key");
       }
     } else {
-      logger.w("Key not registered: $key");
+      // logger.w("Key not registered: $key");
     }
   }
 
@@ -103,12 +103,17 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         return;
       }
 
+      final mountedContext = fromBoundingBox.context.mounted
+          ? fromBoundingBox.context
+          : toBoundingBox.context;
+      final textWidget = mountedContext.widget as Text?;
+
       // Create a text overlay in the animation layer and perform a smooth transition animation
       final overlayEntry = OverlayEntry(
         builder: (context) => FlipTextAnimation(
           fromBoundingBox: fromBoundingBox,
           toBoundingBox: toBoundingBox,
-          text: (fromBoundingBox.context.widget as Text).data ?? '',
+          text: textWidget?.data ?? '',
         ),
       );
 
@@ -176,15 +181,7 @@ class FlipTextState extends State<FlipText> {
   }
 
   @override
-  void initState() {
-    logger.i('==> Initializing component: ${widget.flipKey}');
-    super.initState();
-    registerKey();
-  }
-
-  @override
   void didChangeDependencies() {
-    logger.i('==> Updating: ${widget.flipKey}');
     super.didChangeDependencies();
     registerKey();
   }
