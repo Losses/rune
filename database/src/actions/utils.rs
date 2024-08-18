@@ -68,6 +68,7 @@ macro_rules! get_entity_to_cover_ids {
     ($db:expr, $entity_ids:expr, $related_entity:ty, $related_entity_column:ty, $magic_cover_art_id:expr) => {{
         use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
         use std::collections::{HashMap, HashSet};
+        use $crate::entities::media_files;
 
         // Fetch related media files for these entities
         let media_file_relations = <$related_entity>::find()
@@ -110,6 +111,8 @@ macro_rules! get_cover_ids {
             db: &DatabaseConnection,
             entities: &[$entity],
         ) -> Result<HashMap<i32, HashSet<i32>>, DbErr> {
+            use $crate::get_entity_to_cover_ids;
+
             let entity_ids: Vec<i32> = entities.iter().map(|x| x.id).collect();
             let magic_cover_art_id = -1;
 
@@ -133,14 +136,11 @@ macro_rules! get_groups {
         ) -> Result<Vec<(String, Vec<($entity::Model, HashSet<i32>)>)>, sea_orm::DbErr> {
             use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
             use std::collections::{HashMap, HashSet};
+            use $crate::actions::cover_art::get_magic_cover_art_id;
+            use $crate::get_entity_to_cover_ids;
 
             // Step 0: Get the magic coverart ID
-            let magic_cover_art = media_cover_art::Entity::find()
-                .filter(media_cover_art::Column::FileHash.eq(String::new()))
-                .one(db)
-                .await;
-
-            let magic_cover_art_id = magic_cover_art.ok().flatten().map_or(-1, |s| s.id);
+            let magic_cover_art_id = get_magic_cover_art_id(db).await;
 
             // Step 1: Fetch entities belonging to the specified groups
             let entities: Vec<$entity::Model> = $entity::Entity::find()

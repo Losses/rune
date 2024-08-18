@@ -4,9 +4,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::entities::media_file_artists;
-use crate::entities::{albums, artists, media_file_albums, media_files};
+use crate::entities::{albums, artists, media_file_albums};
 use crate::get_cover_ids;
 use crate::get_entity_to_cover_ids;
+
+use super::cover_art::get_magic_cover_art_id;
 
 get_cover_ids!(
     get_album_cover_ids,
@@ -25,11 +27,14 @@ pub async fn get_latest_albums_and_artists(
     db: &DatabaseConnection,
 ) -> Result<
     (
-        Vec<(albums::Model, HashSet<i32>)>,
-        Vec<(artists::Model, HashSet<i32>)>,
+        Vec<(albums::Model, Vec<i32>)>,
+        Vec<(artists::Model, Vec<i32>)>,
     ),
     DbErr,
 > {
+    // Step 0: Get the magic coverart ID
+    let magic_cover_art_id = get_magic_cover_art_id(db).await.unwrap_or(-1);
+
     // Step 1: Fetch the top 20 albums by ID
     let top_albums: Vec<albums::Model> = albums::Entity::find()
         .order_by_desc(albums::Column::Id)
@@ -54,7 +59,13 @@ pub async fn get_latest_albums_and_artists(
     let top_albums_with_cover_ids = top_albums
         .into_iter()
         .map(|album| {
-            let cover_ids = album_cover_ids.get(&album.id).cloned().unwrap_or_default();
+            let cover_ids = album_cover_ids
+                .get(&album.id)
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|&x| x != magic_cover_art_id)
+                .collect::<Vec<_>>();
             (album, cover_ids)
         })
         .collect::<Vec<_>>();
@@ -66,7 +77,10 @@ pub async fn get_latest_albums_and_artists(
             let cover_ids = artist_cover_ids
                 .get(&artist.id)
                 .cloned()
-                .unwrap_or_default();
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|&x| x != magic_cover_art_id)
+                .collect::<Vec<_>>();
             (artist, cover_ids)
         })
         .collect::<Vec<_>>();

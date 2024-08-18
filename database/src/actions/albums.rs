@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use sea_orm::prelude::*;
 
-use crate::entities::{albums, media_cover_art, media_file_albums, media_files};
-use crate::{get_entity_to_cover_ids, get_groups};
+use crate::entities::{albums, media_file_albums};
+use crate::get_groups;
 
 use super::utils::CountByFirstLetter;
 

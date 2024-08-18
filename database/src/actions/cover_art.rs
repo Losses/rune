@@ -11,6 +11,21 @@ use metadata::cover_art::extract_cover_art_binary;
 
 use crate::entities::{media_cover_art, media_files};
 
+pub async fn get_magic_cover_art(
+    db: &DatabaseConnection,
+) -> std::result::Result<std::option::Option<media_cover_art::Model>, sea_orm::DbErr> {
+    media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::FileHash.eq(String::new()))
+        .one(db)
+        .await
+}
+
+pub async fn get_magic_cover_art_id(db: &DatabaseConnection) -> Option<i32> {
+    let magic_cover_art = get_magic_cover_art(db);
+
+    magic_cover_art.await.ok().flatten().map(|s| s.id)
+}
+
 pub async fn sync_cover_art_by_file_id(
     db: &DatabaseConnection,
     lib_path: &str,
@@ -74,10 +89,7 @@ pub async fn sync_cover_art_by_file_id(
                 }
             } else {
                 // If the audio file has no cover art, check if there is a magic value with an empty CRC in the database
-                let magic_cover_art = media_cover_art::Entity::find()
-                    .filter(media_cover_art::Column::FileHash.eq(String::new()))
-                    .one(db)
-                    .await?;
+                let magic_cover_art = get_magic_cover_art(db).await?;
 
                 if let Some(magic_cover_art) = magic_cover_art {
                     // If the magic value exists, update the file's cover_art_id

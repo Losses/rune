@@ -2,9 +2,7 @@ use std::collections::HashSet;
 
 use sea_orm::prelude::*;
 
-use crate::entities::media_cover_art;
-use crate::entities::{artists, media_file_artists, media_files};
-use crate::get_entity_to_cover_ids;
+use crate::entities::{artists, media_file_artists};
 use crate::get_groups;
 
 use super::utils::CountByFirstLetter;
