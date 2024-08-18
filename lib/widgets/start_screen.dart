@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
@@ -85,11 +87,15 @@ class StartScreenState<T> extends State<StartScreen<T>> {
   }
 }
 
+enum StartGroupVariation { initial, square }
+
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
   final String groupTitle;
   final int index;
   final Widget Function(BuildContext, T) itemBuilder;
+  final StartGroupVariation variation;
+  final double gapSize;
 
   const StartGroup({
     super.key,
@@ -97,6 +103,8 @@ class StartGroup<T> extends StatelessWidget {
     required this.groupTitle,
     required this.items,
     required this.itemBuilder,
+    this.gapSize = 4,
+    this.variation = StartGroupVariation.initial,
   });
 
   @override
@@ -113,43 +121,102 @@ class StartGroup<T> extends StatelessWidget {
             child: Text(groupTitle, style: theme.typography.bodyLarge),
           ),
           Expanded(
-            child: StartGroupItem<T>(
-              cellSize: 120,
-              gapSize: 4,
-              items: items,
-              itemBuilder: itemBuilder,
-            ),
+            child: _buildStartGroupItems(),
           ),
         ],
       ),
     );
   }
+
+  Widget _buildStartGroupItems() {
+    switch (variation) {
+      case StartGroupVariation.square:
+        return StartGroupItems<T>.square(
+          cellSize: 120,
+          gapSize: gapSize,
+          items: items,
+          itemBuilder: itemBuilder,
+        );
+      case StartGroupVariation.initial:
+      default:
+        return StartGroupItems<T>(
+          cellSize: 120,
+          gapSize: gapSize,
+          items: items,
+          itemBuilder: itemBuilder,
+        );
+    }
+  }
 }
 
-class StartGroupItem<T> extends StatelessWidget {
+class Dimensions<T> {
+  final int rows;
+  final int columns;
+  final int count;
+
+  Dimensions({
+    required this.rows,
+    required this.columns,
+    required this.count,
+  });
+
+  @override
+  String toString() => "Dimensions($rows x $columns, count: $count)";
+}
+
+class StartGroupItems<T> extends StatelessWidget {
   final double cellSize;
   final double gapSize;
   final List<T> items;
   final Widget Function(BuildContext, T) itemBuilder;
 
-  const StartGroupItem({
+  final Dimensions Function(double, double, double, List<T>)
+      dimensionCalculator;
+
+  const StartGroupItems({
     super.key,
     required this.cellSize,
     required this.gapSize,
     required this.items,
     required this.itemBuilder,
-  });
+    Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
+  }) : dimensionCalculator = dimensionCalculator ?? _defaultDimensionCalculator;
+
+  const StartGroupItems.square({
+    super.key,
+    required this.cellSize,
+    required this.gapSize,
+    required this.items,
+    required this.itemBuilder,
+  }) : dimensionCalculator = _squareDimensionCalculator;
+
+  static Dimensions _defaultDimensionCalculator(
+      double containerHeight, double cellSize, double gapSize, List items) {
+    final int rows = (containerHeight / (cellSize + gapSize)).floor();
+    final int columns = (items.length / rows).ceil();
+    return Dimensions(rows: rows, columns: columns, count: items.length);
+  }
+
+  static Dimensions _squareDimensionCalculator(
+      double containerHeight, double cellSize, double gapSize, List items) {
+    final int rows = (containerHeight / (cellSize + gapSize)).floor();
+    final int maxItems =
+        min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
+    final int columns = min((maxItems / rows).ceil(), rows);
+    return Dimensions(rows: rows, columns: columns, count: maxItems);
+  }
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double containerHeight = constraints.maxHeight;
-        final int rows = (containerHeight / (cellSize + gapSize)).floor();
-        final int columns = (items.length / rows).ceil();
+        final Dimensions dimensions = dimensionCalculator(
+            constraints.maxHeight, cellSize, gapSize, items);
 
-        final double finalHeight = rows * (cellSize + gapSize) - gapSize;
-        final double finalWidth = columns * (cellSize + gapSize) - gapSize;
+        final double finalHeight =
+            dimensions.rows * (cellSize + gapSize) - gapSize;
+        final double finalWidth =
+            dimensions.columns * (cellSize + gapSize) - gapSize;
 
         return SizedBox(
           width: finalWidth,
@@ -157,7 +224,7 @@ class StartGroupItem<T> extends StatelessWidget {
           child: Wrap(
             spacing: gapSize,
             runSpacing: gapSize,
-            children: items.map((item) {
+            children: items.take(dimensions.count).map((item) {
               return SizedBox(
                 width: cellSize,
                 height: cellSize,

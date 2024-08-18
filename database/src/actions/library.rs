@@ -38,14 +38,14 @@ pub async fn get_latest_albums_and_artists(
     // Step 1: Fetch the top 20 albums by ID
     let top_albums: Vec<albums::Model> = albums::Entity::find()
         .order_by_desc(albums::Column::Id)
-        .limit(20)
+        .limit(25)
         .all(db)
         .await?;
 
     // Step 2: Fetch the top 20 artists by ID
     let top_artists: Vec<artists::Model> = artists::Entity::find()
         .order_by_desc(artists::Column::Id)
-        .limit(20)
+        .limit(25)
         .all(db)
         .await?;
 
