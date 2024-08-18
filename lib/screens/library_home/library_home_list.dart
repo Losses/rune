@@ -52,30 +52,33 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
           return const Center(child: Text('No data available'));
         } else {
           return SmoothHorizontalScroll(
-            builder: (context, scrollController) => Row(
-              children: snapshot.data!.map((item) {
-                if (item is Group<Album>) {
-                  return StartGroup<Album>(
-                    index: 0,
-                    groupTitle: item.groupTitle,
-                    items: item.items,
-                    itemBuilder: (BuildContext context, Album item) =>
-                        AlbumItem(album: item),
-                  );
-                } else if (item is Group<Artist>) {
-                  return StartGroup<Artist>(
-                    index: 1,
-                    groupTitle: item.groupTitle,
-                    items: item.items,
-                    itemBuilder: (BuildContext context, Artist item) =>
-                        ArtistItem(artist: item),
-                  );
-                } else {
-                  return Container();
-                }
-              }).toList(),
-            ),
-          );
+              builder: (context, scrollController) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    controller: scrollController,
+                    child: Row(
+                      children: snapshot.data!.map((item) {
+                        if (item is Group<Album>) {
+                          return StartGroup<Album>(
+                            index: 0,
+                            groupTitle: item.groupTitle,
+                            items: item.items,
+                            itemBuilder: (BuildContext context, Album item) =>
+                                AlbumItem(album: item),
+                          );
+                        } else if (item is Group<Artist>) {
+                          return StartGroup<Artist>(
+                            index: 1,
+                            groupTitle: item.groupTitle,
+                            items: item.items,
+                            itemBuilder: (BuildContext context, Artist item) =>
+                                ArtistItem(artist: item),
+                          );
+                        } else {
+                          return Container();
+                        }
+                      }).toList(),
+                    ),
+                  ));
         }
       },
     );

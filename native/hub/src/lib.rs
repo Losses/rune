@@ -49,7 +49,7 @@ macro_rules! select_signal {
                     $(
                         dart_signal = [<receiver_ $type:snake>].recv() => {
                             if let Some(dart_signal) = dart_signal {
-                                info!("Processing signal: {}", stringify!($type));
+                                debug!("Processing signal: {}", stringify!($type));
                                 let handler_fn = [<$type:snake>];
                                 let _ = handler_fn($($arg.clone()),*, dart_signal).await;
                             }

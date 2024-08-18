@@ -14,7 +14,6 @@ pub async fn fetch_library_summary_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchLibrarySummaryRequest>,
 ) {
-    print!("!!!!");
     debug!("Requesting library summary");
 
     match get_latest_albums_and_artists(&main_db).await {
@@ -39,7 +38,6 @@ pub async fn fetch_library_summary_request(
                 })
                 .collect();
 
-            print!("!!!!");
             LibrarySummaryResponse { albums, artists }.send_signal_to_dart();
             // GENERATED
         }

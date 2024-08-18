@@ -23,7 +23,6 @@ class LibraryPathProvider with ChangeNotifier {
   String? get currentPath => _currentPath;
 
   Future<void> setLibraryPath(String filePath) async {
-    print("!!!SETTING LIBRARY PATH!!!!!!!!");
     _currentPath = filePath;
     // Send the signal to Rust
     MediaLibraryPath(path: filePath).sendSignalToRust();
