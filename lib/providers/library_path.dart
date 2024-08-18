@@ -1,26 +1,29 @@
-import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/material.dart';
 
+import '../messages/connection.pb.dart';
 import '../utils/file_storage_service.dart';
-import '../../messages/connection.pb.dart';
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
   final FileStorageService _fileStorageService = FileStorageService();
 
   LibraryPathProvider() {
-    _initialize();
+    String libraryPath =
+        const String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
+    if (libraryPath.isNotEmpty) {
+      setLibraryPath(libraryPath);
+    } else {
+      final lastOpenedFile = _fileStorageService.getLastOpenedFile();
+      if (lastOpenedFile != null) {
+        setLibraryPath(lastOpenedFile);
+      }
+    }
   }
 
   String? get currentPath => _currentPath;
 
-  _initialize() {
-    final lastOpenedFile = _fileStorageService.getLastOpenedFile();
-    if (lastOpenedFile != null) {
-      setLibraryPath(lastOpenedFile);
-    }
-  }
-
-  setLibraryPath(String filePath) {
+  Future<void> setLibraryPath(String filePath) async {
+    print("!!!SETTING LIBRARY PATH!!!!!!!!");
     _currentPath = filePath;
     // Send the signal to Rust
     MediaLibraryPath(path: filePath).sendSignalToRust();

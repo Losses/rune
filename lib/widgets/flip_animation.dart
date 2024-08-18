@@ -111,6 +111,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         return;
       }
 
+      if (!fromBoundingBox.context.mounted && !toBoundingBox.context.mounted) {
+        completer.complete(false);
+        return;
+      }
+
       final mountedContext = fromBoundingBox.context.mounted
           ? fromBoundingBox.context
           : toBoundingBox.context;

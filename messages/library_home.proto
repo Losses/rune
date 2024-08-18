@@ -1,0 +1,15 @@
+syntax = "proto3";
+package library_home;
+
+import "album.proto";
+import "artist.proto";
+
+// [RINF:DART-SIGNAL]
+message FetchLibrarySummaryRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message LibrarySummaryResponse {
+  repeated album.Album albums = 1;
+  repeated artist.Artist artists = 2;
+}

@@ -80,7 +80,7 @@ class NavigationQuery {
     return _pathToChildren[path];
   }
 
-  List<NavigationItem>? getSiblings(String path) {
+  List<NavigationItem>? getSiblings(String? path) {
     var parentPath = _pathToParent[path];
     if (parentPath == null) {
       // If there's no parent, it means this item is a root item
@@ -153,14 +153,15 @@ class NavigationBarState extends State<NavigationBar> {
   Widget build(BuildContext context) {
     final path = GoRouterState.of(context).fullPath;
     final item = widget.query.getItem(path);
-    final children =
-        widget.query.getChildren(path)?.where((x) => !x.hidden).toList();
+    final parent = widget.query.getParent(path);
+    final slibings =
+        widget.query.getSiblings(path)?.where((x) => !x.hidden).toList();
 
     final titleFlipKey = 'title:${item?.path}';
 
     final parentWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
-      children: item != null
+      children: parent != null
           ? [
               Padding(
                 padding: const EdgeInsets.only(right: 12),
@@ -168,7 +169,7 @@ class NavigationBarState extends State<NavigationBar> {
                     onTap: () async {
                       if (playing) return;
                       _onBack(context);
-                      final id = item.path;
+                      final id = parent.path;
                       playFlipAnimation(context, 'title:$id', 'child:$id');
                     },
                     child: SizedBox(
@@ -177,7 +178,7 @@ class NavigationBarState extends State<NavigationBar> {
                         child: FlipText(
                           key: UniqueKey(),
                           flipKey: titleFlipKey,
-                          text: item.title,
+                          text: parent.title,
                           hidden: playing,
                           scale: 6,
                           alpha: 80,
@@ -189,7 +190,7 @@ class NavigationBarState extends State<NavigationBar> {
 
     final childrenWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
-      children: children?.map((route) {
+      children: slibings?.map((route) {
             final flipKey = 'child:${route.path}';
 
             return Padding(
@@ -206,6 +207,7 @@ class NavigationBarState extends State<NavigationBar> {
                     flipKey: flipKey,
                     text: route.title,
                     scale: 1.2,
+                    alpha: route == item ? 255 : 100,
                     hidden: playing && (fromKey == flipKey || toKey == flipKey),
                   )),
             );

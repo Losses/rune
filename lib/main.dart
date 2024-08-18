@@ -19,6 +19,7 @@ import 'routes/artists.dart' deferred as artists;
 import 'routes/settings.dart' deferred as settings;
 import 'routes/cover_wall.dart' deferred as cover_wall;
 import 'routes/query_tracks.dart' deferred as query_tracks;
+import 'routes/library_home.dart' deferred as library_home;
 
 import 'providers/status.dart';
 import 'providers/playlist.dart';
@@ -78,7 +79,8 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => LibraryPathProvider()),
+        ChangeNotifierProvider(
+            lazy: false, create: (_) => LibraryPathProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
       ],
@@ -366,8 +368,8 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/library',
     builder: (context, state) => DeferredWidget(
-      home.loadLibrary,
-      () => home.HomePage(),
+      library_home.loadLibrary,
+      () => library_home.LibraryHomePage(),
     ),
   ),
   GoRoute(
@@ -427,19 +429,21 @@ final routes = <GoRoute>[
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
-final router =
-    GoRouter(navigatorKey: rootNavigatorKey, initialLocation: "/home", routes: [
-  ShellRoute(
-    navigatorKey: _shellNavigatorKey,
-    builder: (context, state, child) {
-      return MyHomePage(
-        shellContext: _shellNavigatorKey.currentContext,
-        child: child,
-      );
-    },
-    routes: routes,
-  ),
-]);
+final router = GoRouter(
+    navigatorKey: rootNavigatorKey,
+    initialLocation: "/library",
+    routes: [
+      ShellRoute(
+        navigatorKey: _shellNavigatorKey,
+        builder: (context, state, child) {
+          return MyHomePage(
+            shellContext: _shellNavigatorKey.currentContext,
+            child: child,
+          );
+        },
+        routes: routes,
+      ),
+    ]);
 
 final List<NavigationItem> navigationItems = [
   NavigationItem('Home', '/home', children: [

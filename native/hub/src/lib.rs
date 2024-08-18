@@ -3,6 +3,7 @@ mod artist;
 mod common;
 mod connection;
 mod cover_art;
+mod library_home;
 mod media_file;
 mod messages;
 mod playback;
@@ -23,6 +24,7 @@ use crate::album::*;
 use crate::artist::*;
 use crate::connection::*;
 use crate::cover_art::*;
+use crate::library_home::*;
 use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
@@ -30,6 +32,7 @@ use crate::player::initialize_player;
 use messages::album::*;
 use messages::artist::*;
 use messages::cover_art::*;
+use messages::library_home::*;
 use messages::media_file::*;
 use messages::playback::*;
 use messages::recommend::*;
@@ -46,7 +49,7 @@ macro_rules! select_signal {
                     $(
                         dart_signal = [<receiver_ $type:snake>].recv() => {
                             if let Some(dart_signal) = dart_signal {
-                                debug!("Processing signal: {}", stringify!($type));
+                                info!("Processing signal: {}", stringify!($type));
                                 let handler_fn = [<$type:snake>];
                                 let _ = handler_fn($($arg.clone()),*, dart_signal).await;
                             }
@@ -115,6 +118,7 @@ async fn main() {
                     FetchArtistsGroupsRequest => (main_db),
                     FetchAlbumsGroupSummaryRequest => (main_db),
                     FetchAlbumsGroupsRequest => (main_db),
+                    FetchLibrarySummaryRequest => (main_db),
                 );
             });
 
