@@ -358,12 +358,18 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     _startAnimation();
   }
 
-  void _startAnimation() {
-    _positionXController.lerp(widget.toStyles.position.dx);
-    _positionYController.lerp(widget.toStyles.position.dy);
-    _fontSizeController.lerp(widget.toStyles.fontSize);
-    _alphaController.lerp(widget.toStyles.color.alpha.toDouble());
-    _fontWeightController.lerp(widget.toStyles.fontWeight);
+  Future<void> _startAnimation() async {
+    List<Future<void>> futures = [
+      _positionXController.lerp(widget.toStyles.position.dx),
+      _positionYController.lerp(widget.toStyles.position.dy),
+      _fontSizeController.lerp(widget.toStyles.fontSize),
+      _alphaController.lerp(widget.toStyles.color.alpha.toDouble()),
+      _fontWeightController.lerp(widget.toStyles.fontWeight),
+    ];
+
+    await Future.wait(futures);
+
+    widget.onAnimationComplete();
   }
 
   @override
