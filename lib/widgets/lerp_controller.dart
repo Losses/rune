@@ -34,7 +34,7 @@ class LerpController {
 
   void _onTick(Duration elapsed) {
     final currentValue = getter();
-    if ((currentValue - _value).abs() < 1e-1) {
+    if ((currentValue - _value).abs() < 1e-2) {
       _ticker?.stop();
       _completer?.complete();
     } else {

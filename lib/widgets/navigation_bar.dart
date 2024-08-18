@@ -160,12 +160,17 @@ class NavigationBarState extends State<NavigationBar> {
                       final id = item.path;
                       playFlipAnimation(context, 'title:$id', 'child:$id');
                     },
-                    child: FlipText(
-                      key: UniqueKey(),
-                      flipKey: titleFlipKey,
-                      text: item.title,
-                      hidden: playing,
-                    )),
+                    child: SizedBox(
+                        height: 68,
+                        width: 256,
+                        child: FlipText(
+                          key: UniqueKey(),
+                          flipKey: titleFlipKey,
+                          text: item.title,
+                          hidden: playing,
+                          scale: 5,
+                          alpha: 100,
+                        ))),
               )
             ]
           : [],

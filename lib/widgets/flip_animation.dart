@@ -7,14 +7,14 @@ import '../../utils/logger.dart';
 class TextStyleSheet {
   final BuildContext context;
   final Offset position;
-  final double fontSize;
+  final double scale;
   final double fontWeight;
   final Color color;
 
   TextStyleSheet({
     required this.context,
     required this.position,
-    required this.fontSize,
+    required this.scale,
     required this.fontWeight,
     required this.color,
   });
@@ -89,11 +89,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     }
   }
 
-  Future<void> flipAnimation(String fromKey, String toKey) async {
+  Future<bool> flipAnimation(String fromKey, String toKey) async {
     cacheStyleSheetWithKey(fromKey);
     cacheStyleSheetWithKey(toKey);
 
-    final completer = Completer<void>();
+    final completer = Completer<bool>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       cacheStyleSheetWithKey(fromKey);
@@ -103,18 +103,19 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       final toBoundingBox = _cachedBoundingBox[toKey];
 
       if (fromBoundingBox == null) {
-        completer.completeError("Bounding box not found: $fromKey");
+        completer.complete(false);
         return;
       }
       if (toBoundingBox == null) {
-        completer.completeError("Bounding box not found: $toKey");
+        completer.complete(false);
         return;
       }
 
       final mountedContext = fromBoundingBox.context.mounted
           ? fromBoundingBox.context
           : toBoundingBox.context;
-      final textWidget = mountedContext.widget as Text?;
+      final transformWidget = mountedContext.widget as Transform?;
+      final textWidget = transformWidget?.child as Text?;
 
       // Declare the overlayEntry variable first
       late OverlayEntry overlayEntry;
@@ -128,7 +129,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
           onAnimationComplete: () {
             overlayEntry.remove();
             _overlayEntries.remove(overlayEntry);
-            completer.complete();
+            completer.complete(true);
           },
         ),
       );
@@ -170,8 +171,9 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     final box = context.findRenderObject() as RenderBox;
     final position = box.localToGlobal(Offset.zero);
 
-    final widget = context.widget as Text;
-    final style = widget.style;
+    final transformWidget = context.widget as Transform;
+    final textWidget = transformWidget.child as Text;
+    final style = textWidget.style;
 
     final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
     TextStyle? effectiveTextStyle = style;
@@ -186,7 +188,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     return TextStyleSheet(
         context: context,
         position: position,
-        fontSize: effectiveTextStyle?.fontSize ?? 24,
+        scale: transformWidget.transform.row0[0],
         fontWeight:
             getFontVariationValue(effectiveTextStyle?.fontVariations, 'wght') ??
                 400,
@@ -202,8 +204,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 class FlipText extends StatefulWidget {
   final String flipKey;
   final String text;
-  final double? fontSize;
-  final double? opacity;
+  final double scale;
+  final double? alpha;
   final double? fontWeight;
   final bool hidden;
 
@@ -212,8 +214,8 @@ class FlipText extends StatefulWidget {
       required this.flipKey,
       required this.text,
       required this.hidden,
-      this.fontSize,
-      this.opacity,
+      this.scale = 1,
+      this.alpha,
       this.fontWeight});
 
   @override
@@ -249,21 +251,27 @@ class FlipTextState extends State<FlipText> {
 
   @override
   Widget build(BuildContext context) {
+    final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
+
     return Visibility(
       maintainSize: true,
       maintainAnimation: true,
       maintainState: true,
       visible: !widget.hidden,
-      child: Text(
-        key: _globalKey,
-        widget.text,
-        style: TextStyle(
-          fontSize: widget.fontSize,
-          fontVariations: <FontVariation>[
-            FontVariation('wght', widget.fontWeight ?? 400)
-          ],
-        ),
-      ),
+      child: Transform.scale(
+          key: _globalKey,
+          scale: widget.scale,
+          alignment: Alignment.topLeft,
+          child: Text(
+            widget.text,
+            style: TextStyle(
+              fontVariations: <FontVariation>[
+                FontVariation('wght', widget.fontWeight ?? 400),
+              ],
+              color: defaultTextStyle.style.color!
+                  .withAlpha(widget.alpha?.toInt() ?? 255),
+            ),
+          )),
     );
   }
 }
@@ -290,13 +298,13 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     with TickerProviderStateMixin {
   late LerpController _positionXController;
   late LerpController _positionYController;
-  late LerpController _fontSizeController;
+  late LerpController _scaleController;
   late LerpController _alphaController;
   late LerpController _fontWeightController;
 
   late double x;
   late double y;
-  late double fontSize;
+  late double scale;
   late double alpha;
   late double fontWeight;
 
@@ -306,7 +314,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
 
     x = widget.fromStyles.position.dx;
     y = widget.fromStyles.position.dy;
-    fontSize = widget.fromStyles.fontSize;
+    scale = widget.fromStyles.scale;
     alpha = widget.fromStyles.color.alpha.toDouble();
     fontWeight = widget.fromStyles.fontWeight;
 
@@ -328,11 +336,11 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       this,
     );
 
-    _fontSizeController = LerpController(
-      fontSize,
-      () => fontSize,
+    _scaleController = LerpController(
+      scale,
+      () => scale,
       (value) => setState(() {
-        fontSize = value;
+        scale = value;
       }),
       this,
     );
@@ -362,7 +370,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     List<Future<void>> futures = [
       _positionXController.lerp(widget.toStyles.position.dx),
       _positionYController.lerp(widget.toStyles.position.dy),
-      _fontSizeController.lerp(widget.toStyles.fontSize),
+      _scaleController.lerp(widget.toStyles.scale),
       _alphaController.lerp(widget.toStyles.color.alpha.toDouble()),
       _fontWeightController.lerp(widget.toStyles.fontWeight),
     ];
@@ -376,7 +384,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
   void dispose() {
     _positionXController.dispose();
     _positionYController.dispose();
-    _fontSizeController.dispose();
+    _scaleController.dispose();
     _alphaController.dispose();
     _fontWeightController.dispose();
     super.dispose();
@@ -387,14 +395,18 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     return Positioned(
       left: x,
       top: y,
-      child: Text(
-        widget.text,
-        style: TextStyle(
-          fontSize: fontSize,
-          fontVariations: <FontVariation>[FontVariation('wght', fontWeight)],
-          color: widget.toStyles.color.withAlpha(alpha.toInt()),
-        ),
-      ),
+      child: Transform.scale(
+          scale: scale,
+          alignment: Alignment.topLeft,
+          child: Text(
+            widget.text,
+            style: TextStyle(
+              fontVariations: <FontVariation>[
+                FontVariation('wght', fontWeight)
+              ],
+              color: widget.toStyles.color.withAlpha(alpha.toInt()),
+            ),
+          )),
     );
   }
 }
