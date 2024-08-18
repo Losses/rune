@@ -324,6 +324,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       setter: (value) => setState(() {
         x = value;
       }),
+      t: 0.15,
       vsync: this,
     );
 
@@ -333,6 +334,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       setter: (value) => setState(() {
         y = value;
       }),
+      t: 0.15,
       vsync: this,
     );
 
@@ -342,6 +344,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       setter: (value) => setState(() {
         scale = value;
       }),
+      t: 0.15,
       vsync: this,
     );
 
@@ -351,6 +354,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       setter: (value) => setState(() {
         alpha = value;
       }),
+      t: 0.15,
       vsync: this,
     );
 
@@ -360,6 +364,7 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       setter: (value) => setState(() {
         fontWeight = value;
       }),
+      t: 0.15,
       vsync: this,
     );
 

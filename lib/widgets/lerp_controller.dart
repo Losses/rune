@@ -41,13 +41,15 @@ class LerpController {
 
   void _onTick(Duration elapsed) {
     final currentValue = getter();
-    if ((currentValue - _value).abs() < 0.01) {
+    final delta = (currentValue - _value).abs();
+    if (delta < 0.01) {
+      _completer?.complete();
       _ticker?.stop();
     } else {
       double actualValue = lerpDouble(
         currentValue,
         _value,
-        t,
+        delta < 0.1 ? t * 2 : t,
       )!;
       setter(actualValue);
     }

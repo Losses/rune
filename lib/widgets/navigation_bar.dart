@@ -180,7 +180,7 @@ class NavigationBarState extends State<NavigationBar> {
                           text: item.title,
                           hidden: playing,
                           scale: 6,
-                          alpha: 100,
+                          alpha: 80,
                         ))),
               )
             ]
@@ -220,7 +220,7 @@ class NavigationBarState extends State<NavigationBar> {
         children: [
           parentWidget,
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: childrenWidget,
           )
         ],
