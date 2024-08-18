@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use sea_orm::prelude::*;
 
 use crate::entities::{albums, media_cover_art, media_file_albums, media_files};
-use crate::generate_get_groups_fn;
+use crate::{get_entity_to_cover_ids, get_groups};
 
 use super::utils::CountByFirstLetter;
 
@@ -17,4 +17,9 @@ impl CountByFirstLetter for albums::Entity {
     }
 }
 
-generate_get_groups_fn!(get_albums_groups, albums, media_file_albums, AlbumId);
+get_groups!(
+    get_albums_groups,
+    albums,
+    media_file_albums::Entity,
+    media_file_albums::Column
+);

@@ -64,8 +64,69 @@ where
 }
 
 #[macro_export]
-macro_rules! generate_get_groups_fn {
-    ($fn_name:ident, $entity:ident, $media_file_entity:ident, $xxid_col:ident) => {
+macro_rules! get_entity_to_cover_ids {
+    ($db:expr, $entity_ids:expr, $related_entity:ty, $related_entity_column:ty, $magic_cover_art_id:expr) => {{
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+        use std::collections::{HashMap, HashSet};
+
+        // Fetch related media files for these entities
+        let media_file_relations = <$related_entity>::find()
+            .filter(<$related_entity_column>::Id.is_in($entity_ids.clone()))
+            .all($db)
+            .await?;
+
+        let mut entity_to_media_file_ids: HashMap<i32, Vec<i32>> = HashMap::new();
+        for relation in media_file_relations {
+            entity_to_media_file_ids
+                .entry(relation.id)
+                .or_default()
+                .push(relation.media_file_id);
+        }
+
+        let mut entity_to_cover_ids: HashMap<i32, HashSet<i32>> = HashMap::new();
+        for (entity_id, media_file_ids) in entity_to_media_file_ids {
+            let media_files = media_files::Entity::find()
+                .filter(media_files::Column::Id.is_in(media_file_ids))
+                .filter(media_files::Column::CoverArtId.ne($magic_cover_art_id))
+                .all($db)
+                .await?;
+
+            let cover_ids = media_files
+                .into_iter()
+                .filter_map(|media_file| media_file.cover_art_id)
+                .collect::<HashSet<i32>>();
+
+            entity_to_cover_ids.insert(entity_id, cover_ids);
+        }
+
+        Ok::<HashMap<i32, HashSet<i32>>, sea_orm::DbErr>(entity_to_cover_ids)
+    }};
+}
+
+#[macro_export]
+macro_rules! get_cover_ids {
+    ($fn_name:ident, $entity:ty, $related_entity:ty, $related_entity_column:ty) => {
+        async fn $fn_name(
+            db: &DatabaseConnection,
+            entities: &[$entity],
+        ) -> Result<HashMap<i32, HashSet<i32>>, DbErr> {
+            let entity_ids: Vec<i32> = entities.iter().map(|x| x.id).collect();
+            let magic_cover_art_id = -1;
+
+            get_entity_to_cover_ids!(
+                db,
+                entity_ids,
+                $related_entity,
+                $related_entity_column,
+                magic_cover_art_id
+            )
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! get_groups {
+    ($fn_name:ident, $entity:ident, $related_entity:ty, $related_entity_column:ty) => {
         pub async fn $fn_name(
             db: &DatabaseConnection,
             groups: Vec<String>,
@@ -90,47 +151,16 @@ macro_rules! generate_get_groups_fn {
             // Step 2: Collect entity IDs
             let entity_ids: Vec<i32> = entities.iter().map(|x| x.id).collect();
 
-            // Step 3: Fetch related media files for these entities
-            let media_files = $entity::Entity::find()
-                .filter($entity::Column::Id.is_in(entity_ids.clone()))
-                .find_with_related($media_file_entity::Entity)
-                .all(db)
-                .await?
-                .into_iter()
-                .flat_map(|(entity, media_file_vec)| {
-                    media_file_vec
-                        .into_iter()
-                        .map(move |media_file| (entity.id, media_file))
-                })
-                .collect::<Vec<_>>();
+            // Step 3: Get entity to cover IDs mapping
+            let entity_to_cover_ids = get_entity_to_cover_ids!(
+                db,
+                entity_ids,
+                $related_entity,
+                $related_entity_column,
+                magic_cover_art_id
+            )?;
 
-            // Step 4: Map entity IDs to their media file IDs
-            let mut entity_to_media_file_ids: HashMap<i32, Vec<i32>> = HashMap::new();
-            for (entity_id, media_file) in media_files {
-                entity_to_media_file_ids
-                    .entry(entity_id)
-                    .or_default()
-                    .push(media_file.media_file_id);
-            }
-
-            // Step 5: Map entity IDs to their cover IDs
-            let mut entity_to_cover_ids: HashMap<i32, HashSet<i32>> = HashMap::new();
-            for (entity_id, media_file_ids) in entity_to_media_file_ids {
-                let media_files = media_files::Entity::find()
-                    .filter(media_files::Column::Id.is_in(media_file_ids))
-                    .filter(media_files::Column::CoverArtId.ne(magic_cover_art_id))
-                    .all(db)
-                    .await?;
-
-                let cover_ids = media_files
-                    .into_iter()
-                    .filter_map(|media_file| media_file.cover_art_id)
-                    .collect::<HashSet<i32>>();
-
-                entity_to_cover_ids.insert(entity_id, cover_ids);
-            }
-
-            // Step 6: Group entities by their group and associate cover IDs
+            // Step 4: Group entities by their group and associate cover IDs
             let mut grouped_entities: HashMap<String, Vec<($entity::Model, HashSet<i32>)>> =
                 HashMap::new();
             for entity in entities {
@@ -144,7 +174,7 @@ macro_rules! generate_get_groups_fn {
                     .push((entity, cover_ids));
             }
 
-            // Step 7: Prepare the final result
+            // Step 5: Prepare the final result
             let result = groups
                 .into_iter()
                 .map(|group| {
