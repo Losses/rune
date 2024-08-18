@@ -225,14 +225,11 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
   Widget build(BuildContext context) {
     FluentLocalizations.of(context);
 
-    final appTheme = context.watch<AppTheme>();
     if (widget.shellContext != null) {
       if (router.canPop() == false) {
         setState(() {});
       }
     }
-
-    final routeState = GoRouterState.of(context);
 
     final navigation = NavigationView(
       key: viewKey,
@@ -255,6 +252,9 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
         items: originalItems,
         footerItems: footerItems,
       ),
+      transitionBuilder: (child, animation) {
+        return DrillInPageTransition(animation: animation, child: child);
+      },
     );
 
     return FlipAnimationContext(

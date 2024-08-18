@@ -172,14 +172,14 @@ class NavigationBarState extends State<NavigationBar> {
                       playFlipAnimation(context, 'title:$id', 'child:$id');
                     },
                     child: SizedBox(
-                        height: 68,
-                        width: 256,
+                        height: 80,
+                        width: 320,
                         child: FlipText(
                           key: UniqueKey(),
                           flipKey: titleFlipKey,
                           text: item.title,
                           hidden: playing,
-                          scale: 5,
+                          scale: 6,
                           alpha: 100,
                         ))),
               )
@@ -193,7 +193,7 @@ class NavigationBarState extends State<NavigationBar> {
             final flipKey = 'child:${route.path}';
 
             return Padding(
-              padding: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.only(right: 24),
               child: GestureDetector(
                   onTap: () async {
                     if (playing) return;
@@ -205,6 +205,7 @@ class NavigationBarState extends State<NavigationBar> {
                     key: UniqueKey(),
                     flipKey: flipKey,
                     text: route.title,
+                    scale: 1.2,
                     hidden: playing && (fromKey == flipKey || toKey == flipKey),
                   )),
             );
@@ -212,12 +213,18 @@ class NavigationBarState extends State<NavigationBar> {
           [],
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        parentWidget,
-        childrenWidget,
-      ],
+    return Transform.translate(
+      offset: const Offset(0, -40),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          parentWidget,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: childrenWidget,
+          )
+        ],
+      ),
     );
   }
 }

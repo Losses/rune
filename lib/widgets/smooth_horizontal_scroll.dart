@@ -21,10 +21,10 @@ class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
   void initState() {
     super.initState();
     _lerpController = LerpController(
-      0.0,
-      () => _scrollController.offset.toDouble(),
-      (value) => _scrollController.jumpTo(value),
-      this,
+      initialValue: 0.0,
+      getter: () => _scrollController.offset.toDouble(),
+      setter: (value) => _scrollController.jumpTo(value),
+      vsync: this,
     );
   }
 

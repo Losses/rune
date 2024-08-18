@@ -7,8 +7,15 @@ class LerpController {
   void Function(double) setter;
   Ticker? _ticker;
   Completer<void>? _completer;
+  double t;
 
-  LerpController(initialValue, this.getter, this.setter, TickerProvider vsync) {
+  LerpController({
+    required double initialValue,
+    required this.getter,
+    required this.setter,
+    this.t = 0.1,
+    required TickerProvider vsync,
+  }) {
     _ticker = vsync.createTicker(_onTick);
     _value = initialValue;
   }
@@ -34,14 +41,13 @@ class LerpController {
 
   void _onTick(Duration elapsed) {
     final currentValue = getter();
-    if ((currentValue - _value).abs() < 1e-2) {
+    if ((currentValue - _value).abs() < 0.01) {
       _ticker?.stop();
-      _completer?.complete();
     } else {
       double actualValue = lerpDouble(
         currentValue,
         _value,
-        0.1,
+        t,
       )!;
       setter(actualValue);
     }

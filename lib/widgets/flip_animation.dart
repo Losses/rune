@@ -319,48 +319,48 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
     fontWeight = widget.fromStyles.fontWeight;
 
     _positionXController = LerpController(
-      x,
-      () => x,
-      (value) => setState(() {
+      initialValue: x,
+      getter: () => x,
+      setter: (value) => setState(() {
         x = value;
       }),
-      this,
+      vsync: this,
     );
 
     _positionYController = LerpController(
-      y,
-      () => y,
-      (value) => setState(() {
+      initialValue: y,
+      getter: () => y,
+      setter: (value) => setState(() {
         y = value;
       }),
-      this,
+      vsync: this,
     );
 
     _scaleController = LerpController(
-      scale,
-      () => scale,
-      (value) => setState(() {
+      initialValue: scale,
+      getter: () => scale,
+      setter: (value) => setState(() {
         scale = value;
       }),
-      this,
+      vsync: this,
     );
 
     _alphaController = LerpController(
-      alpha,
-      () => alpha,
-      (value) => setState(() {
+      initialValue: alpha,
+      getter: () => alpha,
+      setter: (value) => setState(() {
         alpha = value;
       }),
-      this,
+      vsync: this,
     );
 
     _fontWeightController = LerpController(
-      fontWeight,
-      () => fontWeight,
-      (value) => setState(() {
+      initialValue: fontWeight,
+      getter: () => fontWeight,
+      setter: (value) => setState(() {
         fontWeight = value;
       }),
-      this,
+      vsync: this,
     );
 
     _startAnimation();
