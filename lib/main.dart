@@ -250,9 +250,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
           height: kOneLineTileHeight,
           child: ThemeGradient(),
         ),
-        displayMode: routeState.fullPath != "/cover_wall"
-            ? appTheme.displayMode
-            : PaneDisplayMode.minimal,
+        displayMode: PaneDisplayMode.minimal,
         indicator: const StickyNavigationIndicator(),
         items: originalItems,
         footerItems: footerItems,

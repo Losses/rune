@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import './albums_list.dart';
 
+import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
 
 class AlbumsPage extends StatefulWidget {
@@ -15,11 +16,11 @@ class _AlbumsPageState extends State<AlbumsPage> {
   @override
   Widget build(BuildContext context) {
     return const ScaffoldPage(
-      header: PageHeader(
-        title: Text('Albums'),
-      ),
-      content: Column(
-          children: [Expanded(child: AlbumsListView()), PlaybackPlaceholder()]),
+      content: Column(children: [
+        NavigationBarPlaceholder(),
+        Expanded(child: AlbumsListView()),
+        PlaybackPlaceholder()
+      ]),
     );
   }
 }

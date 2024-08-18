@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/navigation_bar.dart';
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -11,15 +13,15 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(
-        title: Text('Hello World with Fluent UI'),
-      ),
-      content: Center(
-        child: Text(
-          'Hello, World!',
-          style: FluentTheme.of(context).typography.title,
-        ),
-      ),
+      content: Column(children: [
+        const NavigationBarPlaceholder(),
+        Center(
+          child: Text(
+            'Hello, World!',
+            style: FluentTheme.of(context).typography.title,
+          ),
+        )
+      ]),
     );
   }
 }

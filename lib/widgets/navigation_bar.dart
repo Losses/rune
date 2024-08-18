@@ -4,6 +4,17 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:player/widgets/flip_animation.dart';
 
+const navigationBarHeight = 64.0;
+
+class NavigationBarPlaceholder extends StatelessWidget {
+  const NavigationBarPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const SizedBox(height: navigationBarHeight);
+  }
+}
+
 class NavigationItem {
   final String title;
   final String path;
