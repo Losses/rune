@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
-import 'package:flutter/scheduler.dart';
+
+import './lerp_controller.dart';
 
 class SmoothHorizontalScroll extends StatefulWidget {
   final Widget Function(BuildContext, ScrollController) builder;
@@ -14,44 +15,33 @@ class SmoothHorizontalScroll extends StatefulWidget {
 class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
     with SingleTickerProviderStateMixin {
   final ScrollController _scrollController = ScrollController();
-  double _targetOffset = 0.0;
-  Ticker? _ticker;
+  late LerpController _lerpController;
 
   @override
   void initState() {
     super.initState();
-    _ticker = createTicker(_onTick);
+    _lerpController = LerpController(
+      0,
+      () => _scrollController.offset,
+      (value) => _scrollController.jumpTo(value),
+      this,
+    );
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
-    _ticker?.dispose();
+    _lerpController.dispose();
     super.dispose();
   }
 
   void _startSmoothScroll(double delta) {
-    _targetOffset = (_targetOffset + delta).clamp(
+    double targetOffset = (_lerpController.value + delta).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
 
-    if (_ticker?.isTicking == false) {
-      _ticker?.start();
-    }
-  }
-
-  void _onTick(Duration elapsed) {
-    if ((_scrollController.offset - _targetOffset).abs() < 1e-1) {
-      _ticker?.stop();
-    } else {
-      double newOffset = lerpDouble(
-        _scrollController.offset,
-        _targetOffset,
-        0.1,
-      )!;
-      _scrollController.jumpTo(newOffset);
-    }
+    _lerpController.lerp(targetOffset);
   }
 
   @override
@@ -65,8 +55,4 @@ class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
       child: widget.builder(context, _scrollController),
     );
   }
-}
-
-double? lerpDouble(double a, double b, double t) {
-  return a + (b - a) * t;
 }
