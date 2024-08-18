@@ -1,17 +1,22 @@
 import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/widgets/lerp_controller.dart';
 
 import '../../utils/logger.dart';
 
-class BoundingBox {
+class TextStyleSheet {
   final BuildContext context;
   final Offset position;
-  final Size size;
+  final double fontSize;
+  final double fontWeight;
+  final Color color;
 
-  BoundingBox({
+  TextStyleSheet({
     required this.context,
     required this.position,
-    required this.size,
+    required this.fontSize,
+    required this.fontWeight,
+    required this.color,
   });
 }
 
@@ -51,14 +56,14 @@ class FlipAnimationManager extends StatefulWidget {
 
 class FlipAnimationManagerState extends State<FlipAnimationManager> {
   final Map<String, GlobalKey> _registeredKeys = {};
-  final Map<String, BoundingBox> _cachedBoundingBox = {};
+  final Map<String, TextStyleSheet> _cachedBoundingBox = {};
   final List<OverlayEntry> _overlayEntries = [];
 
   void registerKey(String key, GlobalKey globalKey) {
     _registeredKeys[key] = globalKey;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      cacheBoundingBoxWithKey(key);
+      cacheStyleSheetWithKey(key);
     });
   }
 
@@ -66,11 +71,11 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     _registeredKeys.remove(key);
   }
 
-  void cacheBoundingBoxWithKey(String key) {
+  void cacheStyleSheetWithKey(String key) {
     if (_registeredKeys.containsKey(key)) {
       final globalKey = _registeredKeys[key];
 
-      final boundingBox = getBoundingBox(key, globalKey!);
+      final boundingBox = getStyleSheet(key, globalKey!);
 
       if (boundingBox != null) {
         _cachedBoundingBox[key] = boundingBox;
@@ -85,14 +90,14 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
   }
 
   Future<void> flipAnimation(String fromKey, String toKey) async {
-    cacheBoundingBoxWithKey(fromKey);
-    cacheBoundingBoxWithKey(toKey);
+    cacheStyleSheetWithKey(fromKey);
+    cacheStyleSheetWithKey(toKey);
 
     final completer = Completer<void>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      cacheBoundingBoxWithKey(fromKey);
-      cacheBoundingBoxWithKey(toKey);
+      cacheStyleSheetWithKey(fromKey);
+      cacheStyleSheetWithKey(toKey);
 
       final fromBoundingBox = _cachedBoundingBox[fromKey];
       final toBoundingBox = _cachedBoundingBox[toKey];
@@ -117,8 +122,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       // Create a text overlay in the animation layer and perform a smooth transition animation
       overlayEntry = OverlayEntry(
         builder: (context) => FlipTextAnimation(
-          fromBoundingBox: fromBoundingBox,
-          toBoundingBox: toBoundingBox,
+          fromStyles: fromBoundingBox,
+          toStyles: toBoundingBox,
           text: textWidget?.data ?? '',
           onAnimationComplete: () {
             overlayEntry.remove();
@@ -138,7 +143,18 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     return completer.future;
   }
 
-  BoundingBox? getBoundingBox(String key, GlobalKey globalKey) {
+  double? getFontVariationValue(List<FontVariation>? variations, String name) {
+    if (variations == null) return null;
+
+    for (var variation in variations) {
+      if (variation.axis == name) {
+        return variation.value;
+      }
+    }
+    return null;
+  }
+
+  TextStyleSheet? getStyleSheet(String key, GlobalKey globalKey) {
     final context = globalKey.currentContext;
 
     if (context == null) {
@@ -146,15 +162,35 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       return null;
     }
 
+    if (!context.mounted) {
+      logger.w("Widget not mounted: $key");
+      return null;
+    }
+
     final box = context.findRenderObject() as RenderBox;
     final position = box.localToGlobal(Offset.zero);
-    final size = box.size;
 
-    return BoundingBox(
-      context: context,
-      position: position,
-      size: size,
-    );
+    final widget = context.widget as Text;
+    final style = widget.style;
+
+    final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
+    TextStyle? effectiveTextStyle = style;
+    if (style == null || style.inherit) {
+      effectiveTextStyle = defaultTextStyle.style.merge(style);
+    }
+    if (MediaQuery.boldTextOf(context)) {
+      effectiveTextStyle = effectiveTextStyle!
+          .merge(const TextStyle(fontWeight: FontWeight.bold));
+    }
+
+    return TextStyleSheet(
+        context: context,
+        position: position,
+        fontSize: effectiveTextStyle?.fontSize ?? 24,
+        fontWeight:
+            getFontVariationValue(effectiveTextStyle?.fontVariations, 'wght') ??
+                400,
+        color: (effectiveTextStyle?.color)!);
   }
 
   @override
@@ -166,13 +202,19 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 class FlipText extends StatefulWidget {
   final String flipKey;
   final String text;
+  final double? fontSize;
+  final double? opacity;
+  final double? fontWeight;
   final bool hidden;
 
   const FlipText(
       {super.key,
       required this.flipKey,
       required this.text,
-      required this.hidden});
+      required this.hidden,
+      this.fontSize,
+      this.opacity,
+      this.fontWeight});
 
   @override
   FlipTextState createState() => FlipTextState();
@@ -212,21 +254,30 @@ class FlipTextState extends State<FlipText> {
       maintainAnimation: true,
       maintainState: true,
       visible: !widget.hidden,
-      child: Text(key: _globalKey, widget.text),
+      child: Text(
+        key: _globalKey,
+        widget.text,
+        style: TextStyle(
+          fontSize: widget.fontSize,
+          fontVariations: <FontVariation>[
+            FontVariation('wght', widget.fontWeight ?? 400)
+          ],
+        ),
+      ),
     );
   }
 }
 
 class FlipTextAnimation extends StatefulWidget {
-  final BoundingBox fromBoundingBox;
-  final BoundingBox toBoundingBox;
+  final TextStyleSheet fromStyles;
+  final TextStyleSheet toStyles;
   final String text;
   final VoidCallback onAnimationComplete;
 
   const FlipTextAnimation({
     super.key,
-    required this.fromBoundingBox,
-    required this.toBoundingBox,
+    required this.fromStyles,
+    required this.toStyles,
     required this.text,
     required this.onAnimationComplete,
   });
@@ -236,59 +287,108 @@ class FlipTextAnimation extends StatefulWidget {
 }
 
 class FlipTextAnimationState extends State<FlipTextAnimation>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<Offset> _positionAnimation;
+    with TickerProviderStateMixin {
+  late LerpController _positionXController;
+  late LerpController _positionYController;
+  late LerpController _fontSizeController;
+  late LerpController _alphaController;
+  late LerpController _fontWeightController;
+
+  late double x;
+  late double y;
+  late double fontSize;
+  late double alpha;
+  late double fontWeight;
 
   @override
   void initState() {
     super.initState();
 
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
+    x = widget.fromStyles.position.dx;
+    y = widget.fromStyles.position.dy;
+    fontSize = widget.fromStyles.fontSize;
+    alpha = widget.fromStyles.color.alpha.toDouble();
+    fontWeight = widget.fromStyles.fontWeight;
+
+    _positionXController = LerpController(
+      x,
+      () => x,
+      (value) => setState(() {
+        x = value;
+      }),
+      this,
     );
 
-    _positionAnimation = Tween<Offset>(
-      begin: widget.fromBoundingBox.position,
-      end: widget.toBoundingBox.position,
-    ).animate(CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeInOut,
-    ));
+    _positionYController = LerpController(
+      y,
+      () => y,
+      (value) => setState(() {
+        y = value;
+      }),
+      this,
+    );
 
-    _controller.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        widget.onAnimationComplete();
-      }
-    });
+    _fontSizeController = LerpController(
+      fontSize,
+      () => fontSize,
+      (value) => setState(() {
+        fontSize = value;
+      }),
+      this,
+    );
 
-    _controller.forward();
+    _alphaController = LerpController(
+      alpha,
+      () => alpha,
+      (value) => setState(() {
+        alpha = value;
+      }),
+      this,
+    );
+
+    _fontWeightController = LerpController(
+      fontWeight,
+      () => fontWeight,
+      (value) => setState(() {
+        fontWeight = value;
+      }),
+      this,
+    );
+
+    _startAnimation();
   }
 
-  void startAnimation() {
-    _controller.forward();
+  void _startAnimation() {
+    _positionXController.lerp(widget.toStyles.position.dx);
+    _positionYController.lerp(widget.toStyles.position.dy);
+    _fontSizeController.lerp(widget.toStyles.fontSize);
+    _alphaController.lerp(widget.toStyles.color.alpha.toDouble());
+    _fontWeightController.lerp(widget.toStyles.fontWeight);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _positionXController.dispose();
+    _positionYController.dispose();
+    _fontSizeController.dispose();
+    _alphaController.dispose();
+    _fontWeightController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Positioned(
-          left: _positionAnimation.value.dx,
-          top: _positionAnimation.value.dy,
-          child: SizedBox(
-            child: Text(widget.text),
-          ),
-        );
-      },
+    return Positioned(
+      left: x,
+      top: y,
+      child: Text(
+        widget.text,
+        style: TextStyle(
+          fontSize: fontSize,
+          fontVariations: <FontVariation>[FontVariation('wght', fontWeight)],
+          color: widget.toStyles.color.withAlpha(alpha.toInt()),
+        ),
+      ),
     );
   }
 }
