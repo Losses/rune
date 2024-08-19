@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../messages/album.pb.dart';
 import '../../messages/artist.pb.dart';
@@ -7,7 +8,7 @@ import '../../messages/library_home.pb.dart';
 import '../../screens/albums/albums_list.dart';
 import '../../screens/artists/artists_list.dart';
 
-import '../../widgets/start_screen.dart';
+import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 
 class LibraryHomeListView extends StatefulWidget {
@@ -65,8 +66,12 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                                 index: 0,
                                 groupTitle: item.groupTitle,
                                 items: item.items,
-                                gapSize: 8,
-                                variation: StartGroupVariation.square,
+                                groupLayoutVariation:
+                                    StartGroupGroupLayoutVariation.stacked,
+                                gridLayoutVariation:
+                                    StartGroupGridLayoutVariation.square,
+                                gapSize: 12,
+                                onTitleTap: () => {context.push('/albums')},
                                 itemBuilder:
                                     (BuildContext context, Album item) =>
                                         AlbumItem(album: item),
@@ -76,8 +81,12 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                                 index: 1,
                                 groupTitle: item.groupTitle,
                                 items: item.items,
-                                gapSize: 8,
-                                variation: StartGroupVariation.square,
+                                groupLayoutVariation:
+                                    StartGroupGroupLayoutVariation.stacked,
+                                gridLayoutVariation:
+                                    StartGroupGridLayoutVariation.square,
+                                gapSize: 12,
+                                onTitleTap: () => {context.push('/artists')},
                                 itemBuilder:
                                     (BuildContext context, Artist item) =>
                                         ArtistItem(artist: item),

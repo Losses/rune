@@ -454,6 +454,7 @@ final List<NavigationItem> navigationItems = [
       NavigationItem('Albums', '/albums', children: [
         NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
       ]),
+      NavigationItem('Tracks', '/tracks'),
     ]),
     NavigationItem('Settings', '/settings'),
   ]),

@@ -3,10 +3,10 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 import 'package:player/utils/router_extra.dart';
 
-import '../../widgets/start_screen.dart';
 import '../../../widgets/flip_tile.dart';
-import '../../../messages/artist.pb.dart';
 import '../../../widgets/grouped_list_base.dart';
+import '../../widgets/start_screen/start_screen.dart';
+import '../../../messages/artist.pb.dart';
 
 class ArtistsListView extends GroupedListBase<Artist, ArtistsGroupSummary> {
   const ArtistsListView({super.key});

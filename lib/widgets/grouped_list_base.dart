@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../widgets/start_screen.dart';
+import 'start_screen/start_screen.dart';
 
 abstract class GroupedListBase<T, S> extends StatefulWidget {
   const GroupedListBase({super.key});

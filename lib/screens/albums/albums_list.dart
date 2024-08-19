@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 import 'package:player/utils/router_extra.dart';
 
-import '../../widgets/start_screen.dart';
+import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/grouped_list_base.dart';
 import '../../../widgets/flip_tile.dart';
 import '../../../messages/album.pb.dart';

@@ -3,7 +3,10 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../../widgets/smooth_horizontal_scroll.dart';
+import '../smooth_horizontal_scroll.dart';
+
+import './normal_layout.dart';
+import './stacked_layout.dart';
 
 class Group<T> {
   final String groupTitle;
@@ -87,15 +90,20 @@ class StartScreenState<T> extends State<StartScreen<T>> {
   }
 }
 
-enum StartGroupVariation { initial, square }
+enum StartGroupGridLayoutVariation { initial, square }
+
+enum StartGroupGroupLayoutVariation { normal, stacked }
 
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
   final String groupTitle;
   final int index;
   final Widget Function(BuildContext, T) itemBuilder;
-  final StartGroupVariation variation;
+  final StartGroupGridLayoutVariation gridLayoutVariation;
+  final StartGroupGroupLayoutVariation groupLayoutVariation;
+
   final double gapSize;
+  final VoidCallback? onTitleTap;
 
   const StartGroup({
     super.key,
@@ -104,40 +112,38 @@ class StartGroup<T> extends StatelessWidget {
     required this.items,
     required this.itemBuilder,
     this.gapSize = 4,
-    this.variation = StartGroupVariation.initial,
+    this.onTitleTap,
+    this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
+    this.groupLayoutVariation = StartGroupGroupLayoutVariation.normal,
   });
 
   @override
   Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
+    return _buildStartGroupLayout(context, _buildStartGroupItems());
+  }
 
-    return Container(
-      padding: const EdgeInsets.only(left: 16, right: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(groupTitle, style: theme.typography.bodyLarge),
-          ),
-          Expanded(
-            child: _buildStartGroupItems(),
-          ),
-        ],
-      ),
-    );
+  Widget _buildStartGroupLayout(BuildContext context, Widget child) {
+    switch (groupLayoutVariation) {
+      case StartGroupGroupLayoutVariation.stacked:
+        return StartGroupStackedLayout(
+            groupTitle: groupTitle, onTitleTap: onTitleTap, child: child);
+      case StartGroupGroupLayoutVariation.normal:
+      default:
+        return StartGroupNormalLayout(
+            groupTitle: groupTitle, onTitleTap: onTitleTap, child: child);
+    }
   }
 
   Widget _buildStartGroupItems() {
-    switch (variation) {
-      case StartGroupVariation.square:
+    switch (gridLayoutVariation) {
+      case StartGroupGridLayoutVariation.square:
         return StartGroupItems<T>.square(
           cellSize: 120,
           gapSize: gapSize,
           items: items,
           itemBuilder: itemBuilder,
         );
-      case StartGroupVariation.initial:
+      case StartGroupGridLayoutVariation.initial:
       default:
         return StartGroupItems<T>(
           cellSize: 120,
