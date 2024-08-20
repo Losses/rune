@@ -446,7 +446,7 @@ final router = GoRouter(
     ]);
 
 final List<NavigationItem> navigationItems = [
-  NavigationItem('Home', '/home', children: [
+  NavigationItem('Rune', '/home', tappable: false, children: [
     NavigationItem('Library', '/library', children: [
       NavigationItem('Artists', '/artists', children: [
         NavigationItem('Artist Query', '/artists/:artistId', hidden: true),

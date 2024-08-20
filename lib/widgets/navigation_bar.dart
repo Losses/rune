@@ -19,10 +19,11 @@ class NavigationItem {
   final String title;
   final String path;
   final bool hidden;
+  final bool tappable;
   final List<NavigationItem>? children;
 
   NavigationItem(this.title, this.path,
-      {this.hidden = false, this.children = const []});
+      {this.hidden = false, this.tappable = true, this.children = const []});
 
   @override
   String toString() {
@@ -112,31 +113,65 @@ class NavigationBar extends StatefulWidget {
 }
 
 class NavigationBarState extends State<NavigationBar> {
+  String? _previousPath;
+  bool playing = false;
+  bool initialized = false;
+  String fromKey = '';
+  String toKey = '';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (!initialized) {
+      final path = GoRouterState.of(context).fullPath;
+      _previousPath = path;
+      initialized = true;
+    } else {
+      _onRouteChanged();
+    }
+  }
+
+  void _onRouteChanged() {
+    final path = GoRouterState.of(context).fullPath;
+
+    if (_previousPath != null && path != _previousPath) {
+      final previousItem = widget.query.getItem(_previousPath);
+      final currentItem = widget.query.getItem(path);
+
+      if (previousItem != null && currentItem != null) {
+        if (widget.query.getParent(path)?.path == _previousPath) {
+          // parent to child
+          playFlipAnimation(context, 'child:$_previousPath', 'title:$path');
+        } else if (widget.query.getParent(_previousPath)?.path == path) {
+          // child to parent
+          playFlipAnimation(context, 'title:$_previousPath', 'child:$path');
+        } else {}
+      }
+    }
+
+    _previousPath = path;
+  }
+
   void _onRouteSelected(NavigationItem route) {
     GoRouter.of(context).push(route.path);
   }
 
-  void _onBack(BuildContext context) {
+  void _onHeaderTap(BuildContext context) {
     final path = GoRouterState.of(context).fullPath;
 
+    if (widget.query.getItem(path)?.tappable == false) {
+      return;
+    }
+
     setState(() {
-      if (context.canPop() == false) {
-        final parent = widget.query.getParent(path ?? widget.defaultPath);
+      final parent = widget.query.getParent(path ?? widget.defaultPath);
 
-        if (parent != null) {
-          context.go(parent.path);
-        }
-      } else {
-        context.pop();
+      if (parent != null) {
+        context.go(parent.path);
       }
-
-      setState(() {});
     });
   }
-
-  bool playing = false;
-  String fromKey = '';
-  String toKey = '';
 
   playFlipAnimation(BuildContext context, String from, String to) async {
     final flipAnimation = FlipAnimationManager.of(context);
@@ -168,9 +203,7 @@ class NavigationBarState extends State<NavigationBar> {
                 child: GestureDetector(
                     onTap: () async {
                       if (playing) return;
-                      _onBack(context);
-                      final id = parent.path;
-                      playFlipAnimation(context, 'title:$id', 'child:$id');
+                      _onHeaderTap(context);
                     },
                     child: SizedBox(
                         height: 80,
@@ -199,8 +232,6 @@ class NavigationBarState extends State<NavigationBar> {
                   onTap: () async {
                     if (playing) return;
                     _onRouteSelected(route);
-                    final id = route.path;
-                    playFlipAnimation(context, 'child:$id', 'title:$id');
                   },
                   child: FlipText(
                     key: UniqueKey(),
@@ -215,18 +246,31 @@ class NavigationBarState extends State<NavigationBar> {
           [],
     );
 
-    return Transform.translate(
-      offset: const Offset(0, -40),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          parentWidget,
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: childrenWidget,
-          )
-        ],
-      ),
-    );
+    return BackButtonListener(
+        onBackButtonPressed: () async {
+          final router = GoRouter.of(context);
+          final canPop = router.canPop();
+
+          if (!canPop) {
+            if (parent != null) {
+              router.go(parent.path);
+            }
+          }
+          return !canPop;
+        },
+        child: Transform.translate(
+          offset: const Offset(0, -40),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              parentWidget,
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: childrenWidget,
+              )
+            ],
+          ),
+        ));
   }
 }

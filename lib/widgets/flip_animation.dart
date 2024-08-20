@@ -116,9 +116,9 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         return;
       }
 
-      final mountedContext = fromBoundingBox.context.mounted
-          ? fromBoundingBox.context
-          : toBoundingBox.context;
+      final mountedContext = toBoundingBox.context.mounted
+          ? toBoundingBox.context
+          : fromBoundingBox.context;
       final transformWidget = mountedContext.widget as Transform?;
       final textWidget = transformWidget?.child as Text?;
 
