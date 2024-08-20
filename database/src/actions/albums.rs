@@ -17,9 +17,4 @@ impl CountByFirstLetter for albums::Entity {
     }
 }
 
-get_groups!(
-    get_albums_groups,
-    albums,
-    media_file_albums::Entity,
-    media_file_albums::Column
-);
+get_groups!(get_albums_groups, albums, media_file_albums, AlbumId);

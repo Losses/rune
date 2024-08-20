@@ -129,25 +129,35 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
       );
     }
 
-    return RepaintBoundary(
-      child: GridView.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: _gridSize),
-        itemCount: _gridSize * _gridSize,
-        itemBuilder: (context, index) {
-          return FlipCard(
-            speed: widget.speed,
-            direction: FlipDirection.VERTICAL,
-            controller: _controllers[index],
-            flipOnTouch: false,
-            onFlipDone: (isFront) {
-              _replaceNumber(index);
-            },
-            front: _buildCard(_frontNumbers[index]),
-            back: _buildCard(_backNumbers[index]),
-          );
-        },
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileSize = constraints.maxWidth / _gridSize;
+
+        return Stack(
+          children: List.generate(_gridSize * _gridSize, (index) {
+            final row = index ~/ _gridSize;
+            final col = index % _gridSize;
+
+            return Positioned(
+              left: col * tileSize,
+              top: row * tileSize,
+              width: tileSize,
+              height: tileSize,
+              child: FlipCard(
+                speed: widget.speed,
+                direction: FlipDirection.VERTICAL,
+                controller: _controllers[index],
+                flipOnTouch: false,
+                onFlipDone: (isFront) {
+                  _replaceNumber(index);
+                },
+                front: _buildCard(_frontNumbers[index]),
+                back: _buildCard(_backNumbers[index]),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 
