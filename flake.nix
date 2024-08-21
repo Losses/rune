@@ -75,7 +75,7 @@
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
           buildInputs = with pkgs; [
-            flutter
+            flutter323
             android-studio
             rust-bin.beta.latest.default
             openssl

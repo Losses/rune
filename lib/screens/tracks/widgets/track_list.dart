@@ -1,9 +1,11 @@
+import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/cover_art.dart';
 
 import '../../../utils/platform.dart';
+import '../../../widgets/cover_art.dart';
+import '../../../widgets/smooth_horizontal_scroll.dart';
 import '../../../messages/playback.pb.dart';
 import '../../../messages/media_file.pb.dart';
 import '../../../messages/recommend.pbserver.dart';
@@ -16,7 +18,7 @@ class TrackListView extends StatefulWidget {
 }
 
 class TrackListViewState extends State<TrackListView> {
-  static const _pageSize = 20;
+  static const _pageSize = 100;
 
   final PagingController<int, MediaFile> _pagingController =
       PagingController(firstPageKey: 0);
@@ -56,15 +58,37 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return PagedListView<int, MediaFile>(
-      pagingController: _pagingController,
-      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
-        itemBuilder: (context, item, index) => TrackListItem(
-          index: index,
-          item: item,
-        ),
-      ),
-    );
+    return Padding(
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(builder: (context, constraints) {
+          const double gapSize = 8;
+          const double cellSize = 64;
+
+          final int rows =
+              (constraints.maxHeight / (cellSize + gapSize)).floor();
+          final double finalHeight = rows * (cellSize + gapSize) - gapSize;
+
+          return SmoothHorizontalScroll(
+              builder: (context, scrollController) => SizedBox(
+                  height: finalHeight,
+                  child: PagedGridView<int, MediaFile>(
+                    pagingController: _pagingController,
+                    scrollDirection: Axis.horizontal,
+                    scrollController: scrollController,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: rows,
+                      mainAxisSpacing: gapSize,
+                      crossAxisSpacing: gapSize,
+                      childAspectRatio: 1 / 4,
+                    ),
+                    builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+                      itemBuilder: (context, item, index) => TrackListItem(
+                        index: index,
+                        item: item,
+                      ),
+                    ),
+                  )));
+        }));
   }
 
   @override
@@ -137,42 +161,49 @@ class TrackListItem extends StatelessWidget {
         child: FlyoutTarget(
             key: contextAttachKey,
             controller: contextController,
-            child: ListTile.selectable(
-                title: Row(
-                  children: [
-                    // SizedBox(
-                    //     width: 52,
-                    //     child: Text(
-                    //       (index + 1).toString(),
-                    //       style:
-                    //           typography.bodyLarge?.apply(fontSizeFactor: 1.2),
-                    //       textAlign: TextAlign.right,
-                    //     )),
-                    // const SizedBox(width: 8),
-                    CoverArt(fileId: item.id, size: 48),
-                    const SizedBox(width: 12),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.title,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Opacity(
-                          opacity: 0.46,
-                          child: Text(
-                            item.artist,
-                            style: typography.caption,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    )
-                  ],
-                ),
-                onSelectionChange: (v) => PlayFileRequest(fileId: item.id)
-                    .sendSignalToRust() // GENERATED,
-                )));
+            child: Button(
+                style: const ButtonStyle(
+                    padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
+                onPressed: () =>
+                    PlayFileRequest(fileId: item.id).sendSignalToRust(),
+                child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final size =
+                            min(constraints.maxWidth, constraints.maxHeight);
+                        return Row(
+                          children: [
+                            CoverArt(
+                              fileId: item.id,
+                              size: size,
+                            ),
+                            Expanded(
+                                child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    item.title,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    item.artist,
+                                    style: typography.caption?.apply(
+                                        color: typography.caption?.color
+                                            ?.withAlpha(117)),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ))
+                          ],
+                        );
+                      },
+                      // GENERATED,
+                    )))));
   }
 }

@@ -61,6 +61,7 @@ class _DeferredWidgetState extends State<DeferredWidget> {
   }
 
   void _onLibraryLoaded() {
+    print("Library loaded");
     setState(() {
       _loadedCreator = widget.createWidget;
       _loadedChild = _loadedCreator!();
