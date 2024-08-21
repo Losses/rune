@@ -30,22 +30,20 @@ class FlipTile extends StatelessWidget {
           child: Stack(
             alignment: Alignment.bottomLeft,
             children: [
-              FlipCoverGrid(numbers: coverIds, id: name, emptyTileType: emptyTileType),
-              IgnorePointer(
-                ignoring: true,
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: const Alignment(0.0, -1.0),
-                      end: const Alignment(0.0, 1.0),
-                      colors: [
-                        Colors.black.withAlpha(0),
-                        Colors.black.withAlpha(160),
-                      ],
-                    ),
+              FlipCoverGrid(
+                  numbers: coverIds, id: name, emptyTileType: emptyTileType),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(0.0, -1.0),
+                    end: const Alignment(0.0, 1.0),
+                    colors: [
+                      Colors.black.withAlpha(0),
+                      Colors.black.withAlpha(160),
+                    ],
                   ),
-                  height: 80,
                 ),
+                height: 80,
               ),
               Padding(
                 padding: const EdgeInsets.all(6),
