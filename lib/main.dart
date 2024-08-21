@@ -8,30 +8,24 @@ import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/window_effect.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
-import 'routes/home.dart' deferred as home;
-import 'routes/tracks.dart' deferred as tracks;
-import 'routes/albums.dart' deferred as albums;
-import 'routes/artists.dart' deferred as artists;
-import 'routes/settings.dart' deferred as settings;
-import 'routes/cover_wall.dart' deferred as cover_wall;
-import 'routes/query_tracks.dart' deferred as query_tracks;
-import 'routes/library_home.dart' deferred as library_home;
+import 'routes/home.dart' as home;
+import 'routes/tracks.dart' as tracks;
+import 'routes/albums.dart' as albums;
+import 'routes/artists.dart' as artists;
+import 'routes/settings.dart' as settings;
+import 'routes/cover_wall.dart' as cover_wall;
+import 'routes/query_tracks.dart' as query_tracks;
+import 'routes/library_home.dart' as library_home;
 
 import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/library_path.dart';
 
 import 'widgets/flip_animation.dart';
-import 'widgets/theme_gradient.dart';
 import 'widgets/navigation_bar.dart';
-import 'widgets/deferred_widget.dart';
 import 'widgets/playback_controller.dart';
-
-import 'utils/attach_navigation_event.dart';
-import 'utils/navigation_indicator_helper.dart';
 
 import 'theme.dart';
 import 'messages/generated.dart';
@@ -71,10 +65,6 @@ void main() async {
       await windowManager.setPreventClose(true);
     });
   }
-
-  Future.wait([
-    DeferredWidget.preload(home.loadLibrary),
-  ]);
 
   runApp(
     MultiProvider(
@@ -286,70 +276,43 @@ class LinkPaneItemAction extends PaneItem {
 final routes = <GoRoute>[
   GoRoute(
     path: '/home',
-    builder: (context, state) => DeferredWidget(
-      home.loadLibrary,
-      () => home.HomePage(),
-    ),
+    builder: (context, state) => const home.HomePage(),
   ),
   GoRoute(
     path: '/library',
-    builder: (context, state) => DeferredWidget(
-      library_home.loadLibrary,
-      () => library_home.LibraryHomePage(),
-    ),
+    builder: (context, state) => const library_home.LibraryHomePage(),
   ),
   GoRoute(
     path: '/artists',
-    builder: (context, state) => DeferredWidget(
-      artists.loadLibrary,
-      () => artists.ArtistsPage(),
-    ),
+    builder: (context, state) => const artists.ArtistsPage(),
   ),
   GoRoute(
     path: '/artists/:artistId',
-    builder: (context, state) => DeferredWidget(
-      query_tracks.loadLibrary,
-      () => query_tracks.QueryTracksPage(
-        artistIds: [int.parse(state.pathParameters['artistId'] ?? "0")],
-      ),
+    builder: (context, state) => query_tracks.QueryTracksPage(
+      artistIds: [int.parse(state.pathParameters['artistId'] ?? "0")],
     ),
   ),
   GoRoute(
     path: '/albums',
-    builder: (context, state) => DeferredWidget(
-      albums.loadLibrary,
-      () => albums.AlbumsPage(),
-    ),
+    builder: (context, state) => const albums.AlbumsPage(),
   ),
   GoRoute(
     path: '/albums/:albumId',
-    builder: (context, state) => DeferredWidget(
-      query_tracks.loadLibrary,
-      () => query_tracks.QueryTracksPage(
-        albumIds: [int.parse(state.pathParameters['albumId'] ?? "0")],
-      ),
+    builder: (context, state) => query_tracks.QueryTracksPage(
+      albumIds: [int.parse(state.pathParameters['albumId'] ?? "0")],
     ),
   ),
   GoRoute(
     path: '/tracks',
-    builder: (context, state) => DeferredWidget(
-      tracks.loadLibrary,
-      () => tracks.TracksPage(),
-    ),
+    builder: (context, state) => const tracks.TracksPage(),
   ),
   GoRoute(
     path: '/settings',
-    builder: (context, state) => DeferredWidget(
-      settings.loadLibrary,
-      () => settings.SettingsPage(),
-    ),
+    builder: (context, state) => const settings.SettingsPage(),
   ),
   GoRoute(
     path: '/cover_wall',
-    builder: (context, state) => DeferredWidget(
-      cover_wall.loadLibrary,
-      () => cover_wall.CoverWallPage(),
-    ),
+    builder: (context, state) => const cover_wall.CoverWallPage(),
   ),
 ];
 
