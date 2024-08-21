@@ -154,6 +154,8 @@ class NavigationBarState extends State<NavigationBar> {
   }
 
   void _onRouteSelected(NavigationItem route) {
+    if (route.path == _previousPath) return;
+
     GoRouter.of(context).push(route.path);
   }
 
