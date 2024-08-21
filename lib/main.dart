@@ -1,4 +1,3 @@
-import 'package:player/widgets/flip_animation.dart';
 import 'package:rinf/rinf.dart';
 import 'package:url_launcher/link.dart';
 import 'package:provider/provider.dart';
@@ -25,8 +24,9 @@ import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/library_path.dart';
 
-import 'widgets/navigation_bar.dart';
+import 'widgets/flip_animation.dart';
 import 'widgets/theme_gradient.dart';
+import 'widgets/navigation_bar.dart';
 import 'widgets/deferred_widget.dart';
 import 'widgets/playback_controller.dart';
 
@@ -153,8 +153,8 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({
+class RouterFrame extends StatefulWidget {
+  const RouterFrame({
     super.key,
     required this.child,
     required this.shellContext,
@@ -164,52 +164,11 @@ class MyHomePage extends StatefulWidget {
   final BuildContext? shellContext;
 
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  State<RouterFrame> createState() => _RouterFrameState();
 }
 
-class _MyHomePageState extends State<MyHomePage> with WindowListener {
+class _RouterFrameState extends State<RouterFrame> with WindowListener {
   bool value = false;
-
-  final viewKey = GlobalKey(debugLabel: 'Navigation View Key');
-
-  late final originalItems = attachNavigationEvent(context, [
-    PaneItem(
-      key: const ValueKey('/home'),
-      icon: const Icon(Symbols.home),
-      title: const Text('Home'),
-      body: const SizedBox.shrink(),
-    ),
-    PaneItem(
-      key: const ValueKey('/artists'),
-      icon: const Icon(Symbols.face),
-      title: const Text('artists'),
-      body: const SizedBox.shrink(),
-    ),
-    PaneItem(
-      key: const ValueKey('/albums'),
-      icon: const Icon(Symbols.album),
-      title: const Text('albums'),
-      body: const SizedBox.shrink(),
-    ),
-    PaneItem(
-      key: const ValueKey('/tracks'),
-      icon: const Icon(Symbols.library_music),
-      title: const Text('Tracks'),
-      body: const SizedBox.shrink(),
-    ),
-  ]);
-
-  late final footerItems = attachNavigationEvent(context, [
-    PaneItem(
-      key: const ValueKey('/settings'),
-      icon: const Icon(Symbols.settings),
-      title: const Text('Settings'),
-      body: const SizedBox.shrink(),
-    ),
-  ]);
-
-  late final NavigationIndicatorHelper navigationIndicatorHelper =
-      NavigationIndicatorHelper(originalItems, footerItems, routes);
 
   @override
   void initState() {
@@ -233,40 +192,7 @@ class _MyHomePageState extends State<MyHomePage> with WindowListener {
       }
     }
 
-    final navigation = NavigationView(
-      key: viewKey,
-      paneBodyBuilder: (item, child) {
-        final name =
-            item?.key is ValueKey ? (item!.key as ValueKey).value : null;
-        return FocusTraversalGroup(
-          key: ValueKey('body$name'),
-          child: widget.child,
-        );
-      },
-      pane: NavigationPane(
-        selected: navigationIndicatorHelper.calculateSelectedIndex(context),
-        header: const SizedBox(
-          height: kOneLineTileHeight,
-          child: ThemeGradient(),
-        ),
-        displayMode: PaneDisplayMode.minimal,
-        indicator: const StickyNavigationIndicator(),
-        items: originalItems,
-        footerItems: footerItems,
-      ),
-      transitionBuilder: (child, animation) {
-        return DrillInPageTransition(animation: animation, child: child);
-      },
-    );
-
-    return FlipAnimationContext(
-        child: Stack(alignment: Alignment.bottomCenter, children: [
-      SizedBox.expand(
-        child: navigation,
-      ),
-      const PlaybackController(),
-      NavigationBar(items: navigationItems),
-    ]));
+    return widget.child;
   }
 
   @override
@@ -436,10 +362,17 @@ final router = GoRouter(
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
-          return MyHomePage(
-            shellContext: _shellNavigatorKey.currentContext,
-            child: child,
-          );
+          return FlipAnimationContext(
+              child: Stack(alignment: Alignment.bottomCenter, children: [
+            SizedBox.expand(
+              child: RouterFrame(
+                shellContext: _shellNavigatorKey.currentContext,
+                child: child,
+              ),
+            ),
+            const PlaybackController(),
+            NavigationBar(items: navigationItems),
+          ]));
         },
         routes: routes,
       ),
