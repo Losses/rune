@@ -8,7 +8,7 @@ use std::path::Path;
 
 use migration::{Func, SimpleExpr};
 
-use crate::entities::{media_file_albums, media_file_artists, media_files};
+use crate::entities::{media_file_albums, media_file_artists, media_file_playlists, media_files};
 
 pub async fn get_files_by_ids(
     db: &DatabaseConnection,
@@ -183,6 +183,7 @@ pub async fn compound_query_media_files(
     db: &DatabaseConnection,
     artist_ids: Option<Vec<i32>>,
     album_ids: Option<Vec<i32>>,
+    playlist_ids: Option<Vec<i32>>,
     cursor: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
@@ -212,6 +213,19 @@ pub async fn compound_query_media_files(
 
         query = query.filter(
             Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(album_subquery)),
+        );
+    }
+
+    // Filter by album_ids if provided
+    if let Some(playlist_ids) = playlist_ids {
+        let playlist_subquery = media_file_playlists::Entity::find()
+            .select_only()
+            .filter(media_file_playlists::Column::PlaylistId.is_in(playlist_ids))
+            .column(media_file_playlists::Column::MediaFileId)
+            .into_query();
+
+        query = query.filter(
+            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(playlist_subquery)),
         );
     }
 

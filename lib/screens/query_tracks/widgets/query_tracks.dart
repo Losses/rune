@@ -7,11 +7,13 @@ import '../../../messages/media_file.pb.dart';
 class QueryTrackListView extends StatefulWidget {
   final List<int> artistIds;
   final List<int> albumIds;
+  final List<int> playlistIds;
 
   const QueryTrackListView({
     super.key,
     this.artistIds = const [],
     this.albumIds = const [],
+    this.playlistIds = const [],
   });
 
   @override
@@ -39,6 +41,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         pageSize: _pageSize,
         artistIds: widget.artistIds,
         albumIds: widget.albumIds,
+        playlistIds: widget.playlistIds,
       );
       fetchMediaFiles.sendSignalToRust(); // GENERATED
 

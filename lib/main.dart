@@ -15,6 +15,7 @@ import 'routes/tracks.dart' as tracks;
 import 'routes/albums.dart' as albums;
 import 'routes/artists.dart' as artists;
 import 'routes/settings.dart' as settings;
+import 'routes/playlists.dart' as playlists;
 import 'routes/cover_wall.dart' as cover_wall;
 import 'routes/query_tracks.dart' as query_tracks;
 import 'routes/library_home.dart' as library_home;
@@ -303,6 +304,16 @@ final routes = <GoRoute>[
     ),
   ),
   GoRoute(
+    path: '/playlists',
+    builder: (context, state) => const playlists.PlaylistsPage(),
+  ),
+  GoRoute(
+    path: '/playlists/:playlistsId',
+    builder: (context, state) => query_tracks.QueryTracksPage(
+      playlistIds: [int.parse(state.pathParameters['playlistsId'] ?? "0")],
+    ),
+  ),
+  GoRoute(
     path: '/tracks',
     builder: (context, state) => const tracks.TracksPage(),
   ),
@@ -349,6 +360,9 @@ final List<NavigationItem> navigationItems = [
       ]),
       NavigationItem('Albums', '/albums', children: [
         NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
+      ]),
+      NavigationItem('Playlists', '/playlists', children: [
+        NavigationItem('Playlist Query', '/playlists/:albumId', hidden: true),
       ]),
       NavigationItem('Tracks', '/tracks'),
     ]),

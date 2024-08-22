@@ -6,5 +6,6 @@ pub mod file;
 pub mod index;
 pub mod library;
 pub mod metadata;
+pub mod playlists;
 pub mod recommendation;
 pub mod utils;

@@ -1,0 +1,40 @@
+syntax = "proto3";
+package playlist;
+
+// [RINF:DART-SIGNAL]
+message FetchPlaylistsGroupSummaryRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message PlaylistsGroupSummary {
+  string group_title = 1;
+  int32 count = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message PlaylistGroupSummaryResponse {
+  repeated PlaylistsGroupSummary playlists_groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchPlaylistsGroupsRequest {
+  repeated string group_titles = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message Playlist {
+    int32 id = 1;
+    string name = 2;
+    repeated int32 cover_ids = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message PlaylistsGroup {
+  string group_title = 1;
+  repeated Playlist playlists = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message PlaylistsGroups {
+  repeated PlaylistsGroup groups = 1;
+}

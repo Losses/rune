@@ -499,7 +499,7 @@ pub async fn get_metadata_summary_by_files(
             title: metadata.get("track_title").cloned().unwrap_or_default(),
             track_number: metadata
                 .get("track_number")
-                .and_then(|s| Some(s.parse::<i32>().ok()))
+                .map(|s| s.parse::<i32>().ok())
                 .unwrap_or(None),
             duration,
         };

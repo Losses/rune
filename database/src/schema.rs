@@ -62,7 +62,10 @@ impl QueryRoot {
         media_cover_art::Entity::find_by_id(id).one(db).await
     }
 
-    async fn playlist_items(&self, ctx: &Context<'_>) -> Result<Vec<media_file_playlists::Model>, DbErr> {
+    async fn playlist_items(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Vec<media_file_playlists::Model>, DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
         media_file_playlists::Entity::find().all(db).await
     }
@@ -153,7 +156,9 @@ impl media_files::Model {
         ctx: &Context<'_>,
     ) -> Result<Vec<media_file_playlists::Model>, sea_orm::DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        self.find_related(media_file_playlists::Entity).all(db).await
+        self.find_related(media_file_playlists::Entity)
+            .all(db)
+            .await
     }
 
     async fn user_logs(&self, ctx: &Context<'_>) -> Result<Vec<user_logs::Model>, sea_orm::DbErr> {
@@ -164,64 +169,19 @@ impl media_files::Model {
 
 #[ComplexObject]
 impl playlists::Model {
-    async fn items(&self, ctx: &Context<'_>) -> Result<Vec<media_file_playlists::Model>, sea_orm::DbErr> {
+    async fn items(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Vec<media_file_playlists::Model>, sea_orm::DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        self.find_related(media_file_playlists::Entity).all(db).await
+        self.find_related(media_file_playlists::Entity)
+            .all(db)
+            .await
     }
 }
 
 #[Object]
 impl MutationRoot {
-    async fn add_media_analysis(
-        &self,
-        ctx: &Context<'_>,
-        file_id: i32,
-        spectral_centroid: Option<f64>,
-        spectral_flatness: Option<f64>,
-        spectral_slope: Option<f64>,
-        spectral_rolloff: Option<f64>,
-        spectral_spread: Option<f64>,
-        spectral_skewness: Option<f64>,
-        spectral_kurtosis: Option<f64>,
-        chromas: Vec<Option<f64>>,
-    ) -> Result<media_analysis::Model, DbErr> {
-        assert_eq!(chromas.len(), 12, "Chromas length must be 12");
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-
-        let new_media_analysis = media_analysis::ActiveModel {
-            file_id: ActiveValue::Set(file_id),
-            spectral_centroid: ActiveValue::Set(spectral_centroid),
-            spectral_flatness: ActiveValue::Set(spectral_flatness),
-            spectral_slope: ActiveValue::Set(spectral_slope),
-            spectral_rolloff: ActiveValue::Set(spectral_rolloff),
-            spectral_spread: ActiveValue::Set(spectral_spread),
-            spectral_skewness: ActiveValue::Set(spectral_skewness),
-            spectral_kurtosis: ActiveValue::Set(spectral_kurtosis),
-            chroma0: ActiveValue::Set(chromas[0]),
-            chroma1: ActiveValue::Set(chromas[1]),
-            chroma2: ActiveValue::Set(chromas[2]),
-            chroma3: ActiveValue::Set(chromas[3]),
-            chroma4: ActiveValue::Set(chromas[4]),
-            chroma5: ActiveValue::Set(chromas[5]),
-            chroma6: ActiveValue::Set(chromas[6]),
-            chroma7: ActiveValue::Set(chromas[7]),
-            chroma8: ActiveValue::Set(chromas[8]),
-            chroma9: ActiveValue::Set(chromas[9]),
-            chroma10: ActiveValue::Set(chromas[10]),
-            chroma11: ActiveValue::Set(chromas[11]),
-            ..Default::default()
-        };
-
-        let res = media_analysis::Entity::insert(new_media_analysis)
-            .exec(db)
-            .await?;
-
-        media_analysis::Entity::find_by_id(res.last_insert_id)
-            .one(db)
-            .await
-            .map(|b| b.unwrap())
-    }
-
     async fn add_media_file(
         &self,
         ctx: &Context<'_>,

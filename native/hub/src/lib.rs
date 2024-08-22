@@ -8,6 +8,7 @@ mod media_file;
 mod messages;
 mod playback;
 mod player;
+mod playlist;
 
 use log::{debug, info};
 use std::sync::Arc;
@@ -28,6 +29,7 @@ use crate::library_home::*;
 use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
+use crate::playlist::*;
 
 use messages::album::*;
 use messages::artist::*;
@@ -35,6 +37,7 @@ use messages::cover_art::*;
 use messages::library_home::*;
 use messages::media_file::*;
 use messages::playback::*;
+use messages::playlist::*;
 use messages::recommend::*;
 
 macro_rules! select_signal {
@@ -118,6 +121,8 @@ async fn main() {
                     FetchArtistsGroupsRequest => (main_db),
                     FetchAlbumsGroupSummaryRequest => (main_db),
                     FetchAlbumsGroupsRequest => (main_db),
+                    FetchPlaylistsGroupSummaryRequest => (main_db),
+                    FetchPlaylistsGroupsRequest => (main_db),
                     FetchLibrarySummaryRequest => (main_db),
                 );
             });

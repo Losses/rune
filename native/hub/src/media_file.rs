@@ -86,10 +86,11 @@ pub async fn compound_query_media_files_request(
     let page_size = query_media_files.page_size;
     let artist_ids = query_media_files.artist_ids;
     let album_ids = query_media_files.album_ids;
+    let playlist_ids = query_media_files.playlist_ids;
 
     info!(
-        "Compound query media list with artist_ids: {:?}, album_ids: {:?}, page: {}, size: {}",
-        artist_ids, album_ids, cursor, page_size
+        "Compound query media list with artist_ids: {:?}, album_ids: {:?}, playlist_ids: {:?}, page: {}, size: {}",
+        artist_ids, album_ids, playlist_ids, cursor, page_size
     );
 
     let artist_ids_option = if artist_ids.is_empty() {
@@ -104,10 +105,17 @@ pub async fn compound_query_media_files_request(
         Some(album_ids)
     };
 
+    let playlist_ids_option = if playlist_ids.is_empty() {
+        None
+    } else {
+        Some(playlist_ids)
+    };
+
     let media_entries = compound_query_media_files(
         &db,
         artist_ids_option,
         album_ids_option,
+        playlist_ids_option,
         cursor.try_into().unwrap(),
         page_size.try_into().unwrap(),
     )

@@ -28,6 +28,7 @@ message CompoundQueryMediaFilesRequest {
   int32 page_size = 2;
   repeated int32 artist_ids = 3;
   repeated int32 album_ids = 4;
+  repeated int32 playlist_ids = 5;
 }
 
 // [RINF:RUST-SIGNAL]
