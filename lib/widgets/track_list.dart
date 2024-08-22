@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../../utils/platform.dart';
+import '../../../utils/dialogs/create_edit_playlist.dart';
 import '../../../widgets/cover_art.dart';
 import '../../../widgets/smooth_horizontal_scroll.dart';
 import '../../../messages/playback.pb.dart';
@@ -83,12 +84,36 @@ class TrackListItem extends StatelessWidget {
         var items = [
           MenuFlyoutItem(
             leading: const Icon(Symbols.rocket),
-            text: const Text('Roaming'),
+            text: const Text('Start Roaming'),
             onPressed: () => {
               RecommendAndPlayRequest(fileId: item.id)
                   .sendSignalToRust() // GENERATED
             },
           ),
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.face),
+            text: const Text('Go to Artist'),
+            onPressed: () => {},
+          ),
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.album),
+            text: const Text('Go to Album'),
+            onPressed: () => {},
+          ),
+          const MenuFlyoutSeparator(),
+          MenuFlyoutSubItem(
+              leading: const Icon(Symbols.list_alt),
+              text: const Text('Add to Playlist'),
+              items: (context) => [
+                    MenuFlyoutItem(
+                      leading: const Icon(Symbols.list_alt),
+                      text: const Text('New Playlist'),
+                      onPressed: () => {
+                        showCreateEditPlaylistDialog(context, isEdit: false)
+                      },
+                    ),
+                    const MenuFlyoutSeparator(),
+                  ]),
         ];
 
         return MenuFlyout(

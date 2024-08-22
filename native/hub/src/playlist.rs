@@ -1,3 +1,9 @@
+use database::actions::playlists::add_item_to_playlist;
+use database::actions::playlists::add_media_file_to_playlist;
+use database::actions::playlists::check_items_in_playlist;
+use database::actions::playlists::create_playlist;
+use database::actions::playlists::reorder_playlist_item_position;
+use database::actions::playlists::update_playlist;
 use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
@@ -7,6 +13,14 @@ use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
 use database::entities::playlists;
 
+use crate::messages::playlist::AddItemToPlaylistRequest;
+use crate::messages::playlist::AddItemToPlaylistResponse;
+use crate::messages::playlist::AddMediaFileToPlaylistRequest;
+use crate::messages::playlist::AddMediaFileToPlaylistResponse;
+use crate::messages::playlist::CheckItemsInPlaylistRequest;
+use crate::messages::playlist::CheckItemsInPlaylistResponse;
+use crate::messages::playlist::CreatePlaylistRequest;
+use crate::messages::playlist::CreatePlaylistResponse;
 use crate::messages::playlist::FetchPlaylistsGroupSummaryRequest;
 use crate::messages::playlist::FetchPlaylistsGroupsRequest;
 use crate::messages::playlist::Playlist;
@@ -14,6 +28,10 @@ use crate::messages::playlist::PlaylistGroupSummaryResponse;
 use crate::messages::playlist::PlaylistsGroup;
 use crate::messages::playlist::PlaylistsGroupSummary;
 use crate::messages::playlist::PlaylistsGroups;
+use crate::messages::playlist::ReorderPlaylistItemPositionRequest;
+use crate::messages::playlist::ReorderPlaylistItemPositionResponse;
+use crate::messages::playlist::UpdatePlaylistRequest;
+use crate::messages::playlist::UpdatePlaylistResponse;
 
 pub async fn fetch_playlists_group_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -62,6 +80,7 @@ pub async fn fetch_playlists_groups_request(
                             .map(|x| Playlist {
                                 id: x.0.id,
                                 name: x.0.name,
+                                group: x.0.group,
                                 cover_ids: x.1.into_iter().collect(),
                             })
                             .collect(),
@@ -74,4 +93,154 @@ pub async fn fetch_playlists_groups_request(
             error!("Failed to fetch playlists groups: {}", e);
         }
     };
+}
+
+pub async fn create_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<CreatePlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!(
+        "Creating playlist: name={}, group={}",
+        request.name, request.group
+    );
+
+    match create_playlist(&main_db, request.name, request.group).await {
+        Ok(_) => {
+            CreatePlaylistResponse { success: true }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to create playlist: {}", e);
+        }
+    }
+}
+
+pub async fn update_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<UpdatePlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!(
+        "Updating playlist: id={}, name={:?}, group={:?}",
+        request.playlist_id, request.name, request.group
+    );
+
+    match update_playlist(
+        &main_db,
+        request.playlist_id,
+        Some(request.name),
+        Some(request.group),
+    )
+    .await
+    {
+        Ok(_) => {
+            UpdatePlaylistResponse { success: true }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to update playlist: {}", e);
+        }
+    }
+}
+
+pub async fn check_items_in_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<CheckItemsInPlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Checking items in playlist: id={}", request.playlist_id);
+
+    match check_items_in_playlist(&main_db, request.playlist_id, request.media_file_ids).await {
+        Ok(duplicates) => {
+            CheckItemsInPlaylistResponse {
+                duplicate_media_file_ids: duplicates,
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to check items in playlist: {}", e);
+        }
+    }
+}
+
+pub async fn add_item_to_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<AddItemToPlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!(
+        "Adding item to playlist: playlist_id={}, media_file_id={}, position={}",
+        request.playlist_id, request.media_file_id, request.position
+    );
+
+    match add_item_to_playlist(
+        &main_db,
+        request.playlist_id,
+        request.media_file_id,
+        request.position,
+    )
+    .await
+    {
+        Ok(_) => {
+            AddItemToPlaylistResponse { success: true }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to add item to playlist: {}", e);
+            AddItemToPlaylistResponse { success: false }.send_signal_to_dart();
+        }
+    }
+}
+
+pub async fn add_media_file_to_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<AddMediaFileToPlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!(
+        "Adding media file to playlist: playlist_id={}, media_file_id={}",
+        request.playlist_id, request.media_file_id
+    );
+
+    match add_media_file_to_playlist(&main_db, request.playlist_id, request.media_file_id).await {
+        Ok(_) => {
+            AddMediaFileToPlaylistResponse { success: true }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to add media file to playlist: {}", e);
+            AddMediaFileToPlaylistResponse { success: false }.send_signal_to_dart();
+        }
+    }
+}
+
+pub async fn reorder_playlist_item_position_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<ReorderPlaylistItemPositionRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!(
+        "Reordering playlist item: playlist_id={}, media_file_id={}, new_position={}",
+        request.playlist_id, request.media_file_id, request.new_position
+    );
+
+    match reorder_playlist_item_position(
+        &main_db,
+        request.playlist_id,
+        request.media_file_id,
+        request.new_position,
+    )
+    .await
+    {
+        Ok(_) => {
+            ReorderPlaylistItemPositionResponse { success: true }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to reorder playlist item: {}", e);
+            ReorderPlaylistItemPositionResponse { success: false }.send_signal_to_dart();
+        }
+    }
 }

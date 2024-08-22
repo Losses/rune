@@ -23,9 +23,10 @@ message FetchPlaylistsGroupsRequest {
 
 // [RINF:RUST-SIGNAL]
 message Playlist {
-    int32 id = 1;
-    string name = 2;
-    repeated int32 cover_ids = 3;
+  int32 id = 1;
+  string name = 2;
+  string group = 3;
+  repeated int32 cover_ids = 4;
 }
 
 // [RINF:RUST-SIGNAL]
@@ -37,4 +38,73 @@ message PlaylistsGroup {
 // [RINF:RUST-SIGNAL]
 message PlaylistsGroups {
   repeated PlaylistsGroup groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message CreatePlaylistRequest {
+  string name = 1;
+  string group = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message CreatePlaylistResponse {
+  bool success = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message UpdatePlaylistRequest {
+  int32 playlist_id = 1;
+  string name = 2;
+  string group = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message UpdatePlaylistResponse {
+  bool success = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message CheckItemsInPlaylistRequest {
+  int32 playlist_id = 1;
+  repeated int32 media_file_ids = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message CheckItemsInPlaylistResponse {
+  repeated int32 duplicate_media_file_ids = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message AddItemToPlaylistRequest {
+  int32 playlist_id = 1;
+  int32 media_file_id = 2;
+  int32 position = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message AddItemToPlaylistResponse {
+  bool success = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message AddMediaFileToPlaylistRequest {
+  int32 playlist_id = 1;
+  int32 media_file_id = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message AddMediaFileToPlaylistResponse {
+  bool success = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message ReorderPlaylistItemPositionRequest {
+  int32 playlist_id = 1;
+  int32 media_file_id = 2;
+  int32 new_position = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message ReorderPlaylistItemPositionResponse {
+  bool success = 1;
 }

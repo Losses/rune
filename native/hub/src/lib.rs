@@ -124,6 +124,12 @@ async fn main() {
                     FetchPlaylistsGroupSummaryRequest => (main_db),
                     FetchPlaylistsGroupsRequest => (main_db),
                     FetchLibrarySummaryRequest => (main_db),
+                    CreatePlaylistRequest => (main_db),
+                    UpdatePlaylistRequest => (main_db),
+                    CheckItemsInPlaylistRequest => (main_db),
+                    AddItemToPlaylistRequest => (main_db),
+                    AddMediaFileToPlaylistRequest => (main_db),
+                    ReorderPlaylistItemPositionRequest => (main_db),
                 );
             });
 
