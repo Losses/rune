@@ -34,7 +34,7 @@ pub enum Relation {
     MediaCoverArt,
     #[sea_orm(has_many = "super::media_metadata::Entity")]
     MediaMetadata,
-    #[sea_orm(has_many = "super::playlist_items::Entity")]
+    #[sea_orm(has_many = "super::media_file_playlists::Entity")]
     PlaylistItems,
     #[sea_orm(has_many = "super::user_logs::Entity")]
     UserLogs,
@@ -58,7 +58,7 @@ impl Related<super::media_metadata::Entity> for Entity {
     }
 }
 
-impl Related<super::playlist_items::Entity> for Entity {
+impl Related<super::media_file_playlists::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::PlaylistItems.def()
     }
@@ -80,7 +80,7 @@ pub enum RelatedEntity {
     MediaCoverArt,
     #[sea_orm(entity = "super::media_metadata::Entity")]
     MediaMetadata,
-    #[sea_orm(entity = "super::playlist_items::Entity")]
+    #[sea_orm(entity = "super::media_file_playlists::Entity")]
     PlaylistItems,
     #[sea_orm(entity = "super::user_logs::Entity")]
     UserLogs,

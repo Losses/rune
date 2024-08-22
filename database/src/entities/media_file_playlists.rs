@@ -4,12 +4,12 @@ use async_graphql::SimpleObject;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]
-#[sea_orm(table_name = "playlist_items")]
+#[sea_orm(table_name = "media_file_playlists")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub playlist_id: i32,
-    pub file_id: i32,
+    pub media_file_id: i32,
     pub position: i32,
 }
 
@@ -17,7 +17,7 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(
         belongs_to = "super::media_files::Entity",
-        from = "Column::FileId",
+        from = "Column::MediaFileId",
         to = "super::media_files::Column::Id",
         on_update = "Cascade",
         on_delete = "Cascade"

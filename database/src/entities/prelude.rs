@@ -8,7 +8,7 @@ pub use super::media_file_albums::Entity as MediaFileAlbums;
 pub use super::media_file_artists::Entity as MediaFileArtists;
 pub use super::media_files::Entity as MediaFiles;
 pub use super::media_metadata::Entity as MediaMetadata;
-pub use super::playlist_items::Entity as PlaylistItems;
+pub use super::media_file_playlists::Entity as PlaylistItems;
 pub use super::playlists::Entity as Playlists;
 pub use super::smart_playlists::Entity as SmartPlaylists;
 pub use super::user_logs::Entity as UserLogs;

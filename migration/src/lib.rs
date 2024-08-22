@@ -5,7 +5,7 @@ mod m20230701_000002_create_media_metadata_table;
 mod m20230701_000003_create_media_analysis_table;
 mod m20230701_000004_create_user_logs_table;
 mod m20230701_000005_create_playlists_table;
-mod m20230701_000006_create_playlist_items_table;
+mod m20230701_000006_create_media_file_playlists;
 mod m20230701_000007_create_smart_playlists_table;
 mod m20230728_000008_create_media_cover_art_table;
 mod m20230806_000009_create_artists_table;
@@ -24,7 +24,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20230701_000003_create_media_analysis_table::Migration),
             Box::new(m20230701_000004_create_user_logs_table::Migration),
             Box::new(m20230701_000005_create_playlists_table::Migration),
-            Box::new(m20230701_000006_create_playlist_items_table::Migration),
+            Box::new(m20230701_000006_create_media_file_playlists::Migration),
             Box::new(m20230701_000007_create_smart_playlists_table::Migration),
             Box::new(m20230728_000008_create_media_cover_art_table::Migration),
             Box::new(m20230806_000009_create_artists_table::Migration),

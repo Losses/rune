@@ -32,6 +32,11 @@ impl MigrationTrait for Migration {
                             .unique_key(),
                     )
                     .col(
+                        ColumnDef::new(MediaFileAlbums::TrackNumber)
+                            .integer()
+                            .null(),
+                    )
+                    .col(
                         ColumnDef::new(MediaFileAlbums::AlbumId)
                             .integer()
                             .not_null(),
@@ -70,4 +75,5 @@ pub enum MediaFileAlbums {
     Id,
     MediaFileId,
     AlbumId,
+    TrackNumber,
 }

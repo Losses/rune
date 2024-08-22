@@ -62,18 +62,18 @@ impl QueryRoot {
         media_cover_art::Entity::find_by_id(id).one(db).await
     }
 
-    async fn playlist_items(&self, ctx: &Context<'_>) -> Result<Vec<playlist_items::Model>, DbErr> {
+    async fn playlist_items(&self, ctx: &Context<'_>) -> Result<Vec<media_file_playlists::Model>, DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        playlist_items::Entity::find().all(db).await
+        media_file_playlists::Entity::find().all(db).await
     }
 
     async fn playlist_item(
         &self,
         ctx: &Context<'_>,
         id: i32,
-    ) -> Result<Option<playlist_items::Model>, DbErr> {
+    ) -> Result<Option<media_file_playlists::Model>, DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        playlist_items::Entity::find_by_id(id).one(db).await
+        media_file_playlists::Entity::find_by_id(id).one(db).await
     }
 
     async fn playlists(&self, ctx: &Context<'_>) -> Result<Vec<playlists::Model>, DbErr> {
@@ -151,9 +151,9 @@ impl media_files::Model {
     async fn playlist_items(
         &self,
         ctx: &Context<'_>,
-    ) -> Result<Vec<playlist_items::Model>, sea_orm::DbErr> {
+    ) -> Result<Vec<media_file_playlists::Model>, sea_orm::DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        self.find_related(playlist_items::Entity).all(db).await
+        self.find_related(media_file_playlists::Entity).all(db).await
     }
 
     async fn user_logs(&self, ctx: &Context<'_>) -> Result<Vec<user_logs::Model>, sea_orm::DbErr> {
@@ -164,9 +164,9 @@ impl media_files::Model {
 
 #[ComplexObject]
 impl playlists::Model {
-    async fn items(&self, ctx: &Context<'_>) -> Result<Vec<playlist_items::Model>, sea_orm::DbErr> {
+    async fn items(&self, ctx: &Context<'_>) -> Result<Vec<media_file_playlists::Model>, sea_orm::DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
-        self.find_related(playlist_items::Entity).all(db).await
+        self.find_related(media_file_playlists::Entity).all(db).await
     }
 }
 
@@ -280,23 +280,23 @@ impl MutationRoot {
         &self,
         ctx: &Context<'_>,
         playlist_id: i32,
-        file_id: i32,
+        media_file_id: i32,
         position: i32,
-    ) -> Result<playlist_items::Model, DbErr> {
+    ) -> Result<media_file_playlists::Model, DbErr> {
         let db = ctx.data::<DatabaseConnection>().unwrap();
 
-        let new_playlist_item = playlist_items::ActiveModel {
+        let new_playlist_item = media_file_playlists::ActiveModel {
             playlist_id: ActiveValue::Set(playlist_id),
-            file_id: ActiveValue::Set(file_id),
+            media_file_id: ActiveValue::Set(media_file_id),
             position: ActiveValue::Set(position),
             ..Default::default()
         };
 
-        let res = playlist_items::Entity::insert(new_playlist_item)
+        let res = media_file_playlists::Entity::insert(new_playlist_item)
             .exec(db)
             .await?;
 
-        playlist_items::Entity::find_by_id(res.last_insert_id)
+        media_file_playlists::Entity::find_by_id(res.last_insert_id)
             .one(db)
             .await
             .map(|b| b.unwrap())

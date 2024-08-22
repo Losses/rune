@@ -26,7 +26,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(PlaylistItems::PlaylistId).integer().not_null())
-                    .col(ColumnDef::new(PlaylistItems::FileId).integer().not_null())
+                    .col(ColumnDef::new(PlaylistItems::MediaFileId).integer().not_null())
                     .col(ColumnDef::new(PlaylistItems::Position).integer().not_null())
                     .foreign_key(
                         ForeignKey::create()
@@ -39,7 +39,7 @@ impl MigrationTrait for Migration {
                     .foreign_key(
                         ForeignKey::create()
                             .name("fk-playlist_items-file_id")
-                            .from(PlaylistItems::Table, PlaylistItems::FileId)
+                            .from(PlaylistItems::Table, PlaylistItems::MediaFileId)
                             .to(MediaFiles::Table, MediaFiles::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -61,6 +61,6 @@ pub enum PlaylistItems {
     Table,
     Id,
     PlaylistId,
-    FileId,
+    MediaFileId,
     Position,
 }

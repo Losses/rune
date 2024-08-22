@@ -452,6 +452,7 @@ pub struct MetadataSummary {
     pub artist: String,
     pub album: String,
     pub title: String,
+    pub track_number: Option<i32>,
     pub duration: f64,
 }
 
@@ -496,6 +497,10 @@ pub async fn get_metadata_summary_by_files(
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
             title: metadata.get("track_title").cloned().unwrap_or_default(),
+            track_number: metadata
+                .get("track_number")
+                .and_then(|s| Some(s.parse::<i32>().ok()))
+                .unwrap_or(None),
             duration,
         };
 

@@ -10,7 +10,7 @@ pub mod media_file_albums;
 pub mod media_file_artists;
 pub mod media_files;
 pub mod media_metadata;
-pub mod playlist_items;
+pub mod media_file_playlists;
 pub mod playlists;
 pub mod smart_playlists;
 pub mod user_logs;
