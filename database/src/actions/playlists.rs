@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
+use sea_orm::QuerySelect;
 
 use crate::entities::{media_file_playlists, playlists};
 use crate::get_groups;
@@ -231,4 +232,28 @@ pub async fn reorder_playlist_item_position(
     item.update(db).await?;
 
     Ok(())
+}
+
+/// Get all unique playlist groups.
+///
+/// # Arguments
+/// * `db` - A reference to the database connection.
+///
+/// # Returns
+/// * `Result<Vec<String>, Box<dyn std::error::Error>>` - A vector of unique playlist group values or an error.
+pub async fn get_unique_playlist_groups(
+    db: &DatabaseConnection,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    use playlists::Entity as PlaylistEntity;
+
+    // Query distinct group values from the playlists table
+    let unique_groups: Vec<String> = PlaylistEntity::find()
+        .select_only()
+        .column(playlists::Column::Group)
+        .distinct()
+        .into_tuple::<String>()
+        .all(db)
+        .await?;
+
+    Ok(unique_groups)
 }

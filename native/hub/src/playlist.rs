@@ -2,6 +2,7 @@ use database::actions::playlists::add_item_to_playlist;
 use database::actions::playlists::add_media_file_to_playlist;
 use database::actions::playlists::check_items_in_playlist;
 use database::actions::playlists::create_playlist;
+use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
 use log::{debug, error};
@@ -23,6 +24,8 @@ use crate::messages::playlist::CreatePlaylistRequest;
 use crate::messages::playlist::CreatePlaylistResponse;
 use crate::messages::playlist::FetchPlaylistsGroupSummaryRequest;
 use crate::messages::playlist::FetchPlaylistsGroupsRequest;
+use crate::messages::playlist::GetUniquePlaylistGroupsRequest;
+use crate::messages::playlist::GetUniquePlaylistGroupsResponse;
 use crate::messages::playlist::Playlist;
 use crate::messages::playlist::PlaylistGroupSummaryResponse;
 use crate::messages::playlist::PlaylistsGroup;
@@ -241,6 +244,22 @@ pub async fn reorder_playlist_item_position_request(
         Err(e) => {
             error!("Failed to reorder playlist item: {}", e);
             ReorderPlaylistItemPositionResponse { success: false }.send_signal_to_dart();
+        }
+    }
+}
+
+pub async fn get_unique_playlist_groups_request(
+    main_db: Arc<MainDbConnection>,
+    _dart_signal: DartSignal<GetUniquePlaylistGroupsRequest>,
+) {
+    debug!("Requesting unique playlist groups");
+
+    match get_unique_playlist_groups(&main_db).await {
+        Ok(groups) => {
+            GetUniquePlaylistGroupsResponse { groups }.send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to get unique playlist groups: {}", e);
         }
     }
 }

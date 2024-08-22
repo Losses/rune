@@ -130,6 +130,7 @@ async fn main() {
                     AddItemToPlaylistRequest => (main_db),
                     AddMediaFileToPlaylistRequest => (main_db),
                     ReorderPlaylistItemPositionRequest => (main_db),
+                    GetUniquePlaylistGroupsRequest => (main_db),
                 );
             });
 
