@@ -2,12 +2,12 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/messages/playlist.pb.dart';
-import 'package:player/utils/dialogs/create_edit_playlist.dart';
 
 import '../../../utils/platform.dart';
+import '../../../utils/dialogs/create_edit_playlist.dart';
 import '../../../widgets/cover_art.dart';
 import '../../../widgets/smooth_horizontal_scroll.dart';
+import '../../../messages/playlist.pb.dart';
 import '../../../messages/playback.pb.dart';
 import '../../../messages/media_file.pb.dart';
 import '../../../messages/recommend.pbserver.dart';
@@ -68,7 +68,7 @@ class TrackListItem extends StatelessWidget {
     required this.item,
   });
 
-  openContextMenu(Offset localPosition, BuildContext context) {
+  void openContextMenu(Offset localPosition, BuildContext context) {
     final targetContext = contextAttachKey.currentContext;
 
     if (targetContext == null) return;
@@ -81,61 +81,7 @@ class TrackListItem extends StatelessWidget {
     contextController.showFlyout(
       barrierColor: Colors.black.withOpacity(0.1),
       position: position,
-      builder: (context) {
-        var items = [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.rocket),
-            text: const Text('Start Roaming'),
-            onPressed: () => {
-              RecommendAndPlayRequest(fileId: item.id)
-                  .sendSignalToRust() // GENERATED
-            },
-          ),
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.face),
-            text: const Text('Go to Artist'),
-            onPressed: () => {},
-          ),
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.album),
-            text: const Text('Go to Album'),
-            onPressed: () => {},
-          ),
-          const MenuFlyoutSeparator(),
-          MenuFlyoutSubItem(
-              leading: const Icon(Symbols.list_alt),
-              text: const Text('Add to Playlist'),
-              items: (context) => [
-                    MenuFlyoutItem(
-                      leading: const Icon(Symbols.list_alt),
-                      text: const Text('New Playlist'),
-                      onPressed: () async {
-                        Flyout.of(context).close();
-
-                        final playlist = await showCreateEditPlaylistDialog(
-                            context,
-                            playlistId: null);
-
-                        if (playlist == null) return;
-
-                        final fetchMediaFiles = AddItemToPlaylistRequest(
-                          playlistId: playlist.id,
-                          mediaFileId: item.id,
-                          position: null,
-                        );
-                        fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-                        await AddItemToPlaylistResponse.rustSignalStream.first;
-                      },
-                    ),
-                    const MenuFlyoutSeparator(),
-                  ]),
-        ];
-
-        return MenuFlyout(
-          items: items,
-        );
-      },
+      builder: (context) => buildContextMenu(context, item),
     );
   }
 
@@ -202,4 +148,58 @@ class TrackListItem extends StatelessWidget {
                       // GENERATED,
                     )))));
   }
+}
+
+Widget buildContextMenu(BuildContext context, MediaFile item) {
+  return MenuFlyout(
+    items: [
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.rocket),
+        text: const Text('Start Roaming'),
+        onPressed: () => {
+          RecommendAndPlayRequest(fileId: item.id)
+              .sendSignalToRust() // GENERATED
+        },
+      ),
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.face),
+        text: const Text('Go to Artist'),
+        onPressed: () => {},
+      ),
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.album),
+        text: const Text('Go to Album'),
+        onPressed: () => {},
+      ),
+      const MenuFlyoutSeparator(),
+      MenuFlyoutSubItem(
+        leading: const Icon(Symbols.list_alt),
+        text: const Text('Add to Playlist'),
+        items: (context) => [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.list_alt),
+            text: const Text('New Playlist'),
+            onPressed: () async {
+              Flyout.of(context).close();
+
+              final playlist =
+                  await showCreateEditPlaylistDialog(context, playlistId: null);
+
+              if (playlist == null) return;
+
+              final fetchMediaFiles = AddItemToPlaylistRequest(
+                playlistId: playlist.id,
+                mediaFileId: item.id,
+                position: null,
+              );
+              fetchMediaFiles.sendSignalToRust(); // GENERATED
+
+              await AddItemToPlaylistResponse.rustSignalStream.first;
+            },
+          ),
+          const MenuFlyoutSeparator(),
+        ],
+      ),
+    ],
+  );
 }
