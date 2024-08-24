@@ -74,15 +74,15 @@ void main() async {
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
       ],
-      child: const MyApp(),
+      child: const Rune(),
     ),
   );
 }
 
 final _appTheme = AppTheme();
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class Rune extends StatelessWidget {
+  const Rune({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -119,10 +119,6 @@ class MyApp extends StatelessWidget {
           routerDelegate: router.routerDelegate,
           routeInformationProvider: router.routeInformationProvider,
           builder: (context, child) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              appTheme.setEffect(context);
-            });
-
             return Directionality(
               textDirection: appTheme.textDirection,
               child: child!,
@@ -131,6 +127,29 @@ class MyApp extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class ThemeSyncer extends StatefulWidget {
+  final AppTheme appTheme;
+  const ThemeSyncer({super.key, required this.appTheme});
+
+  @override
+  ThemeSyncerState createState() => ThemeSyncerState();
+}
+
+class ThemeSyncerState extends State<ThemeSyncer> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.appTheme.setEffect(context);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container();
   }
 }
 
