@@ -13,24 +13,33 @@ class CreateEditPlaylistDialog extends StatefulWidget {
 
 class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   final titleController = TextEditingController();
-  final groupController = TextEditingController();
   bool isLoading = false;
+  List<String> groupList = ['Favorite'];
+  String selectedGroup = 'Favorite';
 
   PlaylistWithoutCoverIds? playlist;
 
   @override
   void initState() {
     super.initState();
+    fetchGroupList();
     if (widget.playlistId != null) {
       loadPlaylist(widget.playlistId!);
     }
+  }
+
+  Future<void> fetchGroupList() async {
+    final groups = await getGroupList();
+    setState(() {
+      groupList = ['Favorite', ...groups];
+    });
   }
 
   Future<void> loadPlaylist(int playlistId) async {
     playlist = await getPlaylistById(playlistId);
     if (playlist != null) {
       titleController.text = playlist!.name;
-      groupController.text = playlist!.group;
+      selectedGroup = playlist!.group;
     }
     setState(() {});
   }
@@ -58,9 +67,24 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           const SizedBox(height: 16),
           InfoLabel(
             label: 'Group',
-            child: TextBox(
-              controller: groupController,
-              enabled: !isLoading,
+            child: EditableComboBox<String>(
+              value: selectedGroup,
+              items: groupList.map<ComboBoxItem<String>>((e) {
+                return ComboBoxItem<String>(
+                  value: e,
+                  child: Text(e),
+                );
+              }).toList(),
+              onChanged: isLoading
+                  ? null
+                  : (group) {
+                      setState(() => selectedGroup = group ?? selectedGroup);
+                    },
+              placeholder: const Text('Select a group'),
+              onFieldSubmitted: (String text) {
+                setState(() => selectedGroup = text);
+                return text;
+              },
             ),
           ),
           const SizedBox(height: 8),
@@ -80,12 +104,12 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                     response = await updatePlaylist(
                       widget.playlistId!,
                       titleController.text,
-                      groupController.text,
+                      selectedGroup,
                     );
                   } else {
                     response = await createPlaylist(
                       titleController.text,
-                      groupController.text,
+                      selectedGroup,
                     );
                   }
 
@@ -97,7 +121,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                   Navigator.pop(context, response);
                 },
           child: isLoading
-              ? const ProgressRing()
+              ? const SizedBox.expand(child: ProgressBar())
               : Text(widget.playlistId != null ? 'Save' : 'Create'),
         ),
         Button(
@@ -116,6 +140,19 @@ Future<PlaylistWithoutCoverIds?> showCreateEditPlaylistDialog(
     context: context,
     builder: (context) => CreateEditPlaylistDialog(playlistId: playlistId),
   );
+}
+
+Future<List<String>> getGroupList() async {
+  final fetchGroupsRequest = FetchPlaylistsGroupSummaryRequest();
+  fetchGroupsRequest.sendSignalToRust(); // GENERATED
+
+  // Listen for the response from Rust
+  final rustSignal = await PlaylistGroupSummaryResponse.rustSignalStream.first;
+  final groups = rustSignal.message.playlistsGroups
+      .map((group) => group.groupTitle)
+      .toList();
+
+  return groups;
 }
 
 Future<PlaylistWithoutCoverIds> getPlaylistById(int playlistId) async {

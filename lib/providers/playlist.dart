@@ -48,6 +48,7 @@ class PlaylistUpdateHandler {
       final playlistUpdate = event.message;
       final items = playlistUpdate.items;
 
+      if (!context.mounted) return;
       Provider.of<PlaylistProvider>(context, listen: false)
           .updatePlaylist(items);
     });

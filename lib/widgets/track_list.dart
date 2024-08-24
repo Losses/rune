@@ -3,9 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:player/messages/playlist.pb.dart';
+import 'package:player/utils/dialogs/create_edit_playlist.dart';
 
 import '../../../utils/platform.dart';
-import '../../../utils/dialogs/create_edit_playlist.dart';
 import '../../../widgets/cover_art.dart';
 import '../../../widgets/smooth_horizontal_scroll.dart';
 import '../../../messages/playback.pb.dart';

@@ -19,6 +19,7 @@ class PlaybackStatusUpdateHandler {
     PlaybackStatus.rustSignalStream.listen((event) {
       final playbackStatusUpdate = event.message;
 
+      if (!context.mounted) return;
       Provider.of<PlaybackStatusProvider>(context, listen: false)
           .updatePlaybackStatus(playbackStatusUpdate);
     });

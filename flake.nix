@@ -80,9 +80,11 @@
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
           buildInputs = with pkgs; [
+            (pkgs.rust-bin.stable.latest.default.override {
+              extensions = [ "rust-src" "cargo" "rustc" ];
+            })
             expidusPkgs.flutter
             android-studio
-            rust-bin.beta.latest.default
             openssl
             pkg-config
             eza
@@ -90,6 +92,8 @@
             alsa-lib
             libpulseaudio
             pulseaudioFull
+            clippy
+            rust-analyzer
             rustup
           ] ++ [
             gtk3
@@ -103,6 +107,10 @@
             cmake
             libstdcxx5
           ];
+
+          RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.default.override {
+            extensions = [ "rust-src" ];
+          }}/lib/rustlib/src/rust/library";
 
           shellHook = ''
             alias ls=exa

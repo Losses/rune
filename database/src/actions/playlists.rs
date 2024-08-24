@@ -5,6 +5,8 @@ use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
 use sea_orm::QuerySelect;
 
+use chrono::Utc;
+
 use crate::entities::{media_file_playlists, playlists};
 use crate::get_groups;
 
@@ -47,6 +49,8 @@ pub async fn create_playlist(
     let new_playlist = ActiveModel {
         name: ActiveValue::Set(name),
         group: ActiveValue::Set(group),
+        created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
         ..Default::default()
     };
 
@@ -112,6 +116,8 @@ pub async fn update_playlist(
         playlist.group = ActiveValue::Set(group);
     }
 
+    playlist.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+
     // Update the playlist in the database
     let updated_playlist = playlist.update(db).await?;
 
@@ -168,6 +174,7 @@ pub async fn add_item_to_playlist(
     position: Option<i32>,
 ) -> Result<media_file_playlists::Model, Box<dyn std::error::Error>> {
     use media_file_playlists::Entity as MediaFilePlaylistEntity;
+    use playlists::Entity as PlaylistEntity;
 
     // Determine the position to insert the item
     let position = match position {
@@ -193,6 +200,17 @@ pub async fn add_item_to_playlist(
 
     // Insert the new media file playlist into the database
     let media_file_playlist = new_media_file_playlist.insert(db).await?;
+
+    // Find the playlist by ID
+    let mut playlist: playlists::ActiveModel = PlaylistEntity::find_by_id(playlist_id)
+        .one(db)
+        .await?
+        .ok_or("Playlist not found")?
+        .into();
+
+    playlist.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+
+    let _ = playlist.update(db).await?;
 
     Ok(media_file_playlist)
 }
