@@ -56,6 +56,29 @@ pub async fn create_playlist(
     Ok(playlist)
 }
 
+/// Get a playlist by its ID.
+///
+/// # Arguments
+/// * `db` - A reference to the database connection.
+/// * `playlist_id` - The ID of the playlist to retrieve.
+///
+/// # Returns
+/// * `Result<Model, Box<dyn std::error::Error>>` - The playlist model or an error.
+pub async fn get_playlist_by_id(
+    db: &DatabaseConnection,
+    playlist_id: i32,
+) -> Result<playlists::Model, Box<dyn std::error::Error>> {
+    use playlists::Entity as PlaylistEntity;
+
+    // Find the playlist by ID
+    let playlist = PlaylistEntity::find_by_id(playlist_id)
+        .one(db)
+        .await?
+        .ok_or("Playlist not found")?;
+
+    Ok(playlist)
+}
+
 /// Update an existing playlist.
 ///
 /// # Arguments
@@ -134,7 +157,7 @@ pub async fn check_items_in_playlist(
 /// * `db` - A reference to the database connection.
 /// * `playlist_id` - The ID of the playlist to add the item to.
 /// * `media_file_id` - The ID of the media file to add.
-/// * `position` - The position of the media file in the playlist.
+/// * `position` - The optional position of the media file in the playlist.
 ///
 /// # Returns
 /// * `Result<Model, Box<dyn std::error::Error>>` - The created media file playlist model or an error.
@@ -142,12 +165,26 @@ pub async fn add_item_to_playlist(
     db: &DatabaseConnection,
     playlist_id: i32,
     media_file_id: i32,
-    position: i32,
+    position: Option<i32>,
 ) -> Result<media_file_playlists::Model, Box<dyn std::error::Error>> {
-    use media_file_playlists::ActiveModel;
+    use media_file_playlists::Entity as MediaFilePlaylistEntity;
+
+    // Determine the position to insert the item
+    let position = match position {
+        Some(pos) => pos,
+        _none => {
+            // If no position is provided, find the current maximum position and insert at the end
+            MediaFilePlaylistEntity::find()
+                .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
+                .order_by_desc(media_file_playlists::Column::Position)
+                .one(db)
+                .await?
+                .map_or(0, |item| item.position + 1)
+        }
+    };
 
     // Create a new media file playlist active model
-    let new_media_file_playlist = ActiveModel {
+    let new_media_file_playlist = media_file_playlists::ActiveModel {
         playlist_id: ActiveValue::Set(playlist_id),
         media_file_id: ActiveValue::Set(media_file_id),
         position: ActiveValue::Set(position),

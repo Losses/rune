@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/connection.pb.dart';
 import '../utils/file_storage_service.dart';

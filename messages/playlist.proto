@@ -30,6 +30,13 @@ message Playlist {
 }
 
 // [RINF:RUST-SIGNAL]
+message PlaylistWithoutCoverIds {
+  int32 id = 1;
+  string name = 2;
+  string group = 3;
+}
+
+// [RINF:RUST-SIGNAL]
 message PlaylistsGroup {
   string group_title = 1;
   repeated Playlist playlists = 2;
@@ -48,7 +55,7 @@ message CreatePlaylistRequest {
 
 // [RINF:RUST-SIGNAL]
 message CreatePlaylistResponse {
-  bool success = 1;
+  PlaylistWithoutCoverIds playlist = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -60,7 +67,7 @@ message UpdatePlaylistRequest {
 
 // [RINF:RUST-SIGNAL]
 message UpdatePlaylistResponse {
-  bool success = 1;
+  PlaylistWithoutCoverIds playlist = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -78,7 +85,7 @@ message CheckItemsInPlaylistResponse {
 message AddItemToPlaylistRequest {
   int32 playlist_id = 1;
   int32 media_file_id = 2;
-  int32 position = 3;
+  optional int32 position = 3;
 }
 
 // [RINF:RUST-SIGNAL]
@@ -116,4 +123,14 @@ message GetUniquePlaylistGroupsRequest {
 // [RINF:RUST-SIGNAL]
 message GetUniquePlaylistGroupsResponse {
   repeated string groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message GetPlaylistByIdRequest {
+  int32 playlist_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message GetPlaylistByIdResponse {
+  PlaylistWithoutCoverIds playlist = 1;
 }

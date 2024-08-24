@@ -7,7 +7,6 @@ import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
-import 'package:flutter_acrylic/window_effect.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'routes/home.dart' as home;
@@ -116,6 +115,9 @@ class MyApp extends StatelessWidget {
             ),
           ),
           locale: appTheme.locale,
+          routeInformationParser: router.routeInformationParser,
+          routerDelegate: router.routerDelegate,
+          routeInformationProvider: router.routeInformationProvider,
           builder: (context, child) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               appTheme.setEffect(context);
@@ -123,21 +125,9 @@ class MyApp extends StatelessWidget {
 
             return Directionality(
               textDirection: appTheme.textDirection,
-              child: NavigationPaneTheme(
-                data: NavigationPaneThemeData(
-                  backgroundColor: appTheme.windowEffect == WindowEffect.mica
-                      ? Colors.transparent
-                      : FluentTheme.of(context).brightness == Brightness.light
-                          ? const Color(0xFFF6F6F6)
-                          : const Color(0xFF1F1F1F),
-                ),
-                child: child!,
-              ),
+              child: child!,
             );
           },
-          routeInformationParser: router.routeInformationParser,
-          routerDelegate: router.routerDelegate,
-          routeInformationProvider: router.routeInformationProvider,
         );
       },
     );

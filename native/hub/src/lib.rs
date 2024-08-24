@@ -131,6 +131,7 @@ async fn main() {
                     AddMediaFileToPlaylistRequest => (main_db),
                     ReorderPlaylistItemPositionRequest => (main_db),
                     GetUniquePlaylistGroupsRequest => (main_db),
+                    GetPlaylistByIdRequest => (main_db),
                 );
             });
 

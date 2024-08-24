@@ -9,9 +9,11 @@ use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
 
+use database::actions::playlists::get_playlist_by_id;
 use database::actions::playlists::get_playlists_groups;
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
+
 use database::entities::playlists;
 
 use crate::messages::playlist::AddItemToPlaylistRequest;
@@ -24,6 +26,8 @@ use crate::messages::playlist::CreatePlaylistRequest;
 use crate::messages::playlist::CreatePlaylistResponse;
 use crate::messages::playlist::FetchPlaylistsGroupSummaryRequest;
 use crate::messages::playlist::FetchPlaylistsGroupsRequest;
+use crate::messages::playlist::GetPlaylistByIdRequest;
+use crate::messages::playlist::GetPlaylistByIdResponse;
 use crate::messages::playlist::GetUniquePlaylistGroupsRequest;
 use crate::messages::playlist::GetUniquePlaylistGroupsResponse;
 use crate::messages::playlist::Playlist;
@@ -35,6 +39,7 @@ use crate::messages::playlist::ReorderPlaylistItemPositionRequest;
 use crate::messages::playlist::ReorderPlaylistItemPositionResponse;
 use crate::messages::playlist::UpdatePlaylistRequest;
 use crate::messages::playlist::UpdatePlaylistResponse;
+use crate::PlaylistWithoutCoverIds;
 
 pub async fn fetch_playlists_group_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -110,8 +115,15 @@ pub async fn create_playlist_request(
     );
 
     match create_playlist(&main_db, request.name, request.group).await {
-        Ok(_) => {
-            CreatePlaylistResponse { success: true }.send_signal_to_dart();
+        Ok(playlist) => {
+            CreatePlaylistResponse {
+                playlist: Some(PlaylistWithoutCoverIds {
+                    id: playlist.id,
+                    name: playlist.name,
+                    group: playlist.group,
+                }),
+            }
+            .send_signal_to_dart();
         }
         Err(e) => {
             error!("Failed to create playlist: {}", e);
@@ -138,8 +150,15 @@ pub async fn update_playlist_request(
     )
     .await
     {
-        Ok(_) => {
-            UpdatePlaylistResponse { success: true }.send_signal_to_dart();
+        Ok(playlist) => {
+            UpdatePlaylistResponse {
+                playlist: Some(PlaylistWithoutCoverIds {
+                    id: playlist.id,
+                    name: playlist.name,
+                    group: playlist.group,
+                }),
+            }
+            .send_signal_to_dart();
         }
         Err(e) => {
             error!("Failed to update playlist: {}", e);
@@ -175,7 +194,7 @@ pub async fn add_item_to_playlist_request(
     let request = dart_signal.message;
 
     debug!(
-        "Adding item to playlist: playlist_id={}, media_file_id={}, position={}",
+        "Adding item to playlist: playlist_id={}, media_file_id={}, position={:#?}",
         request.playlist_id, request.media_file_id, request.position
     );
 
@@ -260,6 +279,31 @@ pub async fn get_unique_playlist_groups_request(
         }
         Err(e) => {
             error!("Failed to get unique playlist groups: {}", e);
+        }
+    }
+}
+
+pub async fn get_playlist_by_id_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<GetPlaylistByIdRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Requesting playlist by id: {}", request.playlist_id);
+
+    match get_playlist_by_id(&main_db, request.playlist_id).await {
+        Ok(playlist) => {
+            GetPlaylistByIdResponse {
+                playlist: Some(PlaylistWithoutCoverIds {
+                    id: playlist.id,
+                    name: playlist.name,
+                    group: playlist.group,
+                }),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to get playlist by id: {}", e);
         }
     }
 }

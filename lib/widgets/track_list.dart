@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/messages/playlist.pb.dart';
 
 import '../../../utils/platform.dart';
 import '../../../utils/dialogs/create_edit_playlist.dart';
@@ -108,8 +109,23 @@ class TrackListItem extends StatelessWidget {
                     MenuFlyoutItem(
                       leading: const Icon(Symbols.list_alt),
                       text: const Text('New Playlist'),
-                      onPressed: () => {
-                        showCreateEditPlaylistDialog(context, isEdit: false)
+                      onPressed: () async {
+                        Flyout.of(context).close();
+
+                        final playlist = await showCreateEditPlaylistDialog(
+                            context,
+                            playlistId: null);
+
+                        if (playlist == null) return;
+
+                        final fetchMediaFiles = AddItemToPlaylistRequest(
+                          playlistId: playlist.id,
+                          mediaFileId: item.id,
+                          position: null,
+                        );
+                        fetchMediaFiles.sendSignalToRust(); // GENERATED
+
+                        await AddItemToPlaylistResponse.rustSignalStream.first;
                       },
                     ),
                     const MenuFlyoutSeparator(),
