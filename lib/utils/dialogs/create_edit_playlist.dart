@@ -120,9 +120,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                   if (!context.mounted) return;
                   Navigator.pop(context, response);
                 },
-          child: isLoading
-              ? const SizedBox.expand(child: ProgressBar())
-              : Text(widget.playlistId != null ? 'Save' : 'Create'),
+          child: Text(widget.playlistId != null ? 'Save' : 'Create'),
         ),
         Button(
           onPressed: isLoading ? null : () => Navigator.pop(context, null),

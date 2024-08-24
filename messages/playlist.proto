@@ -48,6 +48,15 @@ message PlaylistsGroups {
 }
 
 // [RINF:DART-SIGNAL]
+message FetchAllPlaylistsRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchAllPlaylistsResponse {
+  repeated PlaylistWithoutCoverIds playlists = 1;
+}
+
+// [RINF:DART-SIGNAL]
 message CreatePlaylistRequest {
   string name = 1;
   string group = 2;

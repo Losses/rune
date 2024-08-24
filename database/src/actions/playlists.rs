@@ -60,6 +60,27 @@ pub async fn create_playlist(
     Ok(playlist)
 }
 
+/// Get all playlists.
+///
+/// # Arguments
+/// * `db` - A reference to the database connection.
+///
+/// # Returns
+/// * `Result<Vec<Model>, Box<dyn std::error::Error>>` - The playlists or an error.
+pub async fn get_all_playlists(
+    db: &DatabaseConnection,
+) -> Result<Vec<playlists::Model>, Box<dyn std::error::Error>> {
+    use playlists::Entity as PlaylistEntity;
+
+    // Find the playlist by ID
+    let playlist = PlaylistEntity::find()
+        .order_by_asc(playlists::Column::Group)
+        .all(db)
+        .await?;
+
+    Ok(playlist)
+}
+
 /// Get a playlist by its ID.
 ///
 /// # Arguments

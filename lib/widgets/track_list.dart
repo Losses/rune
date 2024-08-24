@@ -68,7 +68,7 @@ class TrackListItem extends StatelessWidget {
     required this.item,
   });
 
-  void openContextMenu(Offset localPosition, BuildContext context) {
+  void openContextMenu(Offset localPosition, BuildContext context) async {
     final targetContext = contextAttachKey.currentContext;
 
     if (targetContext == null) return;
@@ -78,10 +78,11 @@ class TrackListItem extends StatelessWidget {
       ancestor: Navigator.of(context).context.findRenderObject(),
     );
 
+    final playlists = await getAllPlaylists();
+
     contextController.showFlyout(
-      barrierColor: Colors.black.withOpacity(0.1),
       position: position,
-      builder: (context) => buildContextMenu(context, item),
+      builder: (context) => buildContextMenu(context, item, playlists),
     );
   }
 
@@ -150,7 +151,25 @@ class TrackListItem extends StatelessWidget {
   }
 }
 
-Widget buildContextMenu(BuildContext context, MediaFile item) {
+Widget buildContextMenu(BuildContext context, MediaFile item,
+    List<PlaylistWithoutCoverIds> playlists) {
+  final List<MenuFlyoutItem> items = playlists.map((playlist) {
+    return MenuFlyoutItem(
+      leading: const Icon(Symbols.list_alt),
+      text: Text(playlist.name),
+      onPressed: () {
+        final fetchMediaFiles = AddItemToPlaylistRequest(
+          playlistId: playlist.id,
+          mediaFileId: item.id,
+          position: null,
+        );
+        fetchMediaFiles.sendSignalToRust(); // GENERATED
+
+        Flyout.of(context).close();
+      },
+    );
+  }).toList();
+
   return MenuFlyout(
     items: [
       MenuFlyoutItem(
@@ -177,7 +196,7 @@ Widget buildContextMenu(BuildContext context, MediaFile item) {
         text: const Text('Add to Playlist'),
         items: (context) => [
           MenuFlyoutItem(
-            leading: const Icon(Symbols.list_alt),
+            leading: const Icon(Symbols.add),
             text: const Text('New Playlist'),
             onPressed: () async {
               Flyout.of(context).close();
@@ -197,9 +216,21 @@ Widget buildContextMenu(BuildContext context, MediaFile item) {
               await AddItemToPlaylistResponse.rustSignalStream.first;
             },
           ),
-          const MenuFlyoutSeparator(),
+          if (items.isNotEmpty) const MenuFlyoutSeparator(),
+          ...items
         ],
       ),
     ],
   );
+}
+
+Future<List<PlaylistWithoutCoverIds>> getAllPlaylists() async {
+  final fetchRequest = FetchAllPlaylistsRequest();
+  fetchRequest.sendSignalToRust(); // GENERATED
+
+  // Listen for the response from Rust
+  final rustSignal = await FetchAllPlaylistsResponse.rustSignalStream.first;
+  final response = rustSignal.message;
+
+  return response.playlists;
 }

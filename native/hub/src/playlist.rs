@@ -2,6 +2,7 @@ use database::actions::playlists::add_item_to_playlist;
 use database::actions::playlists::add_media_file_to_playlist;
 use database::actions::playlists::check_items_in_playlist;
 use database::actions::playlists::create_playlist;
+use database::actions::playlists::get_all_playlists;
 use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
@@ -39,6 +40,8 @@ use crate::messages::playlist::ReorderPlaylistItemPositionRequest;
 use crate::messages::playlist::ReorderPlaylistItemPositionResponse;
 use crate::messages::playlist::UpdatePlaylistRequest;
 use crate::messages::playlist::UpdatePlaylistResponse;
+use crate::FetchAllPlaylistsRequest;
+use crate::FetchAllPlaylistsResponse;
 use crate::PlaylistWithoutCoverIds;
 
 pub async fn fetch_playlists_group_summary_request(
@@ -101,6 +104,32 @@ pub async fn fetch_playlists_groups_request(
             error!("Failed to fetch playlists groups: {}", e);
         }
     };
+}
+
+pub async fn fetch_all_playlists_request(
+    main_db: Arc<MainDbConnection>,
+    _dart_signal: DartSignal<FetchAllPlaylistsRequest>,
+) {
+    debug!("Fetching all playlists");
+
+    match get_all_playlists(&main_db).await {
+        Ok(playlists) => {
+            FetchAllPlaylistsResponse {
+                playlists: playlists
+                    .into_iter()
+                    .map(|playlist| PlaylistWithoutCoverIds {
+                        id: playlist.id,
+                        name: playlist.name,
+                        group: playlist.group,
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to create playlist: {}", e);
+        }
+    }
 }
 
 pub async fn create_playlist_request(
