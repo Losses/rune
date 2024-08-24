@@ -18,9 +18,12 @@
     android-nixpkgs = {
       url = "github:tadfisher/android-nixpkgs";
     };
+    expidus-nixpkgs = {
+      url = "github:ExpidusOS/nixpkgs/feat/flutter-3-24";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, ... }:
+  outputs = { self, nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, expidus-nixpkgs, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = [ (import rust-overlay) ];
@@ -33,6 +36,8 @@
             };
           };
         };
+
+        expidusPkgs = import expidus-nixpkgs { inherit system; };
 
         androidEnvCustomPackage = pkgs.androidenv.composeAndroidPackages {
           toolsVersion = "26.1.1";
@@ -75,7 +80,7 @@
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
           buildInputs = with pkgs; [
-            flutter323
+            expidusPkgs.flutter
             android-studio
             rust-bin.beta.latest.default
             openssl

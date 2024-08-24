@@ -42,6 +42,22 @@
         "type": "github"
       }
     },
+    "expidus-nixpkgs": {
+      "locked": {
+        "lastModified": 1724376477,
+        "narHash": "sha256-HIV30wb8HJy6xqmqx3TVz1YaAYJgvcupGKjdydqDiAE=",
+        "owner": "ExpidusOS",
+        "repo": "nixpkgs",
+        "rev": "a2b56cd6e0995d2ec9ca3e4d20286d9201cd6281",
+        "type": "github"
+      },
+      "original": {
+        "owner": "ExpidusOS",
+        "ref": "feat/flutter-3-24",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "flake-compat": {
       "flake": false,
       "locked": {
@@ -163,6 +179,7 @@
     "root": {
       "inputs": {
         "android-nixpkgs": "android-nixpkgs",
+        "expidus-nixpkgs": "expidus-nixpkgs",
         "flake-compat": "flake-compat",
         "flake-utils": "flake-utils_3",
         "nixpkgs": "nixpkgs_2",
