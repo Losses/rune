@@ -1,10 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/main.dart';
 
+import '../../../main.dart';
 import '../../../utils/router_extra.dart';
+import '../../../utils/context_menu/collection_item_context_menu.dart';
 import '../../../widgets/flip_tile.dart';
 import '../../../widgets/grouped_list_base.dart';
 import '../../../widgets/start_screen/start_screen.dart';
@@ -81,7 +81,8 @@ class ArtistItem extends StatelessWidget {
 
     contextController.showFlyout(
       position: position,
-      builder: (context) => buildContextMenu(context),
+      builder: (context) =>
+          buildCollectionItemContextMenu(context, 'artist', artist.id),
     );
   }
 
@@ -111,40 +112,4 @@ class ArtistItem extends StatelessWidget {
               },
             )));
   }
-}
-
-Widget buildContextMenu(BuildContext context) {
-  return MenuFlyout(
-    items: [
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.play_circle),
-        text: const Text('Start Playing'),
-        onPressed: () => {},
-      ),
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.playlist_add),
-        text: const Text('Add to Queue'),
-        onPressed: () => {},
-      ),
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.rocket),
-        text: const Text('Start Roaming'),
-        onPressed: () => {},
-      ),
-      const MenuFlyoutSeparator(),
-      MenuFlyoutSubItem(
-        leading: const Icon(Symbols.list_alt),
-        text: const Text('Add to Playlist'),
-        items: (context) => [
-          MenuFlyoutItem(
-            leading: const Icon(Symbols.add),
-            text: const Text('New Auto Playlist'),
-            onPressed: () async {
-              Flyout.of(context).close();
-            },
-          ),
-        ],
-      ),
-    ],
-  );
 }

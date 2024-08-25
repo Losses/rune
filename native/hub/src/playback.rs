@@ -81,9 +81,6 @@ fn files_to_playback_request(
 
 fn update_playlist(player: &Arc<Mutex<Player>>, requests: Vec<(i32, std::path::PathBuf)>) {
     let player_guard = player.lock().unwrap();
-    player_guard.pause();
-    player_guard.clear_playlist();
-
     for request in requests {
         player_guard.add_to_playlist(request.0, request.1);
     }
@@ -159,6 +156,9 @@ pub async fn start_playing_collection_request(
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<StartPlayingCollectionRequest>,
 ) {
+    player.lock().unwrap().pause();
+    player.lock().unwrap().clear_playlist();
+
     match dart_signal.message.r#type.as_str() {
         "artist" => handle_collection_request!(
             main_db,

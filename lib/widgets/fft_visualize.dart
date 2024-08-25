@@ -94,8 +94,17 @@ class FFTVisualizeState extends State<FFTVisualize>
     }
 
     for (int i = 0; i < _currentFftValues.length; i++) {
-      _currentFftValues[i] =
-          ui.lerpDouble(_currentFftValues[i], _targetFftValues[i], 0.2)!;
+      double current = _currentFftValues[i];
+      double target = _targetFftValues[i];
+
+      if (!current.isFinite) {
+        current = 0.0;
+      }
+      if (!target.isInfinite) {
+        continue;
+      }
+
+      _currentFftValues[i] = ui.lerpDouble(current, target, 0.2)!;
     }
   }
 
