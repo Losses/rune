@@ -1,4 +1,3 @@
-use database::actions::metadata::get_metadata_summary_by_files;
 use dunce::canonicalize;
 use log::{error, info};
 use rinf::DartSignal;
@@ -6,6 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use database::actions::file::compound_query_media_files;
+use database::actions::metadata::get_metadata_summary_by_files;
+use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;
 use sea_orm::DatabaseConnection;
 
@@ -13,6 +14,8 @@ use database::actions::file::get_media_files;
 
 use crate::common::*;
 use crate::messages;
+use crate::messages::album::Album;
+use crate::messages::artist::Artist;
 use messages::media_file::*;
 
 async fn parse_media_files(
@@ -134,5 +137,56 @@ pub async fn compound_query_media_files_request(
         }
     }
 
+    Ok(())
+}
+
+pub async fn fetch_parsed_media_file_request(
+    db: Arc<DatabaseConnection>,
+    lib_path: Arc<String>,
+    dart_signal: DartSignal<FetchParsedMediaFileRequest>,
+) -> Result<()> {
+    let file_id = dart_signal.message.id;
+
+    match get_parsed_file_by_id(&db, file_id).await {
+        Ok((media_file, artists, album)) => {
+            let parsed_media_file = parse_media_files(vec![media_file], lib_path.clone());
+
+            match parsed_media_file.await {
+                Ok(parsed_files) => {
+                    if let Some(media_file) = parsed_files.get(0) {
+                        if let Some(album) = album {
+                            FetchParsedMediaFileResponse {
+                                file: Some(media_file.clone()),
+                                artists: artists
+                                    .into_iter()
+                                    .map(|x| Artist {
+                                        id: x.id,
+                                        name: x.name,
+                                        cover_ids: [].to_vec(),
+                                    })
+                                    .collect(),
+                                album: Some(Album {
+                                    id: album.id,
+                                    name: album.name,
+                                    cover_ids: [].to_vec(),
+                                }),
+                            }
+                            .send_signal_to_dart(); // GENERATED
+                        } else {
+                            error!("Album not found for file_id: {}", file_id);
+                        }
+                    } else {
+                        error!("Parsed media file not found for file_id: {}", file_id);
+                    }
+                }
+                Err(e) => {
+                    error!("Error happened while parsing media files: {:#?}", e);
+                }
+            }
+        }
+        Err(e) => {
+            error!("Error happened while getting media summaries: {:#?}", e);
+        }
+    };
     Ok(())
 }

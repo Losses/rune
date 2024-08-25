@@ -14,8 +14,8 @@ use metadata::scanner::AudioScanner;
 
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
-use crate::entities::media_files;
-use crate::entities::media_metadata;
+use crate::entities::{albums, artists, media_file_albums, media_files};
+use crate::entities::{media_file_artists, media_metadata};
 
 use super::utils::DatabaseExecutor;
 
@@ -534,4 +534,34 @@ pub async fn get_metadata_summary_by_file_id(
         .into_iter()
         .next()
         .ok_or(MetadataQueryError::NotFound(file_id))
+}
+
+pub async fn get_parsed_file_by_id(
+    db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>), sea_orm::DbErr>
+{
+    let file = get_metadata_summary_by_file_id(db, file_id).await.unwrap();
+
+    let artist_ids = media_file_artists::Entity::find()
+        .filter(media_file_artists::Column::MediaFileId.eq(file_id))
+        .all(db)
+        .await?;
+
+    let artists = artists::Entity::find()
+        .filter(artists::Column::Id.is_in(artist_ids.into_iter().map(|x| x.artist_id)))
+        .all(db)
+        .await?;
+
+    let album_id = media_file_albums::Entity::find()
+        .filter(media_file_albums::Column::MediaFileId.eq(file_id))
+        .one(db)
+        .await?;
+
+    let album = albums::Entity::find()
+        .filter(albums::Column::Id.eq(album_id.unwrap().id))
+        .one(db)
+        .await?;
+
+    Ok((file, artists, album))
 }

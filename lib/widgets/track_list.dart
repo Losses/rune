@@ -1,9 +1,11 @@
 import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../../utils/platform.dart';
+import '../../../utils/router_extra.dart';
 import '../../../utils/dialogs/create_edit_playlist.dart';
 import '../../../widgets/cover_art.dart';
 import '../../../widgets/smooth_horizontal_scroll.dart';
@@ -68,7 +70,8 @@ class TrackListItem extends StatelessWidget {
     required this.item,
   });
 
-  void openContextMenu(Offset localPosition, BuildContext context) async {
+  void openContextMenu(
+      Offset localPosition, BuildContext context, int fileId) async {
     final targetContext = contextAttachKey.currentContext;
 
     if (targetContext == null) return;
@@ -79,10 +82,12 @@ class TrackListItem extends StatelessWidget {
     );
 
     final playlists = await getAllPlaylists();
+    final parsedMediaFile = await getParsedMediaFile(fileId);
 
     contextController.showFlyout(
       position: position,
-      builder: (context) => buildContextMenu(context, item, playlists),
+      builder: (context) =>
+          buildContextMenu(context, parsedMediaFile, playlists),
     );
   }
 
@@ -93,13 +98,13 @@ class TrackListItem extends StatelessWidget {
     return GestureDetector(
         onSecondaryTapUp: isDesktop
             ? (d) {
-                openContextMenu(d.localPosition, context);
+                openContextMenu(d.localPosition, context, item.id);
               }
             : null,
         onLongPressEnd: isDesktop
             ? null
             : (d) {
-                openContextMenu(d.localPosition, context);
+                openContextMenu(d.localPosition, context, item.id);
               },
         child: FlyoutTarget(
             key: contextAttachKey,
@@ -151,7 +156,7 @@ class TrackListItem extends StatelessWidget {
   }
 }
 
-Widget buildContextMenu(BuildContext context, MediaFile item,
+Widget buildContextMenu(BuildContext context, FetchParsedMediaFileResponse item,
     List<PlaylistWithoutCoverIds> playlists) {
   final List<MenuFlyoutItem> items = playlists.map((playlist) {
     return MenuFlyoutItem(
@@ -160,7 +165,7 @@ Widget buildContextMenu(BuildContext context, MediaFile item,
       onPressed: () {
         final fetchMediaFiles = AddItemToPlaylistRequest(
           playlistId: playlist.id,
-          mediaFileId: item.id,
+          mediaFileId: item.file.id,
           position: null,
         );
         fetchMediaFiles.sendSignalToRust(); // GENERATED
@@ -176,19 +181,40 @@ Widget buildContextMenu(BuildContext context, MediaFile item,
         leading: const Icon(Symbols.rocket),
         text: const Text('Start Roaming'),
         onPressed: () => {
-          RecommendAndPlayRequest(fileId: item.id)
+          RecommendAndPlayRequest(fileId: item.file.id)
               .sendSignalToRust() // GENERATED
         },
       ),
-      MenuFlyoutItem(
-        leading: const Icon(Symbols.face),
-        text: const Text('Go to Artist'),
-        onPressed: () => {},
-      ),
+      if (item.artists.length == 1)
+        MenuFlyoutItem(
+          leading: const Icon(Symbols.face),
+          text: const Text('Go to Artist'),
+          onPressed: () => {
+            GoRouter.of(context).replace('/artists/${item.artists[0].id}',
+                extra: QueryTracksExtra(item.artists[0].name))
+          },
+        ),
+      if (item.artists.length > 1)
+        MenuFlyoutSubItem(
+            leading: const Icon(Symbols.face),
+            text: const Text('Go to Artist'),
+            items: (context) => item.artists
+                .map((x) => MenuFlyoutItem(
+                      leading: const Icon(Symbols.face),
+                      text: Text(x.name),
+                      onPressed: () => {
+                        GoRouter.of(context).replace('/artists/${x.id}',
+                            extra: QueryTracksExtra(x.name))
+                      },
+                    ))
+                .toList()),
       MenuFlyoutItem(
         leading: const Icon(Symbols.album),
         text: const Text('Go to Album'),
-        onPressed: () => {},
+        onPressed: () => {
+          GoRouter.of(context).replace('/albums/${item.album.id}',
+              extra: QueryTracksExtra(item.album.name))
+        },
       ),
       const MenuFlyoutSeparator(),
       MenuFlyoutSubItem(
@@ -208,7 +234,7 @@ Widget buildContextMenu(BuildContext context, MediaFile item,
 
               final fetchMediaFiles = AddItemToPlaylistRequest(
                 playlistId: playlist.id,
-                mediaFileId: item.id,
+                mediaFileId: item.file.id,
                 position: null,
               );
               fetchMediaFiles.sendSignalToRust(); // GENERATED
@@ -233,4 +259,14 @@ Future<List<PlaylistWithoutCoverIds>> getAllPlaylists() async {
   final response = rustSignal.message;
 
   return response.playlists;
+}
+
+Future<FetchParsedMediaFileResponse> getParsedMediaFile(int fileId) async {
+  final fetchRequest = FetchParsedMediaFileRequest(id: fileId);
+  fetchRequest.sendSignalToRust(); // GENERATED
+
+  final rustSignal = await FetchParsedMediaFileResponse.rustSignalStream.first;
+  final response = rustSignal.message;
+
+  return response;
 }

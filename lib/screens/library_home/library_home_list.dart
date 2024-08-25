@@ -46,7 +46,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
       future: summary,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Text("Loading...");
+          return Container();
         } else if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {

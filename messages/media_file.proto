@@ -1,6 +1,9 @@
 syntax = "proto3";
 package media_file;
 
+import "album.proto";
+import "artist.proto";
+
 // [RINF:DART-SIGNAL]
 message FetchMediaFilesRequest {
   int32 cursor = 1;
@@ -9,12 +12,24 @@ message FetchMediaFilesRequest {
 
 // [RINF:RUST-SIGNAL]
 message MediaFile {
-    int32 id = 1;
-    string path = 2;
-    string artist = 3;
-    string album = 4;
-    string title = 5;
-    double duration = 6;
+  int32 id = 1;
+  string path = 2;
+  string artist = 3;
+  string album = 4;
+  string title = 5;
+  double duration = 6;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchParsedMediaFileRequest {
+  int32 id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchParsedMediaFileResponse {
+  MediaFile file = 1;
+  repeated artist.Artist artists = 2;
+  album.Album album = 3;
 }
 
 // [RINF:RUST-SIGNAL]
