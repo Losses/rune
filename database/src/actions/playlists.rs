@@ -8,7 +8,7 @@ use sea_orm::QuerySelect;
 use chrono::Utc;
 
 use crate::entities::{media_file_playlists, playlists};
-use crate::get_groups;
+use crate::{get_all_ids, get_groups};
 
 use super::utils::CountByFirstLetter;
 
@@ -25,6 +25,12 @@ impl CountByFirstLetter for playlists::Entity {
 get_groups!(
     get_playlists_groups,
     playlists,
+    media_file_playlists,
+    PlaylistId
+);
+
+get_all_ids!(
+    get_media_file_ids_of_playlist,
     media_file_playlists,
     PlaylistId
 );

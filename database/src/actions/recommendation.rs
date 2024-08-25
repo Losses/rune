@@ -8,6 +8,8 @@ use std::num::NonZeroUsize;
 
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 
+use super::analysis::AggregatedAnalysisResult;
+
 /// Get recommendations for a given item.
 ///
 /// # Arguments
@@ -17,7 +19,7 @@ use crate::connection::{MainDbConnection, RecommendationDbConnection};
 ///
 /// # Returns
 /// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
-pub fn get_recommendation(
+pub fn get_recommendation_by_file_id(
     db_conn: &RecommendationDbConnection,
     item_id: i32,
     n: usize,
@@ -38,6 +40,61 @@ pub fn get_recommendation(
         .ok_or("No results found for the given item_id")?;
 
     Ok(results)
+}
+
+/// Get recommendations for a given item.
+///
+/// # Arguments
+/// * `db_conn` - The tuple containing the LMDB environment and the Arroy database.
+/// * `item_id` - The ID of the item for which to get recommendations.
+/// * `n` - The number of recommendations to retrieve.
+///
+/// # Returns
+/// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
+pub fn get_recommendation_by_parameter(
+    db_conn: &RecommendationDbConnection,
+    parameter: AggregatedAnalysisResult,
+    n: usize,
+) -> Result<Vec<(u32, f32)>, Box<dyn std::error::Error>> {
+    let env = db_conn.env.clone();
+    let db = db_conn.db;
+    let rtxn = env.read_txn()?;
+    let reader = Reader::<Euclidean>::open(&rtxn, 0, db)?;
+    let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
+        .ok_or("Failed to create NonZeroUsize from search_k")?;
+
+    let feature_vector: Vec<f32> = vec![
+        parameter.spectral_centroid,
+        parameter.spectral_flatness,
+        parameter.spectral_slope,
+        parameter.spectral_rolloff,
+        parameter.spectral_spread,
+        // parameter.spectral_skewness,
+        // parameter.spectral_kurtosis,
+        parameter.chromagram[0],
+        parameter.chromagram[1],
+        parameter.chromagram[2],
+        parameter.chromagram[3],
+        parameter.chromagram[4],
+        parameter.chromagram[5],
+        parameter.chromagram[6],
+        parameter.chromagram[7],
+        parameter.chromagram[8],
+        parameter.chromagram[9],
+        parameter.chromagram[10],
+        parameter.chromagram[11],
+    ]
+    .into_iter()
+    .map(|x| x as f32)
+    .collect();
+
+    let results = reader.nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)?;
+
+    if results.is_empty() {
+        Err("No results found for the given parameter".into())
+    } else {
+        Ok(results)
+    }
 }
 
 /// Sync the recommendation database with the analysis data.

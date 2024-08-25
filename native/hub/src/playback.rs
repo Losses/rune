@@ -1,3 +1,10 @@
+use database::actions::albums::get_media_file_ids_of_album;
+use database::actions::analysis::get_centralized_analysis_result;
+use database::actions::artists::get_media_file_ids_of_artist;
+use database::actions::playlists::get_media_file_ids_of_playlist;
+use database::actions::recommendation::{
+    get_recommendation_by_file_id, get_recommendation_by_parameter,
+};
 use dunce::canonicalize;
 use log::error;
 use rinf::DartSignal;
@@ -7,7 +14,6 @@ use std::sync::{Arc, Mutex};
 
 use database::actions::file::get_file_by_id;
 use database::actions::file::get_files_by_ids;
-use database::actions::recommendation::get_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use playback::player::Player;
 
@@ -17,7 +23,10 @@ use crate::messages::playback::{
     SeekRequest, SwitchRequest,
 };
 use crate::messages::recommend::{PlaybackRecommendation, RecommendAndPlayRequest};
-use crate::{connection, MovePlaylistItemRequest};
+use crate::{
+    connection, AddToQueueCollectionRequest, MovePlaylistItemRequest,
+    StartPlayingCollectionRequest, StartRoamingCollectionRequest,
+};
 
 pub async fn play_file_request(
     main_db: Arc<DatabaseConnection>,
@@ -59,6 +68,33 @@ pub async fn play_file_by_id(
     }
 }
 
+fn files_to_playback_request(
+    lib_path: &String,
+    files: std::result::Result<Vec<database::entities::media_files::Model>, sea_orm::DbErr>,
+) -> std::vec::Vec<(i32, std::path::PathBuf)> {
+    let requests = match files {
+        Ok(files) => files
+            .into_iter()
+            .map(|file| {
+                let file_path = canonicalize(
+                    Path::new(lib_path)
+                        .join(&file.directory)
+                        .join(&file.file_name),
+                )
+                .unwrap();
+
+                (file.id, file_path)
+            })
+            .collect::<Vec<_>>(),
+        Err(e) => {
+            error!("Unable to get files: {}", e);
+            Vec::new()
+        }
+    };
+
+    requests
+}
+
 pub async fn recommend_and_play_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
@@ -69,7 +105,7 @@ pub async fn recommend_and_play_request(
     let file_id = dart_signal.message.file_id;
 
     // Get recommendations
-    let recommendations = match get_recommendation(&recommend_db, file_id, 30) {
+    let recommendations = match get_recommendation_by_file_id(&recommend_db, file_id, 30) {
         Ok(recs) => recs,
         Err(e) => {
             error!("Error getting recommendations: {:#?}", e);
@@ -87,25 +123,7 @@ pub async fn recommend_and_play_request(
     )
     .await;
 
-    let requests = match files {
-        Ok(files) => files
-            .into_iter()
-            .map(|file| {
-                let file_path = canonicalize(
-                    Path::new(&**lib_path)
-                        .join(&file.directory)
-                        .join(&file.file_name),
-                )
-                .unwrap();
-
-                (file.id, file_path)
-            })
-            .collect::<Vec<_>>(),
-        Err(e) => {
-            error!("Unable to get files: {}", e);
-            Vec::new()
-        }
-    };
+    let requests = files_to_playback_request(&lib_path, files);
 
     // Clear the playlist and add new recommendations
     player.lock().unwrap().pause();
@@ -170,4 +188,104 @@ pub async fn move_playlist_item_request(
         .lock()
         .unwrap()
         .move_playlist_item(old_index.try_into().unwrap(), new_index.try_into().unwrap());
+}
+
+pub async fn start_playing_collection_request(
+    main_db: Arc<MainDbConnection>,
+    lib_path: Arc<String>,
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<StartPlayingCollectionRequest>,
+) {
+    let request = dart_signal.message;
+    let media_file_ids = match request.r#type.as_str() {
+        "artist" => get_media_file_ids_of_artist(&main_db, request.id).await,
+        "album" => get_media_file_ids_of_album(&main_db, request.id).await,
+        "playlist" => get_media_file_ids_of_playlist(&main_db, request.id).await,
+        _ => Ok(vec![]),
+    };
+
+    let files = get_files_by_ids(&main_db, &media_file_ids.unwrap()).await;
+
+    let requests = files_to_playback_request(&lib_path, files);
+
+    // Clear the playlist and add new recommendations
+    player.lock().unwrap().pause();
+    player.lock().unwrap().clear_playlist();
+
+    for request in &requests {
+        player
+            .lock()
+            .unwrap()
+            .add_to_playlist(request.0, request.1.clone());
+    }
+    player.lock().unwrap().play();
+}
+
+pub async fn add_to_queue_collection_request(
+    main_db: Arc<MainDbConnection>,
+    lib_path: Arc<String>,
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<AddToQueueCollectionRequest>,
+) {
+    let request = dart_signal.message;
+    let media_file_ids = match request.r#type.as_str() {
+        "artist" => get_media_file_ids_of_artist(&main_db, request.id).await,
+        "album" => get_media_file_ids_of_album(&main_db, request.id).await,
+        "playlist" => get_media_file_ids_of_playlist(&main_db, request.id).await,
+        _ => Ok(vec![]),
+    };
+
+    let files = get_files_by_ids(&main_db, &media_file_ids.unwrap()).await;
+
+    let requests = files_to_playback_request(&lib_path, files);
+
+    for request in &requests {
+        player
+            .lock()
+            .unwrap()
+            .add_to_playlist(request.0, request.1.clone());
+    }
+}
+
+pub async fn start_roaming_collection_request(
+    main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
+    lib_path: Arc<String>,
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<StartRoamingCollectionRequest>,
+) {
+    let request = dart_signal.message;
+    let media_file_ids = match request.r#type.as_str() {
+        "artist" => get_media_file_ids_of_artist(&main_db, request.id).await,
+        "album" => get_media_file_ids_of_album(&main_db, request.id).await,
+        "playlist" => get_media_file_ids_of_playlist(&main_db, request.id).await,
+        _ => Ok(vec![]),
+    };
+
+    let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await;
+
+    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated, 30).unwrap();
+
+    let files = get_files_by_ids(
+        &main_db,
+        &recommendations
+            .into_iter()
+            .map(|x| x.0 as i32)
+            .collect::<Vec<i32>>(),
+    )
+    .await;
+
+    let requests = files_to_playback_request(&lib_path, files);
+
+    // Clear the playlist and add new recommendations
+    player.lock().unwrap().pause();
+    player.lock().unwrap().clear_playlist();
+
+    for request in &requests {
+        player
+            .lock()
+            .unwrap()
+            .add_to_playlist(request.0, request.1.clone());
+    }
+    player.lock().unwrap().play();
 }

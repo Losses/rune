@@ -189,3 +189,24 @@ macro_rules! get_groups {
         }
     };
 }
+
+#[macro_export]
+macro_rules! get_all_ids {
+    ($fn_name:ident, $related_entity:ident, $relation_column_name:ident) => {
+        pub async fn $fn_name(
+            db: &DatabaseConnection,
+            id: i32,
+        ) -> Result<Vec<i32>, sea_orm::DbErr> {
+            // Fetch related media files for these entities
+            let ids = <$related_entity::Entity>::find()
+                .filter(<$related_entity::Column>::$relation_column_name.eq(id))
+                .all(db)
+                .await?
+                .into_iter()
+                .map(|x| x.media_file_id)
+                .collect();
+
+            Ok(ids)
+        }
+    };
+}

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use database::actions::file::get_file_id_from_path;
 use database::actions::file::get_files_by_ids;
-use database::actions::recommendation::get_recommendation;
+use database::actions::recommendation::get_recommendation_by_file_id;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
 pub struct RecommendMusicOptions<'a> {
@@ -48,13 +48,14 @@ pub async fn recommend_music(
         return;
     };
 
-    let recommendations: Vec<(u32, f32)> = match get_recommendation(analysis_db, file_id, num) {
-        Ok(recommendations) => recommendations,
-        Err(e) => {
-            eprintln!("Failed to get recommendations: {}", e);
-            return;
-        }
-    };
+    let recommendations: Vec<(u32, f32)> =
+        match get_recommendation_by_file_id(analysis_db, file_id, num) {
+            Ok(recommendations) => recommendations,
+            Err(e) => {
+                eprintln!("Failed to get recommendations: {}", e);
+                return;
+            }
+        };
 
     // Get file details of recommendations
     let ids: Vec<i32> = recommendations.iter().map(|(id, _)| *id as i32).collect();

@@ -70,3 +70,20 @@ message PlaylistUpdate {
 message RealtimeFFT {
   repeated float value = 1;
 }
+
+// [RINF:DART-SIGNAL]
+message StartPlayingCollectionRequest {
+    string type = 1;
+    int32 id = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message AddToQueueCollectionRequest {
+    string type = 1;
+    int32 id = 2;
+}
+// [RINF:DART-SIGNAL]
+message StartRoamingCollectionRequest {
+    string type = 1;
+    int32 id = 2;
+}

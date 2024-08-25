@@ -13,7 +13,7 @@ use crate::entities::{media_file_albums, media_file_artists, media_file_playlist
 pub async fn get_files_by_ids(
     db: &DatabaseConnection,
     ids: &[i32],
-) -> Result<Vec<media_files::Model>, Box<dyn std::error::Error>> {
+) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
     let files = media_files::Entity::find()
         .filter(media_files::Column::Id.is_in(ids.to_vec()))
         .all(db)
@@ -24,7 +24,7 @@ pub async fn get_files_by_ids(
 pub async fn get_file_by_id(
     db: &DatabaseConnection,
     id: i32,
-) -> Result<Option<media_files::Model>, Box<dyn std::error::Error>> {
+) -> Result<Option<media_files::Model>, sea_orm::DbErr> {
     let file = media_files::Entity::find()
         .filter(media_files::Column::Id.eq(id))
         .one(db)
@@ -35,7 +35,7 @@ pub async fn get_file_by_id(
 pub async fn get_random_files(
     db: &DatabaseConnection,
     n: usize,
-) -> Result<Vec<media_files::Model>, Box<dyn std::error::Error>> {
+) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
     let mut query: sea_orm::sea_query::SelectStatement =
         media_files::Entity::find().as_query().to_owned();
     let select = query

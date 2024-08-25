@@ -204,3 +204,160 @@ async fn insert_analysis_result(
         .await
         .unwrap();
 }
+
+/// Struct to store mean values of analysis results.
+#[derive(Debug)]
+pub struct AggregatedAnalysisResult {
+    pub spectral_centroid: f64,
+    pub spectral_flatness: f64,
+    pub spectral_slope: f64,
+    pub spectral_rolloff: f64,
+    pub spectral_spread: f64,
+    pub spectral_skewness: f64,
+    pub spectral_kurtosis: f64,
+    pub chromagram: [f64; 12],
+}
+
+/// Macro to process individual fields by updating their sum and count.
+macro_rules! process_field {
+    ($sum:expr, $count:expr, $result:expr, $field:ident) => {
+        if let Some(value) = $result.$field {
+            $sum.$field += value;
+            $count.$field += 1.0;
+        }
+    };
+}
+
+/// Macro to process the chromagram array fields by updating their sum and count.
+macro_rules! process_chromagram {
+    ($sum:expr, $count:expr, $result:expr, $index:expr, $field:expr) => {
+        if let Some(value) = $field {
+            $sum.chromagram[$index] += value;
+            $count.chromagram[$index] += 1.0;
+        }
+    };
+}
+
+/// Macro to calculate the mean of individual fields.
+macro_rules! calculate_mean {
+    ($sum:expr, $count:expr, $field:ident) => {
+        if $count.$field > 0.0 {
+            $sum.$field / $count.$field
+        } else {
+            0.0
+        }
+    };
+}
+
+/// Macro to calculate the mean of chromagram array fields.
+macro_rules! calculate_chromagram_mean {
+    ($sum:expr, $count:expr, $index:expr) => {
+        if $count.chromagram[$index] > 0.0 {
+            $sum.chromagram[$index] / $count.chromagram[$index]
+        } else {
+            0.0
+        }
+    };
+}
+
+/// Computes the centralized analysis result from the database.
+///
+/// This function retrieves analysis results based on specified file IDs,
+/// sums the parameters, and calculates averages while handling potential `None` values.
+///
+/// # Arguments
+///
+/// * `db` - A reference to the database connection.
+/// * `file_ids` - A vector of file IDs to filter the analysis results.
+///
+/// # Returns
+///
+/// * `AnalysisResultMean` - A struct containing the mean values of the analysis results.
+///
+/// # Example
+///
+/// ```rust
+/// let db: DatabaseConnection = ...;
+/// let file_ids = vec![1, 2, 3];
+/// let result = get_centralized_analysis_result(&db, file_ids).await;
+/// println!("{:?}", result);
+/// ```
+pub async fn get_centralized_analysis_result(
+    db: &DatabaseConnection,
+    file_ids: Vec<i32>,
+) -> AggregatedAnalysisResult {
+    let analysis_results = media_analysis::Entity::find()
+        .filter(media_analysis::Column::FileId.is_in(file_ids))
+        .all(db)
+        .await
+        .unwrap();
+
+    let mut sum = AggregatedAnalysisResult {
+        spectral_centroid: 0.0,
+        spectral_flatness: 0.0,
+        spectral_slope: 0.0,
+        spectral_rolloff: 0.0,
+        spectral_spread: 0.0,
+        spectral_skewness: 0.0,
+        spectral_kurtosis: 0.0,
+        chromagram: [0.0; 12],
+    };
+
+    let mut count = AggregatedAnalysisResult {
+        spectral_centroid: 0.0,
+        spectral_flatness: 0.0,
+        spectral_slope: 0.0,
+        spectral_rolloff: 0.0,
+        spectral_spread: 0.0,
+        spectral_skewness: 0.0,
+        spectral_kurtosis: 0.0,
+        chromagram: [0.0; 12],
+    };
+
+    for result in analysis_results {
+        process_field!(sum, count, result, spectral_centroid);
+        process_field!(sum, count, result, spectral_flatness);
+        process_field!(sum, count, result, spectral_slope);
+        process_field!(sum, count, result, spectral_rolloff);
+        process_field!(sum, count, result, spectral_spread);
+        process_field!(sum, count, result, spectral_skewness);
+        process_field!(sum, count, result, spectral_kurtosis);
+
+        process_chromagram!(sum, count, result, 0, result.chroma0);
+        process_chromagram!(sum, count, result, 1, result.chroma1);
+        process_chromagram!(sum, count, result, 2, result.chroma2);
+        process_chromagram!(sum, count, result, 3, result.chroma3);
+        process_chromagram!(sum, count, result, 4, result.chroma4);
+        process_chromagram!(sum, count, result, 5, result.chroma5);
+        process_chromagram!(sum, count, result, 6, result.chroma6);
+        process_chromagram!(sum, count, result, 7, result.chroma7);
+        process_chromagram!(sum, count, result, 8, result.chroma8);
+        process_chromagram!(sum, count, result, 9, result.chroma9);
+        process_chromagram!(sum, count, result, 10, result.chroma10);
+        process_chromagram!(sum, count, result, 11, result.chroma11);
+    }
+
+    AggregatedAnalysisResult {
+        spectral_centroid: calculate_mean!(sum, count, spectral_centroid),
+        spectral_flatness: calculate_mean!(sum, count, spectral_flatness),
+        spectral_slope: calculate_mean!(sum, count, spectral_slope),
+        spectral_rolloff: calculate_mean!(sum, count, spectral_rolloff),
+        spectral_spread: calculate_mean!(sum, count, spectral_spread),
+        spectral_skewness: calculate_mean!(sum, count, spectral_skewness),
+        spectral_kurtosis: calculate_mean!(sum, count, spectral_kurtosis),
+        chromagram: [
+            calculate_chromagram_mean!(sum, count, 0),
+            calculate_chromagram_mean!(sum, count, 1),
+            calculate_chromagram_mean!(sum, count, 2),
+            calculate_chromagram_mean!(sum, count, 3),
+            calculate_chromagram_mean!(sum, count, 4),
+            calculate_chromagram_mean!(sum, count, 5),
+            calculate_chromagram_mean!(sum, count, 6),
+            calculate_chromagram_mean!(sum, count, 7),
+            calculate_chromagram_mean!(sum, count, 8),
+            calculate_chromagram_mean!(sum, count, 9),
+            calculate_chromagram_mean!(sum, count, 10),
+            calculate_chromagram_mean!(sum, count, 11),
+        ],
+    }
+}
