@@ -4,12 +4,14 @@ use tracing_subscriber::filter::EnvFilter;
 use database::actions::analysis::analysis_audio_library;
 use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::sync_recommendation;
-use database::connection::{connect_main_db, connect_recommendation_db};
+use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 
 #[tokio::main]
 async fn main() {
     // std::env::set_var("RUST_LOG", "debug");
-    let filter = EnvFilter::new("symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info"); // ,debug
+    let filter = EnvFilter::new(
+        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info",
+    ); // ,debug
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -18,6 +20,7 @@ async fn main() {
 
     let path = ".";
     let main_db = connect_main_db(path).await.unwrap();
+    let mut search_db = connect_search_db(path).unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
@@ -26,7 +29,7 @@ async fn main() {
     let root_path = PathBuf::from(&path);
 
     // Scan the audio library
-    scan_audio_library(&main_db, &root_path, true).await;
+    scan_audio_library(&main_db, &mut search_db, &root_path, true).await;
 
     // Analyze the audio files in the database
     analysis_audio_library(&main_db, &root_path, 10)

@@ -2,20 +2,23 @@ use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
 
+use crate::actions::search::{add_term, CollectionType};
 use crate::actions::utils::generate_group_name;
+use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
 
 use super::metadata::get_metadata_summary_by_file_ids;
 
 pub async fn index_media_files(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     file_ids: Vec<i32>,
 ) -> Result<(), sea_orm::DbErr> {
     info!("Indexing media: {:?}", file_ids);
     // Fetch metadata summary for provided file_ids
-    let metadata_summaries = get_metadata_summary_by_file_ids(db, file_ids.clone()).await?;
+    let metadata_summaries = get_metadata_summary_by_file_ids(main_db, file_ids.clone()).await?;
 
-    let txn = db.begin().await?;
+    let txn = main_db.begin().await?;
 
     for summary in metadata_summaries {
         // Process artists
@@ -38,6 +41,12 @@ pub async fn index_media_files(
                 existing.id
             } else {
                 let inserted_artist = artists::Entity::insert(artist).exec(&txn).await?;
+                add_term(
+                    search_db,
+                    CollectionType::Artist,
+                    inserted_artist.last_insert_id,
+                    &artist_name.clone(),
+                );
                 inserted_artist.last_insert_id
             };
 
@@ -79,6 +88,12 @@ pub async fn index_media_files(
             existing.id
         } else {
             let inserted_album = albums::Entity::insert(album).exec(&txn).await?;
+            add_term(
+                search_db,
+                CollectionType::Album,
+                inserted_album.last_insert_id,
+                &album_name.clone(),
+            );
             inserted_album.last_insert_id
         };
 
@@ -95,6 +110,7 @@ pub async fn index_media_files(
             album_id: Set(album_id),
             track_number: Set(summary.track_number),
         };
+
         media_file_albums::Entity::insert(media_file_album)
             .exec(&txn)
             .await?;
@@ -105,7 +121,8 @@ pub async fn index_media_files(
 }
 
 pub async fn index_audio_library(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     batch_size: usize,
 ) -> Result<(), sea_orm::DbErr> {
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
@@ -121,8 +138,10 @@ pub async fn index_audio_library(
     let producer = async {
         loop {
             // Fetch the next batch of files
-            let files: Vec<media_files::Model> =
-                cursor.first(batch_size.try_into().unwrap()).all(db).await?;
+            let files: Vec<media_files::Model> = cursor
+                .first(batch_size.try_into().unwrap())
+                .all(main_db)
+                .await?;
 
             if files.is_empty() {
                 info!("No more files to process. Exiting loop.");
@@ -151,13 +170,13 @@ pub async fn index_audio_library(
         let mut file_ids: Vec<i32> = Vec::new();
 
         while let Ok(file) = rx.recv().await {
-            let db = db.clone();
+            let db = main_db.clone();
             let file_id = file.id;
 
             file_ids.push(file_id);
 
             if file_ids.len() >= batch_size {
-                match index_media_files(&db, file_ids).await {
+                match index_media_files(&db, search_db, file_ids).await {
                     Ok(_) => {}
                     Err(e) => {
                         error!("Failed to index files: {}", e);

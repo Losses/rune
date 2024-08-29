@@ -1,7 +1,7 @@
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvOpenOptions};
-use log::{LevelFilter, info};
+use log::{info, LevelFilter};
 use sea_orm::DbErr;
 use sea_orm::{ConnectOptions, Database};
 use std::error::Error;
@@ -9,6 +9,8 @@ use std::ffi::OsString;
 use std::fmt;
 use std::path::PathBuf;
 use std::result::Result;
+use tantivy::{schema::*, IndexReader};
+use tantivy::{Index, IndexWriter, ReloadPolicy};
 
 use migration::Migrator;
 use migration::MigratorTrait;
@@ -52,9 +54,7 @@ impl From<DbErr> for ConnectMainDbError {
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
-pub async fn connect_main_db(
-    lib_path: &str,
-) -> Result<MainDbConnection, ConnectMainDbError> {
+pub async fn connect_main_db(lib_path: &str) -> Result<MainDbConnection, ConnectMainDbError> {
     let path: PathBuf = [lib_path, ".rune", ".0.db"].iter().collect();
 
     let dir_path = path.parent().ok_or_else(|| {
@@ -166,4 +166,33 @@ pub fn connect_recommendation_db(
         .map_err(|e| ConnectRecommendationDbError::CommitError(Box::new(e)))?;
 
     Ok(RecommendationDbConnection { env, db })
+}
+
+pub struct SearchDbConnection {
+    pub w: IndexWriter,
+    pub r: IndexReader,
+    pub schema: Schema,
+}
+
+pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn Error>> {
+    let mut schema_builder = Schema::builder();
+    schema_builder.add_text_field("name", TEXT | STORED);
+    schema_builder.add_text_field("tid", TEXT | STORED);
+    schema_builder.add_u64_field("type", INDEXED);
+    schema_builder.add_u64_field("id", INDEXED);
+
+    let schema = schema_builder.build();
+    let index = Index::create_in_dir(lib_path, schema.clone())?;
+
+    let writer: IndexWriter = index.writer(1_000_000)?;
+    let reader = index
+        .reader_builder()
+        .reload_policy(ReloadPolicy::OnCommitWithDelay)
+        .try_into()?;
+
+    Ok(SearchDbConnection {
+        w: writer,
+        r: reader,
+        schema,
+    })
 }

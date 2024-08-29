@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::metadata::scan_audio_library;
-use database::connection::{connect_main_db, connect_recommendation_db};
+use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 
 use rune::analysis::*;
 use rune::playback::*;
@@ -115,13 +115,21 @@ async fn main() {
         }
     };
 
+    let mut search_db = match connect_search_db(lib_path) {
+        Ok(db) => db,
+        Err(e) => {
+            error!("Failed to connect to analysis database: {}", e);
+            return;
+        }
+    };
+
     match &cli.command {
         Commands::Scan => {
-            scan_audio_library(&main_db, &path, true).await;
+            scan_audio_library(&main_db, &mut search_db, &path, true).await;
             println!("Library scanned successfully.");
         }
         Commands::Index => {
-            index_audio_library(&main_db).await;
+            index_audio_library(&main_db, &mut search_db).await;
         }
         Commands::Analyze => {
             analyze_audio_library(&main_db, &analysis_db, &path).await;

@@ -153,7 +153,7 @@ pub async fn fetch_parsed_media_file_request(
 
             match parsed_media_file.await {
                 Ok(parsed_files) => {
-                    if let Some(media_file) = parsed_files.get(0) {
+                    if let Some(media_file) = parsed_files.first() {
                         if let Some(album) = album {
                             FetchParsedMediaFileResponse {
                                 file: Some(media_file.clone()),

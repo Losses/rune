@@ -14,6 +14,7 @@ use metadata::scanner::AudioScanner;
 
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
+use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
 
@@ -389,7 +390,12 @@ async fn clean_up_database(
     Ok(())
 }
 
-pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, cleanup: bool) {
+pub async fn scan_audio_library(
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
+    root_path: &Path,
+    cleanup: bool,
+) {
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = AudioScanner::new(&root_path_str);
 
@@ -406,7 +412,7 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(db, &mut descriptions).await {
+        match sync_file_descriptions(main_db, &mut descriptions).await {
             Ok(_) => {
                 debug!("Finished one batch");
             }
@@ -415,11 +421,11 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
             }
         };
 
-        let file_ids = get_file_ids_by_descriptions(db, &descriptions)
+        let file_ids = get_file_ids_by_descriptions(main_db, &descriptions)
             .await
             .unwrap();
 
-        match index_media_files(db, file_ids).await {
+        match index_media_files(main_db, search_db, file_ids).await {
             Ok(_) => {}
             Err(e) => error!("Error indexing files: {:?}", e),
         };
@@ -427,7 +433,7 @@ pub async fn scan_audio_library(db: &DatabaseConnection, root_path: &Path, clean
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(db, root_path).await {
+        match clean_up_database(main_db, root_path).await {
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("Error during cleanup: {:?}", e),
         }
@@ -539,8 +545,7 @@ pub async fn get_metadata_summary_by_file_id(
 pub async fn get_parsed_file_by_id(
     db: &DatabaseConnection,
     file_id: i32,
-) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>), sea_orm::DbErr>
-{
+) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>), sea_orm::DbErr> {
     let file = get_metadata_summary_by_file_id(db, file_id).await.unwrap();
 
     let artist_ids = media_file_artists::Entity::find()
