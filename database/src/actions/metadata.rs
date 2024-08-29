@@ -14,6 +14,7 @@ use metadata::scanner::AudioScanner;
 
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
+use crate::actions::search::{add_term, CollectionType};
 use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
@@ -45,13 +46,21 @@ pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
 }
 
 pub async fn sync_file_descriptions(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting to process multiple files");
 
     // Start a transaction
-    let txn = db.begin().await?;
+    let txn = main_db.begin().await?;
+    let mut search_term: Option<(i32, String)> = None;
+
+    let mut update_search_term = |file_id: i32, metadata: &FileMetadata| {
+        if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "title") {
+            search_term = Some((file_id, value.clone()));
+        }
+    };
 
     for description in descriptions.iter_mut() {
         match description {
@@ -110,6 +119,8 @@ pub async fn sync_file_descriptions(
                                 Some(x) => {
                                     update_file_metadata(&txn, &existing_file, description, &x)
                                         .await?;
+
+                                    update_search_term(existing_file.id, &x);
                                 }
                                 _none => {
                                     error!(
@@ -129,16 +140,19 @@ pub async fn sync_file_descriptions(
 
                     let file_metadata = read_metadata(description);
 
-                    match file_metadata {
-                        Some(x) => {
-                            insert_new_file(&txn, &x, description).await?;
+                    if let Some(ref x) = file_metadata {
+                        insert_new_file(&txn, x, description).await?;
+
+                        if let Some(existing_file) = existing_file {
+                            update_search_term(existing_file.id, x);
+                        } else {
+                            error!("Existing file is None when trying to update search term");
                         }
-                        _none => {
-                            error!(
-                                "Unable to get metadata of the file: {:?}",
-                                description.rel_path,
-                            );
-                        }
+                    } else {
+                        error!(
+                            "Unable to get metadata of the file: {:?}",
+                            description.rel_path,
+                        );
                     }
                 }
             }
@@ -147,6 +161,10 @@ pub async fn sync_file_descriptions(
 
     // Commit the transaction
     txn.commit().await?;
+
+    if let Some((id, name)) = search_term {
+        add_term(search_db, CollectionType::Track, id, &name);
+    }
 
     info!("Finished syncing file data");
 
@@ -412,7 +430,7 @@ pub async fn scan_audio_library(
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, &mut descriptions).await {
+        match sync_file_descriptions(main_db, search_db,&mut descriptions).await {
             Ok(_) => {
                 debug!("Finished one batch");
             }
