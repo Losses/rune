@@ -174,6 +174,7 @@ pub struct SearchDbConnection {
     pub w: IndexWriter,
     pub r: IndexReader,
     pub schema: Schema,
+    pub index: Index,
 }
 
 pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn Error>> {
@@ -207,5 +208,6 @@ pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn E
         w: writer,
         r: reader,
         schema,
+        index,
     })
 }
