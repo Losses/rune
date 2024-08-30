@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use deunicode::deunicode;
-use tantivy::collector::TopDocs;
+use tantivy::collector::{FilterCollector, TopDocs};
 use tantivy::doc;
 use tantivy::query::QueryParser;
 use tantivy::schema::*;
 
 use crate::connection::SearchDbConnection;
 
-#[derive(Eq, Hash, PartialEq, Debug)]
+#[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum CollectionType {
     Track,
     Artist,
@@ -86,28 +86,38 @@ pub fn search_for(
 ) -> Result<HashMap<CollectionType, Vec<i64>>, Box<dyn Error>> {
     let schema = &search_db.schema;
     let term_name = schema.get_field("name").unwrap();
-    let field_type = schema.get_field("type").unwrap();
     let field_id = schema.get_field("id").unwrap();
 
     let query_parser = QueryParser::for_index(&search_db.index, vec![term_name]);
     let query = query_parser.parse_query(query_str)?;
 
-    let searcher = search_db.r.searcher();
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(n))?;
+    let searcher = search_db.index.reader()?.searcher();
 
     let mut results: HashMap<CollectionType, Vec<i64>> = HashMap::new();
 
-    for (_score, doc_address) in top_docs {
-        let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-        let doc_type = retrieved_doc
-            .get_first(field_type)
-            .unwrap()
-            .as_i64()
-            .unwrap();
-        let doc_id = retrieved_doc.get_first(field_id).unwrap().as_i64().unwrap();
+    for collection_type in [
+        CollectionType::Track,
+        CollectionType::Artist,
+        CollectionType::Album,
+        CollectionType::Directory,
+        CollectionType::Playlist,
+    ] {
+        let type_value = i64::from(collection_type.clone());
+        let filter_collector = FilterCollector::new(
+            "type".to_string(),
+            move |value: i64| value == type_value,
+            TopDocs::with_limit(n),
+        );
 
-        if let Ok(collection_type) = CollectionType::try_from(doc_type) {
-            results.entry(collection_type).or_default().push(doc_id);
+        let top_docs = searcher.search(&query, &filter_collector)?;
+
+        for (_score, doc_address) in top_docs {
+            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
+            let doc_id = retrieved_doc.get_first(field_id).unwrap().as_i64().unwrap();
+            results
+                .entry(collection_type.clone())
+                .or_default()
+                .push(doc_id);
         }
     }
 

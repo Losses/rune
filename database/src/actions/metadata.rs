@@ -380,7 +380,7 @@ where
             search_db,
             CollectionType::Track,
             inserted_file.last_insert_id,
-            &value,
+            value,
         );
     }
 
