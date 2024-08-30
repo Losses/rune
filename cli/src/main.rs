@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use database::actions::search::search_for;
 use dunce::canonicalize;
 use log::error;
 use rune::index::index_audio_library;
@@ -7,7 +8,6 @@ use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::metadata::scan_audio_library;
 use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
-
 use rune::analysis::*;
 use rune::playback::*;
 use rune::recommend::*;
@@ -64,6 +64,17 @@ enum Commands {
         /// The output file path (required if format is specified)
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+
+    /// Search the audio library
+    Search {
+        /// The search query string
+        #[arg(short, long)]
+        query: String,
+
+        /// The number of results to retrieve per collection type
+        #[arg(short, long, default_value_t = 10)]
+        num: usize,
     },
 }
 
@@ -162,6 +173,18 @@ async fn main() {
                 },
             )
             .await;
+        }
+        Commands::Search { query, num } => {
+            match search_for(&mut search_db, query, *num) {
+                Ok(results) => {
+                    for (collection_type, ids) in results {
+                        println!("{:?}: {:?}", collection_type, ids);
+                    }
+                }
+                Err(e) => {
+                    error!("Search failed: {}", e);
+                }
+            }
         }
     }
 }

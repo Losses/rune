@@ -187,9 +187,10 @@ pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn E
 
     let mut schema_builder = Schema::builder();
     schema_builder.add_text_field("name", TEXT | STORED);
+    schema_builder.add_text_field("latinization", TEXT | STORED);
     schema_builder.add_text_field("tid", TEXT | STORED);
-    schema_builder.add_i64_field("type", INDEXED);
-    schema_builder.add_i64_field("id", INDEXED);
+    schema_builder.add_i64_field("type", INDEXED | FAST);
+    schema_builder.add_i64_field("id", INDEXED | FAST | STORED);
 
     let schema = schema_builder.build();
     let index =

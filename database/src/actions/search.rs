@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 
 use deunicode::deunicode;
+use log::warn;
 use tantivy::collector::{FilterCollector, TopDocs};
 use tantivy::doc;
 use tantivy::query::QueryParser;
@@ -58,6 +59,7 @@ pub fn remove_term(search_db: &mut SearchDbConnection, r#type: CollectionType, i
 pub fn add_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: i32, name: &str) {
     let schema = &search_db.schema;
     let term_name = schema.get_field("name").unwrap();
+    let term_latinization = schema.get_field("latinization").unwrap();
     let term_id = schema.get_field("id").unwrap();
     let term_type = schema.get_field("type").unwrap();
     let term_tid = schema.get_field("tid").unwrap();
@@ -71,7 +73,7 @@ pub fn add_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: 
         .w
         .add_document(doc!(
             term_name => name,
-            term_name => deunicode(name),
+            term_latinization => deunicode(name),
             term_type => Into::<i64>::into(r#type),
             term_tid => tid,
             term_id => Into::<i64>::into(id),
@@ -86,9 +88,10 @@ pub fn search_for(
 ) -> Result<HashMap<CollectionType, Vec<i64>>, Box<dyn Error>> {
     let schema = &search_db.schema;
     let term_name = schema.get_field("name").unwrap();
+    let term_latinization = schema.get_field("latinization").unwrap();
     let field_id = schema.get_field("id").unwrap();
 
-    let query_parser = QueryParser::for_index(&search_db.index, vec![term_name]);
+    let query_parser = QueryParser::for_index(&search_db.index, vec![term_name, term_latinization]);
     let query = query_parser.parse_query(query_str)?;
 
     let searcher = search_db.index.reader()?.searcher();
@@ -113,11 +116,14 @@ pub fn search_for(
 
         for (_score, doc_address) in top_docs {
             let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-            let doc_id = retrieved_doc.get_first(field_id).unwrap().as_i64().unwrap();
-            results
-                .entry(collection_type.clone())
-                .or_default()
-                .push(doc_id);
+            if let Some(doc_id) = retrieved_doc.get_first(field_id) {
+                results
+                    .entry(collection_type.clone())
+                    .or_default()
+                    .push(doc_id.as_i64().unwrap());
+            } else {
+                warn!("Id not inserted while searching for the document");
+            }
         }
     }
 
