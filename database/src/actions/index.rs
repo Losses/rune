@@ -117,6 +117,8 @@ pub async fn index_media_files(
     }
 
     txn.commit().await?;
+    search_db.w.commit().unwrap();
+
     Ok(())
 }
 

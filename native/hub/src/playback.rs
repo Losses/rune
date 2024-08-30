@@ -3,7 +3,8 @@ use log::error;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use database::actions::albums::get_media_file_ids_of_album;
 use database::actions::analysis::get_centralized_analysis_result;
@@ -36,7 +37,7 @@ async fn play_file_by_id(
 ) {
     match get_file_by_id(&db, file_id).await {
         Ok(Some(file)) => {
-            let player_guard = player.lock().unwrap();
+            let player_guard = player.lock().await;
             player_guard.pause();
             player_guard.clear_playlist();
 
@@ -79,8 +80,11 @@ fn files_to_playback_request(
     }
 }
 
-fn update_playlist(player: &Arc<Mutex<Player>>, requests: Vec<(i32, std::path::PathBuf)>) {
-    let player_guard = player.lock().unwrap();
+pub async fn update_playlist(
+    player: &Arc<Mutex<Player>>,
+    requests: Vec<(i32, std::path::PathBuf)>,
+) {
+    let player_guard = player.lock().await;
     for request in requests {
         player_guard.add_to_playlist(request.0, request.1);
     }
@@ -97,7 +101,7 @@ macro_rules! handle_collection_request {
         let files = get_files_by_ids(&$main_db, &media_file_ids).await;
         let requests = files_to_playback_request(&$lib_path, files);
 
-        update_playlist(&$player, requests);
+        update_playlist(&$player, requests).await;
     }};
 }
 
@@ -142,7 +146,7 @@ pub async fn recommend_and_play_request(
     .await;
 
     let requests = files_to_playback_request(&lib_path, files);
-    update_playlist(&player, requests.clone());
+    update_playlist(&player, requests.clone()).await;
 
     let recommended_ids: Vec<i32> = requests.into_iter().map(|(id, _)| id).collect();
     PlaybackRecommendation { recommended_ids }.send_signal_to_dart();
@@ -156,8 +160,8 @@ pub async fn start_playing_collection_request(
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<StartPlayingCollectionRequest>,
 ) {
-    player.lock().unwrap().pause();
-    player.lock().unwrap().clear_playlist();
+    player.lock().await.pause();
+    player.lock().await.clear_playlist();
 
     match dart_signal.message.r#type.as_str() {
         "artist" => handle_collection_request!(
@@ -245,43 +249,43 @@ pub async fn start_roaming_collection_request(
     .await;
 
     let requests = files_to_playback_request(&lib_path, files);
-    update_playlist(&player, requests);
+    update_playlist(&player, requests).await;
 }
 
 pub async fn play_request(player: Arc<Mutex<Player>>, _: DartSignal<PlayRequest>) {
-    player.lock().unwrap().play()
+    player.lock().await.play()
 }
 
 pub async fn pause_request(player: Arc<Mutex<Player>>, _: DartSignal<PauseRequest>) {
-    player.lock().unwrap().pause()
+    player.lock().await.pause()
 }
 
 pub async fn next_request(player: Arc<Mutex<Player>>, _: DartSignal<NextRequest>) {
-    player.lock().unwrap().next()
+    player.lock().await.next()
 }
 
 pub async fn previous_request(player: Arc<Mutex<Player>>, _: DartSignal<PreviousRequest>) {
-    player.lock().unwrap().previous()
+    player.lock().await.previous()
 }
 
 pub async fn switch_request(player: Arc<Mutex<Player>>, dart_signal: DartSignal<SwitchRequest>) {
     player
         .lock()
-        .unwrap()
+        .await
         .switch(dart_signal.message.index.try_into().unwrap())
 }
 
 pub async fn seek_request(player: Arc<Mutex<Player>>, dart_signal: DartSignal<SeekRequest>) {
     player
         .lock()
-        .unwrap()
+        .await
         .seek(dart_signal.message.position_seconds)
 }
 
 pub async fn remove_request(player: Arc<Mutex<Player>>, dart_signal: DartSignal<RemoveRequest>) {
     player
         .lock()
-        .unwrap()
+        .await
         .remove_from_playlist(dart_signal.message.index as usize)
 }
 
@@ -295,6 +299,6 @@ pub async fn move_playlist_item_request(
 
     player
         .lock()
-        .unwrap()
+        .await
         .move_playlist_item(old_index.try_into().unwrap(), new_index.try_into().unwrap());
 }

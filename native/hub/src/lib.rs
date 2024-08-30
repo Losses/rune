@@ -10,9 +10,10 @@ mod playback;
 mod player;
 mod playlist;
 
+use database::connection::connect_search_db;
 use log::{debug, info};
 use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::sync::Mutex;
 use tracing_subscriber::filter::EnvFilter;
 
 pub use tokio;
@@ -90,6 +91,7 @@ async fn main() {
                 info!("Initializing database");
                 let main_db = Arc::new(connect_main_db(&path).await.unwrap());
                 let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
+                let search_db = Arc::new(Mutex::new(connect_search_db(&path).unwrap()));
                 let lib_path = Arc::new(path);
 
                 info!("Initializing player");
@@ -130,8 +132,8 @@ async fn main() {
                     FetchPlaylistsGroupsRequest => (main_db),
                     FetchLibrarySummaryRequest => (main_db),
                     FetchAllPlaylistsRequest => (main_db),
-                    CreatePlaylistRequest => (main_db),
-                    UpdatePlaylistRequest => (main_db),
+                    CreatePlaylistRequest => (main_db, search_db),
+                    UpdatePlaylistRequest => (main_db, search_db),
                     CheckItemsInPlaylistRequest => (main_db),
                     AddItemToPlaylistRequest => (main_db),
                     AddMediaFileToPlaylistRequest => (main_db),

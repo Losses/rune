@@ -141,12 +141,10 @@ pub async fn sync_file_descriptions(
                     let file_metadata = read_metadata(description);
 
                     if let Some(ref x) = file_metadata {
-                        insert_new_file(&txn, x, description).await?;
+                        insert_new_file(&txn, search_db, x, description).await?;
 
                         if let Some(existing_file) = existing_file {
                             update_search_term(existing_file.id, x);
-                        } else {
-                            error!("Existing file is None when trying to update search term");
                         }
                     } else {
                         error!(
@@ -166,19 +164,22 @@ pub async fn sync_file_descriptions(
         add_term(search_db, CollectionType::Track, id, &name);
     }
 
+    search_db.w.commit().unwrap();
+
     info!("Finished syncing file data");
 
     Ok(())
 }
 
 pub async fn process_files(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting to process multiple files");
 
     // Start a transaction
-    let txn = db.begin().await?;
+    let txn = main_db.begin().await?;
 
     for description in descriptions.iter_mut() {
         match description {
@@ -258,7 +259,7 @@ pub async fn process_files(
 
                     match file_metadata {
                         Some(x) => {
-                            insert_new_file(&txn, &x, description).await?;
+                            insert_new_file(&txn, search_db, &x, description).await?;
                         }
                         _none => {
                             error!(
@@ -274,6 +275,7 @@ pub async fn process_files(
 
     // Commit the transaction
     txn.commit().await?;
+    search_db.w.commit().unwrap();
 
     info!("Finished processing multiple files");
 
@@ -352,7 +354,8 @@ where
 }
 
 pub async fn insert_new_file<E>(
-    db: &E,
+    main_db: &E,
+    search_db: &mut SearchDbConnection,
     metadata: &FileMetadata,
     description: &mut FileDescription,
 ) -> Result<(), Box<dyn std::error::Error>>
@@ -370,7 +373,16 @@ where
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
     };
-    let inserted_file = media_files::Entity::insert(new_file).exec(db).await?;
+    let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;
+
+    if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "title") {
+        add_term(
+            search_db,
+            CollectionType::Track,
+            inserted_file.last_insert_id,
+            &value,
+        );
+    }
 
     // Insert metadata
     let new_metadata: Vec<media_metadata::ActiveModel> = metadata
@@ -385,7 +397,7 @@ where
         })
         .collect();
     media_metadata::Entity::insert_many(new_metadata)
-        .exec(db)
+        .exec(main_db)
         .await?;
     Ok(())
 }
@@ -430,7 +442,7 @@ pub async fn scan_audio_library(
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, search_db,&mut descriptions).await {
+        match sync_file_descriptions(main_db, search_db, &mut descriptions).await {
             Ok(_) => {
                 debug!("Finished one batch");
             }

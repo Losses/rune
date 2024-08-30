@@ -7,6 +7,9 @@ use sea_orm::QuerySelect;
 
 use chrono::Utc;
 
+use crate::actions::search::add_term;
+use crate::actions::search::CollectionType;
+use crate::connection::SearchDbConnection;
 use crate::entities::{media_file_playlists, playlists};
 use crate::{get_all_ids, get_groups};
 
@@ -45,7 +48,8 @@ get_all_ids!(
 /// # Returns
 /// * `Result<Model, Box<dyn std::error::Error>>` - The created playlist model or an error.
 pub async fn create_playlist(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     name: String,
     group: String,
 ) -> Result<playlists::Model, Box<dyn std::error::Error>> {
@@ -53,7 +57,7 @@ pub async fn create_playlist(
 
     // Create a new playlist active model
     let new_playlist = ActiveModel {
-        name: ActiveValue::Set(name),
+        name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
         created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
@@ -61,9 +65,18 @@ pub async fn create_playlist(
     };
 
     // Insert the new playlist into the database
-    let playlist = new_playlist.insert(db).await?;
+    let inserted_playlist = new_playlist.insert(main_db).await?;
 
-    Ok(playlist)
+    add_term(
+        search_db,
+        CollectionType::Playlist,
+        inserted_playlist.id,
+        &name.clone(),
+    );
+
+    search_db.w.commit().unwrap();
+
+    Ok(inserted_playlist)
 }
 
 /// Get all playlists.
@@ -121,7 +134,8 @@ pub async fn get_playlist_by_id(
 /// # Returns
 /// * `Result<Model, Box<dyn std::error::Error>>` - The updated playlist model or an error.
 pub async fn update_playlist(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     playlist_id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -130,7 +144,7 @@ pub async fn update_playlist(
 
     // Find the playlist by ID
     let mut playlist: playlists::ActiveModel = PlaylistEntity::find_by_id(playlist_id)
-        .one(db)
+        .one(main_db)
         .await?
         .ok_or("Playlist not found")?
         .into();
@@ -146,7 +160,16 @@ pub async fn update_playlist(
     playlist.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
 
     // Update the playlist in the database
-    let updated_playlist = playlist.update(db).await?;
+    let updated_playlist = playlist.update(main_db).await?;
+
+    add_term(
+        search_db,
+        CollectionType::Playlist,
+        updated_playlist.id,
+        &updated_playlist.name.clone(),
+    );
+
+    search_db.w.commit().unwrap();
 
     Ok(updated_playlist)
 }

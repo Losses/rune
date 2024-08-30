@@ -1,6 +1,7 @@
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::task;
 
 use database::actions::metadata::{
@@ -16,9 +17,9 @@ pub async fn initialize_player(
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
 ) -> Result<()> {
-    let mut status_receiver = player.lock().unwrap().subscribe_status();
-    let mut playlist_receiver = player.lock().unwrap().subscribe_playlist();
-    let mut realtime_fft_receiver = player.lock().unwrap().subscribe_realtime_fft();
+    let mut status_receiver = player.lock().await.subscribe_status();
+    let mut playlist_receiver = player.lock().await.subscribe_playlist();
+    let mut realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);

@@ -6,9 +6,11 @@ use database::actions::playlists::get_all_playlists;
 use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
+use database::connection::SearchDbConnection;
 use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 use database::actions::playlists::get_playlist_by_id;
 use database::actions::playlists::get_playlists_groups;
@@ -134,6 +136,7 @@ pub async fn fetch_all_playlists_request(
 
 pub async fn create_playlist_request(
     main_db: Arc<MainDbConnection>,
+    search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<CreatePlaylistRequest>,
 ) {
     let request = dart_signal.message;
@@ -143,7 +146,10 @@ pub async fn create_playlist_request(
         request.name, request.group
     );
 
-    match create_playlist(&main_db, request.name, request.group).await {
+    // Lock the mutex to get mutable access to the search_db
+    let mut search_db = search_db.lock().await;
+
+    match create_playlist(&main_db, &mut search_db, request.name, request.group).await {
         Ok(playlist) => {
             CreatePlaylistResponse {
                 playlist: Some(PlaylistWithoutCoverIds {
@@ -162,6 +168,7 @@ pub async fn create_playlist_request(
 
 pub async fn update_playlist_request(
     main_db: Arc<MainDbConnection>,
+    search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<UpdatePlaylistRequest>,
 ) {
     let request = dart_signal.message;
@@ -171,8 +178,11 @@ pub async fn update_playlist_request(
         request.playlist_id, request.name, request.group
     );
 
+    let mut search_db = search_db.lock().await;
+
     match update_playlist(
         &main_db,
+        &mut search_db,
         request.playlist_id,
         Some(request.name),
         Some(request.group),

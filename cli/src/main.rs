@@ -118,7 +118,7 @@ async fn main() {
     let mut search_db = match connect_search_db(lib_path) {
         Ok(db) => db,
         Err(e) => {
-            error!("Failed to connect to analysis database: {}", e);
+            error!("Failed to connect to search database: {}", e);
             return;
         }
     };

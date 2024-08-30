@@ -1,15 +1,17 @@
+use std::error::Error;
+use std::ffi::OsString;
+use std::fmt;
+use std::fs::create_dir_all;
+use std::path::PathBuf;
+use std::result::Result;
+
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvOpenOptions};
 use log::{info, LevelFilter};
 use sea_orm::DbErr;
 use sea_orm::{ConnectOptions, Database};
-use std::error::Error;
-use std::ffi::OsString;
-use std::fmt;
-use std::path::PathBuf;
-use std::result::Result;
-use tantivy::{schema::*, IndexReader};
+use tantivy::{schema::*, IndexReader, TantivyError};
 use tantivy::{Index, IndexWriter, ReloadPolicy};
 
 use migration::Migrator;
@@ -175,16 +177,27 @@ pub struct SearchDbConnection {
 }
 
 pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn Error>> {
+    let path: PathBuf = [lib_path, ".rune", ".search"].iter().collect();
+    let exists = path.exists();
+
+    if !exists {
+        create_dir_all(path.clone())?;
+    }
+
     let mut schema_builder = Schema::builder();
     schema_builder.add_text_field("name", TEXT | STORED);
     schema_builder.add_text_field("tid", TEXT | STORED);
-    schema_builder.add_u64_field("type", INDEXED);
-    schema_builder.add_u64_field("id", INDEXED);
+    schema_builder.add_i64_field("type", INDEXED);
+    schema_builder.add_i64_field("id", INDEXED);
 
     let schema = schema_builder.build();
-    let index = Index::create_in_dir(lib_path, schema.clone())?;
+    let index =
+        Index::create_in_dir(path.clone(), schema.clone()).or_else(|error| match error {
+            TantivyError::IndexAlreadyExists => Ok(Index::open_in_dir(path.clone())?),
+            _ => Err(error),
+        })?;
 
-    let writer: IndexWriter = index.writer(1_000_000)?;
+    let writer: IndexWriter = index.writer(15_000_000)?;
     let reader = index
         .reader_builder()
         .reload_policy(ReloadPolicy::OnCommitWithDelay)

@@ -40,6 +40,20 @@ impl TryFrom<i64> for CollectionType {
     }
 }
 
+pub fn remove_term(
+    search_db: &mut SearchDbConnection,
+    r#type: CollectionType,
+    id: i32,
+) {
+    let schema = &search_db.schema;
+    let term_tid = schema.get_field("tid").unwrap();
+
+    let tid = format!("{:?}-{:?}", r#type, id);
+    let term = Term::from_field_text(term_tid, &tid);
+
+    search_db.w.delete_term(term);
+}
+
 pub fn add_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: i32, name: &str) {
     let schema = &search_db.schema;
     let term_name = schema.get_field("name").unwrap();
