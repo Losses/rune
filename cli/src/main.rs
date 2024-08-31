@@ -6,7 +6,7 @@ use rune::index::index_audio_library;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::metadata::scan_audio_library;
+use database::actions::metadata::{empty_progress_callback, scan_audio_library};
 use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 use rune::analysis::*;
 use rune::playback::*;
@@ -136,7 +136,15 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            scan_audio_library(&main_db, &mut search_db, &path, true).await;
+            scan_audio_library(
+                &main_db,
+                &mut search_db,
+                &path,
+                true,
+                empty_progress_callback,
+                None,
+            )
+            .await;
             println!("Library scanned successfully.");
         }
         Commands::Index => {
@@ -174,17 +182,15 @@ async fn main() {
             )
             .await;
         }
-        Commands::Search { query, num } => {
-            match search_for(&mut search_db, query, *num) {
-                Ok(results) => {
-                    for (collection_type, ids) in results {
-                        println!("{:?}: {:?}", collection_type, ids);
-                    }
-                }
-                Err(e) => {
-                    error!("Search failed: {}", e);
+        Commands::Search { query, num } => match search_for(&mut search_db, query, *num) {
+            Ok(results) => {
+                for (collection_type, ids) in results {
+                    println!("{:?}: {:?}", collection_type, ids);
                 }
             }
-        }
+            Err(e) => {
+                error!("Search failed: {}", e);
+            }
+        },
     }
 }

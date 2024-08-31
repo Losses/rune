@@ -2,11 +2,11 @@ use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use thiserror::Error;
-
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, TransactionTrait};
+use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 use metadata::describe::{describe_file, FileDescription};
 use metadata::reader::get_metadata;
@@ -50,14 +50,18 @@ pub async fn sync_file_descriptions(
     search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting to process multiple files");
+    debug!("Starting to process multiple files");
 
     // Start a transaction
     let txn = main_db.begin().await?;
     let mut search_term: Option<(i32, String)> = None;
 
     let mut update_search_term = |file_id: i32, metadata: &FileMetadata| {
-        if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "track_title") {
+        if let Some((_, value)) = metadata
+            .metadata
+            .iter()
+            .find(|(key, _)| key == "track_title")
+        {
             search_term = Some((file_id, value.clone()));
         }
     };
@@ -66,7 +70,7 @@ pub async fn sync_file_descriptions(
         match description {
             None => continue,
             Some(description) => {
-                info!("Processing file: {}", description.file_name.clone());
+                debug!("Processing file: {}", description.file_name.clone());
 
                 // Check if the file already exists in the database
                 let existing_file = media_files::Entity::find()
@@ -162,11 +166,11 @@ pub async fn sync_file_descriptions(
 
     if let Some((id, name)) = search_term {
         add_term(search_db, CollectionType::Track, id, &name);
+
+        search_db.w.commit().unwrap();
     }
 
-    search_db.w.commit().unwrap();
-
-    info!("Finished syncing file data");
+    debug!("Finished syncing file data");
 
     Ok(())
 }
@@ -176,16 +180,18 @@ pub async fn process_files(
     search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("Starting to process multiple files");
+    debug!("Starting to process multiple files");
 
     // Start a transaction
     let txn = main_db.begin().await?;
+
+    let mut modified = false;
 
     for description in descriptions.iter_mut() {
         match description {
             None => continue,
             Some(description) => {
-                info!("Processing file: {}", description.file_name.clone());
+                debug!("Processing file: {}", description.file_name.clone());
 
                 // Check if the file already exists in the database
                 let existing_file = media_files::Entity::find()
@@ -259,6 +265,7 @@ pub async fn process_files(
 
                     match file_metadata {
                         Some(x) => {
+                            modified = true;
                             insert_new_file(&txn, search_db, &x, description).await?;
                         }
                         _none => {
@@ -275,7 +282,9 @@ pub async fn process_files(
 
     // Commit the transaction
     txn.commit().await?;
-    search_db.w.commit().unwrap();
+    if modified {
+        search_db.w.commit().unwrap();
+    }
 
     info!("Finished processing multiple files");
 
@@ -375,7 +384,11 @@ where
     };
     let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;
 
-    if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "track_title") {
+    if let Some((_, value)) = metadata
+        .metadata
+        .iter()
+        .find(|(key, _)| key == "track_title")
+    {
         add_term(
             search_db,
             CollectionType::Track,
@@ -420,20 +433,37 @@ async fn clean_up_database(
     Ok(())
 }
 
-pub async fn scan_audio_library(
+pub fn empty_progress_callback(_processed: usize) {}
+
+pub async fn scan_audio_library<F>(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     root_path: &Path,
     cleanup: bool,
-) {
+    progress_callback: F,
+    cancel_token: Option<CancellationToken>,
+) where
+    F: Fn(usize) + Send + Sync,
+{
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = AudioScanner::new(&root_path_str);
 
     info!("Starting audio library scan");
 
-    // Example usage: Read 8 audio files at a time until no more files are available.
+    // Get the total number of files to scan (assuming AudioScanner has this method)
+    let mut processed_files = 0;
+
+    // Read audio files at a time until no more files are available.
     while !scanner.has_ended() {
-        info!("Reading metadata for the next 8 files");
+        // Check if the cancellation token has been triggered
+        if let Some(ref token) = cancel_token {
+            if token.is_cancelled() {
+                info!("Scan cancelled.");
+                return;
+            }
+        }
+
+        debug!("Reading metadata for the next 8 files");
         let files = scanner.read_files(8);
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
@@ -459,6 +489,12 @@ pub async fn scan_audio_library(
             Ok(_) => {}
             Err(e) => error!("Error indexing files: {:?}", e),
         };
+
+        // Update the number of processed files
+        processed_files += files.len();
+
+        // Call the progress callback if it is provided
+        progress_callback(processed_files);
     }
 
     if cleanup {

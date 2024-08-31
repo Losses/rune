@@ -17,6 +17,7 @@ pub async fn index_media_files(
     info!("Indexing media: {:?}", file_ids);
     // Fetch metadata summary for provided file_ids
     let metadata_summaries = get_metadata_summary_by_file_ids(main_db, file_ids.clone()).await?;
+    let mut modified = false;
 
     let txn = main_db.begin().await?;
 
@@ -40,6 +41,7 @@ pub async fn index_media_files(
             let artist_id = if let Some(existing) = existing_artist {
                 existing.id
             } else {
+                modified = true;
                 let inserted_artist = artists::Entity::insert(artist).exec(&txn).await?;
                 add_term(
                     search_db,
@@ -87,6 +89,7 @@ pub async fn index_media_files(
         let album_id = if let Some(existing) = existing_album {
             existing.id
         } else {
+            modified = true;
             let inserted_album = albums::Entity::insert(album).exec(&txn).await?;
             add_term(
                 search_db,
@@ -117,7 +120,9 @@ pub async fn index_media_files(
     }
 
     txn.commit().await?;
-    search_db.w.commit().unwrap();
+    if modified {
+        search_db.w.commit().unwrap();
+    }
 
     Ok(())
 }

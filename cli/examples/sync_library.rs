@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use database::actions::metadata::scan_audio_library;
+use database::actions::metadata::{empty_progress_callback, scan_audio_library};
 use database::connection::{connect_main_db, connect_search_db};
 
 #[tokio::main]
@@ -15,7 +15,15 @@ async fn main() {
 
     let root_path = PathBuf::from(&path);
 
-    scan_audio_library(&main_db, &mut search_db, &root_path, true).await;
+    scan_audio_library(
+        &main_db,
+        &mut search_db,
+        &root_path,
+        true,
+        empty_progress_callback,
+        None,
+    )
+    .await;
 
     println!("OK");
 }

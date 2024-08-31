@@ -12,7 +12,7 @@ fn is_audio_file(entry: &DirEntry) -> bool {
     }
 }
 
-fn scan_audio_files<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> {
+fn scan_audio_files<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> + Send {
     WalkDir::new(path)
         .into_iter()
         .filter_map(Result::ok)
@@ -21,12 +21,12 @@ fn scan_audio_files<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> 
 
 pub struct AudioScanner<'a> {
     root_path: PathBuf,
-    iterator: Box<dyn Iterator<Item = DirEntry> + 'a>,
+    iterator: Box<dyn Iterator<Item = DirEntry> + Send + 'a>,
     ended: bool,
 }
 
 impl<'a> AudioScanner<'a> {
-    pub fn new<P: AsRef<Path>>(path: &'a P) -> Self {
+    pub fn new<P: AsRef<Path> + Send + 'a>(path: &'a P) -> Self {
         AudioScanner {
             root_path: path.as_ref().to_path_buf(),
             iterator: Box::new(scan_audio_files(path)),

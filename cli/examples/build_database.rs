@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::analysis::analysis_audio_library;
-use database::actions::metadata::scan_audio_library;
+use database::actions::metadata::{empty_progress_callback, scan_audio_library};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 
@@ -29,7 +29,15 @@ async fn main() {
     let root_path = PathBuf::from(&path);
 
     // Scan the audio library
-    scan_audio_library(&main_db, &mut search_db, &root_path, true).await;
+    scan_audio_library(
+        &main_db,
+        &mut search_db,
+        &root_path,
+        true,
+        empty_progress_callback,
+        None,
+    )
+    .await;
 
     // Analyze the audio files in the database
     analysis_audio_library(&main_db, &root_path, 10)

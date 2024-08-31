@@ -1,0 +1,18 @@
+syntax = "proto3";
+package library_manage;
+
+// [RINF:DART-SIGNAL]
+message ScanAudioLibraryRequest {
+    string path = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message ScanAudioLibraryProgress {
+    string path = 1;
+    int32 progress = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message ScanAudioLibraryResponse {
+    string path = 1;
+}

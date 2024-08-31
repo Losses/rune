@@ -4,6 +4,7 @@ mod common;
 mod connection;
 mod cover_art;
 mod library_home;
+mod library_manage;
 mod media_file;
 mod messages;
 mod playback;
@@ -14,6 +15,7 @@ mod search;
 use log::{debug, info};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
 
 pub use tokio;
@@ -28,6 +30,7 @@ use crate::artist::*;
 use crate::connection::*;
 use crate::cover_art::*;
 use crate::library_home::*;
+use crate::library_manage::*;
 use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
@@ -38,6 +41,7 @@ use messages::album::*;
 use messages::artist::*;
 use messages::cover_art::*;
 use messages::library_home::*;
+use messages::library_manage::*;
 use messages::media_file::*;
 use messages::playback::*;
 use messages::playlist::*;
@@ -97,6 +101,9 @@ async fn main() {
                 let search_db = Arc::new(Mutex::new(connect_search_db(&path).unwrap()));
                 let lib_path = Arc::new(path);
 
+                // Create a cancellation token
+                let cancel_token = Arc::new(CancellationToken::new());
+
                 info!("Initializing player");
                 let player = Player::new();
                 let player = Arc::new(Mutex::new(player));
@@ -107,6 +114,8 @@ async fn main() {
                 info!("Initializing UI events");
 
                 select_signal!(
+                    ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
+
                     PlayFileRequest => (main_db, player),
                     RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
                     PlayRequest => (player),
