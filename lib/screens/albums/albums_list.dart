@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
+import 'package:player/widgets/context_menu_wrapper.dart';
 
-import '../../../main.dart';
 import '../../../utils/router_extra.dart';
 import '../../../utils/context_menu/collection_item_context_menu.dart';
 import '../../../widgets/flip_tile.dart';
@@ -71,30 +71,22 @@ class AlbumItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-        onSecondaryTapUp: isDesktop
-            ? (d) {
-                openCollectionItemContextMenu(d.localPosition, context,
-                    contextAttachKey, contextController, 'album', album.id);
-              }
-            : null,
-        onLongPressEnd: isDesktop
-            ? null
-            : (d) {
-                openCollectionItemContextMenu(d.localPosition, context,
-                    contextAttachKey, contextController, 'album', album.id);
-              },
-        child: FlyoutTarget(
-            key: contextAttachKey,
-            controller: contextController,
-            child: FlipTile(
-              name: album.name,
-              coverIds: album.coverIds,
-              emptyTileType: BoringAvatarsType.marble,
-              onPressed: () => {
-                context.push('/albums/${album.id}',
-                    extra: QueryTracksExtra(album.name))
-              },
-            )));
+    return ContextMenuWrapper(
+      contextAttachKey: contextAttachKey,
+      contextController: contextController,
+      onContextMenu: (position) {
+        openCollectionItemContextMenu(position, context, contextAttachKey,
+            contextController, 'album', album.id);
+      },
+      child: FlipTile(
+        name: album.name,
+        coverIds: album.coverIds,
+        emptyTileType: BoringAvatarsType.marble,
+        onPressed: () {
+          context.push('/albums/${album.id}',
+              extra: QueryTracksExtra(album.name));
+        },
+      ),
+    );
   }
 }
