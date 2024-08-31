@@ -38,3 +38,13 @@ message ArtistsGroup {
 message ArtistsGroups {
   repeated ArtistsGroup groups = 1;
 }
+
+// [RINF:DART-SIGNAL]
+message FetchArtistsByIdsRequest {
+  repeated int32 ids = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchArtistsByIdsResponse {
+  repeated Artist result = 1;
+}

@@ -3,8 +3,9 @@ use sea_orm::{DatabaseConnection, DbErr, EntityTrait, QueryOrder};
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::entities::media_file_artists;
-use crate::entities::{albums, artists, media_file_albums};
+use crate::entities::{
+    albums, artists, media_file_albums, media_file_artists, media_file_playlists, playlists,
+};
 use crate::get_cover_ids;
 use crate::get_entity_to_cover_ids;
 
@@ -12,6 +13,12 @@ use super::cover_art::get_magic_cover_art_id;
 
 get_cover_ids!(get_album_cover_ids, albums, media_file_albums, AlbumId);
 get_cover_ids!(get_artist_cover_ids, artists, media_file_artists, ArtistId);
+get_cover_ids!(
+    get_playlist_cover_ids,
+    playlists,
+    media_file_playlists,
+    PlaylistId
+);
 
 pub async fn get_latest_albums_and_artists(
     db: &DatabaseConnection,

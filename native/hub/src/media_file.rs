@@ -1,10 +1,12 @@
+use database::connection::MainDbConnection;
 use dunce::canonicalize;
+use log::debug;
 use log::{error, info};
 use rinf::DartSignal;
 use std::path::Path;
 use std::sync::Arc;
 
-use database::actions::file::compound_query_media_files;
+use database::actions::file::{compound_query_media_files, get_files_by_ids};
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;
@@ -77,6 +79,43 @@ pub async fn fetch_media_files_request(
     }
 
     Ok(())
+}
+
+pub async fn fetch_media_file_by_ids_request(
+    main_db: Arc<MainDbConnection>,
+    lib_path: Arc<String>,
+    dart_signal: DartSignal<FetchMediaFileByIdsRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Requesting media files: {:#?}", request.ids);
+
+    match get_files_by_ids(&main_db, &request.ids).await {
+        Ok(media_entries) => {
+            let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
+
+            match media_summaries.await {
+                Ok(media_summaries) => {
+                    let items = parse_media_files(media_summaries, lib_path).await;
+
+                    match items {
+                        Ok(items) => {
+                            FetchMediaFileByIdsResponse { result: items }.send_signal_to_dart();
+                        }
+                        Err(e) => {
+                            error!("Error happened while parsing media summaries: {:#?}", e)
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Error happened while getting media summaries: {:#?}", e)
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to fetch albums groups: {}", e);
+        }
+    };
 }
 
 pub async fn compound_query_media_files_request(

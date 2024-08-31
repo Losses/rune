@@ -1,3 +1,5 @@
+use database::actions::albums::get_albums_by_ids;
+use database::actions::library::get_album_cover_ids;
 use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
@@ -14,6 +16,8 @@ use crate::messages::album::AlbumsGroupSummary;
 use crate::messages::album::AlbumsGroups;
 use crate::messages::album::FetchAlbumsGroupSummaryRequest;
 use crate::messages::album::FetchAlbumsGroupsRequest;
+use crate::FetchAlbumsByIdsRequest;
+use crate::FetchAlbumsByIdsResponse;
 
 pub async fn fetch_albums_group_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -64,6 +68,41 @@ pub async fn fetch_albums_groups_request(
                                 name: x.0.name,
                                 cover_ids: x.1.into_iter().collect(),
                             })
+                            .collect(),
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to fetch albums groups: {}", e);
+        }
+    };
+}
+
+pub async fn fetch_albums_by_ids_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<FetchAlbumsByIdsRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Requesting albums: {:#?}", request.ids);
+
+    match get_albums_by_ids(&main_db, &request.ids).await {
+        Ok(items) => {
+            let covers = get_album_cover_ids(&main_db, &items).await.unwrap();
+
+            FetchAlbumsByIdsResponse {
+                result: items
+                    .into_iter()
+                    .map(|x| Album {
+                        id: x.id,
+                        name: x.name,
+                        cover_ids: covers
+                            .get(&x.id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .into_iter()
                             .collect(),
                     })
                     .collect(),

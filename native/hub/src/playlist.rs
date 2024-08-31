@@ -1,8 +1,10 @@
+use database::actions::library::get_playlist_cover_ids;
 use database::actions::playlists::add_item_to_playlist;
 use database::actions::playlists::add_media_file_to_playlist;
 use database::actions::playlists::check_items_in_playlist;
 use database::actions::playlists::create_playlist;
 use database::actions::playlists::get_all_playlists;
+use database::actions::playlists::get_playlists_by_ids;
 use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
@@ -44,6 +46,8 @@ use crate::messages::playlist::UpdatePlaylistRequest;
 use crate::messages::playlist::UpdatePlaylistResponse;
 use crate::FetchAllPlaylistsRequest;
 use crate::FetchAllPlaylistsResponse;
+use crate::FetchPlaylistsByIdsRequest;
+use crate::FetchPlaylistsByIdsResponse;
 use crate::PlaylistWithoutCoverIds;
 
 pub async fn fetch_playlists_group_summary_request(
@@ -104,6 +108,42 @@ pub async fn fetch_playlists_groups_request(
         }
         Err(e) => {
             error!("Failed to fetch playlists groups: {}", e);
+        }
+    };
+}
+
+pub async fn fetch_playlists_by_ids_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<FetchPlaylistsByIdsRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Requesting playlists: {:#?}", request.ids);
+
+    match get_playlists_by_ids(&main_db, &request.ids).await {
+        Ok(items) => {
+            let covers = get_playlist_cover_ids(&main_db, &items).await.unwrap();
+
+            FetchPlaylistsByIdsResponse {
+                result: items
+                    .into_iter()
+                    .map(|x| Playlist {
+                        id: x.id,
+                        name: x.name,
+                        group: x.group,
+                        cover_ids: covers
+                            .get(&x.id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to fetch albums groups: {}", e);
         }
     };
 }

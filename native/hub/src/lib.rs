@@ -107,10 +107,6 @@ async fn main() {
                 info!("Initializing UI events");
 
                 select_signal!(
-                    FetchMediaFilesRequest => (main_db, lib_path),
-
-                    FetchParsedMediaFileRequest => (main_db, lib_path),
-                    CompoundQueryMediaFilesRequest => (main_db, lib_path),
                     PlayFileRequest => (main_db, player),
                     RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
                     PlayRequest => (player),
@@ -120,21 +116,33 @@ async fn main() {
                     SwitchRequest => (player),
                     SeekRequest => (player),
                     RemoveRequest => (player),
-                    MovePlaylistItemRequest => (player),
+
+                    FetchMediaFilesRequest => (main_db, lib_path),
+                    FetchParsedMediaFileRequest => (main_db, lib_path),
+                    CompoundQueryMediaFilesRequest => (main_db, lib_path),
+
                     StartPlayingCollectionRequest => (main_db, lib_path, player),
                     AddToQueueCollectionRequest => (main_db, lib_path, player),
+                    FetchMediaFileByIdsRequest => (main_db, lib_path),
                     StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
+
                     GetCoverArtByFileIdRequest => (main_db, lib_path),
                     GetCoverArtByCoverArtIdRequest => (main_db),
                     GetRandomCoverArtIdsRequest => (main_db),
+
                     FetchArtistsGroupSummaryRequest => (main_db),
                     FetchArtistsGroupsRequest => (main_db),
+                    FetchArtistsByIdsRequest => (main_db),
+
                     FetchAlbumsGroupSummaryRequest => (main_db),
                     FetchAlbumsGroupsRequest => (main_db),
+                    FetchAlbumsByIdsRequest => (main_db),
+
                     FetchPlaylistsGroupSummaryRequest => (main_db),
                     FetchPlaylistsGroupsRequest => (main_db),
-                    FetchLibrarySummaryRequest => (main_db),
+                    FetchPlaylistsByIdsRequest => (main_db),
                     FetchAllPlaylistsRequest => (main_db),
+                    MovePlaylistItemRequest => (player),
                     CreatePlaylistRequest => (main_db, search_db),
                     UpdatePlaylistRequest => (main_db, search_db),
                     CheckItemsInPlaylistRequest => (main_db),
@@ -143,6 +151,8 @@ async fn main() {
                     ReorderPlaylistItemPositionRequest => (main_db),
                     GetUniquePlaylistGroupsRequest => (main_db),
                     GetPlaylistByIdRequest => (main_db),
+
+                    FetchLibrarySummaryRequest => (main_db),
                     SearchForRequest => (search_db),
                 );
             });

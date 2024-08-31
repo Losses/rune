@@ -1,3 +1,5 @@
+use database::actions::artists::get_artists_by_ids;
+use database::actions::library::get_artist_cover_ids;
 use log::{debug, error};
 use rinf::DartSignal;
 use std::sync::Arc;
@@ -14,6 +16,8 @@ use crate::messages::artist::ArtistsGroupSummary;
 use crate::messages::artist::ArtistsGroups;
 use crate::messages::artist::FetchArtistsGroupSummaryRequest;
 use crate::messages::artist::FetchArtistsGroupsRequest;
+use crate::FetchArtistsByIdsRequest;
+use crate::FetchArtistsByIdsResponse;
 
 pub async fn fetch_artists_group_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -72,6 +76,41 @@ pub async fn fetch_artists_groups_request(
         }
         Err(e) => {
             error!("Failed to fetch artists groups: {}", e);
+        }
+    };
+}
+
+pub async fn fetch_artists_by_ids_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<FetchArtistsByIdsRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Requesting artists: {:#?}", request.ids);
+
+    match get_artists_by_ids(&main_db, &request.ids).await {
+        Ok(items) => {
+            let covers = get_artist_cover_ids(&main_db, &items).await.unwrap();
+
+            FetchArtistsByIdsResponse {
+                result: items
+                    .into_iter()
+                    .map(|x| Artist {
+                        id: x.id,
+                        name: x.name,
+                        cover_ids: covers
+                            .get(&x.id)
+                            .cloned()
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect(),
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to fetch albums groups: {}", e);
         }
     };
 }

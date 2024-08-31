@@ -109,7 +109,7 @@ macro_rules! get_entity_to_cover_ids {
 #[macro_export]
 macro_rules! get_cover_ids {
     ($fn_name:ident, $item_entity:ident, $related_entity:ident, $relation_column_name:ident) => {
-        async fn $fn_name(
+        pub async fn $fn_name(
             db: &DatabaseConnection,
             entities: &[$item_entity::Model],
         ) -> Result<HashMap<i32, HashSet<i32>>, DbErr> {
