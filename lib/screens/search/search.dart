@@ -1,14 +1,20 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:get_storage/get_storage.dart';
 
+import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../widgets/cover_art.dart';
 import '../../messages/album.pb.dart';
 import '../../messages/artist.pb.dart';
 import '../../messages/search.pb.dart';
+import '../../messages/playback.pb.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';
+
+import './widgets/search_card.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -162,11 +168,32 @@ class _SearchPageState extends State<SearchPage> {
       Expanded(
         child: Column(
           children: [
-            if (selectedItem == "Artists") ...artists.map((a) => Text(a.name)),
-            if (selectedItem == "Albums") ...albums.map((a) => Text(a.name)),
-            if (selectedItem == "Playlists")
-              ...playlists.map((a) => Text(a.name)),
-            if (selectedItem == "Tracks") ...tracks.map((a) => Text(a.title)),
+            Text(selectedItem),
+            Expanded(child: LayoutBuilder(builder: (context, constraints) {
+              const double gapSize = 8;
+              const double cellSize = 200;
+
+              final int rows =
+                  (constraints.maxWidth / (cellSize + gapSize)).floor();
+
+              return GridView(
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: rows,
+                    mainAxisSpacing: gapSize,
+                    crossAxisSpacing: gapSize,
+                    childAspectRatio: 4 / 1,
+                  ),
+                  children: [
+                    if (selectedItem == "Artists")
+                      ...artists.map((a) => ArtistItem(index: 0, item: a)),
+                    if (selectedItem == "Albums")
+                      ...albums.map((a) => AlbumItem(index: 0, item: a)),
+                    if (selectedItem == "Playlists")
+                      ...playlists.map((a) => PlaylistItem(index: 0, item: a)),
+                    if (selectedItem == "Tracks")
+                      ...tracks.map((a) => TrackItem(index: 0, item: a)),
+                  ]);
+            })),
           ],
         ),
       ),
@@ -257,6 +284,93 @@ class _SearchPageState extends State<SearchPage> {
       ),
     ]);
   }
+}
+
+class TrackItem extends SearchCard {
+  final MediaFile item;
+
+  TrackItem({
+    super.key,
+    required super.index,
+    required this.item,
+  });
+
+  @override
+  int getItemId() => item.id;
+
+  @override
+  String getItemTitle() => item.title;
+
+  @override
+  Widget buildLeadingWidget(double size) {
+    return CoverArt(
+      fileId: item.id,
+      size: size,
+    );
+  }
+
+  @override
+  void onPressed(BuildContext context) {
+    PlayFileRequest(fileId: item.id).sendSignalToRust();
+  }
+
+  @override
+  void onContextMenu(BuildContext context, Offset position) {
+    openTrackItemContextMenu(
+        position, context, contextAttachKey, contextController, item.id);
+  }
+}
+
+class ArtistItem extends CollectionSearchCard<Artist> {
+  ArtistItem({
+    super.key,
+    required super.index,
+    required super.item,
+  }) : super(routePrefix: 'artists', emptyTileType: BoringAvatarsType.marble);
+
+  @override
+  int getItemId() => item.id;
+
+  @override
+  String getItemTitle() => item.name;
+
+  @override
+  List<int> getCoverIds() => item.coverIds;
+}
+
+class AlbumItem extends CollectionSearchCard<Album> {
+  AlbumItem({
+    super.key,
+    required super.index,
+    required super.item,
+  }) : super(routePrefix: 'albums', emptyTileType: BoringAvatarsType.bauhaus);
+
+  @override
+  int getItemId() => item.id;
+
+  @override
+  String getItemTitle() => item.name;
+
+  @override
+  List<int> getCoverIds() => item.coverIds;
+}
+
+class PlaylistItem extends CollectionSearchCard<Playlist> {
+  PlaylistItem({
+    super.key,
+    required super.index,
+    required super.item,
+  }) : super(
+            routePrefix: 'playlists', emptyTileType: BoringAvatarsType.bauhaus);
+
+  @override
+  int getItemId() => item.id;
+
+  @override
+  String getItemTitle() => item.name;
+
+  @override
+  List<int> getCoverIds() => item.coverIds;
 }
 
 Future<SearchForResponse> searchFor(String query) async {

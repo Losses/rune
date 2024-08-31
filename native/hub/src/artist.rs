@@ -1,4 +1,5 @@
 use database::actions::artists::get_artists_by_ids;
+use database::actions::cover_art::get_magic_cover_art_id;
 use database::actions::library::get_artist_cover_ids;
 use log::{debug, error};
 use rinf::DartSignal;
@@ -90,6 +91,7 @@ pub async fn fetch_artists_by_ids_request(
 
     match get_artists_by_ids(&main_db, &request.ids).await {
         Ok(items) => {
+            let magic_cover_id = get_magic_cover_art_id(&main_db).await.unwrap_or(-1);
             let covers = get_artist_cover_ids(&main_db, &items).await.unwrap();
 
             FetchArtistsByIdsResponse {
@@ -103,6 +105,7 @@ pub async fn fetch_artists_by_ids_request(
                             .cloned()
                             .unwrap_or_default()
                             .into_iter()
+                            .filter(|x| *x != magic_cover_id)
                             .collect(),
                     })
                     .collect(),
