@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -7,10 +8,20 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
+const searchCategories = ['Artists', 'Albums', 'Playlists', 'Tracks'];
+const searchIcons = [
+  Symbols.face,
+  Symbols.album,
+  Symbols.queue_music,
+  Symbols.music_note
+];
+
 class _SearchPageState extends State<SearchPage> {
   final searchKey = GlobalKey(debugLabel: 'Search Bar Key');
   final searchFocusNode = FocusNode();
   final searchController = TextEditingController();
+
+  String selectedItem = '';
 
   @override
   Widget build(BuildContext context) {
@@ -41,29 +52,29 @@ class _SearchPageState extends State<SearchPage> {
           icon: const Icon(FluentIcons.search),
         ),
       ),
-      placeholder: 'Search',
     );
 
     return Row(children: [
       Expanded(child: Container()),
-      Flexible(
-        fit: FlexFit.loose,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minWidth: 320),
-          child: Container(
-            color: theme.cardColor,
-            child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 13, horizontal: 16),
-                      child: Text("Search", style: typography.bodyLarge),
-                    ),
-                    Container(
+      SizedBox(
+        width: 320,
+        child: Container(
+          color: theme.cardColor,
+          child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 13, horizontal: 16),
+                    child: Text("Search", style: typography.bodyLarge),
+                  ),
+                  Padding(
+                    padding:
+                        const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                    child: SizedBox(
                         height: 36,
                         child: Row(
                           mainAxisSize: MainAxisSize.max,
@@ -71,9 +82,33 @@ class _SearchPageState extends State<SearchPage> {
                             Flexible(fit: FlexFit.loose, child: search)
                           ],
                         )),
-                  ],
-                )),
-          ),
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                      child: ListView.builder(
+                          itemCount: searchCategories.length,
+                          itemBuilder: (context, index) {
+                            final item = searchCategories[index];
+                            return ListTile.selectable(
+                              leading: SizedBox(
+                                height: 36,
+                                child: AspectRatio(
+                                  aspectRatio: 1,
+                                  child: ColoredBox(
+                                    color: theme.accentColor,
+                                    child: Icon(searchIcons[index], size: 26),
+                                  ),
+                                ),
+                              ),
+                              title: Text(item, style: typography.body),
+                              selectionMode: ListTileSelectionMode.single,
+                              selected: selectedItem == item,
+                              onSelectionChange: (v) =>
+                                  setState(() => selectedItem = item),
+                            );
+                          })),
+                ],
+              )),
         ),
       ),
     ]);
