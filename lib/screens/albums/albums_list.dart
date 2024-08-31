@@ -69,35 +69,20 @@ class AlbumItem extends StatelessWidget {
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
 
-  void openContextMenu(Offset localPosition, BuildContext context) async {
-    final targetContext = contextAttachKey.currentContext;
-
-    if (targetContext == null) return;
-    final box = targetContext.findRenderObject() as RenderBox;
-    final position = box.localToGlobal(
-      localPosition,
-      ancestor: Navigator.of(context).context.findRenderObject(),
-    );
-
-    contextController.showFlyout(
-      position: position,
-      builder: (context) =>
-          buildCollectionItemContextMenu(context, 'album', album.id),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
         onSecondaryTapUp: isDesktop
             ? (d) {
-                openContextMenu(d.localPosition, context);
+                openCollectionItemContextMenu(d.localPosition, context,
+                    contextAttachKey, contextController, 'album', album.id);
               }
             : null,
         onLongPressEnd: isDesktop
             ? null
             : (d) {
-                openContextMenu(d.localPosition, context);
+                openCollectionItemContextMenu(d.localPosition, context,
+                    contextAttachKey, contextController, 'album', album.id);
               },
         child: FlyoutTarget(
             key: contextAttachKey,

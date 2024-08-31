@@ -3,6 +3,27 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../messages/playback.pb.dart';
 
+void openCollectionItemContextMenu(
+    Offset localPosition,
+    BuildContext context,
+    GlobalKey contextAttachKey,
+    FlyoutController contextController,
+    String type,
+    int id) async {
+  final targetContext = contextAttachKey.currentContext;
+
+  if (targetContext == null) return;
+  final box = targetContext.findRenderObject() as RenderBox;
+  final position = box.localToGlobal(
+    localPosition,
+    ancestor: Navigator.of(context).context.findRenderObject(),
+  );
+
+  contextController.showFlyout(
+    position: position,
+    builder: (context) => buildCollectionItemContextMenu(context, type, id),
+  );
+}
 
 Widget buildCollectionItemContextMenu(
     BuildContext context, String type, int id) {
