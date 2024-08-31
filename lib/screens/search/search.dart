@@ -166,35 +166,43 @@ class _SearchPageState extends State<SearchPage> {
 
     return Row(children: [
       Expanded(
-        child: Column(
-          children: [
-            Text(selectedItem),
-            Expanded(child: LayoutBuilder(builder: (context, constraints) {
-              const double gapSize = 8;
-              const double cellSize = 200;
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 48),
+              Text(selectedItem, style: typography.title),
+              const SizedBox(height: 24),
+              Expanded(child: LayoutBuilder(builder: (context, constraints) {
+                const double gapSize = 8;
+                const double cellSize = 200;
 
-              final int rows =
-                  (constraints.maxWidth / (cellSize + gapSize)).floor();
+                final int rows =
+                    (constraints.maxWidth / (cellSize + gapSize)).floor();
 
-              return GridView(
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: rows,
-                    mainAxisSpacing: gapSize,
-                    crossAxisSpacing: gapSize,
-                    childAspectRatio: 4 / 1,
-                  ),
-                  children: [
-                    if (selectedItem == "Artists")
-                      ...artists.map((a) => ArtistItem(index: 0, item: a)),
-                    if (selectedItem == "Albums")
-                      ...albums.map((a) => AlbumItem(index: 0, item: a)),
-                    if (selectedItem == "Playlists")
-                      ...playlists.map((a) => PlaylistItem(index: 0, item: a)),
-                    if (selectedItem == "Tracks")
-                      ...tracks.map((a) => TrackItem(index: 0, item: a)),
-                  ]);
-            })),
-          ],
+                return GridView(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: rows,
+                      mainAxisSpacing: gapSize,
+                      crossAxisSpacing: gapSize,
+                      childAspectRatio: 4 / 1,
+                    ),
+                    children: [
+                      if (selectedItem == "Artists")
+                        ...artists.map((a) => ArtistItem(index: 0, item: a)),
+                      if (selectedItem == "Albums")
+                        ...albums.map((a) => AlbumItem(index: 0, item: a)),
+                      if (selectedItem == "Playlists")
+                        ...playlists
+                            .map((a) => PlaylistItem(index: 0, item: a)),
+                      if (selectedItem == "Tracks")
+                        ...tracks.map((a) => TrackItem(index: 0, item: a)),
+                    ]);
+              })),
+            ],
+          ),
         ),
       ),
       SizedBox(
