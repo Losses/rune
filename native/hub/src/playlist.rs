@@ -331,16 +331,21 @@ pub async fn get_playlist_by_id_request(
     debug!("Requesting playlist by id: {}", request.playlist_id);
 
     match get_playlist_by_id(&main_db, request.playlist_id).await {
-        Ok(playlist) => {
-            GetPlaylistByIdResponse {
-                playlist: Some(PlaylistWithoutCoverIds {
-                    id: playlist.id,
-                    name: playlist.name,
-                    group: playlist.group,
-                }),
+        Ok(playlist) => match playlist {
+            Some(playlist) => {
+                GetPlaylistByIdResponse {
+                    playlist: Some(PlaylistWithoutCoverIds {
+                        id: playlist.id,
+                        name: playlist.name,
+                        group: playlist.group,
+                    }),
+                }
+                .send_signal_to_dart();
             }
-            .send_signal_to_dart();
-        }
+            _none => {
+                error!("Playlist not found: {}", request.playlist_id);
+            }
+        },
         Err(e) => {
             error!("Failed to get playlist by id: {}", e);
         }

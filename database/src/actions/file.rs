@@ -9,28 +9,10 @@ use std::path::Path;
 use migration::{Func, SimpleExpr};
 
 use crate::entities::{media_file_albums, media_file_artists, media_file_playlists, media_files};
+use crate::{get_by_id, get_by_ids};
 
-pub async fn get_files_by_ids(
-    db: &DatabaseConnection,
-    ids: &[i32],
-) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
-    let files = media_files::Entity::find()
-        .filter(media_files::Column::Id.is_in(ids.to_vec()))
-        .all(db)
-        .await?;
-    Ok(files)
-}
-
-pub async fn get_file_by_id(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<Option<media_files::Model>, sea_orm::DbErr> {
-    let file = media_files::Entity::find()
-        .filter(media_files::Column::Id.eq(id))
-        .one(db)
-        .await?;
-    Ok(file)
-}
+get_by_ids!(get_files_by_ids, media_files);
+get_by_id!(get_file_by_id, media_files);
 
 pub async fn get_random_files(
     db: &DatabaseConnection,

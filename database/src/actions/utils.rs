@@ -210,3 +210,37 @@ macro_rules! get_all_ids {
         }
     };
 }
+
+#[macro_export]
+macro_rules! get_by_ids {
+    ($fn_name:ident, $item_entity:ident) => {
+        pub async fn $fn_name(
+            db: &DatabaseConnection,
+            ids: &[i32],
+        ) -> Result<Vec<$item_entity::Model>, sea_orm::DbErr> {
+            let items = <$item_entity::Entity>::find()
+                .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
+                .all(db)
+                .await?;
+
+            Ok(items)
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! get_by_id {
+    ($fn_name:ident, $item_entity:ident) => {
+        pub async fn $fn_name(
+            db: &DatabaseConnection,
+            id: i32,
+        ) -> Result<Option<$item_entity::Model>, sea_orm::DbErr> {
+            let item = $item_entity::Entity::find()
+                .filter($item_entity::Column::Id.eq(id))
+                .one(db)
+                .await?;
+
+            Ok(item)
+        }
+    };
+}

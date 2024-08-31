@@ -11,6 +11,8 @@ use crate::actions::search::add_term;
 use crate::actions::search::CollectionType;
 use crate::connection::SearchDbConnection;
 use crate::entities::{media_file_playlists, playlists};
+use crate::get_by_id;
+use crate::get_by_ids;
 use crate::{get_all_ids, get_groups};
 
 use super::utils::CountByFirstLetter;
@@ -31,12 +33,13 @@ get_groups!(
     media_file_playlists,
     PlaylistId
 );
-
 get_all_ids!(
     get_media_file_ids_of_playlist,
     media_file_playlists,
     PlaylistId
 );
+get_by_ids!(get_playlists_by_ids, playlists);
+get_by_id!(get_playlist_by_id, playlists);
 
 /// Create a new playlist.
 ///
@@ -96,29 +99,6 @@ pub async fn get_all_playlists(
         .order_by_asc(playlists::Column::Group)
         .all(db)
         .await?;
-
-    Ok(playlist)
-}
-
-/// Get a playlist by its ID.
-///
-/// # Arguments
-/// * `db` - A reference to the database connection.
-/// * `playlist_id` - The ID of the playlist to retrieve.
-///
-/// # Returns
-/// * `Result<Model, Box<dyn std::error::Error>>` - The playlist model or an error.
-pub async fn get_playlist_by_id(
-    db: &DatabaseConnection,
-    playlist_id: i32,
-) -> Result<playlists::Model, Box<dyn std::error::Error>> {
-    use playlists::Entity as PlaylistEntity;
-
-    // Find the playlist by ID
-    let playlist = PlaylistEntity::find_by_id(playlist_id)
-        .one(db)
-        .await?
-        .ok_or("Playlist not found")?;
 
     Ok(playlist)
 }
