@@ -4,7 +4,11 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:get_storage/get_storage.dart';
 
+import '../../messages/album.pb.dart';
+import '../../messages/artist.pb.dart';
 import '../../messages/search.pb.dart';
+import '../../messages/media_file.pb.dart';
+import '../../messages/playlist.pbserver.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -31,7 +35,7 @@ class _SearchPageState extends State<SearchPage> {
   final searchFocusNode = FocusNode();
   final searchController = TextEditingController();
 
-  String selectedItem = '';
+  String selectedItem = 'Tracks';
   Timer? _debounce;
   Timer? _saveDebounce;
   bool _isRequestInProgress = false;
@@ -39,6 +43,11 @@ class _SearchPageState extends State<SearchPage> {
 
   final box = GetStorage();
   List<String> suggestions = [];
+
+  List<MediaFile> tracks = [];
+  List<Artist> artists = [];
+  List<Album> albums = [];
+  List<Playlist> playlists = [];
 
   @override
   void initState() {
@@ -86,6 +95,19 @@ class _SearchPageState extends State<SearchPage> {
       setState(() {
         _searchResults = response;
       });
+
+      if (response.tracks.isNotEmpty) {
+        tracks = await fetchMediaFileByIds(response.tracks);
+      }
+      if (response.artists.isNotEmpty) {
+        artists = await fetchArtistsByIds(response.artists);
+      }
+      if (response.albums.isNotEmpty) {
+        albums = await fetchAlbumsByIds(response.albums);
+      }
+      if (response.playlists.isNotEmpty) {
+        playlists = await fetchPlaylistsByIds(response.playlists);
+      }
     } catch (e) {
       // Handle error
     } finally {
@@ -140,12 +162,11 @@ class _SearchPageState extends State<SearchPage> {
       Expanded(
         child: Column(
           children: [
-            if (_searchResults != null) ...[
-              Text('Artists: ${_searchResults!.artists.join(", ")}'),
-              Text('Albums: ${_searchResults!.albums.join(", ")}'),
-              Text('Playlists: ${_searchResults!.playlists.join(", ")}'),
-              Text('Tracks: ${_searchResults!.tracks.join(", ")}'),
-            ],
+            if (selectedItem == "Artists") ...artists.map((a) => Text(a.name)),
+            if (selectedItem == "Albums") ...albums.map((a) => Text(a.name)),
+            if (selectedItem == "Playlists")
+              ...playlists.map((a) => Text(a.name)),
+            if (selectedItem == "Tracks") ...tracks.map((a) => Text(a.title)),
           ],
         ),
       ),
@@ -185,16 +206,16 @@ class _SearchPageState extends State<SearchPage> {
                       if (_searchResults != null) {
                         switch (item) {
                           case 'Artists':
-                            itemCount = _searchResults!.artists.length;
+                            itemCount = artists.length;
                             break;
                           case 'Albums':
-                            itemCount = _searchResults!.albums.length;
+                            itemCount = albums.length;
                             break;
                           case 'Playlists':
-                            itemCount = _searchResults!.playlists.length;
+                            itemCount = playlists.length;
                             break;
                           case 'Tracks':
-                            itemCount = _searchResults!.tracks.length;
+                            itemCount = tracks.length;
                             break;
                         }
                       }
@@ -243,4 +264,38 @@ Future<SearchForResponse> searchFor(String query) async {
   searchRequest.sendSignalToRust(); // GENERATED
 
   return (await SearchForResponse.rustSignalStream.first).message;
+}
+
+Future<List<MediaFile>> fetchMediaFileByIds(List<int> ids) async {
+  final request = FetchMediaFileByIdsRequest(ids: ids);
+  request.sendSignalToRust(); // GENERATED
+
+  return (await FetchMediaFileByIdsResponse.rustSignalStream.first)
+      .message
+      .result;
+}
+
+Future<List<Album>> fetchAlbumsByIds(List<int> ids) async {
+  final request = FetchAlbumsByIdsRequest(ids: ids);
+  request.sendSignalToRust(); // GENERATED
+
+  return (await FetchAlbumsByIdsResponse.rustSignalStream.first).message.result;
+}
+
+Future<List<Artist>> fetchArtistsByIds(List<int> ids) async {
+  final request = FetchArtistsByIdsRequest(ids: ids);
+  request.sendSignalToRust(); // GENERATED
+
+  return (await FetchArtistsByIdsResponse.rustSignalStream.first)
+      .message
+      .result;
+}
+
+Future<List<Playlist>> fetchPlaylistsByIds(List<int> ids) async {
+  final request = FetchPlaylistsByIdsRequest(ids: ids);
+  request.sendSignalToRust(); // GENERATED
+
+  return (await FetchPlaylistsByIdsResponse.rustSignalStream.first)
+      .message
+      .result;
 }
