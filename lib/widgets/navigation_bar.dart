@@ -2,7 +2,9 @@ import 'dart:collection';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/widgets/flip_animation.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import '../../widgets/flip_animation.dart';
 
 const navigationBarHeight = 64.0;
 
@@ -262,14 +264,29 @@ class NavigationBarState extends State<NavigationBar> {
         },
         child: Transform.translate(
           offset: const Offset(0, -40),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              parentWidget,
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                child: childrenWidget,
+              Expanded(
+                  child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  parentWidget,
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 12),
+                    child: childrenWidget,
+                  )
+                ],
+              )),
+              Padding(
+                padding: const EdgeInsets.only(top: 54, right: 16),
+                child: IconButton(
+                    icon: const Icon(
+                      Symbols.search,
+                      size: 24,
+                    ),
+                    onPressed: () => context.push('/search')),
               )
             ],
           ),

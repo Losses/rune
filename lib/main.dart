@@ -12,6 +12,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 import 'routes/home.dart' as home;
 import 'routes/tracks.dart' as tracks;
 import 'routes/albums.dart' as albums;
+import 'routes/search.dart' as search;
 import 'routes/artists.dart' as artists;
 import 'routes/settings.dart' as settings;
 import 'routes/playlists.dart' as playlists;
@@ -331,6 +332,10 @@ final routes = <GoRoute>[
     builder: (context, state) => const settings.SettingsPage(),
   ),
   GoRoute(
+    path: '/search',
+    builder: (context, state) => const search.SearchPage(),
+  ),
+  GoRoute(
     path: '/cover_wall',
     builder: (context, state) => const cover_wall.CoverWallPage(),
   ),
@@ -377,4 +382,5 @@ final List<NavigationItem> navigationItems = [
     ]),
     NavigationItem('Settings', '/settings'),
   ]),
+  NavigationItem('Search', '/search'),
 ];
