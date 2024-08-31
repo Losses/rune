@@ -25,7 +25,7 @@ pub async fn initialize_player(
     let main_db_for_status = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
 
-    info!("Initializing event listeners.");
+    info!("Initializing event listeners");
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_status);
         let mut cached_meta: Option<MetadataSummary> = None;

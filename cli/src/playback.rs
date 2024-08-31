@@ -31,7 +31,7 @@ pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) 
 
     let mut status_receiver = player.lock().unwrap().subscribe_status();
 
-    info!("Initializing event listeners.");
+    info!("Initializing event listeners");
     task::spawn(async move {
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {:?}", status);

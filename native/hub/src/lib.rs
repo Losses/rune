@@ -9,8 +9,8 @@ mod messages;
 mod playback;
 mod player;
 mod playlist;
+mod search;
 
-use database::connection::connect_search_db;
 use log::{debug, info};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -20,6 +20,7 @@ pub use tokio;
 
 use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
+use ::database::connection::connect_search_db;
 use ::playback::player::Player;
 
 use crate::album::*;
@@ -31,6 +32,7 @@ use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
+use crate::search::*;
 
 use messages::album::*;
 use messages::artist::*;
@@ -40,6 +42,7 @@ use messages::media_file::*;
 use messages::playback::*;
 use messages::playlist::*;
 use messages::recommend::*;
+use messages::search::*;
 
 macro_rules! select_signal {
     ( $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -140,6 +143,7 @@ async fn main() {
                     ReorderPlaylistItemPositionRequest => (main_db),
                     GetUniquePlaylistGroupsRequest => (main_db),
                     GetPlaylistByIdRequest => (main_db),
+                    SearchForRequest => (search_db),
                 );
             });
 
