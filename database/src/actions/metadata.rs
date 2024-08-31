@@ -57,7 +57,7 @@ pub async fn sync_file_descriptions(
     let mut search_term: Option<(i32, String)> = None;
 
     let mut update_search_term = |file_id: i32, metadata: &FileMetadata| {
-        if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "title") {
+        if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "track_title") {
             search_term = Some((file_id, value.clone()));
         }
     };
@@ -375,7 +375,7 @@ where
     };
     let inserted_file = media_files::Entity::insert(new_file).exec(main_db).await?;
 
-    if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "title") {
+    if let Some((_, value)) = metadata.metadata.iter().find(|(key, _)| key == "track_title") {
         add_term(
             search_db,
             CollectionType::Track,

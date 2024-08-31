@@ -13,12 +13,17 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
-const searchCategories = ['Artists', 'Albums', 'Playlists', 'Tracks'];
+const searchCategories = [
+  'Tracks',
+  'Artists',
+  'Albums',
+  'Playlists',
+];
 const searchIcons = [
+  Symbols.music_note,
   Symbols.face,
   Symbols.album,
   Symbols.queue_music,
-  Symbols.music_note
 ];
 
 class _SearchPageState extends State<SearchPage> {
