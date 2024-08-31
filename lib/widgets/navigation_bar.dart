@@ -250,6 +250,8 @@ class NavigationBarState extends State<NavigationBar> {
           [],
     );
 
+    final isSearch = path == '/search';
+
     return BackButtonListener(
         onBackButtonPressed: () async {
           final router = GoRouter.of(context);
@@ -282,11 +284,18 @@ class NavigationBarState extends State<NavigationBar> {
               Padding(
                 padding: const EdgeInsets.only(top: 54, right: 16),
                 child: IconButton(
-                    icon: const Icon(
-                      Symbols.search,
+                    icon: Icon(
+                      isSearch ? Symbols.close : Symbols.search,
                       size: 24,
                     ),
-                    onPressed: () => context.push('/search')),
+                    onPressed: () => {
+                          if (isSearch)
+                            {
+                              if (context.canPop()) {context.pop()}
+                            }
+                          else
+                            {context.push('/search')}
+                        }),
               )
             ],
           ),
