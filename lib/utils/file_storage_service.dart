@@ -38,4 +38,9 @@ class FileStorageService {
   List<String> getAllOpenedFiles() {
     return _getOpenedFiles();
   }
+
+  // Clear all opened files
+  Future<void> clearAllOpenedFiles() async {
+    await _storage.remove(_openedFilesKey);
+  }
 }

@@ -33,4 +33,12 @@ class LibraryPathProvider with ChangeNotifier {
   List<String> getAllOpenedFiles() {
     return _fileStorageService.getAllOpenedFiles();
   }
+
+  // Clear all opened files
+  Future<void> clearAllOpenedFiles() async {
+    await _fileStorageService.clearAllOpenedFiles();
+    _currentPath = null;
+
+    notifyListeners();
+  }
 }

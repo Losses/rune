@@ -15,7 +15,6 @@ class _SettingsPageState extends State<SettingsPage> {
     return ScaffoldPage(
       content: Column(children: [
         const NavigationBarPlaceholder(),
-        const TextBox(),
         Center(
           child: Text(
             'Hello, World!',

@@ -13,6 +13,7 @@ import 'routes/home.dart' as home;
 import 'routes/tracks.dart' as tracks;
 import 'routes/albums.dart' as albums;
 import 'routes/search.dart' as search;
+import 'routes/welcome.dart' as welcome;
 import 'routes/artists.dart' as artists;
 import 'routes/settings.dart' as settings;
 import 'routes/playlists.dart' as playlists;
@@ -286,6 +287,10 @@ class LinkPaneItemAction extends PaneItem {
 
 final routes = <GoRoute>[
   GoRoute(
+    path: '/welcome',
+    builder: (context, state) => const welcome.WelcomePage(),
+  ),
+  GoRoute(
     path: '/home',
     builder: (context, state) => const home.HomePage(),
   ),
@@ -350,6 +355,13 @@ final router = GoRouter(
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
+          final libraryPath =
+              Provider.of<LibraryPathProvider>(context).currentPath;
+
+          if (libraryPath == null) {
+            return const welcome.WelcomePage();
+          }
+
           return FlipAnimationContext(
               child: Stack(alignment: Alignment.bottomCenter, children: [
             SizedBox.expand(
