@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use database::actions::search::search_for;
 use dunce::canonicalize;
-use log::error;
+use log::{error, info};
 use rune::index::index_audio_library;
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
@@ -145,7 +145,7 @@ async fn main() {
                 None,
             )
             .await;
-            println!("Library scanned successfully.");
+            info!("Library scanned successfully.");
         }
         Commands::Index => {
             index_audio_library(&main_db, &mut search_db).await;
@@ -157,7 +157,7 @@ async fn main() {
             if mode.as_deref() == Some("random") {
                 play_random(&main_db, &canonicalized_path).await;
             } else {
-                println!("Mode not implemented!");
+                info!("Mode not implemented!");
             }
         }
         Commands::Recommend {
@@ -185,7 +185,7 @@ async fn main() {
         Commands::Search { query, num } => match search_for(&mut search_db, query, *num) {
             Ok(results) => {
                 for (collection_type, ids) in results {
-                    println!("{:?}: {:?}", collection_type, ids);
+                    info!("{:?}: {:?}", collection_type, ids);
                 }
             }
             Err(e) => {

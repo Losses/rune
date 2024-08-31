@@ -69,17 +69,17 @@ impl FileDescription {
 const CHUNK_SIZE: usize = 1024 * 400;
 
 pub fn describe_file(
-    rel_path: &PathBuf,
+    file_path: &Path,
     root_path: &Path,
 ) -> Result<FileDescription, Box<dyn std::error::Error>> {
-    let full_path = root_path.join(rel_path);
-
     // Get file name
-    let file_name = full_path
+    let file_name = file_path
         .file_name()
         .and_then(OsStr::to_str)
         .map(String::from)
         .ok_or("Failed to get file name")?;
+
+    let rel_path = file_path.strip_prefix(root_path)?;
 
     // Get directory
     let directory = to_unix_path_string(
@@ -93,21 +93,21 @@ pub fn describe_file(
     .unwrap();
 
     // Get file extension
-    let extension = full_path
+    let extension = file_path
         .extension()
         .and_then(OsStr::to_str)
         .map(String::from)
         .unwrap_or_else(|| String::from(""));
 
     // Get last modified time
-    let metadata = full_path.metadata()?;
+    let metadata = file_path.metadata()?;
     let last_modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs();
     let last_modified = format!("{}", last_modified);
 
     Ok(FileDescription {
         root_path: root_path.to_path_buf(),
-        rel_path: rel_path.clone(),
-        full_path: full_path.clone(),
+        rel_path: rel_path.to_path_buf(),
+        full_path: file_path.to_path_buf(),
         file_name,
         directory,
         extension,

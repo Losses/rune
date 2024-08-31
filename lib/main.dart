@@ -355,10 +355,9 @@ final router = GoRouter(
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
-          final libraryPath =
-              Provider.of<LibraryPathProvider>(context).currentPath;
+          final library = Provider.of<LibraryPathProvider>(context);
 
-          if (libraryPath == null) {
+          if (library.currentPath == null || library.scanning) {
             return const welcome.WelcomePage();
           }
 

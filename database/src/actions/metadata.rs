@@ -14,7 +14,7 @@ use metadata::scanner::AudioScanner;
 
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
-use crate::actions::search::{add_term, CollectionType};
+use crate::actions::search::{add_term, remove_term, CollectionType};
 use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
@@ -416,20 +416,34 @@ where
 }
 
 async fn clean_up_database(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
     root_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let db_files = media_files::Entity::find().all(db).await?;
+    let db_files = media_files::Entity::find().all(main_db).await?;
+
+    let mut modified = false;
+
     for db_file in db_files {
-        let full_path = root_path.join(PathBuf::from(&db_file.file_name));
+        let full_path = root_path
+            .join(PathBuf::from(&db_file.directory))
+            .join(PathBuf::from(&db_file.file_name));
         if !full_path.exists() {
             info!("Cleaning {}", full_path.to_str().unwrap());
             // Delete the file record
             media_files::Entity::delete_by_id(db_file.id)
-                .exec(db)
+                .exec(main_db)
                 .await?;
+
+            modified = true;
+            remove_term(search_db, CollectionType::Track, db_file.id)
         }
     }
+
+    if modified {
+        search_db.w.commit().unwrap();
+    }
+
     Ok(())
 }
 
@@ -468,7 +482,7 @@ pub async fn scan_audio_library<F>(
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(&file.path().to_path_buf(), root_path))
+            .map(|file| describe_file(file.path(), root_path))
             .map(|result| result.ok())
             .collect();
 
@@ -499,7 +513,7 @@ pub async fn scan_audio_library<F>(
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(main_db, root_path).await {
+        match clean_up_database(main_db, search_db, root_path).await {
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("Error during cleanup: {:?}", e),
         }

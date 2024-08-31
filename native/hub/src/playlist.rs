@@ -1,3 +1,8 @@
+use log::{debug, error};
+use rinf::DartSignal;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use database::actions::cover_art::get_magic_cover_art_id;
 use database::actions::library::get_playlist_cover_ids;
 use database::actions::playlists::add_item_to_playlist;
@@ -5,21 +10,15 @@ use database::actions::playlists::add_media_file_to_playlist;
 use database::actions::playlists::check_items_in_playlist;
 use database::actions::playlists::create_playlist;
 use database::actions::playlists::get_all_playlists;
+use database::actions::playlists::get_playlist_by_id;
 use database::actions::playlists::get_playlists_by_ids;
+use database::actions::playlists::get_playlists_groups;
 use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
-use database::connection::SearchDbConnection;
-use log::{debug, error};
-use rinf::DartSignal;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-use database::actions::playlists::get_playlist_by_id;
-use database::actions::playlists::get_playlists_groups;
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
-
+use database::connection::SearchDbConnection;
 use database::entities::playlists;
 
 use crate::messages::playlist::AddItemToPlaylistRequest;

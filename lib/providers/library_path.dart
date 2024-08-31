@@ -5,6 +5,8 @@ import '../utils/file_storage_service.dart';
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
+  bool _scanning = false;
+
   final FileStorageService _fileStorageService = FileStorageService();
 
   LibraryPathProvider() {
@@ -21,13 +23,20 @@ class LibraryPathProvider with ChangeNotifier {
   }
 
   String? get currentPath => _currentPath;
+  bool get scanning => _scanning;
 
-  Future<void> setLibraryPath(String filePath) async {
+  Future<void> setLibraryPath(String filePath, [bool scan = false]) async {
     _currentPath = filePath;
+    _scanning = scan;
     // Send the signal to Rust
     MediaLibraryPath(path: filePath).sendSignalToRust();
     notifyListeners();
     _fileStorageService.storeFilePath(filePath);
+  }
+
+  Future<void> finalizeScanning() async {
+    _scanning = false;
+    notifyListeners();
   }
 
   List<String> getAllOpenedFiles() {
