@@ -49,13 +49,18 @@ use messages::recommend::*;
 use messages::search::*;
 
 macro_rules! select_signal {
-    ( $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
+    ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
         paste::paste! {
             $(
                 let mut [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver().unwrap();
             )*
 
             loop {
+                if $cancel_token.is_cancelled() {
+                    info!("Cancellation requested. Exiting main loop.");
+                    break;
+                }
+
                 tokio::select! {
                     $(
                         dart_signal = [<receiver_ $type:snake>].recv() => {
@@ -103,6 +108,8 @@ async fn player_loop(path: String) {
         info!("Initializing UI events");
 
         select_signal!(
+            cancel_token,
+
             ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
 
             PlayFileRequest => (main_db, lib_path, player),
