@@ -112,6 +112,7 @@ async fn player_loop(path: String) {
 
             CloseLibraryRequest => (lib_path, cancel_token),
             ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
+            AnalyseAudioLibraryRequest => (main_db, recommend_db, cancel_token),
 
             PlayFileRequest => (main_db, lib_path, player),
             RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),

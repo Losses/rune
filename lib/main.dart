@@ -1,3 +1,4 @@
+import 'package:player/providers/library_manager.dart';
 import 'package:rinf/rinf.dart';
 import 'package:url_launcher/link.dart';
 import 'package:provider/provider.dart';
@@ -75,6 +76,7 @@ void main() async {
             lazy: false, create: (_) => LibraryPathProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
       ],
       child: const Rune(),
     ),

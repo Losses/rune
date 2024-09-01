@@ -4,7 +4,7 @@ use database::actions::analysis::{analysis_audio_library, empty_progress_callbac
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
-pub async fn analyze_audio_library(
+pub async fn analyse_audio_library(
     main_db: &MainDbConnection,
     analysis_db: &RecommendationDbConnection,
     path: &Path,

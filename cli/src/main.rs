@@ -136,7 +136,7 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            scan_audio_library(
+            let _ = scan_audio_library(
                 &main_db,
                 &mut search_db,
                 &path,
@@ -151,7 +151,7 @@ async fn main() {
             index_audio_library(&main_db, &mut search_db).await;
         }
         Commands::Analyze => {
-            analyze_audio_library(&main_db, &analysis_db, &path).await;
+            analyse_audio_library(&main_db, &analysis_db, &path).await;
         }
         Commands::Play { mode } => {
             if mode.as_deref() == Some("random") {

@@ -1,13 +1,11 @@
-import 'package:file_selector/file_selector.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:mesh_gradient/mesh_gradient.dart';
-import 'package:provider/provider.dart';
 
 import '../../utils/ax_shadow.dart';
-import '../../messages/library_manage.pb.dart';
-import '../../providers/library_path.dart';
+import '../../utils/scan_library.dart';
 
 extension ColorBrightness on Color {
   Color darken([double amount = .1]) {
@@ -159,21 +157,5 @@ class _WelcomePageState extends State<WelcomePage>
         ),
       ),
     );
-  }
-
-  Future<void> scanLibrary(BuildContext context, String path) async {
-    final library = Provider.of<LibraryPathProvider>(context, listen: false);
-
-    await library.setLibraryPath(path, true);
-    ScanAudioLibraryRequest(path: path).sendSignalToRust();
-
-    while (true) {
-      final rustSignal = await ScanAudioLibraryResponse.rustSignalStream.first;
-
-      if (rustSignal.message.path == path) {
-        library.finalizeScanning();
-        return;
-      }
-    }
   }
 }

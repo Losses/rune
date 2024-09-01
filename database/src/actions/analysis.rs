@@ -33,7 +33,7 @@ pub async fn analysis_audio_library<F>(
     batch_size: usize,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
-) -> Result<(), sea_orm::DbErr>
+) -> Result<usize, sea_orm::DbErr>
 where
     F: Fn(usize, usize) + Send + Sync,
 {
@@ -160,7 +160,7 @@ where
     consumer_result?;
 
     info!("Audio library analysis completed.");
-    Ok(())
+    Ok(total_tasks)
 }
 
 /// Process a file if it has not been analyzed yet. Perform audio analysis and store the results

@@ -29,7 +29,7 @@ async fn main() {
     let root_path = PathBuf::from(&path);
 
     // Scan the audio library
-    scan_audio_library(
+    let _ = scan_audio_library(
         &main_db,
         &mut search_db,
         &root_path,

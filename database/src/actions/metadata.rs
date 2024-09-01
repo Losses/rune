@@ -456,7 +456,8 @@ pub async fn scan_audio_library<F>(
     cleanup: bool,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
-) where
+) -> Result<usize, sea_orm::DbErr>
+where
     F: Fn(usize) + Send + Sync,
 {
     let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
@@ -473,7 +474,7 @@ pub async fn scan_audio_library<F>(
         if let Some(ref token) = cancel_token {
             if token.is_cancelled() {
                 info!("Scan cancelled.");
-                return;
+                return Ok(processed_files);
             }
         }
 
@@ -520,6 +521,8 @@ pub async fn scan_audio_library<F>(
     }
 
     info!("Audio library scan completed.");
+
+    Ok(processed_files)
 }
 
 #[derive(Error, Debug)]

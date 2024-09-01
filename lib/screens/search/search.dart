@@ -1,9 +1,9 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/cover_art.dart';
@@ -255,15 +255,14 @@ class _SearchPageState extends State<SearchPage> {
                         }
                       }
                       return ListTile.selectable(
-                        leading: SizedBox(
+                        leading: Container(
+                          width: 36,
                           height: 36,
-                          child: AspectRatio(
-                            aspectRatio: 1,
-                            child: ColoredBox(
-                              color: theme.accentColor,
-                              child: Icon(searchIcons[index], size: 26),
-                            ),
+                          decoration: BoxDecoration(
+                            color: theme.accentColor,
+                            borderRadius: BorderRadius.circular(2),
                           ),
+                          child: Icon(searchIcons[index], size: 26),
                         ),
                         title: Row(
                           children: [
