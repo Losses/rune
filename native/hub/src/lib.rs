@@ -110,6 +110,7 @@ async fn player_loop(path: String) {
         select_signal!(
             cancel_token,
 
+            CloseLibraryRequest => (lib_path, cancel_token),
             ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
 
             PlayFileRequest => (main_db, lib_path, player),

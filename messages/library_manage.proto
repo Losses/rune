@@ -2,6 +2,16 @@ syntax = "proto3";
 package library_manage;
 
 // [RINF:DART-SIGNAL]
+message CloseLibraryRequest {
+    string path = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message CloseLibraryResponse {
+    string path = 1;
+}
+
+// [RINF:DART-SIGNAL]
 message ScanAudioLibraryRequest {
     string path = 1;
 }

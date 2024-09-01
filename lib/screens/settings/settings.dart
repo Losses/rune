@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/providers/library_path.dart';
 import 'package:provider/provider.dart';
 
 import '../../widgets/navigation_bar.dart';
+import '../../messages/library_manage.pb.dart';
+import '../../providers/library_path.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -21,7 +22,11 @@ class _SettingsPageState extends State<SettingsPage> {
           child: Column(
             children: [
               Button(
-                onPressed: () {
+                onPressed: () async {
+                  await closeLibrary(context);
+
+                  if (!context.mounted) return;
+
                   Provider.of<LibraryPathProvider>(context, listen: false)
                       .clearAllOpenedFiles();
                 },
@@ -32,5 +37,20 @@ class _SettingsPageState extends State<SettingsPage> {
         )
       ]),
     );
+  }
+}
+
+Future<void> closeLibrary(BuildContext context) async {
+  final library = Provider.of<LibraryPathProvider>(context, listen: false);
+
+  final path = library.currentPath;
+  CloseLibraryRequest(path: path).sendSignalToRust();
+
+  while (true) {
+    final rustSignal = await CloseLibraryResponse.rustSignalStream.first;
+
+    if (rustSignal.message.path == path) {
+      return;
+    }
   }
 }

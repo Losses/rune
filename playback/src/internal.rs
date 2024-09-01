@@ -1,4 +1,4 @@
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rodio::{Decoder, OutputStream, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
@@ -295,7 +295,7 @@ impl PlayerInternal {
             self.event_sender.send(PlayerEvent::Stopped).unwrap();
             self.state = InternalPlaybackState::Stopped;
         } else {
-            error!("Stop command received but no track is loaded");
+            warn!("Stop command received but no track is loaded");
         }
     }
 
@@ -311,7 +311,7 @@ impl PlayerInternal {
                 self.state = InternalPlaybackState::Stopped;
             }
         } else {
-            error!("Next command received but no track is currently playing");
+            warn!("Next command received but no track is currently playing");
         }
     }
 
@@ -325,7 +325,7 @@ impl PlayerInternal {
                 error!("Previous command received but already at the first track");
             }
         } else {
-            error!("Previous command received but no track is currently playing");
+            warn!("Previous command received but no track is currently playing");
         }
     }
 
@@ -335,7 +335,7 @@ impl PlayerInternal {
             debug!("Moving to previous track: {}", index);
             self.load(Some(index));
         } else {
-            error!("Previous command received but already at the first track");
+            warn!("Previous command received but already at the first track");
         }
     }
 
@@ -358,7 +358,7 @@ impl PlayerInternal {
                 Err(e) => error!("Failed to seek: {:?}", e),
             }
         } else {
-            error!("Seek command received but no track is loaded");
+            warn!("Seek command received but no track is loaded");
         }
     }
 

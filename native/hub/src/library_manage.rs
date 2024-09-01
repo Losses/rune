@@ -11,6 +11,28 @@ use database::connection::{MainDbConnection, SearchDbConnection};
 use crate::messages::library_manage::{
     ScanAudioLibraryProgress, ScanAudioLibraryRequest, ScanAudioLibraryResponse,
 };
+use crate::{CloseLibraryRequest, CloseLibraryResponse};
+
+pub async fn close_library_request(
+    lib_path: Arc<String>,
+    cancel_token: Arc<CancellationToken>,
+    dart_signal: DartSignal<CloseLibraryRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Closing library");
+
+    if request.path != *lib_path {
+        return;
+    }
+
+    cancel_token.cancel();
+
+    CloseLibraryResponse {
+        path: request.path.clone(),
+    }
+    .send_signal_to_dart()
+}
 
 pub async fn scan_audio_library_request(
     main_db: Arc<MainDbConnection>,
