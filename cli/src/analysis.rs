@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use database::actions::analysis::analysis_audio_library;
+use database::actions::analysis::{analysis_audio_library, empty_progress_callback};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
@@ -9,7 +9,7 @@ pub async fn analyze_audio_library(
     analysis_db: &RecommendationDbConnection,
     path: &Path,
 ) {
-    if let Err(e) = analysis_audio_library(main_db, path, 10).await {
+    if let Err(e) = analysis_audio_library(main_db, path, 10, empty_progress_callback, None).await {
         eprintln!("Audio analysis failed: {}", e);
         return;
     }

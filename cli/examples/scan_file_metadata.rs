@@ -25,7 +25,7 @@ async fn main() {
         let descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(&file.path().to_path_buf(), &root_path))
+            .map(|file| describe_file(file.path(), &root_path))
             .map(|result| result.ok())
             .collect();
 

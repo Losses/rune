@@ -5,10 +5,13 @@ use sea_orm::ActiveValue;
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::path::Path;
 use tokio::task;
+use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
 
 use crate::entities::{media_analysis, media_files};
+
+pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 
 /// Analyze the audio library by reading existing files, checking if they have been analyzed,
 /// and performing audio analysis if not. The function uses cursor pagination to process files
@@ -19,14 +22,21 @@ use crate::entities::{media_analysis, media_files};
 /// * `db` - A reference to the database connection.
 /// * `root_path` - The root path for the audio files.
 /// * `batch_size` - The number of files to process in each batch.
+/// * `progress_callback` - A callback function to report progress.
+/// * `cancel_token` - An optional cancellation token to support task cancellation.
 ///
 /// # Returns
 /// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
-pub async fn analysis_audio_library(
+pub async fn analysis_audio_library<F>(
     db: &DatabaseConnection,
     root_path: &Path,
     batch_size: usize,
-) -> Result<(), sea_orm::DbErr> {
+    progress_callback: F,
+    cancel_token: Option<CancellationToken>,
+) -> Result<(), sea_orm::DbErr>
+where
+    F: Fn(usize, usize) + Send + Sync,
+{
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
 
     info!(
@@ -34,11 +44,23 @@ pub async fn analysis_audio_library(
         batch_size
     );
 
+    // Calculate the total number of tasks
+    let total_tasks = media_files::Entity::find().count(db).await? as usize;
+
     let (tx, rx) = async_channel::bounded(batch_size);
+    let mut total_processed = 0;
 
     // Producer task: fetch batches of files and send them to the consumer
     let producer = async {
         loop {
+            // Check for cancellation
+            if let Some(ref token) = cancel_token {
+                if token.is_cancelled() {
+                    info!("Cancellation requested. Exiting producer loop.");
+                    break;
+                }
+            }
+
             // Fetch the next batch of files
             let files: Vec<media_files::Model> =
                 cursor.first(batch_size.try_into().unwrap()).all(db).await?;
@@ -70,6 +92,14 @@ pub async fn analysis_audio_library(
         let mut tasks = Vec::new();
 
         while let Ok(file) = rx.recv().await {
+            // Check for cancellation
+            if let Some(ref token) = cancel_token {
+                if token.is_cancelled() {
+                    info!("Cancellation requested. Exiting consumer loop.");
+                    break;
+                }
+            }
+
             let db = db.clone();
             let root_path = root_path.to_path_buf();
             let file_id = file.id;
@@ -83,6 +113,7 @@ pub async fn analysis_audio_library(
 
             // Process tasks in parallel up to the batch size
             if tasks.len() >= batch_size {
+                let task_count = tasks.len();
                 let results: Vec<_> = stream::iter(tasks)
                     .buffer_unordered(batch_size)
                     .collect()
@@ -94,11 +125,16 @@ pub async fn analysis_audio_library(
                         error!("Error processing file: {:?}", e);
                     }
                 }
+
+                // Update progress
+                total_processed += task_count;
+                progress_callback(total_processed, total_tasks);
             }
         }
 
         // Process remaining tasks
         if !tasks.is_empty() {
+            let task_count = tasks.len();
             let results: Vec<_> = stream::iter(tasks)
                 .buffer_unordered(batch_size)
                 .collect()
@@ -108,6 +144,10 @@ pub async fn analysis_audio_library(
                     error!("Error processing file: {:?}", e);
                 }
             }
+
+            // Update progress for remaining tasks
+            total_processed += task_count;
+            progress_callback(total_processed, total_tasks);
         }
 
         Ok::<(), sea_orm::DbErr>(())

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::analysis::analysis_audio_library;
-use database::actions::metadata::{empty_progress_callback, scan_audio_library};
+use database::actions::analysis::{analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback};
+use database::actions::metadata::{empty_progress_callback  as empty_scan_progress_callback, scan_audio_library};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 
@@ -34,13 +34,13 @@ async fn main() {
         &mut search_db,
         &root_path,
         true,
-        empty_progress_callback,
+        empty_scan_progress_callback,
         None,
     )
     .await;
 
     // Analyze the audio files in the database
-    analysis_audio_library(&main_db, &root_path, 10)
+    analysis_audio_library(&main_db, &root_path, 10, empty_analysis_progress_callback, None)
         .await
         .expect("Audio analysis failed");
 
