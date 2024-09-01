@@ -1,13 +1,14 @@
-use database::actions::analysis::analysis_audio_library;
-use database::actions::recommendation::sync_recommendation;
-use log::debug;
-use rinf::DartSignal;
 use std::path::Path;
 use std::sync::Arc;
+
+use log::debug;
+use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
+use database::actions::analysis::analysis_audio_library;
 use database::actions::metadata::scan_audio_library;
+use database::actions::recommendation::sync_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection, SearchDbConnection};
 
 use crate::messages::library_manage::{
@@ -47,7 +48,7 @@ pub async fn scan_audio_library_request(
 ) {
     let request = dart_signal.message;
 
-    debug!("Scanning library summary");
+    debug!("Scanning library summary: {:#?}", request);
 
     let mut search_db = search_db.lock().await;
 
@@ -75,6 +76,15 @@ pub async fn scan_audio_library_request(
     .send_signal_to_dart()
 }
 
+pub fn determine_batch_size() -> usize {
+    let num_cores = num_cpus::get();
+    let batch_size = num_cores * 2;
+    let min_batch_size = 1;
+    let max_batch_size = 1000;
+
+    std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
+}
+
 pub async fn analyse_audio_library_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
@@ -83,12 +93,12 @@ pub async fn analyse_audio_library_request(
 ) {
     let request = dart_signal.message;
 
-    debug!("Analysing media files");
+    debug!("Analysing media files: {:#?}", request);
 
     let total_files = analysis_audio_library(
         &main_db,
         Path::new(&request.path),
-        2,
+        determine_batch_size(),
         |progress, total| {
             AnalyseAudioLibraryProgress {
                 path: request.path.clone(),

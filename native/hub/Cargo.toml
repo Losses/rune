@@ -24,6 +24,7 @@ log = "0.4.22"
 tracing-subscriber = "0.3.18"
 paste = "1.0.15"
 tokio-util = "0.7.11"
+num_cpus = "1.16.0"
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
