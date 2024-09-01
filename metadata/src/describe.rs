@@ -29,7 +29,7 @@ pub struct FileDescription {
 
 impl FileDescription {
     pub fn get_crc(&mut self) -> Result<String, Box<dyn std::error::Error>> {
-        let full_path = self.root_path.join(&self.rel_path);
+        let full_path = self.root_path.join(&self.directory).join(&self.file_name);
 
         if self.file_hash.is_none() {
             let file = File::open(&full_path)?;
@@ -70,7 +70,7 @@ const CHUNK_SIZE: usize = 1024 * 400;
 
 pub fn describe_file(
     file_path: &Path,
-    root_path: &Path,
+    lib_path: &Path,
 ) -> Result<FileDescription, Box<dyn std::error::Error>> {
     // Get file name
     let file_name = file_path
@@ -79,7 +79,7 @@ pub fn describe_file(
         .map(String::from)
         .ok_or("Failed to get file name")?;
 
-    let rel_path = file_path.strip_prefix(root_path)?;
+    let rel_path = file_path.strip_prefix(lib_path)?;
 
     // Get directory
     let directory = to_unix_path_string(
@@ -105,7 +105,7 @@ pub fn describe_file(
     let last_modified = format!("{}", last_modified);
 
     Ok(FileDescription {
-        root_path: root_path.to_path_buf(),
+        root_path: lib_path.to_path_buf(),
         rel_path: rel_path.to_path_buf(),
         full_path: file_path.to_path_buf(),
         file_name,

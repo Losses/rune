@@ -20,6 +20,11 @@ class AnalyseTaskProgress {
     this.status = TaskStatus.working,
     this.initialize = false,
   });
+
+  @override
+  String toString() {
+    return 'AnalyseTaskProgress(path: $path, progress: $progress, total: $total, status: $status, initialize: $initialize)';
+  }
 }
 
 class ScanTaskProgress {
@@ -34,6 +39,11 @@ class ScanTaskProgress {
     this.status = TaskStatus.working,
     this.initialize = false,
   });
+
+  @override
+  String toString() {
+    return 'ScanTaskProgress(path: $path, progress: $progress, status: $status, initialize: $initialize)';
+  }
 }
 
 class LibraryManagerProvider with ChangeNotifier {
@@ -99,6 +109,7 @@ class LibraryManagerProvider with ChangeNotifier {
       String path, int progress, TaskStatus status, bool initialize) {
     if (_scanTasks.containsKey(path)) {
       _scanTasks[path]!.progress = progress;
+      _scanTasks[path]!.status = status;
     } else {
       _scanTasks[path] = ScanTaskProgress(
           path: path,
@@ -114,6 +125,7 @@ class LibraryManagerProvider with ChangeNotifier {
     if (_analyseTasks.containsKey(path)) {
       _analyseTasks[path]!.progress = progress;
       _analyseTasks[path]!.total = total;
+      _analyseTasks[path]!.status = status;
     } else {
       _analyseTasks[path] = AnalyseTaskProgress(
           path: path,

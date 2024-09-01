@@ -20,7 +20,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 ///
 /// # Arguments
 /// * `db` - A reference to the database connection.
-/// * `root_path` - The root path for the audio files.
+/// * `lib_path` - The root path for the audio files.
 /// * `batch_size` - The number of files to process in each batch.
 /// * `progress_callback` - A callback function to report progress.
 /// * `cancel_token` - An optional cancellation token to support task cancellation.
@@ -29,7 +29,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 /// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
 pub async fn analysis_audio_library<F>(
     db: &DatabaseConnection,
-    root_path: &Path,
+    lib_path: &Path,
     batch_size: usize,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
@@ -101,12 +101,12 @@ where
             }
 
             let db = db.clone();
-            let root_path = root_path.to_path_buf();
+            let lib_path = lib_path.to_path_buf();
             let file_id = file.id;
 
             let task = task::spawn(async move {
                 info!("Processing file with ID: {}", file_id);
-                process_file_if_needed(&db, &file, &root_path).await
+                process_file_if_needed(&db, &file, &lib_path).await
             });
 
             tasks.push(task);
@@ -173,7 +173,7 @@ where
 async fn process_file_if_needed(
     db: &DatabaseConnection,
     file: &media_files::Model,
-    root_path: &Path,
+    lib_path: &Path,
 ) {
     // Check if the file has already been analyzed
     let existing_analysis = media_analysis::Entity::find()
@@ -188,7 +188,7 @@ async fn process_file_if_needed(
     }
 
     // Construct the full path to the file
-    let file_path = root_path.join(&file.file_name);
+    let file_path = lib_path.join(&file.directory).join(&file.file_name);
 
     // Perform audio analysis
     let analysis_result = analyze_audio(

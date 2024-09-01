@@ -452,7 +452,7 @@ pub fn empty_progress_callback(_processed: usize) {}
 pub async fn scan_audio_library<F>(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
-    root_path: &Path,
+    lib_path: &Path,
     cleanup: bool,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
@@ -460,7 +460,7 @@ pub async fn scan_audio_library<F>(
 where
     F: Fn(usize) + Send + Sync,
 {
-    let root_path_str = root_path.to_str().expect("Invalid UTF-8 sequence in path");
+    let root_path_str = lib_path.to_str().expect("Invalid UTF-8 sequence in path");
     let mut scanner = AudioScanner::new(&root_path_str);
 
     info!("Starting audio library scan");
@@ -483,7 +483,7 @@ where
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(file.path(), root_path))
+            .map(|file| describe_file(file.path(), lib_path))
             .map(|result| result.ok())
             .collect();
 
@@ -514,7 +514,7 @@ where
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(main_db, search_db, root_path).await {
+        match clean_up_database(main_db, search_db, lib_path).await {
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("Error during cleanup: {:?}", e),
         }
