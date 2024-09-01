@@ -1,15 +1,19 @@
+use std::path::Path;
+
+use anyhow::Error;
 use futures::stream::{self, StreamExt};
 use log::{error, info};
 use sea_orm::entity::prelude::*;
-use sea_orm::ActiveValue;
+use sea_orm::{ActiveValue, TransactionTrait};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-use std::path::Path;
-use tokio::task;
+use tokio::task::{self, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
 
 use crate::entities::{media_analysis, media_files};
+
+use super::utils::DatabaseExecutor;
 
 pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 
@@ -19,7 +23,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 /// The analysis results are normalized before being stored in the database.
 ///
 /// # Arguments
-/// * `db` - A reference to the database connection.
+/// * `main_db` - A reference to the database connection.
 /// * `lib_path` - The root path for the audio files.
 /// * `batch_size` - The number of files to process in each batch.
 /// * `progress_callback` - A callback function to report progress.
@@ -28,7 +32,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 /// # Returns
 /// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
 pub async fn analysis_audio_library<F>(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     lib_path: &Path,
     batch_size: usize,
     progress_callback: F,
@@ -45,7 +49,7 @@ where
     );
 
     // Calculate the total number of tasks
-    let total_tasks = media_files::Entity::find().count(db).await? as usize;
+    let total_tasks = media_files::Entity::find().count(main_db).await? as usize;
 
     let (tx, rx) = async_channel::bounded(batch_size);
     let mut total_processed = 0;
@@ -62,8 +66,10 @@ where
             }
 
             // Fetch the next batch of files
-            let files: Vec<media_files::Model> =
-                cursor.first(batch_size.try_into().unwrap()).all(db).await?;
+            let files: Vec<media_files::Model> = cursor
+                .first(batch_size.try_into().unwrap())
+                .all(main_db)
+                .await?;
 
             if files.is_empty() {
                 info!("No more files to process. Exiting loop.");
@@ -87,6 +93,52 @@ where
         Ok::<(), sea_orm::DbErr>(())
     };
 
+    // Function to process tasks and commit the transaction
+    async fn process_tasks<F>(
+        main_db: &DatabaseConnection,
+        tasks: &mut Vec<JoinHandle<Result<(i32, NormalizedAnalysisResult), Error>>>,
+        batch_size: usize,
+        total_processed: &mut usize,
+        progress_callback: &F,
+        total_tasks: usize,
+    ) -> Result<(), sea_orm::DbErr>
+    where
+        F: Fn(usize, usize) + Send + Sync,
+    {
+        if !tasks.is_empty() {
+            // Start a transaction
+            let txn: sea_orm::DatabaseTransaction = main_db.begin().await?;
+
+            let task_count = tasks.len();
+            let results: Vec<_> = stream::iter(tasks.drain(..))
+                .buffer_unordered(batch_size)
+                .collect()
+                .await;
+
+            for normalized_result in results {
+                match normalized_result {
+                    Ok(Ok((file_id, normalized_result))) => {
+                        // Insert the analysis result into the database
+                        insert_analysis_result(&txn, file_id, normalized_result).await;
+                    }
+                    Ok(Err(e)) => {
+                        error!("Error processing file: {:?}", e);
+                    }
+                    Err(e) => {
+                        error!("Join error: {:?}", e);
+                    }
+                }
+            }
+
+            // Update progress
+            *total_processed += task_count;
+            *tasks = Vec::new();
+            progress_callback(*total_processed, total_tasks);
+            txn.commit().await?;
+        }
+        Ok(())
+    }
+
     // Consumer task: process files as they are received
     let consumer = async {
         let mut tasks = Vec::new();
@@ -100,55 +152,51 @@ where
                 }
             }
 
-            let db = db.clone();
+            let db = main_db.clone();
             let lib_path = lib_path.to_path_buf();
             let file_id = file.id;
 
-            let task = task::spawn(async move {
-                info!("Processing file with ID: {}", file_id);
-                process_file_if_needed(&db, &file, &lib_path).await
-            });
+            // Check if the file has already been analyzed
+            let existing_analysis = media_analysis::Entity::find()
+                .filter(media_analysis::Column::FileId.eq(file.id))
+                .one(&db)
+                .await
+                .unwrap();
 
-            tasks.push(task);
+            if existing_analysis.is_none() {
+                let task = task::spawn(async move {
+                    info!("Processing file with ID: {}", file_id);
+                    let result = analysis_file(&file, &lib_path).await;
+                    Ok((file.id, result))
+                });
+
+                tasks.push(task);
+            }
 
             // Process tasks in parallel up to the batch size
             if tasks.len() >= batch_size {
-                let task_count = tasks.len();
-                let results: Vec<_> = stream::iter(tasks)
-                    .buffer_unordered(batch_size)
-                    .collect()
-                    .await;
-                tasks = Vec::new();
-
-                for result in results {
-                    if let Err(e) = result {
-                        error!("Error processing file: {:?}", e);
-                    }
-                }
-
-                // Update progress
-                total_processed += task_count;
-                progress_callback(total_processed, total_tasks);
+                process_tasks(
+                    main_db,
+                    &mut tasks,
+                    batch_size,
+                    &mut total_processed,
+                    &progress_callback,
+                    total_tasks,
+                )
+                .await?;
             }
         }
 
         // Process remaining tasks
-        if !tasks.is_empty() {
-            let task_count = tasks.len();
-            let results: Vec<_> = stream::iter(tasks)
-                .buffer_unordered(batch_size)
-                .collect()
-                .await;
-            for result in results {
-                if let Err(e) = result {
-                    error!("Error processing file: {:?}", e);
-                }
-            }
-
-            // Update progress for remaining tasks
-            total_processed += task_count;
-            progress_callback(total_processed, total_tasks);
-        }
+        process_tasks(
+            main_db,
+            &mut tasks,
+            batch_size,
+            &mut total_processed,
+            &progress_callback,
+            total_tasks,
+        )
+        .await?;
 
         Ok::<(), sea_orm::DbErr>(())
     };
@@ -170,23 +218,7 @@ where
 /// * `db` - A reference to the database connection.
 /// * `file` - A reference to the file model.
 /// * `root_path` - The root path for the audio files.
-async fn process_file_if_needed(
-    db: &DatabaseConnection,
-    file: &media_files::Model,
-    lib_path: &Path,
-) {
-    // Check if the file has already been analyzed
-    let existing_analysis = media_analysis::Entity::find()
-        .filter(media_analysis::Column::FileId.eq(file.id))
-        .one(db)
-        .await
-        .unwrap();
-
-    if existing_analysis.is_some() {
-        // File has already been analyzed, skip it
-        return;
-    }
-
+async fn analysis_file(file: &media_files::Model, lib_path: &Path) -> NormalizedAnalysisResult {
     // Construct the full path to the file
     let file_path = lib_path.join(&file.directory).join(&file.file_name);
 
@@ -198,10 +230,7 @@ async fn process_file_if_needed(
     );
 
     // Normalize the analysis result
-    let normalized_result = normalize_analysis_result(analysis_result);
-
-    // Insert the analysis result into the database
-    insert_analysis_result(db, file.id, normalized_result).await;
+    normalize_analysis_result(analysis_result)
 }
 
 /// Insert the normalized analysis result into the database.
@@ -210,11 +239,10 @@ async fn process_file_if_needed(
 /// * `db` - A reference to the database connection.
 /// * `file_id` - The ID of the file being analyzed.
 /// * `result` - The normalized analysis result.
-async fn insert_analysis_result(
-    db: &DatabaseConnection,
-    file_id: i32,
-    result: NormalizedAnalysisResult,
-) {
+async fn insert_analysis_result<E>(db: &E, file_id: i32, result: NormalizedAnalysisResult)
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     let new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
         spectral_centroid: ActiveValue::Set(Some(result.spectral_centroid as f64)),

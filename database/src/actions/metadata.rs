@@ -2,10 +2,10 @@ use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 use metadata::describe::{describe_file, FileDescription};
@@ -525,14 +525,6 @@ where
     Ok(processed_files)
 }
 
-#[derive(Error, Debug)]
-pub enum MetadataQueryError {
-    #[error("Database error: {0}")]
-    DbError(#[from] sea_orm::DbErr),
-    #[error("Metadata summary not found for file ID: {0}")]
-    NotFound(i32),
-}
-
 #[derive(Debug, Clone, Default)]
 pub struct MetadataSummary {
     pub id: i32,
@@ -616,13 +608,15 @@ pub async fn get_metadata_summary_by_file_ids(
 pub async fn get_metadata_summary_by_file_id(
     db: &DatabaseConnection,
     file_id: i32,
-) -> Result<MetadataSummary, MetadataQueryError> {
-    let results = get_metadata_summary_by_file_ids(db, vec![file_id]).await?;
+) -> anyhow::Result<MetadataSummary> {
+    let results = get_metadata_summary_by_file_ids(db, vec![file_id])
+        .await
+        .context("Database query failed")?;
 
     results
         .into_iter()
         .next()
-        .ok_or(MetadataQueryError::NotFound(file_id))
+        .ok_or_else(|| anyhow::anyhow!("Metadata summary not found for file ID: {}", file_id))
 }
 
 pub async fn get_parsed_file_by_id(
