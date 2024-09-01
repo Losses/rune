@@ -1,5 +1,11 @@
+import 'package:player/providers/library_manager.dart';
+import 'package:rinf/rinf.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:mesh_gradient/mesh_gradient.dart';
+
+import '../../messages/library_manage.pb.dart';
+import '../../providers/library_path.dart';
 
 extension ColorBrightness on Color {
   Color darken([double amount = .1]) {
@@ -38,6 +44,28 @@ class _ScanningPageState extends State<ScanningPage>
   void initState() {
     super.initState();
     _animationController.start();
+
+    // Pass context to the onLibraryScanned function
+    ScanAudioLibraryResponse.rustSignalStream.listen((rustSignal) {
+      if (!mounted) return;
+      onLibraryScanned(rustSignal, context);
+    });
+  }
+
+  // Modify the function to accept BuildContext
+  void onLibraryScanned(
+      RustSignal<ScanAudioLibraryResponse> rustSignal, BuildContext context) {
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
+
+    final libraryManager =
+        Provider.of<LibraryManagerProvider>(context, listen: false);
+
+    final currentPath = libraryPath.currentPath;
+    libraryPath.finalizeScanning();
+    if (libraryPath.scanning && currentPath != null) {
+      libraryManager.analyseLibrary(currentPath);
+    }
   }
 
   @override

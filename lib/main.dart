@@ -293,6 +293,10 @@ final routes = <GoRoute>[
     builder: (context, state) => const welcome.WelcomePage(),
   ),
   GoRoute(
+    path: '/welcome/scanning',
+    builder: (context, state) => const welcome.ScanningPage(),
+  ),
+  GoRoute(
     path: '/home',
     builder: (context, state) => const home.HomePage(),
   ),

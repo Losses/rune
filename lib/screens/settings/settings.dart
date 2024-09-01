@@ -6,7 +6,6 @@ import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../utils/scan_library.dart';
 import '../../widgets/navigation_bar.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
@@ -58,11 +57,8 @@ class _SettingsPageState extends State<SettingsPage> {
 
                     if (!context.mounted) return;
                     await closeLibrary(context);
-
-                    libraryPath.setLibraryPath(path);
-
-                    if (!context.mounted) return;
-                    await scanLibrary(context, path);
+                    libraryPath.setLibraryPath(path, true);
+                    libraryManager.scanLibrary(path, false);
 
                     if (!context.mounted) return;
                     context.go('/library');
