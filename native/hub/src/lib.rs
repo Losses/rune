@@ -102,12 +102,14 @@ async fn main() {
                 let lib_path = Arc::new(path);
 
                 // Create a cancellation token
-                let cancel_token = Arc::new(CancellationToken::new());
+                let cancel_token = CancellationToken::new();
 
                 info!("Initializing player");
-                let player = Player::new();
+                let player = Player::new(Some(cancel_token.clone()));
                 let player = Arc::new(Mutex::new(player));
 
+                let cancel_token = Arc::new(cancel_token);
+                
                 info!("Initializing Player events");
                 tokio::spawn(initialize_player(main_db.clone(), player.clone()));
 

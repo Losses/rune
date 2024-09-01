@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
+use tokio_util::sync::CancellationToken;
 
 use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
 
@@ -47,17 +48,18 @@ pub struct Player {
     status_sender: broadcast::Sender<PlayerStatus>,
     playlist_sender: broadcast::Sender<PlaylistStatus>,
     realtime_fft_sender: broadcast::Sender<Vec<f32>>,
+    cancellation_token: CancellationToken,
 }
 
 impl Default for Player {
     fn default() -> Self {
-        Self::new()
+        Self::new(None)
     }
 }
 
 impl Player {
     // Create a new Player instance and return the Player and the event receiver
-    pub fn new() -> Self {
+    pub fn new(cancellation_token: Option<CancellationToken>) -> Self {
         // Create an unbounded channel for sending commands
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         // Create an unbounded channel for receiving events
@@ -66,8 +68,13 @@ impl Player {
         let (status_sender, _) = broadcast::channel(16);
         // Create a broadcast channel for playlist updates
         let (playlist_sender, _) = broadcast::channel(16);
-        // Create a broadcast channel for playlist updates
+        // Create a broadcast channel for realtime FFT updates
         let (realtime_fft_sender, _) = broadcast::channel(16);
+        // Create a cancellation token
+        let cancellation_token = match cancellation_token {
+            Some(cancellation_token) => cancellation_token,
+            _none => CancellationToken::new(),
+        };
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
@@ -79,19 +86,23 @@ impl Player {
             playlist: Vec::new(),
         }));
 
+        let commands = Arc::new(Mutex::new(cmd_tx));
         // Create the Player instance and wrap the command sender in Arc<Mutex>
         let player = Player {
-            commands: Arc::new(Mutex::new(cmd_tx)),
+            commands: commands.clone(),
             current_status: current_status.clone(),
             status_sender: status_sender.clone(),
             playlist_sender: playlist_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
+            cancellation_token: cancellation_token.clone(),
         };
 
         // Start a new thread to run the PlayerInternal logic
+        let internal_cancellation_token = cancellation_token.clone();
         thread::spawn(move || {
             // Create a PlayerInternal instance, passing in the command receiver and event sender
-            let mut internal = PlayerInternal::new(cmd_rx, event_sender);
+            let mut internal =
+                PlayerInternal::new(cmd_rx, event_sender, internal_cancellation_token.clone());
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             // Run the main loop of PlayerInternal within the Tokio runtime
@@ -224,6 +235,10 @@ impl Player {
         if let Ok(commands) = self.commands.lock() {
             commands.send(cmd).unwrap();
         }
+    }
+
+    pub fn terminate(&self) {
+        self.cancellation_token.cancel();
     }
 }
 

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
+use tokio_util::sync::CancellationToken;
 
 use crate::realtime_fft::RealTimeFFT;
 
@@ -87,12 +88,14 @@ pub(crate) struct PlayerInternal {
     _stream: Option<OutputStream>,
     state: InternalPlaybackState,
     debounce_timer: Option<Instant>,
+    cancellation_token: CancellationToken,
 }
 
 impl PlayerInternal {
     pub fn new(
         commands: mpsc::UnboundedReceiver<PlayerCommand>,
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
+        cancellation_token: CancellationToken,
     ) -> Self {
         Self {
             commands,
@@ -106,6 +109,7 @@ impl PlayerInternal {
             realtime_fft: Arc::new(Mutex::new(RealTimeFFT::new(512))),
             state: InternalPlaybackState::Stopped,
             debounce_timer: None,
+            cancellation_token,
         }
     }
 
@@ -116,6 +120,13 @@ impl PlayerInternal {
         loop {
             tokio::select! {
                 Some(cmd) = self.commands.recv() => {
+                    if self.cancellation_token.is_cancelled() {
+                        debug!("Cancellation token triggered, exiting run loop");
+
+                        self.stop();
+                        break;
+                    }
+
                     debug!("Received command: {:?}", cmd);
                     match cmd {
                         PlayerCommand::Load { index } => self.load(Some(index)),
@@ -150,6 +161,11 @@ impl PlayerInternal {
                 }, if self.debounce_timer.is_some() => {
                     self.debounce_timer = None;
                     self.send_playlist_updated();
+                },
+                _ = self.cancellation_token.cancelled() => {
+                    debug!("Cancellation token triggered, exiting run loop");
+                    self.stop();
+                    break;
                 }
             }
         }
