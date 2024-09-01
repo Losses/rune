@@ -11,12 +11,14 @@ class AnalyseTaskProgress {
   int progress;
   int total;
   TaskStatus status;
+  bool initialize;
 
   AnalyseTaskProgress({
     required this.path,
     this.progress = 0,
     this.total = 0,
     this.status = TaskStatus.working,
+    this.initialize = false,
   });
 }
 
@@ -24,11 +26,13 @@ class ScanTaskProgress {
   final String path;
   int progress;
   TaskStatus status;
+  bool initialize;
 
   ScanTaskProgress({
     required this.path,
     this.progress = 0,
     this.status = TaskStatus.working,
+    this.initialize = false,
   });
 }
 
@@ -49,49 +53,74 @@ class LibraryManagerProvider with ChangeNotifier {
         ScanAudioLibraryProgress.rustSignalStream.listen((event) {
       final scanProgress = event.message;
       _updateScanProgress(
-          scanProgress.path, scanProgress.progress, TaskStatus.working);
+          scanProgress.path,
+          scanProgress.progress,
+          TaskStatus.working,
+          getScanTaskProgress(scanProgress.path)?.initialize ?? false);
     });
 
     _scanResultSubscription =
         ScanAudioLibraryResponse.rustSignalStream.listen((event) {
       final scanResult = event.message;
-      _updateScanProgress(
-          scanResult.path, scanResult.progress, TaskStatus.finished);
+      final initialize =
+          getScanTaskProgress(scanResult.path)?.initialize ?? false;
+      _updateScanProgress(scanResult.path, scanResult.progress,
+          TaskStatus.finished, initialize);
+
+      if (initialize) {
+        analyseLibrary(scanResult.path);
+      }
     });
 
     _analyseProgressSubscription =
         AnalyseAudioLibraryProgress.rustSignalStream.listen((event) {
       final analyseProgress = event.message;
-      _updateAnalyseProgress(analyseProgress.path, analyseProgress.progress,
-          analyseProgress.total, TaskStatus.working);
+      _updateAnalyseProgress(
+          analyseProgress.path,
+          analyseProgress.progress,
+          analyseProgress.total,
+          TaskStatus.working,
+          getAnalyseTaskProgress(analyseProgress.path)?.initialize ?? false);
     });
 
     _analyseResultSubscription =
         AnalyseAudioLibraryResponse.rustSignalStream.listen((event) {
       final analyseResult = event.message;
-      _updateAnalyseProgress(analyseResult.path, analyseResult.total,
-          analyseResult.total, TaskStatus.finished);
+      _updateAnalyseProgress(
+          analyseResult.path,
+          analyseResult.total,
+          analyseResult.total,
+          TaskStatus.finished,
+          getAnalyseTaskProgress(analyseResult.path)?.initialize ?? false);
     });
   }
 
-  void _updateScanProgress(String path, int progress, TaskStatus status) {
+  void _updateScanProgress(
+      String path, int progress, TaskStatus status, bool initialize) {
     if (_scanTasks.containsKey(path)) {
       _scanTasks[path]!.progress = progress;
     } else {
-      _scanTasks[path] =
-          ScanTaskProgress(path: path, progress: progress, status: status);
+      _scanTasks[path] = ScanTaskProgress(
+          path: path,
+          progress: progress,
+          status: status,
+          initialize: initialize);
     }
     notifyListeners();
   }
 
-  void _updateAnalyseProgress(
-      String path, int progress, int total, TaskStatus status) {
+  void _updateAnalyseProgress(String path, int progress, int total,
+      TaskStatus status, bool initialize) {
     if (_analyseTasks.containsKey(path)) {
       _analyseTasks[path]!.progress = progress;
       _analyseTasks[path]!.total = total;
     } else {
       _analyseTasks[path] = AnalyseTaskProgress(
-          path: path, progress: progress, total: total, status: status);
+          path: path,
+          progress: progress,
+          total: total,
+          status: status,
+          initialize: initialize);
     }
     notifyListeners();
   }
@@ -102,13 +131,13 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scanLibrary(BuildContext context, String path) async {
-    _updateScanProgress(path, 0, TaskStatus.working);
+  Future<void> scanLibrary(String path, [bool initialize = false]) async {
+    _updateScanProgress(path, 0, TaskStatus.working, initialize);
     ScanAudioLibraryRequest(path: path).sendSignalToRust();
   }
 
-  Future<void> analyseLibrary(BuildContext context, String path) async {
-    _updateAnalyseProgress(path, 0, -1, TaskStatus.working);
+  Future<void> analyseLibrary(String path, [bool initialize = false]) async {
+    _updateAnalyseProgress(path, 0, -1, TaskStatus.working, initialize);
     AnalyseAudioLibraryRequest(path: path).sendSignalToRust();
   }
 

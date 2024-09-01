@@ -121,9 +121,7 @@ class _WelcomePageState extends State<WelcomePage>
                             onPressed: () async {
                               final result = await getDirectoryPath();
 
-                              if (result == null) {
-                                return;
-                              }
+                              if (result == null) return;
 
                               setState(() {
                                 scanning = true;

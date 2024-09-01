@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:player/providers/library_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -40,7 +41,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   icon: Symbols.add,
                   title: "Add Library",
                   subtitle: "Add a new library and scan existing files",
-                  onPressed: () async {}),
+                  onPressed: () async {
+                    final result = await getDirectoryPath();
+
+                    if (result == null) return;
+
+                    libraryManager.scanLibrary(result, true);
+                  }),
               SettingsButton(
                   icon: Symbols.refresh,
                   title: "Factory Reset",
@@ -71,6 +78,9 @@ class _SettingsPageState extends State<SettingsPage> {
                     final analyseWorking =
                         analyseProgress?.status == TaskStatus.working;
 
+                    final initializing = (scanProgress?.initialize ?? false) ||
+                        (analyseProgress?.initialize ?? false);
+
                     String fileName = File(itemPath).uri.pathSegments.last;
 
                     return ListTile.selectable(
@@ -82,7 +92,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         actionsBuilder: (context) => Row(
                           children: [
                             Button(
-                              onPressed: isCurrentLibrary
+                              onPressed: isCurrentLibrary ||
+                                      (initializing &&
+                                          (scanWorking || analyseWorking))
                                   ? null
                                   : () async {
                                       await closeLibrary(context);
@@ -103,8 +115,10 @@ class _SettingsPageState extends State<SettingsPage> {
                                     onPressed: null,
                                   )
                                 : Button(
-                                    onPressed:
-                                        analyseWorking ? null : () async {},
+                                    onPressed: analyseWorking
+                                        ? null
+                                        : () => libraryManager.scanLibrary(
+                                            itemPath, false),
                                     child: const Text("Scan"),
                                   ),
                             const SizedBox(
@@ -116,7 +130,10 @@ class _SettingsPageState extends State<SettingsPage> {
                                     onPressed: null,
                                   )
                                 : Button(
-                                    onPressed: scanWorking ? null : () async {},
+                                    onPressed: scanWorking
+                                        ? null
+                                        : () => libraryManager.analyseLibrary(
+                                            itemPath, false),
                                     child: const Text("Analyse"),
                                   )
                           ],
