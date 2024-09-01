@@ -478,8 +478,8 @@ where
             }
         }
 
-        debug!("Reading metadata for the next 8 files");
-        let files = scanner.read_files(8);
+        debug!("Reading metadata for the next 12 files");
+        let files = scanner.read_files(12);
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()

@@ -1,5 +1,5 @@
 use database::actions::library::get_latest_albums_and_artists;
-use log::{debug, error};
+use log::{info, error};
 use rinf::DartSignal;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ pub async fn fetch_library_summary_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchLibrarySummaryRequest>,
 ) {
-    debug!("Requesting library summary");
+    info!("Requesting library summary");
 
     match get_latest_albums_and_artists(&main_db).await {
         Ok(library) => {

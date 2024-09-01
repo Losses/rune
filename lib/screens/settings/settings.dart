@@ -1,16 +1,19 @@
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
-import 'package:player/providers/library_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/scan_library.dart';
 import '../../widgets/navigation_bar.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
+import '../../providers/library_manager.dart';
 
+import './widgets/settings_button.dart';
+import './widgets/progress_button.dart';
 import './widgets/settings_tile_title.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -25,28 +28,44 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final provider = Provider.of<LibraryPathProvider>(context, listen: true);
+    final theme = FluentTheme.of(context);
+    final typography = theme.typography;
+
+    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: true);
 
-    List<String> allOpenedFiles = provider.getAllOpenedFiles();
+    List<String> allOpenedFiles = libraryPath.getAllOpenedFiles();
 
     return ScaffoldPage(
       content: Column(children: [
         const NavigationBarPlaceholder(),
-        Center(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Text("Library", style: typography.title),
+              const SizedBox(height: 24),
               SettingsButton(
                   icon: Symbols.add,
                   title: "Add Library",
                   subtitle: "Add a new library and scan existing files",
                   onPressed: () async {
-                    final result = await getDirectoryPath();
+                    final path = await getDirectoryPath();
 
-                    if (result == null) return;
+                    if (path == null) return;
 
-                    libraryManager.scanLibrary(result, true);
+                    if (!context.mounted) return;
+                    await closeLibrary(context);
+
+                    libraryPath.setLibraryPath(path);
+
+                    if (!context.mounted) return;
+                    await scanLibrary(context, path);
+
+                    if (!context.mounted) return;
+                    context.go('/library');
                   }),
               SettingsButton(
                   icon: Symbols.refresh,
@@ -55,7 +74,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   onPressed: () async {
                     await closeLibrary(context);
 
-                    provider.clearAllOpenedFiles();
+                    libraryPath.clearAllOpenedFiles();
                   }),
               const SizedBox(height: 2),
               SizedBox(
@@ -65,7 +84,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   itemCount: allOpenedFiles.length,
                   itemBuilder: (context, index) {
                     final itemPath = allOpenedFiles[index];
-                    final isCurrentLibrary = itemPath == provider.currentPath;
+                    final isCurrentLibrary =
+                        itemPath == libraryPath.currentPath;
                     final isSelectedLibrary = itemPath == selectedItem;
 
                     final scanProgress =
@@ -98,7 +118,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ? null
                                   : () async {
                                       await closeLibrary(context);
-                                      provider.setLibraryPath(
+                                      libraryPath.setLibraryPath(
                                           allOpenedFiles[index]);
 
                                       if (!context.mounted) return;
@@ -109,33 +129,49 @@ class _SettingsPageState extends State<SettingsPage> {
                             const SizedBox(
                               width: 12,
                             ),
-                            scanWorking
-                                ? const ProgressButton(
-                                    title: "Scanning",
-                                    onPressed: null,
-                                  )
-                                : Button(
-                                    onPressed: analyseWorking
-                                        ? null
-                                        : () => libraryManager.scanLibrary(
-                                            itemPath, false),
-                                    child: const Text("Scan"),
-                                  ),
-                            const SizedBox(
-                              width: 12,
+                            Button(
+                              onPressed: isCurrentLibrary ||
+                                      (initializing &&
+                                          (scanWorking || analyseWorking))
+                                  ? null
+                                  : () async {
+                                      libraryPath.removeOpenedFile(
+                                          allOpenedFiles[index]);
+                                    },
+                              child: const Text("Remove"),
                             ),
-                            analyseWorking
-                                ? const ProgressButton(
-                                    title: "Analysing",
-                                    onPressed: null,
-                                  )
-                                : Button(
-                                    onPressed: scanWorking
-                                        ? null
-                                        : () => libraryManager.analyseLibrary(
-                                            itemPath, false),
-                                    child: const Text("Analyse"),
-                                  )
+                            if (isCurrentLibrary) ...[
+                              const SizedBox(
+                                width: 12,
+                              ),
+                              scanWorking
+                                  ? const ProgressButton(
+                                      title: "Scanning",
+                                      onPressed: null,
+                                    )
+                                  : Button(
+                                      onPressed: analyseWorking
+                                          ? null
+                                          : () => libraryManager.scanLibrary(
+                                              itemPath, false),
+                                      child: const Text("Scan"),
+                                    ),
+                              const SizedBox(
+                                width: 12,
+                              ),
+                              analyseWorking
+                                  ? const ProgressButton(
+                                      title: "Analysing",
+                                      onPressed: null,
+                                    )
+                                  : Button(
+                                      onPressed: scanWorking
+                                          ? null
+                                          : () => libraryManager.analyseLibrary(
+                                              itemPath, false),
+                                      child: const Text("Analyse"),
+                                    )
+                            ]
                           ],
                         ),
                       ),
@@ -151,77 +187,6 @@ class _SettingsPageState extends State<SettingsPage> {
         )
       ]),
     );
-  }
-}
-
-class SettingsButton extends StatelessWidget {
-  const SettingsButton({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final void Function()? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(4),
-      child: Button(
-        style: ButtonStyle(
-            shape: WidgetStateProperty.all(RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4)))),
-        onPressed: onPressed,
-        child: SettingsTileTitle(
-          icon: icon,
-          title: title,
-          subtitle: subtitle,
-          showActions: false,
-          actionsBuilder: (context) => Container(),
-        ),
-      ),
-    );
-  }
-}
-
-class ProgressButton extends StatelessWidget {
-  final Widget Function()? onPressed;
-
-  const ProgressButton({
-    super.key,
-    required this.title,
-    required this.onPressed,
-  });
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Button(
-        onPressed: onPressed,
-        child: Row(
-          children: [
-            const SizedBox(
-              width: 16,
-              height: 16,
-              child: OverflowBox(
-                  maxWidth: 16,
-                  maxHeight: 16,
-                  child: ProgressRing(
-                    strokeWidth: 2,
-                  )),
-            ),
-            const SizedBox(
-              width: 8,
-            ),
-            Text(title)
-          ],
-        ));
   }
 }
 

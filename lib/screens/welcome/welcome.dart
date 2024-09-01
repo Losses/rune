@@ -1,84 +1,18 @@
+// welcome.dart
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:mesh_gradient/mesh_gradient.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/scan_library.dart';
 
-extension ColorBrightness on Color {
-  Color darken([double amount = .1]) {
-    assert(amount >= 0 && amount <= 1);
-
-    final hsl = HSLColor.fromColor(this);
-    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
-
-    return hslDark.toColor();
-  }
-
-  Color lighten([double amount = .1]) {
-    assert(amount >= 0 && amount <= 1);
-
-    final hsl = HSLColor.fromColor(this);
-    final hslLight =
-        hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0));
-
-    return hslLight.toColor();
-  }
-}
-
-class WelcomePage extends StatefulWidget {
+class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
-
-  @override
-  State<WelcomePage> createState() => _WelcomePageState();
-}
-
-class _WelcomePageState extends State<WelcomePage>
-    with SingleTickerProviderStateMixin {
-  bool scanning = false;
-  late final AnimatedMeshGradientController _animationController =
-      AnimatedMeshGradientController();
-
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final typography = theme.typography;
-
-    if (scanning) {
-      return AnimatedMeshGradient(
-        colors: [
-          theme.accentColor.darker.darken(0.1),
-          theme.accentColor.darker.darken(0.2),
-          theme.accentColor.darker.darken(0.3),
-          theme.accentColor.darker.darken(0.4),
-        ],
-        options: AnimatedMeshGradientOptions(),
-        controller: _animationController,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Text(
-              "This might take a few minutes.",
-              style: typography.title?.apply(fontWeightDelta: -50),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              "Sit back and relax",
-              style: typography.bodyLarge,
-            )
-          ],
-        ),
-      );
-    }
 
     return Center(
       child: ConstrainedBox(
@@ -122,14 +56,6 @@ class _WelcomePageState extends State<WelcomePage>
                               final result = await getDirectoryPath();
 
                               if (result == null) return;
-
-                              setState(() {
-                                scanning = true;
-                              });
-
-                              _animationController.isAnimating.value
-                                  ? _animationController.stop()
-                                  : _animationController.start();
 
                               if (!context.mounted) return;
 

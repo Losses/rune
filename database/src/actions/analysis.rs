@@ -87,7 +87,7 @@ where
         let analysis_results: Vec<_> = files
             .par_iter()
             .map(|file| {
-                let lib_path = Arc::clone(&lib_path);
+                let lib_path: Arc<std::path::PathBuf> = Arc::clone(&lib_path);
                 let file = file.clone();
 
                 async move {

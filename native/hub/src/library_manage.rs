@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use log::debug;
+use log::{debug, info};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -26,7 +26,7 @@ pub async fn close_library_request(
 ) {
     let request = dart_signal.message;
 
-    debug!("Closing library");
+    info!("Closing library");
 
     if request.path != *lib_path {
         return;
@@ -78,7 +78,7 @@ pub async fn scan_audio_library_request(
 
 pub fn determine_batch_size() -> usize {
     let num_cores = num_cpus::get();
-    let batch_size = num_cores * 2;
+    let batch_size = num_cores / 3 * 2;
     let min_batch_size = 1;
     let max_batch_size = 1000;
 
@@ -95,13 +95,19 @@ pub async fn analyse_audio_library_request(
 
     debug!("Analysing media files: {:#?}", request);
 
+    // Clone the path outside the closure
+    let request_path = request.path.clone();
+
+    // Clone the path again for use inside the closure
+    let closure_request_path = request_path.clone();
+
     let total_files = analysis_audio_library(
         &main_db,
-        Path::new(&request.path),
+        Path::new(&request_path),
         determine_batch_size(),
-        |progress, total| {
+        move |progress, total| {
             AnalyseAudioLibraryProgress {
-                path: request.path.clone(),
+                path: closure_request_path.clone(), // Use the cloned path here
                 progress: progress.try_into().unwrap(),
                 total: total.try_into().unwrap(),
             }
@@ -117,7 +123,7 @@ pub async fn analyse_audio_library_request(
         .expect("Recommendation synchronization failed");
 
     AnalyseAudioLibraryResponse {
-        path: request.path.clone(),
+        path: request_path.clone(), // Use the original cloned path here
         total: total_files as i32,
     }
     .send_signal_to_dart();

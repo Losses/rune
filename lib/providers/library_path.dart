@@ -50,4 +50,13 @@ class LibraryPathProvider with ChangeNotifier {
 
     notifyListeners();
   }
+
+  // Add a method to remove a specific file path
+  Future<void> removeOpenedFile(String filePath) async {
+    await _fileStorageService.removeFilePath(filePath);
+    if (_currentPath == filePath) {
+      _currentPath = null;
+    }
+    notifyListeners();
+  }
 }

@@ -12,7 +12,9 @@ import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 
 class LibraryHomeListView extends StatefulWidget {
-  const LibraryHomeListView({super.key});
+  final String libraryPath;
+
+  const LibraryHomeListView({super.key, required this.libraryPath});
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
@@ -25,6 +27,16 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
   void initState() {
     super.initState();
     summary = fetchSummary();
+  }
+
+  @override
+  void didUpdateWidget(covariant LibraryHomeListView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.libraryPath != oldWidget.libraryPath) {
+      setState(() {
+        summary = fetchSummary();
+      });
+    }
   }
 
   Future<List<Group<dynamic>>> fetchSummary() async {
@@ -53,50 +65,50 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
           return const Center(child: Text('No data available'));
         } else {
           return Container(
-              alignment: Alignment.centerLeft,
-              child: SmoothHorizontalScroll(
-                  builder: (context, scrollController) => SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        controller: scrollController,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: snapshot.data!.map((item) {
-                            if (item is Group<Album>) {
-                              return StartGroup<Album>(
-                                index: 0,
-                                groupTitle: item.groupTitle,
-                                items: item.items,
-                                groupLayoutVariation:
-                                    StartGroupGroupLayoutVariation.stacked,
-                                gridLayoutVariation:
-                                    StartGroupGridLayoutVariation.square,
-                                gapSize: 12,
-                                onTitleTap: () => {context.push('/albums')},
-                                itemBuilder:
-                                    (BuildContext context, Album item) =>
-                                        AlbumItem(album: item),
-                              );
-                            } else if (item is Group<Artist>) {
-                              return StartGroup<Artist>(
-                                index: 1,
-                                groupTitle: item.groupTitle,
-                                items: item.items,
-                                groupLayoutVariation:
-                                    StartGroupGroupLayoutVariation.stacked,
-                                gridLayoutVariation:
-                                    StartGroupGridLayoutVariation.square,
-                                gapSize: 12,
-                                onTitleTap: () => {context.push('/artists')},
-                                itemBuilder:
-                                    (BuildContext context, Artist item) =>
-                                        ArtistItem(artist: item),
-                              );
-                            } else {
-                              return Container();
-                            }
-                          }).toList(),
-                        ),
-                      )));
+            alignment: Alignment.centerLeft,
+            child: SmoothHorizontalScroll(
+              builder: (context, scrollController) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                controller: scrollController,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: snapshot.data!.map((item) {
+                    if (item is Group<Album>) {
+                      return StartGroup<Album>(
+                        index: 0,
+                        groupTitle: item.groupTitle,
+                        items: item.items,
+                        groupLayoutVariation:
+                            StartGroupGroupLayoutVariation.stacked,
+                        gridLayoutVariation:
+                            StartGroupGridLayoutVariation.square,
+                        gapSize: 12,
+                        onTitleTap: () => {context.push('/albums')},
+                        itemBuilder: (BuildContext context, Album item) =>
+                            AlbumItem(album: item),
+                      );
+                    } else if (item is Group<Artist>) {
+                      return StartGroup<Artist>(
+                        index: 1,
+                        groupTitle: item.groupTitle,
+                        items: item.items,
+                        groupLayoutVariation:
+                            StartGroupGroupLayoutVariation.stacked,
+                        gridLayoutVariation:
+                            StartGroupGridLayoutVariation.square,
+                        gapSize: 12,
+                        onTitleTap: () => {context.push('/artists')},
+                        itemBuilder: (BuildContext context, Artist item) =>
+                            ArtistItem(artist: item),
+                      );
+                    } else {
+                      return Container();
+                    }
+                  }).toList(),
+                ),
+              ),
+            ),
+          );
         }
       },
     );

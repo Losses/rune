@@ -359,8 +359,12 @@ final router = GoRouter(
         builder: (context, state, child) {
           final library = Provider.of<LibraryPathProvider>(context);
 
-          if (library.currentPath == null || library.scanning) {
+          if (library.currentPath == null) {
             return const welcome.WelcomePage();
+          }
+
+          if (library.scanning) {
+            return const welcome.ScanningPage();
           }
 
           return FlipAnimationContext(

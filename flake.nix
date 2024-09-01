@@ -90,6 +90,7 @@
             eza
             fd
             alsa-lib
+            mount
             libpulseaudio
             pulseaudioFull
             clippy

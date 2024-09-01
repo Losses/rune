@@ -43,4 +43,11 @@ class FileStorageService {
   Future<void> clearAllOpenedFiles() async {
     await _storage.remove(_openedFilesKey);
   }
+
+  // Remove a specific file path
+  Future<void> removeFilePath(String filePath) async {
+    List<String> openedFiles = _getOpenedFiles();
+    openedFiles.remove(filePath);
+    await _storage.write(_openedFilesKey, openedFiles);
+  }
 }
