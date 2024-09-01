@@ -75,6 +75,87 @@ macro_rules! select_signal {
 
 rinf::write_interface!();
 
+async fn player_loop(path: String) {
+    // Ensure that the path is set before calling fetch_media_files
+
+    info!("Media Library Received, initialize other receivers");
+
+    tokio::spawn(async {
+        // Move the path into the async block
+        info!("Initializing database");
+        let main_db = Arc::new(connect_main_db(&path).await.unwrap());
+        let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
+        let search_db = Arc::new(Mutex::new(connect_search_db(&path).unwrap()));
+        let lib_path = Arc::new(path);
+
+        // Create a cancellation token
+        let cancel_token = CancellationToken::new();
+
+        info!("Initializing player");
+        let player = Player::new(Some(cancel_token.clone()));
+        let player = Arc::new(Mutex::new(player));
+
+        let cancel_token = Arc::new(cancel_token);
+
+        info!("Initializing Player events");
+        tokio::spawn(initialize_player(main_db.clone(), player.clone()));
+
+        info!("Initializing UI events");
+
+        select_signal!(
+            ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
+
+            PlayFileRequest => (main_db, lib_path, player),
+            RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
+            PlayRequest => (player),
+            PauseRequest => (player),
+            NextRequest => (player),
+            PreviousRequest => (player),
+            SwitchRequest => (player),
+            SeekRequest => (player),
+            RemoveRequest => (player),
+
+            FetchMediaFilesRequest => (main_db, lib_path),
+            FetchParsedMediaFileRequest => (main_db, lib_path),
+            CompoundQueryMediaFilesRequest => (main_db, lib_path),
+
+            StartPlayingCollectionRequest => (main_db, lib_path, player),
+            AddToQueueCollectionRequest => (main_db, lib_path, player),
+            FetchMediaFileByIdsRequest => (main_db, lib_path),
+            StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
+
+            GetCoverArtByFileIdRequest => (main_db, lib_path),
+            GetCoverArtByCoverArtIdRequest => (main_db),
+            GetRandomCoverArtIdsRequest => (main_db),
+
+            FetchArtistsGroupSummaryRequest => (main_db),
+            FetchArtistsGroupsRequest => (main_db),
+            FetchArtistsByIdsRequest => (main_db),
+
+            FetchAlbumsGroupSummaryRequest => (main_db),
+            FetchAlbumsGroupsRequest => (main_db),
+            FetchAlbumsByIdsRequest => (main_db),
+
+            FetchPlaylistsGroupSummaryRequest => (main_db),
+            FetchPlaylistsGroupsRequest => (main_db),
+            FetchPlaylistsByIdsRequest => (main_db),
+            FetchAllPlaylistsRequest => (main_db),
+            MovePlaylistItemRequest => (player),
+            CreatePlaylistRequest => (main_db, search_db),
+            UpdatePlaylistRequest => (main_db, search_db),
+            CheckItemsInPlaylistRequest => (main_db),
+            AddItemToPlaylistRequest => (main_db),
+            AddMediaFileToPlaylistRequest => (main_db),
+            ReorderPlaylistItemPositionRequest => (main_db),
+            GetUniquePlaylistGroupsRequest => (main_db),
+            GetPlaylistByIdRequest => (main_db),
+
+            FetchLibrarySummaryRequest => (main_db),
+            SearchForRequest => (search_db),
+        );
+    });
+}
+
 async fn main() {
     let filter = EnvFilter::new(
         "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,info",
@@ -86,90 +167,5 @@ async fn main() {
         .init();
 
     // Start receiving the media library path
-    tokio::spawn(receive_media_library_path());
-
-    // Ensure that the path is set before calling fetch_media_files
-    loop {
-        if let Some(path) = get_media_library_path().await {
-            info!("Media Library Received, initialize other receivers");
-
-            tokio::spawn(async {
-                // Move the path into the async block
-                info!("Initializing database");
-                let main_db = Arc::new(connect_main_db(&path).await.unwrap());
-                let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
-                let search_db = Arc::new(Mutex::new(connect_search_db(&path).unwrap()));
-                let lib_path = Arc::new(path);
-
-                // Create a cancellation token
-                let cancel_token = CancellationToken::new();
-
-                info!("Initializing player");
-                let player = Player::new(Some(cancel_token.clone()));
-                let player = Arc::new(Mutex::new(player));
-
-                let cancel_token = Arc::new(cancel_token);
-                
-                info!("Initializing Player events");
-                tokio::spawn(initialize_player(main_db.clone(), player.clone()));
-
-                info!("Initializing UI events");
-
-                select_signal!(
-                    ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
-
-                    PlayFileRequest => (main_db, player),
-                    RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
-                    PlayRequest => (player),
-                    PauseRequest => (player),
-                    NextRequest => (player),
-                    PreviousRequest => (player),
-                    SwitchRequest => (player),
-                    SeekRequest => (player),
-                    RemoveRequest => (player),
-
-                    FetchMediaFilesRequest => (main_db, lib_path),
-                    FetchParsedMediaFileRequest => (main_db, lib_path),
-                    CompoundQueryMediaFilesRequest => (main_db, lib_path),
-
-                    StartPlayingCollectionRequest => (main_db, lib_path, player),
-                    AddToQueueCollectionRequest => (main_db, lib_path, player),
-                    FetchMediaFileByIdsRequest => (main_db, lib_path),
-                    StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
-
-                    GetCoverArtByFileIdRequest => (main_db, lib_path),
-                    GetCoverArtByCoverArtIdRequest => (main_db),
-                    GetRandomCoverArtIdsRequest => (main_db),
-
-                    FetchArtistsGroupSummaryRequest => (main_db),
-                    FetchArtistsGroupsRequest => (main_db),
-                    FetchArtistsByIdsRequest => (main_db),
-
-                    FetchAlbumsGroupSummaryRequest => (main_db),
-                    FetchAlbumsGroupsRequest => (main_db),
-                    FetchAlbumsByIdsRequest => (main_db),
-
-                    FetchPlaylistsGroupSummaryRequest => (main_db),
-                    FetchPlaylistsGroupsRequest => (main_db),
-                    FetchPlaylistsByIdsRequest => (main_db),
-                    FetchAllPlaylistsRequest => (main_db),
-                    MovePlaylistItemRequest => (player),
-                    CreatePlaylistRequest => (main_db, search_db),
-                    UpdatePlaylistRequest => (main_db, search_db),
-                    CheckItemsInPlaylistRequest => (main_db),
-                    AddItemToPlaylistRequest => (main_db),
-                    AddMediaFileToPlaylistRequest => (main_db),
-                    ReorderPlaylistItemPositionRequest => (main_db),
-                    GetUniquePlaylistGroupsRequest => (main_db),
-                    GetPlaylistByIdRequest => (main_db),
-
-                    FetchLibrarySummaryRequest => (main_db),
-                    SearchForRequest => (search_db),
-                );
-            });
-
-            break;
-        }
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    }
+    let _ = receive_media_library_path(player_loop).await;
 }

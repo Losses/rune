@@ -9,7 +9,7 @@ use database::connection::MainDbConnection;
 use playback::player::Player;
 
 pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) {
-    let player = Player::new();
+    let player = Player::new(None);
     let player = Arc::new(Mutex::new(player));
 
     let files = match get_random_files(main_db, 30).await {

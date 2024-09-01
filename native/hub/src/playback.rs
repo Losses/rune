@@ -25,15 +25,15 @@ use crate::messages::playback::{
 };
 use crate::messages::recommend::{PlaybackRecommendation, RecommendAndPlayRequest};
 use crate::{
-    connection, AddToQueueCollectionRequest, MovePlaylistItemRequest,
-    StartPlayingCollectionRequest, StartRoamingCollectionRequest,
+    AddToQueueCollectionRequest, MovePlaylistItemRequest, StartPlayingCollectionRequest,
+    StartRoamingCollectionRequest,
 };
 
 async fn play_file_by_id(
     db: Arc<DatabaseConnection>,
     player: Arc<Mutex<Player>>,
+    lib_path: Arc<String>,
     file_id: i32,
-    canonicalized_path: &Path,
 ) {
     match get_file_by_id(&db, file_id).await {
         Ok(Some(file)) => {
@@ -41,8 +41,12 @@ async fn play_file_by_id(
             player_guard.pause();
             player_guard.clear_playlist();
 
-            let file_path =
-                canonicalize(canonicalized_path.join(file.directory).join(file.file_name)).unwrap();
+            let file_path = canonicalize(
+                Path::new(&*lib_path)
+                    .join(file.directory)
+                    .join(file.file_name),
+            )
+            .unwrap();
             player_guard.add_to_playlist(file_id, file_path);
             player_guard.play();
         }
@@ -54,6 +58,7 @@ async fn play_file_by_id(
         }
     }
 }
+
 
 fn files_to_playback_request(
     lib_path: &String,
@@ -107,14 +112,14 @@ macro_rules! handle_collection_request {
 
 pub async fn play_file_request(
     main_db: Arc<DatabaseConnection>,
+    lib_path: Arc<String>,
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<PlayFileRequest>,
 ) -> Result<()> {
     let play_file_request = dart_signal.message;
     let file_id = play_file_request.file_id;
-    let lib_path = connection::get_media_library_path().await;
 
-    play_file_by_id(main_db, player, file_id, Path::new(&lib_path.unwrap())).await;
+    play_file_by_id(main_db, player, lib_path, file_id).await;
 
     Ok(())
 }
