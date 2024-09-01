@@ -2,7 +2,7 @@ use log::{debug, error, info};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use anyhow::{bail, Context, Result};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, TransactionTrait};
@@ -49,7 +49,7 @@ pub async fn sync_file_descriptions(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     debug!("Starting to process multiple files");
 
     // Start a transaction
@@ -99,14 +99,25 @@ pub async fn sync_file_descriptions(
                             "File's last modified date has changed, checking hash: {}",
                             description.file_name.clone()
                         );
-                        let new_hash = description.get_crc()?;
+
+                        let new_hash = if let Ok(hash) = description.get_crc() {
+                            hash
+                        } else {
+                            bail!("Failed to get CRC");
+                        };
+
                         if existing_file.file_hash == new_hash {
                             // If the hash is the same, update the last modified date
                             debug!(
                                 "File hash is the same, updating last modified date: {}",
                                 description.file_name.clone()
                             );
-                            update_last_modified(&txn, &existing_file, description).await?;
+
+                            if let Err(e) =
+                                update_last_modified(&txn, &existing_file, description).await
+                            {
+                                bail!("Failed to update last modified: {}", e);
+                            }
                         } else {
                             // If the hash is different, update the metadata
                             debug!(
@@ -114,15 +125,23 @@ pub async fn sync_file_descriptions(
                                 description.file_name.clone()
                             );
 
-                            update_file_codec_information(&txn, &existing_file, description)
-                                .await?;
+                            if let Err(e) =
+                                update_file_codec_information(&txn, &existing_file, description)
+                                    .await
+                            {
+                                bail!("Failed to update file codec information: {}", e);
+                            }
 
                             let file_metadata = read_metadata(description);
 
                             match file_metadata {
                                 Some(x) => {
-                                    update_file_metadata(&txn, &existing_file, description, &x)
-                                        .await?;
+                                    if let Err(e) =
+                                        update_file_metadata(&txn, &existing_file, description, &x)
+                                            .await
+                                    {
+                                        bail!("Failed to update file metadata: {}", e);
+                                    }
 
                                     update_search_term(existing_file.id, &x);
                                 }
@@ -145,7 +164,9 @@ pub async fn sync_file_descriptions(
                     let file_metadata = read_metadata(description);
 
                     if let Some(ref x) = file_metadata {
-                        insert_new_file(&txn, search_db, x, description).await?;
+                        if let Err(e) = insert_new_file(&txn, search_db, x, description).await {
+                            bail!("Failed to insert new file: {}", e);
+                        }
 
                         if let Some(existing_file) = existing_file {
                             update_search_term(existing_file.id, x);
@@ -367,16 +388,23 @@ pub async fn insert_new_file<E>(
     search_db: &mut SearchDbConnection,
     metadata: &FileMetadata,
     description: &mut FileDescription,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<()>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
     let (sample_rate, duration_in_seconds) = description.get_codec_information().unwrap();
+
+    let new_hash = if let Ok(hash) = description.get_crc() {
+        hash.clone()
+    } else {
+        bail!("Failed to get CRC");
+    };
+
     let new_file = media_files::ActiveModel {
         file_name: ActiveValue::Set(description.file_name.to_string()),
         directory: ActiveValue::Set(description.directory.clone()),
         extension: ActiveValue::Set(description.extension.clone()),
-        file_hash: ActiveValue::Set(description.get_crc()?.clone()),
+        file_hash: ActiveValue::Set(new_hash),
         sample_rate: ActiveValue::Set(sample_rate.try_into().unwrap()),
         duration: ActiveValue::Set(duration_in_seconds),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
@@ -397,21 +425,30 @@ where
         );
     }
 
+    let file_id = inserted_file.last_insert_id;
+
     // Insert metadata
     let new_metadata: Vec<media_metadata::ActiveModel> = metadata
         .metadata
         .clone()
         .into_iter()
         .map(|(key, value)| media_metadata::ActiveModel {
-            file_id: ActiveValue::Set(inserted_file.last_insert_id),
+            file_id: ActiveValue::Set(file_id),
             meta_key: ActiveValue::Set(key),
             meta_value: ActiveValue::Set(value),
             ..Default::default()
         })
         .collect();
-    media_metadata::Entity::insert_many(new_metadata)
-        .exec(main_db)
-        .await?;
+
+    if !new_metadata.is_empty() {
+        if let Err(e) = media_metadata::Entity::insert_many(new_metadata)
+            .exec(main_db)
+            .await
+        {
+            bail!("Failed to insert new metadata: {}", e);
+        }
+    }
+
     Ok(())
 }
 

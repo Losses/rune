@@ -28,5 +28,5 @@ paste = "1.0.15"
 chrono = "0.4.38"
 tantivy = "0.22.0"
 tokio-util = "0.7.11"
-anyhow = "1.0.86"
+anyhow = {version="1.0.86",  features = ["backtrace"] }
 rayon = "1.10.0"
