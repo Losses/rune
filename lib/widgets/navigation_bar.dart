@@ -161,18 +161,12 @@ class NavigationBarState extends State<NavigationBar> {
     GoRouter.of(context).replace(route.path);
   }
 
-  void _onHeaderTap(BuildContext context) {
-    final path = GoRouterState.of(context).fullPath;
-
-    if (widget.query.getItem(path)?.tappable == false) {
-      return;
-    }
+  void _onHeaderTap(BuildContext context, NavigationItem? item) {
+    if (item?.tappable == false) return;
 
     setState(() {
-      final parent = widget.query.getParent(path ?? widget.defaultPath);
-
-      if (parent != null) {
-        context.go(parent.path);
+      if (item != null) {
+        context.go(item.path);
       }
     });
   }
@@ -207,7 +201,7 @@ class NavigationBarState extends State<NavigationBar> {
                 child: GestureDetector(
                     onTap: () async {
                       if (playing) return;
-                      _onHeaderTap(context);
+                      _onHeaderTap(context, parent);
                     },
                     child: SizedBox(
                         height: 80,
