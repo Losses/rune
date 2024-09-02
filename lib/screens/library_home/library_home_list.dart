@@ -8,8 +8,9 @@ import '../../messages/library_home.pb.dart';
 import '../../screens/albums/albums_list.dart';
 import '../../screens/artists/artists_list.dart';
 
-import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/start_group.dart';
+import '../../widgets/start_screen/start_screen.dart';
 
 class LibraryHomeListView extends StatefulWidget {
   final String libraryPath;
