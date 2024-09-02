@@ -378,8 +378,8 @@ final router = GoRouter(
 
           return Container(
             color: Platform.isLinux
-                ? Colors.transparent
-                : theme.scaffoldBackgroundColor,
+                ? theme.scaffoldBackgroundColor
+                : Colors.transparent,
             child: FlipAnimationContext(
                 child: Stack(alignment: Alignment.bottomCenter, children: [
               SizedBox.expand(
