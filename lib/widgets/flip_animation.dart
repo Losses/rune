@@ -89,7 +89,16 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     }
   }
 
+  void _stopAllAnimations() {
+    for (var overlayEntry in _overlayEntries) {
+      overlayEntry.remove();
+    }
+    _overlayEntries.clear();
+  }
+
   Future<bool> flipAnimation(String fromKey, String toKey) async {
+    _stopAllAnimations(); // Stop all ongoing animations
+
     cacheStyleSheetWithKey(fromKey);
     cacheStyleSheetWithKey(toKey);
 
