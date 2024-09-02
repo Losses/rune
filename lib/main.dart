@@ -134,34 +134,14 @@ class Rune extends StatelessWidget {
   }
 }
 
-class ThemeSyncer extends StatefulWidget {
-  final AppTheme appTheme;
-  const ThemeSyncer({super.key, required this.appTheme});
-
-  @override
-  ThemeSyncerState createState() => ThemeSyncerState();
-}
-
-class ThemeSyncerState extends State<ThemeSyncer> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.appTheme.setEffect(context);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container();
-  }
-}
-
 class RouterFrame extends StatefulWidget {
+  final AppTheme appTheme;
+
   const RouterFrame({
     super.key,
     required this.child,
     required this.shellContext,
+    required this.appTheme,
   });
 
   final Widget child;
@@ -176,13 +156,35 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
 
   @override
   void initState() {
-    windowManager.addListener(this);
     super.initState();
+    windowManager.addListener(this);
+    widget.appTheme.addListener(_updateWindowEffectCallback);
+  }
+
+  void _updateWindowEffectCallback() {
+    final theme = FluentTheme.of(context);
+    updateWindowEffect(theme);
+  }
+
+  void updateWindowEffect(FluentThemeData theme) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.appTheme.setEffect(theme);
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final theme = FluentTheme.of(context);
+    updateWindowEffect(theme);
   }
 
   @override
   void dispose() {
     windowManager.removeListener(this);
+    widget.appTheme.removeListener(_updateWindowEffectCallback);
     super.dispose();
   }
 
@@ -376,6 +378,7 @@ final router = GoRouter(
             SizedBox.expand(
               child: RouterFrame(
                 shellContext: _shellNavigatorKey.currentContext,
+                appTheme: _appTheme,
                 child: child,
               ),
             ),

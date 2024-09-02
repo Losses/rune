@@ -27,18 +27,6 @@ class AppTheme extends ChangeNotifier {
   WindowEffect windowEffect =
       Platform.isLinux ? WindowEffect.solid : WindowEffect.mica;
 
-  void setEffect(BuildContext context) {
-    Window.setEffect(
-      effect: windowEffect,
-      color: windowEffect != WindowEffect.mica
-          ? FluentTheme.of(context).brightness == Brightness.light
-              ? const Color(0xFFF6F6F6)
-              : const Color(0xFF1F1F1F)
-          : FluentTheme.of(context).micaBackgroundColor.withOpacity(0.05),
-      dark: FluentTheme.of(context).brightness.isDark,
-    );
-  }
-
   TextDirection _textDirection = TextDirection.ltr;
   TextDirection get textDirection => _textDirection;
   set textDirection(TextDirection direction) {
@@ -51,6 +39,18 @@ class AppTheme extends ChangeNotifier {
   set locale(Locale? locale) {
     _locale = locale;
     notifyListeners();
+  }
+
+  void setEffect(FluentThemeData theme) {
+    Window.setEffect(
+      effect: windowEffect,
+      color: windowEffect != WindowEffect.mica
+          ? theme.brightness == Brightness.light
+              ? const Color(0xFFF6F6F6)
+              : const Color(0xFF1F1F1F)
+          : theme.micaBackgroundColor.withOpacity(0.05),
+      dark: theme.brightness.isDark,
+    );
   }
 }
 
