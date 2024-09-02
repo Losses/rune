@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:rinf/rinf.dart';
-import 'package:url_launcher/link.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
@@ -11,17 +10,10 @@ import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
-import 'routes/home.dart' as home;
-import 'routes/tracks.dart' as tracks;
-import 'routes/albums.dart' as albums;
-import 'routes/search.dart' as search;
-import 'routes/welcome.dart' as welcome;
-import 'routes/artists.dart' as artists;
-import 'routes/settings.dart' as settings;
-import 'routes/playlists.dart' as playlists;
-import 'routes/cover_wall.dart' as cover_wall;
-import 'routes/query_tracks.dart' as query_tracks;
-import 'routes/library_home.dart' as library_home;
+import 'config/theme.dart';
+import 'config/routes.dart';
+import 'config/app_title.dart';
+import 'config/navigation.dart';
 
 import 'providers/status.dart';
 import 'providers/playlist.dart';
@@ -32,20 +24,13 @@ import 'widgets/flip_animation.dart';
 import 'widgets/navigation_bar.dart';
 import 'widgets/playback_controller.dart';
 
-import 'theme.dart';
+import 'utils/platform.dart';
+
+import 'routes/welcome.dart' as welcome;
+
 import 'messages/generated.dart';
 
-const String appTitle = 'Rune Player';
-
-/// Checks if the current environment is a desktop environment.
-bool get isDesktop {
-  if (kIsWeb) return false;
-  return [
-    TargetPlatform.windows,
-    TargetPlatform.linux,
-    TargetPlatform.macOS,
-  ].contains(defaultTargetPlatform);
-}
+import 'theme.dart';
 
 void main() async {
   await GetStorage.init();
@@ -85,8 +70,6 @@ void main() async {
   );
 }
 
-final _appTheme = AppTheme();
-
 class Rune extends StatelessWidget {
   const Rune({super.key});
 
@@ -96,7 +79,7 @@ class Rune extends StatelessWidget {
     PlaybackStatusUpdateHandler.init(context);
 
     return ChangeNotifierProvider.value(
-      value: _appTheme,
+      value: appTheme,
       builder: (context, child) {
         final appTheme = context.watch<AppTheme>();
 
@@ -235,127 +218,6 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
   }
 }
 
-class WindowButtons extends StatelessWidget {
-  const WindowButtons({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final FluentThemeData theme = FluentTheme.of(context);
-
-    return SizedBox(
-      width: 138,
-      height: 50,
-      child: WindowCaption(
-        brightness: theme.brightness,
-        backgroundColor: Colors.transparent,
-      ),
-    );
-  }
-}
-
-class LinkPaneItemAction extends PaneItem {
-  LinkPaneItemAction({
-    required super.icon,
-    required this.link,
-    required super.body,
-    super.title,
-  });
-
-  final String link;
-
-  @override
-  Widget build(
-    BuildContext context,
-    bool selected,
-    VoidCallback? onPressed, {
-    PaneDisplayMode? displayMode,
-    bool showTextOnTop = true,
-    bool? autofocus,
-    int? itemIndex,
-  }) {
-    return Link(
-      uri: Uri.parse(link),
-      builder: (context, followLink) => Semantics(
-        link: true,
-        child: super.build(
-          context,
-          selected,
-          followLink,
-          displayMode: displayMode,
-          showTextOnTop: showTextOnTop,
-          itemIndex: itemIndex,
-          autofocus: autofocus,
-        ),
-      ),
-    );
-  }
-}
-
-final routes = <GoRoute>[
-  GoRoute(
-    path: '/welcome',
-    builder: (context, state) => const welcome.WelcomePage(),
-  ),
-  GoRoute(
-    path: '/welcome/scanning',
-    builder: (context, state) => const welcome.ScanningPage(),
-  ),
-  GoRoute(
-    path: '/home',
-    builder: (context, state) => const home.HomePage(),
-  ),
-  GoRoute(
-    path: '/library',
-    builder: (context, state) => const library_home.LibraryHomePage(),
-  ),
-  GoRoute(
-    path: '/artists',
-    builder: (context, state) => const artists.ArtistsPage(),
-  ),
-  GoRoute(
-    path: '/artists/:artistId',
-    builder: (context, state) => query_tracks.QueryTracksPage(
-      artistIds: [int.parse(state.pathParameters['artistId'] ?? "0")],
-    ),
-  ),
-  GoRoute(
-    path: '/albums',
-    builder: (context, state) => const albums.AlbumsPage(),
-  ),
-  GoRoute(
-    path: '/albums/:albumId',
-    builder: (context, state) => query_tracks.QueryTracksPage(
-      albumIds: [int.parse(state.pathParameters['albumId'] ?? "0")],
-    ),
-  ),
-  GoRoute(
-    path: '/playlists',
-    builder: (context, state) => const playlists.PlaylistsPage(),
-  ),
-  GoRoute(
-    path: '/playlists/:playlistsId',
-    builder: (context, state) => query_tracks.QueryTracksPage(
-      playlistIds: [int.parse(state.pathParameters['playlistsId'] ?? "0")],
-    ),
-  ),
-  GoRoute(
-    path: '/tracks',
-    builder: (context, state) => const tracks.TracksPage(),
-  ),
-  GoRoute(
-    path: '/settings',
-    builder: (context, state) => const settings.SettingsPage(),
-  ),
-  GoRoute(
-    path: '/search',
-    builder: (context, state) => const search.SearchPage(),
-  ),
-  GoRoute(
-    path: '/cover_wall',
-    builder: (context, state) => const cover_wall.CoverWallPage(),
-  ),
-];
-
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
 final router = GoRouter(
@@ -385,7 +247,7 @@ final router = GoRouter(
               SizedBox.expand(
                 child: RouterFrame(
                   shellContext: _shellNavigatorKey.currentContext,
-                  appTheme: _appTheme,
+                  appTheme: appTheme,
                   child: child,
                 ),
               ),
@@ -397,22 +259,3 @@ final router = GoRouter(
         routes: routes,
       ),
     ]);
-
-final List<NavigationItem> navigationItems = [
-  NavigationItem('Rune', '/home', tappable: false, children: [
-    NavigationItem('Library', '/library', children: [
-      NavigationItem('Artists', '/artists', children: [
-        NavigationItem('Artist Query', '/artists/:artistId', hidden: true),
-      ]),
-      NavigationItem('Albums', '/albums', children: [
-        NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
-      ]),
-      NavigationItem('Playlists', '/playlists', children: [
-        NavigationItem('Playlist Query', '/playlists/:albumId', hidden: true),
-      ]),
-      NavigationItem('Tracks', '/tracks'),
-    ]),
-    NavigationItem('Settings', '/settings'),
-  ]),
-  NavigationItem('Search', '/search'),
-];
