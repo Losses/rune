@@ -1,4 +1,5 @@
-import 'package:player/providers/library_manager.dart';
+import 'dart:io';
+
 import 'package:rinf/rinf.dart';
 import 'package:url_launcher/link.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +26,7 @@ import 'routes/library_home.dart' as library_home;
 import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/library_path.dart';
+import 'providers/library_manager.dart';
 
 import 'widgets/flip_animation.dart';
 import 'widgets/navigation_bar.dart';
@@ -364,6 +366,7 @@ final router = GoRouter(
         navigatorKey: _shellNavigatorKey,
         builder: (context, state, child) {
           final library = Provider.of<LibraryPathProvider>(context);
+          final theme = FluentTheme.of(context);
 
           if (library.currentPath == null) {
             return const welcome.WelcomePage();
@@ -373,18 +376,23 @@ final router = GoRouter(
             return const welcome.ScanningPage();
           }
 
-          return FlipAnimationContext(
-              child: Stack(alignment: Alignment.bottomCenter, children: [
-            SizedBox.expand(
-              child: RouterFrame(
-                shellContext: _shellNavigatorKey.currentContext,
-                appTheme: _appTheme,
-                child: child,
+          return Container(
+            color: Platform.isLinux
+                ? Colors.transparent
+                : theme.scaffoldBackgroundColor,
+            child: FlipAnimationContext(
+                child: Stack(alignment: Alignment.bottomCenter, children: [
+              SizedBox.expand(
+                child: RouterFrame(
+                  shellContext: _shellNavigatorKey.currentContext,
+                  appTheme: _appTheme,
+                  child: child,
+                ),
               ),
-            ),
-            const PlaybackController(),
-            NavigationBar(items: navigationItems),
-          ]));
+              const PlaybackController(),
+              NavigationBar(items: navigationItems),
+            ])),
+          );
         },
         routes: routes,
       ),
