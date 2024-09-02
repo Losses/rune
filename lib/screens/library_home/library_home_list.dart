@@ -75,7 +75,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                   children: snapshot.data!.map((item) {
                     if (item is Group<Album>) {
                       return StartGroup<Album>(
-                        index: 0,
+                        groupIndex: 0,
                         groupTitle: item.groupTitle,
                         items: item.items,
                         groupLayoutVariation:
@@ -89,7 +89,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                       );
                     } else if (item is Group<Artist>) {
                       return StartGroup<Artist>(
-                        index: 1,
+                        groupIndex: 1,
                         groupTitle: item.groupTitle,
                         items: item.items,
                         groupLayoutVariation:

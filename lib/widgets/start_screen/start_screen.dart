@@ -69,7 +69,7 @@ class StartScreenState<T> extends State<StartScreen<T>> {
                 scrollController: scrollController,
                 builderDelegate: PagedChildBuilderDelegate<Group<T>>(
                   itemBuilder: (context, item, index) => StartGroup<T>(
-                    index: index,
+                    groupIndex: index,
                     groupTitle: item.groupTitle,
                     items: item.items,
                     itemBuilder: widget.itemBuilder,
@@ -97,7 +97,7 @@ enum StartGroupGroupLayoutVariation { normal, stacked }
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
   final String groupTitle;
-  final int index;
+  final int groupIndex;
   final Widget Function(BuildContext, T) itemBuilder;
   final StartGroupGridLayoutVariation gridLayoutVariation;
   final StartGroupGroupLayoutVariation groupLayoutVariation;
@@ -107,7 +107,7 @@ class StartGroup<T> extends StatelessWidget {
 
   const StartGroup({
     super.key,
-    required this.index,
+    required this.groupIndex,
     required this.groupTitle,
     required this.items,
     required this.itemBuilder,
@@ -141,6 +141,7 @@ class StartGroup<T> extends StatelessWidget {
           cellSize: 120,
           gapSize: gapSize,
           items: items,
+          groupIndex: groupIndex,
           itemBuilder: itemBuilder,
         );
       case StartGroupGridLayoutVariation.initial:
@@ -149,6 +150,7 @@ class StartGroup<T> extends StatelessWidget {
           cellSize: 120,
           gapSize: gapSize,
           items: items,
+          groupIndex: groupIndex,
           itemBuilder: itemBuilder,
         );
     }
@@ -174,6 +176,7 @@ class StartGroupItems<T> extends StatelessWidget {
   final double cellSize;
   final double gapSize;
   final List<T> items;
+  final int groupIndex;
   final Widget Function(BuildContext, T) itemBuilder;
 
   final Dimensions Function(double, double, double, List<T>)
@@ -184,6 +187,7 @@ class StartGroupItems<T> extends StatelessWidget {
     required this.cellSize,
     required this.gapSize,
     required this.items,
+    required this.groupIndex,
     required this.itemBuilder,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? _defaultDimensionCalculator;
@@ -193,6 +197,7 @@ class StartGroupItems<T> extends StatelessWidget {
     required this.cellSize,
     required this.gapSize,
     required this.items,
+    required this.groupIndex,
     required this.itemBuilder,
   }) : dimensionCalculator = _squareDimensionCalculator;
 
@@ -230,16 +235,50 @@ class StartGroupItems<T> extends StatelessWidget {
           child: Wrap(
             spacing: gapSize,
             runSpacing: gapSize,
-            children: items.take(dimensions.count).map((item) {
-              return SizedBox(
-                width: cellSize,
-                height: cellSize,
-                child: itemBuilder(context, item),
+            children: List.generate(dimensions.count, (index) {
+              final int row = index ~/ dimensions.columns;
+              final int column = index % dimensions.columns;
+              final T item = items[index];
+              return StartGroupItem(
+                cellSize: cellSize,
+                itemBuilder: itemBuilder,
+                item: item,
+                groupId: groupIndex,
+                row: row,
+                column: column,
               );
-            }).toList(),
+            }),
           ),
         );
       },
+    );
+  }
+}
+
+class StartGroupItem<T> extends StatelessWidget {
+  const StartGroupItem({
+    super.key,
+    required this.cellSize,
+    required this.item,
+    required this.itemBuilder,
+    required this.groupId,
+    required this.row,
+    required this.column,
+  });
+
+  final double cellSize;
+  final T item;
+  final Widget Function(BuildContext, T) itemBuilder;
+  final int groupId;
+  final int row;
+  final int column;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: cellSize,
+      height: cellSize,
+      child: itemBuilder(context, item),
     );
   }
 }
