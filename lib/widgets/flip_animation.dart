@@ -96,6 +96,17 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     _overlayEntries.clear();
   }
 
+  void _setVisibility(String key, bool visible) {
+    if (_registeredKeys.containsKey(key)) {
+      final globalKey = _registeredKeys[key];
+      final context = globalKey?.currentContext;
+      if (context != null && context.mounted) {
+        final state = context.findAncestorStateOfType<FlipTextState>();
+        state?.setVisibility(visible);
+      }
+    }
+  }
+
   Future<bool> flipAnimation(String fromKey, String toKey) async {
     _stopAllAnimations(); // Stop all ongoing animations
 
@@ -125,6 +136,10 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         return;
       }
 
+      // Hide elements before starting animation
+      _setVisibility(fromKey, false);
+      _setVisibility(toKey, false);
+
       final mountedContext = toBoundingBox.context.mounted
           ? toBoundingBox.context
           : fromBoundingBox.context;
@@ -143,6 +158,13 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
           onAnimationComplete: () {
             overlayEntry.remove();
             _overlayEntries.remove(overlayEntry);
+            // Show elements after animation ends if they are still mounted
+            if (fromBoundingBox.context.mounted) {
+              _setVisibility(fromKey, true);
+            }
+            if (toBoundingBox.context.mounted) {
+              _setVisibility(toKey, true);
+            }
             completer.complete(true);
           },
         ),
@@ -227,7 +249,7 @@ class FlipText extends StatefulWidget {
       {super.key,
       required this.flipKey,
       required this.text,
-      required this.hidden,
+      this.hidden = false,
       this.scale = 1,
       this.alpha,
       this.fontWeight});
@@ -239,6 +261,7 @@ class FlipText extends StatefulWidget {
 class FlipTextState extends State<FlipText> {
   final GlobalKey _globalKey = GlobalKey();
   FlipAnimationManagerState? _flipAnimation;
+  bool _visible = true;
 
   registerKey() {
     _flipAnimation = FlipAnimationManager.of(context);
@@ -249,6 +272,12 @@ class FlipTextState extends State<FlipText> {
     } else {
       _flipAnimation!.registerKey(widget.flipKey, _globalKey);
     }
+  }
+
+  void setVisibility(bool visible) {
+    setState(() {
+      _visible = visible;
+    });
   }
 
   @override
@@ -271,7 +300,7 @@ class FlipTextState extends State<FlipText> {
       maintainSize: true,
       maintainAnimation: true,
       maintainState: true,
-      visible: !widget.hidden,
+      visible: _visible && !widget.hidden,
       child: Transform.scale(
           key: _globalKey,
           scale: widget.scale,

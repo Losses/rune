@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:visibility_detector/visibility_detector.dart';
 
 import 'flip_grid.dart';
 
@@ -22,65 +21,44 @@ class FlipTile extends StatefulWidget {
 }
 
 class FlipTileState extends State<FlipTile> {
-  bool _isVisible = false;
-
   @override
   Widget build(BuildContext context) {
-    return VisibilityDetector(
-      key: Key(widget.name),
-      onVisibilityChanged: (VisibilityInfo info) {
-        if (!mounted) return;
-        if (info.visibleFraction > 0.01) {
-          setState(() {
-            _isVisible = true;
-          });
-        } else {
-          setState(() {
-            _isVisible = false;
-          });
-        }
-      },
-      child: Button(
-        style: const ButtonStyle(
-            padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
-        onPressed: widget.onPressed,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(3),
-          child: SizedBox(
-            width: double.infinity,
-            height: double.infinity,
-            child: _isVisible
-                ? Stack(
-                    alignment: Alignment.bottomLeft,
-                    children: [
-                      FlipCoverGrid(
-                        numbers: widget.coverIds,
-                        id: widget.name,
-                        emptyTileType: widget.emptyTileType,
-                      ),
-                      Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: const Alignment(0.0, -1.0),
-                            end: const Alignment(0.0, 1.0),
-                            colors: [
-                              Colors.black.withAlpha(0),
-                              Colors.black.withAlpha(160),
-                            ],
-                          ),
-                        ),
-                        height: 80,
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(6),
-                        child: Text(
-                          widget.name,
-                          textAlign: TextAlign.start,
-                        ),
-                      ),
+    return Button(
+      style:
+          const ButtonStyle(padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
+      onPressed: widget.onPressed,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: SizedBox.expand(
+          child: Stack(
+            alignment: Alignment.bottomLeft,
+            children: [
+              FlipCoverGrid(
+                numbers: widget.coverIds,
+                id: widget.name,
+                emptyTileType: widget.emptyTileType,
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(0.0, -1.0),
+                    end: const Alignment(0.0, 1.0),
+                    colors: [
+                      Colors.black.withAlpha(0),
+                      Colors.black.withAlpha(160),
                     ],
-                  )
-                : const SizedBox.expand(),
+                  ),
+                ),
+                height: 80,
+              ),
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  widget.name,
+                  textAlign: TextAlign.start,
+                ),
+              ),
+            ],
           ),
         ),
       ),

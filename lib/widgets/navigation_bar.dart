@@ -116,10 +116,7 @@ class NavigationBar extends StatefulWidget {
 
 class NavigationBarState extends State<NavigationBar> {
   String? _previousPath;
-  bool playing = false;
   bool initialized = false;
-  String fromKey = '';
-  String toKey = '';
 
   @override
   void didChangeDependencies() {
@@ -173,13 +170,7 @@ class NavigationBarState extends State<NavigationBar> {
 
   playFlipAnimation(BuildContext context, String from, String to) async {
     final flipAnimation = FlipAnimationManager.of(context);
-
-    playing = true;
-    fromKey = from;
-    toKey = to;
     await flipAnimation?.flipAnimation(from, to);
-    playing = false;
-    setState(() {});
   }
 
   @override
@@ -200,7 +191,6 @@ class NavigationBarState extends State<NavigationBar> {
                 padding: const EdgeInsets.only(right: 12),
                 child: GestureDetector(
                     onTap: () async {
-                      if (playing) return;
                       _onHeaderTap(context, parent);
                     },
                     child: SizedBox(
@@ -210,7 +200,6 @@ class NavigationBarState extends State<NavigationBar> {
                           key: UniqueKey(),
                           flipKey: titleFlipKey,
                           text: parent.title,
-                          hidden: playing,
                           scale: 6,
                           alpha: 80,
                         ))),
@@ -228,7 +217,6 @@ class NavigationBarState extends State<NavigationBar> {
               padding: const EdgeInsets.only(right: 24),
               child: GestureDetector(
                   onTap: () async {
-                    if (playing) return;
                     _onRouteSelected(route);
                   },
                   child: FlipText(
@@ -237,7 +225,6 @@ class NavigationBarState extends State<NavigationBar> {
                     text: route.title,
                     scale: 1.2,
                     alpha: route == item ? 255 : 100,
-                    hidden: playing && (fromKey == flipKey || toKey == flipKey),
                   )),
             );
           }).toList() ??
