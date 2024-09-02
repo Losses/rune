@@ -71,10 +71,6 @@ class ArtistItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.red,
-      child: const SizedBox.expand(),
-    );
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,

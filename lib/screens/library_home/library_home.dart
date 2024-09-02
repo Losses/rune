@@ -1,3 +1,4 @@
+import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -15,6 +16,8 @@ class LibraryHomePage extends StatefulWidget {
 }
 
 class _LibraryHomePageState extends State<LibraryHomePage> {
+  final _layoutManager = StartScreenLayoutManager();
+
   @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context).currentPath;
@@ -23,12 +26,14 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
       return Container();
     }
 
-    return ScaffoldPage(
-      content: Column(children: [
-        const NavigationBarPlaceholder(),
-        Expanded(child: LibraryHomeListView(libraryPath: libraryPath)),
-        const PlaybackPlaceholder()
-      ]),
-    );
+    return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: _layoutManager,
+        child: ScaffoldPage(
+          content: Column(children: [
+            const NavigationBarPlaceholder(),
+            Expanded(child: LibraryHomeListView(libraryPath: libraryPath)),
+            const PlaybackPlaceholder()
+          ]),
+        ));
   }
 }
