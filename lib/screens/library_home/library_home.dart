@@ -29,6 +29,12 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
   }
 
   @override
+  void dispose() {
+    super.dispose();
+    _layoutManager.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context).currentPath;
 

@@ -26,16 +26,19 @@ class StartScreenLayoutManager with ChangeNotifier {
   final Map<int, Size> _groupSizes = {};
   double _currentAnimationDistance = 0;
   bool _animationFinished = false;
+  Timer? _animationTimer;
 
   bool registerItem(
       int groupId, int row, int column, VoidCallback startAnimation) {
+    if (_animationFinished) return true;
+
     final key = _generateKey(groupId, row, column);
 
     // Update group size
     _updateGroupSize(groupId, row, column);
 
     // Calculate distance from the top-left corner of the group
-    final distance = _calculateDistance(row, column);
+    final distance = _calculateDistance(groupId, row, column);
 
     _items[key] = StartGroupItemData(
         groupId: groupId,
@@ -49,6 +52,8 @@ class StartScreenLayoutManager with ChangeNotifier {
   }
 
   void unregisterItem(int groupId, int row, int column) {
+    if (_animationFinished) return;
+
     final key = _generateKey(groupId, row, column);
     _items.remove(key);
     _recalculateGroupSize(
@@ -64,9 +69,10 @@ class StartScreenLayoutManager with ChangeNotifier {
     return 'g$groupId-$column:$row';
   }
 
-  Timer? _animationTimer;
-
   void playAnimations(double speed) {
+    if (_animationFinished) return;
+    if (_animationTimer != null) return;
+
     // Calculate the maximum distance
     double maxDistance = 0;
     _items.forEach((key, item) {
@@ -74,8 +80,6 @@ class StartScreenLayoutManager with ChangeNotifier {
         maxDistance = item.distance;
       }
     });
-
-    if (_animationTimer != null) return;
 
     // Increase the animation distance by speed every frame
     _animationTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
@@ -94,6 +98,7 @@ class StartScreenLayoutManager with ChangeNotifier {
         // Set _animationFinished to true
         _animationFinished = true;
         timer.cancel();
+        _cleanup();
       }
     });
   }
@@ -126,7 +131,32 @@ class StartScreenLayoutManager with ChangeNotifier {
     _groupSizes[groupId] = Size(maxWidth, maxHeight);
   }
 
-  double _calculateDistance(int row, int column) {
-    return sqrt(row * row + column * column);
+  double _calculateDistance(int groupId, int row, int column) {
+    double offsetX = 0;
+    double offsetY = 0;
+
+    _groupSizes.forEach((id, size) {
+      if (id < groupId) {
+        offsetX += size.width;
+        offsetY += size.height;
+      }
+    });
+
+    final adjustedRow = row + offsetY;
+    final adjustedColumn = column + offsetX;
+
+    return sqrt(adjustedRow * adjustedRow + adjustedColumn * adjustedColumn);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    _cleanup();
+  }
+
+  void _cleanup() {
+    _animationTimer?.cancel();
+    _items.clear();
+    _groupSizes.clear();
   }
 }

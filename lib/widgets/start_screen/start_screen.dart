@@ -92,7 +92,9 @@ class StartScreenState<T> extends State<StartScreen<T>> {
 
   @override
   void dispose() {
-    _pagingController.dispose();
     super.dispose();
+
+    _pagingController.dispose();
+    _layoutManager.dispose();
   }
 }
