@@ -32,7 +32,7 @@ class SettingsTileTitle extends StatelessWidget {
               color: theme.accentColor,
               borderRadius: BorderRadius.circular(2),
             ),
-            child: Icon(icon, size: 26),
+            child: Icon(icon, color: theme.activeColor, size: 26),
           ),
         ),
         const SizedBox(
@@ -52,7 +52,7 @@ class SettingsTileTitle extends StatelessWidget {
             Text(
               subtitle,
               style: theme.typography.caption?.apply(
-                color: theme.activeColor.withAlpha(160),
+                color: theme.inactiveColor.withAlpha(160),
               ),
             ),
             if (showActions) ...[

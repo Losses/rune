@@ -23,6 +23,8 @@ class FlipTile extends StatefulWidget {
 class FlipTileState extends State<FlipTile> {
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     return Button(
       style:
           const ButtonStyle(padding: WidgetStatePropertyAll(EdgeInsets.all(0))),
@@ -56,6 +58,7 @@ class FlipTileState extends State<FlipTile> {
                 child: Text(
                   widget.name,
                   textAlign: TextAlign.start,
+                  style: theme.typography.body?.apply(color: theme.activeColor),
                 ),
               ),
             ],

@@ -151,6 +151,8 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
   }
 
   void updateWindowEffect(FluentThemeData theme) {
+    if (Platform.isLinux) return;
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         widget.appTheme.setEffect(theme);
@@ -238,7 +240,7 @@ final router = GoRouter(
 
           return Container(
             color: Platform.isLinux
-                ? theme.scaffoldBackgroundColor
+                ? theme.micaBackgroundColor
                 : Colors.transparent,
             child: FlipAnimationContext(
                 child: Stack(alignment: Alignment.bottomCenter, children: [

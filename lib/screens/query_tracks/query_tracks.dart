@@ -34,7 +34,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
           textStyle: WidgetStateProperty.all(typography.title),
         ),
         child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
-            style: TextStyle(color: theme.activeColor)),
+            style: TextStyle(color: theme.inactiveColor)),
         onPressed: () => {context.pop()},
       ),
       content: Column(children: [

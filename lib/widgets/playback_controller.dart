@@ -114,7 +114,7 @@ class PlaylistButton extends StatelessWidget {
       builder: (context) {
         Typography typography = FluentTheme.of(context).typography;
         Color accentColor = Color.alphaBlend(
-          FluentTheme.of(context).activeColor.withAlpha(100),
+          FluentTheme.of(context).inactiveColor.withAlpha(100),
           FluentTheme.of(context).accentColor,
         );
 

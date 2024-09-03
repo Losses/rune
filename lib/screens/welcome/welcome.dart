@@ -36,7 +36,7 @@ class WelcomePage extends StatelessWidget {
                       SvgPicture.asset(
                         'assets/mono_color_logo.svg',
                         colorFilter: ColorFilter.mode(
-                            theme.activeColor, BlendMode.srcIn),
+                            theme.inactiveColor, BlendMode.srcIn),
                       ),
                       const SizedBox(height: 20),
                       Column(
@@ -73,7 +73,7 @@ class WelcomePage extends StatelessWidget {
                 Text(
                   '© 2024 Rune Player Developers. Licensed under MPL 2.0.',
                   style: theme.typography.caption
-                      ?.apply(color: theme.activeColor.withAlpha(80)),
+                      ?.apply(color: theme.inactiveColor.withAlpha(80)),
                 ),
               ],
             ),

@@ -262,7 +262,7 @@ class _SearchPageState extends State<SearchPage> {
                             color: theme.accentColor,
                             borderRadius: BorderRadius.circular(2),
                           ),
-                          child: Icon(searchIcons[index], size: 26),
+                          child: Icon(searchIcons[index], color: theme.activeColor, size: 26),
                         ),
                         title: Row(
                           children: [
@@ -271,7 +271,7 @@ class _SearchPageState extends State<SearchPage> {
                               Text(
                                 '$itemCount',
                                 style: typography.body!.copyWith(
-                                  color: theme.activeColor.withAlpha(160),
+                                  color: theme.inactiveColor.withAlpha(160),
                                 ),
                               ),
                           ],
