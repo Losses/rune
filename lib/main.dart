@@ -142,7 +142,6 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
   @override
   void initState() {
     super.initState();
-    windowManager.addListener(this);
     widget.appTheme.addListener(_updateWindowEffectCallback);
   }
 
@@ -168,7 +167,6 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
     widget.appTheme.removeListener(_updateWindowEffectCallback);
     super.dispose();
   }
