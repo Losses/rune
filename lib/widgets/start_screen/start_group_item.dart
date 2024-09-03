@@ -27,22 +27,25 @@ class StartGroupItem<T> extends StatefulWidget {
 class StartGroupItemState<T> extends State<StartGroupItem<T>> {
   StartScreenLayoutManager? provider;
 
+  bool _show = false;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    provider = Provider.of<StartScreenLayoutManager>(context, listen: false);
-    provider?.registerItem(
-      StartGroupItemData(
-        groupId: widget.groupId,
-        row: widget.row,
-        column: widget.column,
-        startAnimation: startAnimation,
-      ),
-    );
+    setState(() {
+      provider = Provider.of<StartScreenLayoutManager>(context, listen: false);
+      _show = provider?.registerItem(
+              widget.groupId, widget.row, widget.column, startAnimation) ??
+          true;
+    });
   }
 
-  startAnimation() {}
+  startAnimation() {
+    setState(() {
+      _show = true;
+    });
+  }
 
   @override
   void dispose() {
@@ -55,7 +58,7 @@ class StartGroupItemState<T> extends State<StartGroupItem<T>> {
     return SizedBox(
       width: widget.cellSize,
       height: widget.cellSize,
-      child: widget.itemBuilder(context, widget.item),
+      child: !_show ? Container() : widget.itemBuilder(context, widget.item),
     );
   }
 }

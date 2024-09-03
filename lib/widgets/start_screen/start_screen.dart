@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -47,6 +49,9 @@ class StartScreenState<T> extends State<StartScreen<T>> {
     _pagingController.addPageRequestListener((cursor) {
       widget.fetchPage(_pagingController, cursor);
     });
+
+    Timer(const Duration(milliseconds: 300),
+        () => _layoutManager.playAnimations(0.1));
   }
 
   @override

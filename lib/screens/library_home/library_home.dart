@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -17,6 +19,14 @@ class LibraryHomePage extends StatefulWidget {
 
 class _LibraryHomePageState extends State<LibraryHomePage> {
   final _layoutManager = StartScreenLayoutManager();
+
+  @override
+  void initState() {
+    super.initState();
+
+    Timer(const Duration(milliseconds: 300),
+        () => _layoutManager.playAnimations(0.1));
+  }
 
   @override
   Widget build(BuildContext context) {
