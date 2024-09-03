@@ -1,11 +1,12 @@
 import 'dart:async';
 
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../config/animation.dart';
 import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/library_path.dart';
 
 import 'library_home_list.dart';
@@ -24,8 +25,8 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
   void initState() {
     super.initState();
 
-    Timer(const Duration(milliseconds: 300),
-        () => _layoutManager.playAnimations(0.1));
+    Timer(Duration(milliseconds: gridAnimationDelay),
+        () => _layoutManager.playAnimations());
   }
 
   @override

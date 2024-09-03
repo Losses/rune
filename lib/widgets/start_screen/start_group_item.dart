@@ -1,6 +1,7 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import './providers/start_screen_layout_manager.dart';
 
 class StartGroupItem<T> extends StatefulWidget {
   const StartGroupItem({
@@ -28,6 +29,7 @@ class StartGroupItemState<T> extends State<StartGroupItem<T>> {
   StartScreenLayoutManager? provider;
 
   bool _show = false;
+  bool _showInstantly = false;
 
   @override
   void didChangeDependencies() {
@@ -38,6 +40,10 @@ class StartGroupItemState<T> extends State<StartGroupItem<T>> {
       _show = provider?.registerItem(
               widget.groupId, widget.row, widget.column, startAnimation) ??
           true;
+
+      if (_show) {
+        _showInstantly = true;
+      }
     });
   }
 
@@ -58,7 +64,11 @@ class StartGroupItemState<T> extends State<StartGroupItem<T>> {
     return SizedBox(
       width: widget.cellSize,
       height: widget.cellSize,
-      child: !_show ? Container() : widget.itemBuilder(context, widget.item),
+      child: AnimatedOpacity(
+        opacity: _show ? 1.0 : 0.0,
+        duration: Duration(milliseconds: _showInstantly ? 0 : 300),
+        child: _show ? widget.itemBuilder(context, widget.item) : Container(),
+      ),
     );
   }
 }

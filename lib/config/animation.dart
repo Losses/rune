@@ -1,0 +1,1 @@
+int gridAnimationDelay = 300;

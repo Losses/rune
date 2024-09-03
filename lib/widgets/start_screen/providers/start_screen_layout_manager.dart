@@ -69,7 +69,7 @@ class StartScreenLayoutManager with ChangeNotifier {
     return 'g$groupId-$column:$row';
   }
 
-  void playAnimations(double speed) {
+  void playAnimations([double speed = 0.3]) {
     if (_animationFinished) return;
     if (_animationTimer != null) return;
 

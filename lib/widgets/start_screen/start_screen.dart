@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
-import 'package:player/widgets/start_screen/start_group.dart';
 import 'package:provider/provider.dart';
 
+import '../../config/animation.dart';
+
 import '../smooth_horizontal_scroll.dart';
+
+import './start_group.dart';
+import './providers/start_screen_layout_manager.dart';
 
 class Group<T> {
   final String groupTitle;
@@ -50,8 +53,8 @@ class StartScreenState<T> extends State<StartScreen<T>> {
       widget.fetchPage(_pagingController, cursor);
     });
 
-    Timer(const Duration(milliseconds: 300),
-        () => _layoutManager.playAnimations(0.1));
+    Timer(Duration(milliseconds: gridAnimationDelay),
+        () => _layoutManager.playAnimations());
   }
 
   @override
