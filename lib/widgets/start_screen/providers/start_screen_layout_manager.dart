@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 class StartGroupItemData {
+  final String key;
   final int groupId;
   final int row;
   final int column;
@@ -12,12 +13,23 @@ class StartGroupItemData {
   bool played;
 
   StartGroupItemData({
+    required this.key,
     required this.groupId,
     required this.row,
     required this.column,
     required this.distance,
     required this.startAnimation,
     this.played = false,
+  });
+}
+
+class StartItemRegisterResult {
+  final bool skipAnimation;
+  final StartGroupItemData? data;
+
+  StartItemRegisterResult({
+    required this.skipAnimation,
+    required this.data,
   });
 }
 
@@ -28,11 +40,13 @@ class StartScreenLayoutManager with ChangeNotifier {
   bool _animationFinished = false;
   Timer? _animationTimer;
 
-  bool registerItem(
-      int groupId, int row, int column, VoidCallback startAnimation) {
-    if (_animationFinished) return true;
+  StartItemRegisterResult registerItem(
+      int groupId, int row, int column, VoidCallback startAnimation, [String? prefix]) {
+    if (_animationFinished) {
+      return StartItemRegisterResult(skipAnimation: true, data: null);
+    }
 
-    final key = _generateKey(groupId, row, column);
+    final key = _generateKey(groupId, row, column, prefix);
 
     // Update group size
     _updateGroupSize(groupId, row, column);
@@ -41,6 +55,7 @@ class StartScreenLayoutManager with ChangeNotifier {
     final distance = _calculateDistance(groupId, row, column);
 
     _items[key] = StartGroupItemData(
+        key: key,
         groupId: groupId,
         row: row,
         column: column,
@@ -48,16 +63,19 @@ class StartScreenLayoutManager with ChangeNotifier {
         startAnimation: startAnimation);
 
     // If the current animation index has already exceeded this element's index, it has missed the animation
-    return _currentAnimationDistance > distance || _animationFinished;
+    return StartItemRegisterResult(
+        skipAnimation:
+            (_currentAnimationDistance > distance || _animationFinished),
+        data: _items[key]);
   }
 
-  void unregisterItem(int groupId, int row, int column) {
+  void unregisterItem(StartGroupItemData data) {
     if (_animationFinished) return;
 
-    final key = _generateKey(groupId, row, column);
-    _items.remove(key);
-    _recalculateGroupSize(
-        groupId); // Recalculate group size when an item is removed
+    _items.remove(data.key);
+
+    // Recalculate group size when an item is removed
+    _recalculateGroupSize(data.groupId);
   }
 
   StartGroupItemData? getItem(int groupId, int row, int column) {
@@ -65,8 +83,8 @@ class StartScreenLayoutManager with ChangeNotifier {
     return _items[key];
   }
 
-  String _generateKey(int groupId, int row, int column) {
-    return 'g$groupId-$column:$row';
+  String _generateKey(int groupId, int row, int column, [String? prefix]) {
+    return '${prefix ?? "g"}$groupId-$column:$row';
   }
 
   void playAnimations([double speed = 0.3]) {
@@ -83,22 +101,23 @@ class StartScreenLayoutManager with ChangeNotifier {
 
     // Increase the animation distance by speed every frame
     _animationTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
+      if (_currentAnimationDistance > maxDistance) return;
+
       _currentAnimationDistance += speed;
 
       // Find elements whose distance is less than or equal to _currentAnimationDistance and have not played their animation
       _items.forEach((key, item) {
-        if (item.distance <= _currentAnimationDistance && !item.played) {
+        if (item.distance < _currentAnimationDistance && !item.played) {
           item.startAnimation();
           item.played = true;
         }
       });
 
       // Continue playing animations until all elements have played
-      if (_currentAnimationDistance >= maxDistance) {
+      if (_currentAnimationDistance > maxDistance) {
         // Set _animationFinished to true
         _animationFinished = true;
         timer.cancel();
-        _cleanup();
       }
     });
   }
@@ -108,6 +127,9 @@ class StartScreenLayoutManager with ChangeNotifier {
     _animationFinished = false;
     _animationTimer?.cancel();
     _animationTimer = null;
+    _items.forEach((_, item) {
+      item.played = false;
+    });
   }
 
   void _updateGroupSize(int groupId, int row, int column) {
@@ -151,10 +173,10 @@ class StartScreenLayoutManager with ChangeNotifier {
   @override
   void dispose() {
     super.dispose();
-    _cleanup();
+    cleanup();
   }
 
-  void _cleanup() {
+  void cleanup() {
     _animationTimer?.cancel();
     _items.clear();
     _groupSizes.clear();

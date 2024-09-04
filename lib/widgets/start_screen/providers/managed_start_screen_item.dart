@@ -10,6 +10,7 @@ class ManagedStartScreenItem extends StatefulWidget {
   final double width;
   final double height;
   final Widget child;
+  final String? prefix;
 
   const ManagedStartScreenItem({
     super.key,
@@ -19,6 +20,7 @@ class ManagedStartScreenItem extends StatefulWidget {
     required this.width,
     required this.height,
     required this.child,
+    this.prefix,
   });
 
   @override
@@ -29,6 +31,7 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
   StartScreenLayoutManager? provider;
 
   bool _show = false;
+  StartGroupItemData? _data;
   bool _showInstantly = false;
 
   @override
@@ -37,9 +40,15 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
 
     setState(() {
       provider = Provider.of<StartScreenLayoutManager>(context, listen: false);
-      _show = provider?.registerItem(
-              widget.groupId, widget.row, widget.column, startAnimation) ??
-          true;
+
+      if (_data != null) {
+        provider?.unregisterItem(_data!);
+      }
+
+      final registerResult = provider?.registerItem(widget.groupId, widget.row,
+          widget.column, startAnimation, widget.prefix);
+      _show = registerResult?.skipAnimation ?? true;
+      _data = registerResult?.data;
 
       if (_show) {
         _showInstantly = true;
@@ -48,6 +57,8 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
   }
 
   startAnimation() {
+    if (!mounted) return;
+
     setState(() {
       _show = true;
     });
@@ -55,7 +66,9 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
 
   @override
   void dispose() {
-    provider?.unregisterItem(widget.groupId, widget.row, widget.column);
+    if (_data != null) {
+      provider?.unregisterItem(_data!);
+    }
     super.dispose();
   }
 

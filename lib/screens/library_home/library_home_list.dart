@@ -1,5 +1,11 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
+import 'package:provider/provider.dart';
+
+import '../../config/animation.dart';
 
 import '../../messages/album.pb.dart';
 import '../../messages/artist.pb.dart';
@@ -22,30 +28,35 @@ class LibraryHomeListView extends StatefulWidget {
 }
 
 class LibraryHomeListState extends State<LibraryHomeListView> {
-  late Future<List<Group<dynamic>>> summary;
+  Future<List<Group<dynamic>>>? summary;
 
   @override
-  void initState() {
-    super.initState();
-    summary = fetchSummary();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    setState(() {
+      summary = fetchSummary(context);
+    });
   }
 
   @override
   void didUpdateWidget(covariant LibraryHomeListView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.libraryPath != oldWidget.libraryPath) {
-      setState(() {
-        summary = fetchSummary();
-      });
-    }
+    setState(() {
+      summary = fetchSummary(context);
+    });
   }
 
-  Future<List<Group<dynamic>>> fetchSummary() async {
+  Future<List<Group<dynamic>>> fetchSummary(BuildContext context) async {
+    final layoutManager = Provider.of<StartScreenLayoutManager>(context);
+
     final fetchLibrarySummary = FetchLibrarySummaryRequest();
     fetchLibrarySummary.sendSignalToRust(); // GENERATED
 
     final rustSignal = await LibrarySummaryResponse.rustSignalStream.first;
     final librarySummary = rustSignal.message;
+
+    Timer(Duration(milliseconds: gridAnimationDelay),
+        () => layoutManager.playAnimations());
 
     return [
       Group<Album>(groupTitle: "Albums", items: librarySummary.albums),
