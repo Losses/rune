@@ -1,9 +1,12 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
-import 'package:provider/provider.dart';
+import 'dart:async';
 
+import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import '../../config/animation.dart';
 import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/tracks/widgets/track_list.dart';
 
 class TracksPage extends StatefulWidget {
@@ -15,6 +18,14 @@ class TracksPage extends StatefulWidget {
 
 class _TracksPageState extends State<TracksPage> {
   final _layoutManager = StartScreenLayoutManager();
+
+  @override
+  void initState() {
+    super.initState();
+
+    Timer(Duration(milliseconds: gridAnimationDelay),
+        () => _layoutManager.playAnimations());
+  }
 
   @override
   Widget build(BuildContext context) {

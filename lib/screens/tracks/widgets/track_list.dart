@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
@@ -19,10 +21,10 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   void initState() {
+    super.initState();
     _pagingController.addPageRequestListener((cursor) {
       _fetchPage(cursor);
     });
-    super.initState();
   }
 
   Future<void> _fetchPage(int cursor) async {

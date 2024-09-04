@@ -1,6 +1,7 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import './start_screen_layout_manager.dart';
 
 class ManagedStartScreenItem extends StatefulWidget {
   final int groupId;

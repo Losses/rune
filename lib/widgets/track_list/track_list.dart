@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/start_screen/providers/managed_start_screen_item.dart';
 
 import '../../../../widgets/smooth_horizontal_scroll.dart';
 import '../../../../messages/media_file.pb.dart';
@@ -14,37 +15,49 @@ class TrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(12),
-      child: LayoutBuilder(builder: (context, constraints) {
-        const double gapSize = 8;
-        const double cellSize = 64;
+        padding: const EdgeInsets.all(12),
+        child: LayoutBuilder(builder: (context, constraints) {
+          const double gapSize = 8;
+          const double cellSize = 64;
 
-        final int rows = (constraints.maxHeight / (cellSize + gapSize)).floor();
-        final double finalHeight = rows * (cellSize + gapSize) - gapSize;
+          final int rows =
+              (constraints.maxHeight / (cellSize + gapSize)).floor();
+          final double finalHeight = rows * (cellSize + gapSize) - gapSize;
 
-        return SmoothHorizontalScroll(
-          builder: (context, scrollController) => SizedBox(
-            height: finalHeight,
-            child: PagedGridView<int, MediaFile>(
-              pagingController: pagingController,
-              scrollDirection: Axis.horizontal,
-              scrollController: scrollController,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: rows,
-                mainAxisSpacing: gapSize,
-                crossAxisSpacing: gapSize,
-                childAspectRatio: 1 / 4,
-              ),
-              builderDelegate: PagedChildBuilderDelegate<MediaFile>(
-                itemBuilder: (context, item, index) => TrackListItem(
-                  index: index,
-                  item: item,
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
+          const ratio = 1 / 4;
+
+          return SmoothHorizontalScroll(
+              builder: (context, scrollController) => SizedBox(
+                    height: finalHeight,
+                    child: PagedGridView<int, MediaFile>(
+                      pagingController: pagingController,
+                      scrollDirection: Axis.horizontal,
+                      scrollController: scrollController,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: rows,
+                        mainAxisSpacing: gapSize,
+                        crossAxisSpacing: gapSize,
+                        childAspectRatio: ratio,
+                      ),
+                      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+                        itemBuilder: (context, item, index) {
+                          final int row = index % rows;
+                          final int column = index ~/ rows;
+
+                          return ManagedStartScreenItem(
+                              groupId: 0,
+                              row: row,
+                              column: column,
+                              width: cellSize / ratio,
+                              height: cellSize,
+                              child: TrackListItem(
+                                index: index,
+                                item: item,
+                              ));
+                        },
+                      ),
+                    ),
+                  ));
+        }));
   }
 }
