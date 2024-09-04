@@ -10,6 +10,7 @@ import '../../config/animation.dart';
 
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
+import '../../widgets/scaled.dart';
 import '../../widgets/playback_controller.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
@@ -42,21 +43,21 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
   @override
   Widget build(BuildContext context) {
     final FluentThemeData theme = FluentTheme.of(context);
-    final Typography typography = theme.typography;
     final extra = GoRouterState.of(context).extra;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
         child: ScaffoldPage(
-          header: HyperlinkButton(
-            style: ButtonStyle(
-              textStyle: WidgetStateProperty.all(typography.title),
+          content:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 32, 24, 12),
+              child: Scaled(
+                  scale: 1.2,
+                  child: Text(
+                      extra is QueryTracksExtra ? extra.title : 'Tracks',
+                      style: TextStyle(color: theme.inactiveColor))),
             ),
-            child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
-                style: TextStyle(color: theme.inactiveColor)),
-            onPressed: () => {context.pop()},
-          ),
-          content: Column(children: [
             Expanded(
               child: QueryTrackListView(
                 artistIds: widget.artistIds,

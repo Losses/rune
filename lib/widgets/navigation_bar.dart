@@ -46,8 +46,6 @@ class NavigationQuery {
   }
 
   void _addItem(NavigationItem item, String? parentPath) {
-    if (item.hidden) return;
-
     _pathToItem[item.path] = item;
     if (parentPath != null) {
       _pathToParent[item.path] = parentPath;
