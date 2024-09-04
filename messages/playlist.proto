@@ -5,7 +5,6 @@ package playlist;
 message FetchPlaylistsGroupSummaryRequest {
 }
 
-// [RINF:RUST-SIGNAL]
 message PlaylistsGroupSummary {
   string group_title = 1;
   int32 count = 2;
@@ -21,7 +20,6 @@ message FetchPlaylistsGroupsRequest {
   repeated string group_titles = 1;
 }
 
-// [RINF:RUST-SIGNAL]
 message Playlist {
   int32 id = 1;
   string name = 2;
@@ -29,14 +27,12 @@ message Playlist {
   repeated int32 cover_ids = 4;
 }
 
-// [RINF:RUST-SIGNAL]
 message PlaylistWithoutCoverIds {
   int32 id = 1;
   string name = 2;
   string group = 3;
 }
 
-// [RINF:RUST-SIGNAL]
 message PlaylistsGroup {
   string group_title = 1;
   repeated Playlist playlists = 2;

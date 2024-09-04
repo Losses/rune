@@ -52,7 +52,6 @@ message MovePlaylistItemRequest {
     uint32 new_index = 2;
 }
 
-// [RINF:RUST-SIGNAL]
 message PlaylistItem {
   int32 id = 1;
   string artist = 2;

@@ -10,7 +10,6 @@ message FetchMediaFilesRequest {
   int32 page_size = 2;
 }
 
-// [RINF:RUST-SIGNAL]
 message MediaFile {
   int32 id = 1;
   string path = 2;

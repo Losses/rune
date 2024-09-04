@@ -5,7 +5,6 @@ package artist;
 message FetchArtistsGroupSummaryRequest {
 }
 
-// [RINF:RUST-SIGNAL]
 message ArtistsGroupSummary {
   string group_title = 1;
   int32 count = 2;
@@ -21,14 +20,12 @@ message FetchArtistsGroupsRequest {
   repeated string group_titles = 1;
 }
 
-// [RINF:RUST-SIGNAL]
 message Artist {
     int32 id = 1;
     string name = 2;
     repeated int32 cover_ids = 3;
 }
 
-// [RINF:RUST-SIGNAL]
 message ArtistsGroup {
   string group_title = 1;
   repeated Artist artists = 2;

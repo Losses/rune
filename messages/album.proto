@@ -5,7 +5,6 @@ package album;
 message FetchAlbumsGroupSummaryRequest {
 }
 
-// [RINF:RUST-SIGNAL]
 message AlbumsGroupSummary {
   string group_title = 1;
   int32 count = 2;
@@ -21,14 +20,12 @@ message FetchAlbumsGroupsRequest {
   repeated string group_titles = 1;
 }
 
-// [RINF:RUST-SIGNAL]
 message Album {
     int32 id = 1;
     string name = 2;
     repeated int32 cover_ids = 3;
 }
 
-// [RINF:RUST-SIGNAL]
 message AlbumsGroup {
   string group_title = 1;
   repeated Album albums = 2;
