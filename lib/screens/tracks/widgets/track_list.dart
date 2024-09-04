@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../../widgets/track_list.dart';
+import '../../../widgets/track_list/track_list.dart';
 import '../../../messages/media_file.pb.dart';
 
 class TrackListView extends StatefulWidget {
