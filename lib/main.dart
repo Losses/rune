@@ -50,9 +50,8 @@ void main() async {
     await flutter_acrylic.Window.initialize();
     await WindowManager.instance.ensureInitialized();
     windowManager.waitUntilReadyToShow().then((_) async {
-      await windowManager.setMinimumSize(const Size(500, 600));
+      await windowManager.setTitle(appTitle);
       await windowManager.show();
-      await windowManager.setPreventClose(true);
     });
   }
 
@@ -136,9 +135,7 @@ class RouterFrame extends StatefulWidget {
   State<RouterFrame> createState() => _RouterFrameState();
 }
 
-class _RouterFrameState extends State<RouterFrame> with WindowListener {
-  bool value = false;
-
+class _RouterFrameState extends State<RouterFrame> {
   @override
   void initState() {
     super.initState();
@@ -184,37 +181,6 @@ class _RouterFrameState extends State<RouterFrame> with WindowListener {
     }
 
     return widget.child;
-  }
-
-  @override
-  void onWindowClose() async {
-    bool isPreventClose = await windowManager.isPreventClose();
-    if (isPreventClose && mounted) {
-      showDialog(
-        context: context,
-        builder: (_) {
-          return ContentDialog(
-            title: const Text('Confirm close'),
-            content: const Text('Are you sure you want to close this window?'),
-            actions: [
-              FilledButton(
-                child: const Text('Yes'),
-                onPressed: () {
-                  Navigator.pop(context);
-                  windowManager.destroy();
-                },
-              ),
-              Button(
-                child: const Text('No'),
-                onPressed: () {
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          );
-        },
-      );
-    }
   }
 }
 
