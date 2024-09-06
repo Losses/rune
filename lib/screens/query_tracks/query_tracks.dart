@@ -7,6 +7,7 @@ import '../../utils/router_extra.dart';
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
 import '../../widgets/scaled.dart';
+import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
@@ -37,7 +38,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
         value: _layoutManager,
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 32, 24, 12),
+            padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
             child: Scaled(
                 scale: 1.2,
                 child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
