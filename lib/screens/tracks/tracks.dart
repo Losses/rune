@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../config/animation.dart';
 import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -20,24 +17,16 @@ class _TracksPageState extends State<TracksPage> {
   final _layoutManager = StartScreenLayoutManager();
 
   @override
-  void initState() {
-    super.initState();
-
-    Timer(Duration(milliseconds: gridAnimationDelay),
-        () => _layoutManager.playAnimations());
-  }
-
-  @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
-        child: const ScaffoldPage(
+        child: ScaffoldPage(
           content: Column(children: [
-            NavigationBarPlaceholder(),
+            const NavigationBarPlaceholder(),
             Expanded(
-              child: TrackListView(),
+              child: TrackListView(layoutManager: _layoutManager,),
             ),
-            PlaybackPlaceholder(),
+            const PlaybackPlaceholder(),
           ]),
         ));
   }

@@ -49,12 +49,12 @@ class StartScreenState<T> extends State<StartScreen<T>> {
   void initState() {
     super.initState();
     summary = widget.fetchSummary();
-    _pagingController.addPageRequestListener((cursor) {
-      widget.fetchPage(_pagingController, cursor);
-    });
+    _pagingController.addPageRequestListener((cursor) async {
+      await widget.fetchPage(_pagingController, cursor);
 
-    Timer(Duration(milliseconds: gridAnimationDelay),
-        () => _layoutManager.playAnimations());
+      Timer(Duration(milliseconds: gridAnimationDelay),
+          () => _layoutManager.playAnimations());
+    });
   }
 
   @override

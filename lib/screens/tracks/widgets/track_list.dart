@@ -3,11 +3,18 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
+import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../messages/media_file.pb.dart';
 
 class TrackListView extends StatefulWidget {
-  const TrackListView({super.key});
+  final StartScreenLayoutManager layoutManager;
+
+  const TrackListView({
+    super.key,
+    required this.layoutManager,
+  });
 
   @override
   TrackListViewState createState() => TrackListViewState();
@@ -22,8 +29,10 @@ class TrackListViewState extends State<TrackListView> {
   @override
   void initState() {
     super.initState();
-    _pagingController.addPageRequestListener((cursor) {
+    _pagingController.addPageRequestListener((cursor) async {
       _fetchPage(cursor);
+      Timer(Duration(milliseconds: gridAnimationDelay),
+          () => widget.layoutManager.playAnimations());
     });
   }
 

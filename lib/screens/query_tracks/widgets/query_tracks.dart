@@ -1,16 +1,22 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
+import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../messages/media_file.pb.dart';
 
 class QueryTrackListView extends StatefulWidget {
   final List<int> artistIds;
   final List<int> albumIds;
   final List<int> playlistIds;
+  final StartScreenLayoutManager layoutManager;
 
   const QueryTrackListView({
     super.key,
+    required this.layoutManager,
     this.artistIds = const [],
     this.albumIds = const [],
     this.playlistIds = const [],
@@ -28,8 +34,11 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   void initState() {
-    _pagingController.addPageRequestListener((cursor) {
-      _fetchPage(cursor);
+    _pagingController.addPageRequestListener((cursor) async {
+      await _fetchPage(cursor);
+
+      Timer(Duration(milliseconds: gridAnimationDelay),
+          () => widget.layoutManager.playAnimations());
     });
     super.initState();
   }

@@ -1,1 +1,1 @@
-int gridAnimationDelay = 200;
+int gridAnimationDelay = 50;

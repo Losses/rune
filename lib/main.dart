@@ -10,25 +10,26 @@ import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
+import 'utils/platform.dart';
+
 import 'config/theme.dart';
 import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/navigation.dart';
 
-import 'providers/status.dart';
-import 'providers/playlist.dart';
-import 'providers/library_path.dart';
-import 'providers/library_manager.dart';
+import 'routes/welcome.dart' as welcome;
 
 import 'widgets/flip_animation.dart';
 import 'widgets/navigation_bar.dart';
 import 'widgets/playback_controller.dart';
 
-import 'utils/platform.dart';
-
-import 'routes/welcome.dart' as welcome;
-
 import 'messages/generated.dart';
+
+import 'providers/status.dart';
+import 'providers/playlist.dart';
+import 'providers/library_path.dart';
+import 'providers/library_manager.dart';
+import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
 
@@ -63,6 +64,9 @@ void main() async {
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(
+            create: (_) =>
+                TransitionCalculationProvider(navigationItems: navigationItems))
       ],
       child: const Rune(),
     ),
@@ -107,10 +111,16 @@ class Rune extends StatelessWidget {
           routerDelegate: router.routerDelegate,
           routeInformationProvider: router.routeInformationProvider,
           builder: (context, child) {
-            return Directionality(
-              textDirection: appTheme.textDirection,
-              child: child!,
-            );
+            final theme = FluentTheme.of(context);
+
+            return Container(
+                color: Platform.isLinux
+                    ? theme.micaBackgroundColor
+                    : Colors.transparent,
+                child: Directionality(
+                  textDirection: appTheme.textDirection,
+                  child: child!,
+                ));
           },
         );
       },
@@ -135,7 +145,8 @@ class RouterFrame extends StatefulWidget {
   State<RouterFrame> createState() => _RouterFrameState();
 }
 
-class _RouterFrameState extends State<RouterFrame> {
+class _RouterFrameState extends State<RouterFrame>
+    with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
@@ -170,58 +181,162 @@ class _RouterFrameState extends State<RouterFrame> {
     super.dispose();
   }
 
+  Widget _applyAnimation(Widget child, RouteRelation relation) {
+    const distance = 0.1;
+    const duration = 300;
+
+    AnimationController createController() {
+      return AnimationController(
+        vsync: this,
+        duration: const Duration(milliseconds: duration),
+      )..forward();
+    }
+
+    switch (relation) {
+      case RouteRelation.parent:
+        return SlideTransition(
+          position:
+              Tween<Offset>(begin: const Offset(0, -distance), end: Offset.zero)
+                  .animate(
+            CurvedAnimation(
+              parent: createController(),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0, end: 1).animate(
+              CurvedAnimation(
+                parent: createController(),
+                curve: Curves.easeInOut,
+              ),
+            ),
+            child: child,
+          ),
+        );
+      case RouteRelation.child:
+        return SlideTransition(
+          position:
+              Tween<Offset>(begin: const Offset(0, distance), end: Offset.zero)
+                  .animate(
+            CurvedAnimation(
+              parent: createController(),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0, end: 1).animate(
+              CurvedAnimation(
+                parent: createController(),
+                curve: Curves.easeInOut,
+              ),
+            ),
+            child: child,
+          ),
+        );
+      case RouteRelation.sameLevelAhead:
+        return SlideTransition(
+          position:
+              Tween<Offset>(begin: const Offset(-distance, 0), end: Offset.zero)
+                  .animate(
+            CurvedAnimation(
+              parent: createController(),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          child: child,
+        );
+      case RouteRelation.sameLevelBehind:
+        return SlideTransition(
+          position:
+              Tween<Offset>(begin: const Offset(distance, 0), end: Offset.zero)
+                  .animate(
+            CurvedAnimation(
+              parent: createController(),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          child: child,
+        );
+      case RouteRelation.same:
+        return child;
+      case RouteRelation.crossLevel:
+        return ScaleTransition(
+          scale: Tween<double>(begin: 1.1, end: 1).animate(
+            CurvedAnimation(
+              parent: createController(),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          child: FadeTransition(
+            opacity: Tween<double>(begin: 0, end: 1).animate(
+              CurvedAnimation(
+                parent: createController(),
+                curve: Curves.easeInOut,
+              ),
+            ),
+            child: child,
+          ),
+        );
+      default:
+        return child;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     FluentLocalizations.of(context);
 
     if (widget.shellContext != null) {
-      if (router.canPop() == false) {
+      if (Navigator.of(context).canPop() == false) {
         setState(() {});
       }
     }
 
-    return widget.child;
+    final calculator = Provider.of<TransitionCalculationProvider>(context);
+    final path = GoRouterState.of(context).fullPath ?? "/";
+
+    final relation = calculator.compareRoute(path);
+    calculator.registerRoute(path);
+
+    return _applyAnimation(widget.child, relation);
   }
 }
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 final _shellNavigatorKey = GlobalKey<NavigatorState>();
+
 final router = GoRouter(
-    navigatorKey: rootNavigatorKey,
-    initialLocation: "/library",
-    routes: [
-      ShellRoute(
-        navigatorKey: _shellNavigatorKey,
-        builder: (context, state, child) {
-          final library = Provider.of<LibraryPathProvider>(context);
-          final theme = FluentTheme.of(context);
+  navigatorKey: rootNavigatorKey,
+  initialLocation: "/library",
+  routes: [
+    ShellRoute(
+      navigatorKey: _shellNavigatorKey,
+      builder: (context, state, child) {
+        final library = Provider.of<LibraryPathProvider>(context);
 
-          if (library.currentPath == null) {
-            return const welcome.WelcomePage();
-          }
+        if (library.currentPath == null) {
+          return const welcome.WelcomePage();
+        }
 
-          if (library.scanning) {
-            return const welcome.ScanningPage();
-          }
+        if (library.scanning) {
+          return const welcome.ScanningPage();
+        }
 
-          return Container(
-            color: Platform.isLinux
-                ? theme.micaBackgroundColor
-                : Colors.transparent,
-            child: FlipAnimationContext(
-                child: Stack(alignment: Alignment.bottomCenter, children: [
-              SizedBox.expand(
-                child: RouterFrame(
-                  shellContext: _shellNavigatorKey.currentContext,
-                  appTheme: appTheme,
-                  child: child,
-                ),
+        return FlipAnimationContext(
+          child: Stack(alignment: Alignment.bottomCenter, children: [
+            SizedBox.expand(
+              child: RouterFrame(
+                shellContext: _shellNavigatorKey.currentContext,
+                appTheme: appTheme,
+                child: child,
               ),
-              const PlaybackController(),
-              NavigationBar(items: navigationItems),
-            ])),
-          );
-        },
-        routes: routes,
-      ),
-    ]);
+            ),
+            const PlaybackController(),
+            NavigationBar(items: navigationItems),
+          ]),
+        );
+      },
+      routes: routes,
+    ),
+  ],
+);

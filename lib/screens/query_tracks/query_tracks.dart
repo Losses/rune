@@ -1,12 +1,8 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../utils/router_extra.dart';
-
-import '../../config/animation.dart';
 
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
@@ -33,14 +29,6 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
   final _layoutManager = StartScreenLayoutManager();
 
   @override
-  void initState() {
-    super.initState();
-
-    Timer(Duration(milliseconds: gridAnimationDelay),
-        () => _layoutManager.playAnimations());
-  }
-
-  @override
   Widget build(BuildContext context) {
     final FluentThemeData theme = FluentTheme.of(context);
     final extra = GoRouterState.of(context).extra;
@@ -60,6 +48,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
             ),
             Expanded(
               child: QueryTrackListView(
+                layoutManager: _layoutManager,
                 artistIds: widget.artistIds,
                 albumIds: widget.albumIds,
                 playlistIds: widget.playlistIds,

@@ -1,8 +1,8 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_shaders/flutter_shaders.dart';
-import 'dart:ui' as ui;
 
 class GradientParams {
   final double multX;
