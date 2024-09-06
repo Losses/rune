@@ -56,7 +56,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/playlists/:playlistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      playlistIds: [int.parse(state.pathParameters['playlistsId'] ?? "0")],
+      playlistIds: [int.parse(state.pathParameters['playlistId'] ?? "0")],
     ),
   ),
   GoRoute(
