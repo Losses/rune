@@ -54,8 +54,7 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Consumer<LibraryPathProvider>(builder: (context, provider, child) {
-      return ScaffoldPage(
-          content: Column(
+      return Column(
         children: [
           const NavigationBarPlaceholder(),
           Expanded(
@@ -89,7 +88,7 @@ class _HomePageState extends State<HomePage> {
           ),
           const PlaybackPlaceholder(),
         ],
-      ));
+      );
     });
   }
 }

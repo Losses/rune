@@ -19,7 +19,7 @@ class SlideFadeTransitionState extends State<SlideFadeTransition>
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 300),
       vsync: this,
     );
 

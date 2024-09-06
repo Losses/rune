@@ -322,13 +322,18 @@ final router = GoRouter(
           return const welcome.ScanningPage();
         }
 
+        final isSearch = state.fullPath == '/search';
+
         return FlipAnimationContext(
           child: Stack(alignment: Alignment.bottomCenter, children: [
             SizedBox.expand(
-              child: RouterFrame(
-                shellContext: _shellNavigatorKey.currentContext,
-                appTheme: appTheme,
-                child: child,
+              child: Padding(
+                padding: EdgeInsets.only(top: isSearch ? 0 : 40),
+                child: RouterFrame(
+                  shellContext: _shellNavigatorKey.currentContext,
+                  appTheme: appTheme,
+                  child: child,
+                ),
               ),
             ),
             const PlaybackController(),

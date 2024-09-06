@@ -39,12 +39,10 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
-        child: ScaffoldPage(
-          content: Column(children: [
-            const NavigationBarPlaceholder(),
-            Expanded(child: LibraryHomeListView(libraryPath: libraryPath)),
-            const PlaybackPlaceholder()
-          ]),
-        ));
+        child: Column(children: [
+          const NavigationBarPlaceholder(),
+          Expanded(child: LibraryHomeListView(libraryPath: libraryPath)),
+          const PlaybackPlaceholder()
+        ]));
   }
 }

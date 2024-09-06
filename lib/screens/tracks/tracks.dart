@@ -20,14 +20,14 @@ class _TracksPageState extends State<TracksPage> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
-        child: ScaffoldPage(
-          content: Column(children: [
-            const NavigationBarPlaceholder(),
-            Expanded(
-              child: TrackListView(layoutManager: _layoutManager,),
+        child: Column(children: [
+          const NavigationBarPlaceholder(),
+          Expanded(
+            child: TrackListView(
+              layoutManager: _layoutManager,
             ),
-            const PlaybackPlaceholder(),
-          ]),
-        ));
+          ),
+          const PlaybackPlaceholder(),
+        ]));
   }
 }

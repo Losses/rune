@@ -35,27 +35,23 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
-        child: ScaffoldPage(
-          content:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 32, 24, 12),
-              child: Scaled(
-                  scale: 1.2,
-                  child: Text(
-                      extra is QueryTracksExtra ? extra.title : 'Tracks',
-                      style: TextStyle(color: theme.inactiveColor))),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 32, 24, 12),
+            child: Scaled(
+                scale: 1.2,
+                child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
+                    style: TextStyle(color: theme.inactiveColor))),
+          ),
+          Expanded(
+            child: QueryTrackListView(
+              layoutManager: _layoutManager,
+              artistIds: widget.artistIds,
+              albumIds: widget.albumIds,
+              playlistIds: widget.playlistIds,
             ),
-            Expanded(
-              child: QueryTrackListView(
-                layoutManager: _layoutManager,
-                artistIds: widget.artistIds,
-                albumIds: widget.albumIds,
-                playlistIds: widget.playlistIds,
-              ),
-            ),
-            const PlaybackPlaceholder(),
-          ]),
-        ));
+          ),
+          const PlaybackPlaceholder(),
+        ]));
   }
 }

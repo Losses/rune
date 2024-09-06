@@ -15,12 +15,10 @@ class ArtistsPage extends StatefulWidget {
 class _ArtistsPageState extends State<ArtistsPage> {
   @override
   Widget build(BuildContext context) {
-    return const ScaffoldPage(
-      content: Column(children: [
-        NavigationBarPlaceholder(),
-        Expanded(child: ArtistsListView()),
-        PlaybackPlaceholder()
-      ]),
-    );
+    return const Column(children: [
+      NavigationBarPlaceholder(),
+      Expanded(child: ArtistsListView()),
+      PlaybackPlaceholder()
+    ]);
   }
 }

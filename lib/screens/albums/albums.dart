@@ -15,12 +15,10 @@ class AlbumsPage extends StatefulWidget {
 class _AlbumsPageState extends State<AlbumsPage> {
   @override
   Widget build(BuildContext context) {
-    return const ScaffoldPage(
-      content: Column(children: [
-        NavigationBarPlaceholder(),
-        Expanded(child: AlbumsListView()),
-        PlaybackPlaceholder()
-      ]),
-    );
+    return const Column(children: [
+      NavigationBarPlaceholder(),
+      Expanded(child: AlbumsListView()),
+      PlaybackPlaceholder()
+    ]);
   }
 }
