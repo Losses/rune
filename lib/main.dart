@@ -184,6 +184,7 @@ class _RouterFrameState extends State<RouterFrame>
   Widget _applyAnimation(Widget child, RouteRelation relation) {
     const distance = 0.1;
     const duration = 300;
+    const curve = Curves.easeOutQuint;
 
     AnimationController createController() {
       return AnimationController(
@@ -192,88 +193,65 @@ class _RouterFrameState extends State<RouterFrame>
       )..forward();
     }
 
+    Animation<Offset> createSlideAnimation(Offset begin) {
+      return Tween<Offset>(begin: begin, end: Offset.zero).animate(
+        CurvedAnimation(
+          parent: createController(),
+          curve: curve,
+        ),
+      );
+    }
+
+    Animation<double> createFadeAnimation() {
+      return Tween<double>(begin: 0, end: 1).animate(
+        CurvedAnimation(
+          parent: createController(),
+          curve: curve,
+        ),
+      );
+    }
+
+    Animation<double> createScaleAnimation() {
+      return Tween<double>(begin: 1.1, end: 1).animate(
+        CurvedAnimation(
+          parent: createController(),
+          curve: curve,
+        ),
+      );
+    }
+
+    Widget applySlideAndFade(Offset begin) {
+      return SlideTransition(
+        position: createSlideAnimation(begin),
+        child: FadeTransition(
+          opacity: createFadeAnimation(),
+          child: child,
+        ),
+      );
+    }
+
     switch (relation) {
       case RouteRelation.parent:
-        return SlideTransition(
-          position:
-              Tween<Offset>(begin: const Offset(0, -distance), end: Offset.zero)
-                  .animate(
-            CurvedAnimation(
-              parent: createController(),
-              curve: Curves.easeInOut,
-            ),
-          ),
-          child: FadeTransition(
-            opacity: Tween<double>(begin: 0, end: 1).animate(
-              CurvedAnimation(
-                parent: createController(),
-                curve: Curves.easeInOut,
-              ),
-            ),
-            child: child,
-          ),
-        );
+        return applySlideAndFade(const Offset(0, -distance));
       case RouteRelation.child:
-        return SlideTransition(
-          position:
-              Tween<Offset>(begin: const Offset(0, distance), end: Offset.zero)
-                  .animate(
-            CurvedAnimation(
-              parent: createController(),
-              curve: Curves.easeInOut,
-            ),
-          ),
-          child: FadeTransition(
-            opacity: Tween<double>(begin: 0, end: 1).animate(
-              CurvedAnimation(
-                parent: createController(),
-                curve: Curves.easeInOut,
-              ),
-            ),
-            child: child,
-          ),
-        );
+        return applySlideAndFade(const Offset(0, distance));
       case RouteRelation.sameLevelAhead:
         return SlideTransition(
-          position:
-              Tween<Offset>(begin: const Offset(-distance, 0), end: Offset.zero)
-                  .animate(
-            CurvedAnimation(
-              parent: createController(),
-              curve: Curves.easeInOut,
-            ),
-          ),
+          position: createSlideAnimation(const Offset(-distance, 0)),
           child: child,
         );
       case RouteRelation.sameLevelBehind:
         return SlideTransition(
-          position:
-              Tween<Offset>(begin: const Offset(distance, 0), end: Offset.zero)
-                  .animate(
-            CurvedAnimation(
-              parent: createController(),
-              curve: Curves.easeInOut,
-            ),
-          ),
+          position: createSlideAnimation(const Offset(distance, 0)),
           child: child,
         );
       case RouteRelation.same:
         return child;
       case RouteRelation.crossLevel:
         return ScaleTransition(
-          scale: Tween<double>(begin: 1.1, end: 1).animate(
-            CurvedAnimation(
-              parent: createController(),
-              curve: Curves.easeInOut,
-            ),
-          ),
+          scale: createScaleAnimation(),
           child: FadeTransition(
-            opacity: Tween<double>(begin: 0, end: 1).animate(
-              CurvedAnimation(
-                parent: createController(),
-                curve: Curves.easeInOut,
-              ),
-            ),
+            opacity: createFadeAnimation(),
             child: child,
           ),
         );
