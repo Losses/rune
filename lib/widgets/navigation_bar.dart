@@ -6,7 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../widgets/flip_animation.dart';
 
-const navigationBarHeight = 64.0;
+const navigationBarHeight = 64.0 + 40;
 
 class NavigationBarPlaceholder extends StatelessWidget {
   const NavigationBarPlaceholder({super.key});
