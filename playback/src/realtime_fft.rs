@@ -1,6 +1,7 @@
-use rustfft::{num_complex::Complex, FftPlanner};
 use std::sync::{Arc, Mutex};
 use std::thread;
+
+use rustfft::{num_complex::Complex, FftPlanner};
 use tokio::sync::broadcast;
 
 pub struct RealTimeFFT {

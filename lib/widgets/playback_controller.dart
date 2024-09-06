@@ -320,6 +320,7 @@ class PlaybackControllerState extends State<PlaybackController> {
                         ),
                         PlaylistButton(),
                         const CoverWallButton(),
+                        const SizedBox(width: 8),
                       ],
                     ),
                   ],

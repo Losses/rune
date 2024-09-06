@@ -100,8 +100,8 @@ class FFTVisualizeState extends State<FFTVisualize>
       if (!current.isFinite) {
         current = 0.0;
       }
-      if (!target.isInfinite) {
-        continue;
+      if (!target.isFinite) {
+        target = 0.0;
       }
 
       _currentFftValues[i] = ui.lerpDouble(current, target, 0.2)!;
