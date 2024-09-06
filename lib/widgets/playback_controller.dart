@@ -256,6 +256,9 @@ class PlaybackControllerState extends State<PlaybackController> {
   Widget build(BuildContext context) {
     return Consumer<PlaybackStatusProvider>(
       builder: (context, playbackStatusProvider, child) {
+        final theme = FluentTheme.of(context);
+        final typography = theme.typography;
+
         final s = playbackStatusProvider.playbackStatus;
 
         return SizedBox(
@@ -296,10 +299,13 @@ class PlaybackControllerState extends State<PlaybackController> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(formatTime(
-                                      s != null ? s.progressSeconds : 0)),
                                   Text(
-                                      '-${formatTime(s != null ? s.duration - s.progressSeconds : 0)}'),
+                                      formatTime(
+                                          s != null ? s.progressSeconds : 0),
+                                      style: typography.caption),
+                                  Text(
+                                      '-${formatTime(s != null ? s.duration - s.progressSeconds : 0)}',
+                                      style: typography.caption),
                                 ],
                               ),
                             ],
