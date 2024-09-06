@@ -261,77 +261,77 @@ class PlaybackControllerState extends State<PlaybackController> {
 
         final s = playbackStatusProvider.playbackStatus;
 
+        const scaleY = 0.9;
+
         return SizedBox(
           height: playbackControllerHeight,
           child: Stack(
             fit: StackFit.expand,
+            alignment: Alignment.centerRight,
             children: <Widget>[
-              const FFTVisualize(),
-              Container(
-                alignment: Alignment.center,
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Center(
-                        child: Container(
+              SizedBox.expand(
+                  child: Center(
+                      child: Container(
                           constraints: const BoxConstraints(
-                              minWidth: 200, maxWidth: 400),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                s != null ? s.title : "",
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Slider(
-                                value:
-                                    s != null ? s.progressPercentage * 100 : 0,
-                                onChanged: s != null
-                                    ? (v) => SeekRequest(
-                                            positionSeconds:
-                                                (v / 100) * s.duration)
-                                        .sendSignalToRust()
-                                    : null,
-                                style:
-                                    const SliderThemeData(useThumbBall: false),
-                              ),
-                              Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                      formatTime(
-                                          s != null ? s.progressSeconds : 0),
-                                      style: typography.caption),
-                                  Text(
-                                      '-${formatTime(s != null ? s.duration - s.progressSeconds : 0)}',
-                                      style: typography.caption),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Row(
+                              minWidth: 1200, maxWidth: 1600),
+                          child: Transform(
+                            transform: Matrix4.identity()
+                              ..scale(1.0, scaleY)
+                              ..translate(0.0, (1 - scaleY) * 100),
+                            child: const FFTVisualize(),
+                          )))),
+              SizedBox.expand(
+                child: Center(
+                  child: Container(
+                    constraints:
+                        const BoxConstraints(minWidth: 200, maxWidth: 400),
+                    child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        PreviousButton(
-                          disabled: s == null,
+                        Text(
+                          s != null ? s.title : "",
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        PlayPauseButton(
-                            disabled: s == null, state: s?.state ?? "Stopped"),
-                        NextButton(
-                          disabled: s == null,
+                        Slider(
+                          value: s != null ? s.progressPercentage * 100 : 0,
+                          onChanged: s != null
+                              ? (v) => SeekRequest(
+                                      positionSeconds: (v / 100) * s.duration)
+                                  .sendSignalToRust()
+                              : null,
+                          style: const SliderThemeData(useThumbBall: false),
                         ),
-                        PlaylistButton(),
-                        const CoverWallButton(),
-                        const SizedBox(width: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(formatTime(s != null ? s.progressSeconds : 0),
+                                style: typography.caption),
+                            Text(
+                                '-${formatTime(s != null ? s.duration - s.progressSeconds : 0)}',
+                                style: typography.caption),
+                          ],
+                        ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
               ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  PreviousButton(
+                    disabled: s == null,
+                  ),
+                  PlayPauseButton(
+                      disabled: s == null, state: s?.state ?? "Stopped"),
+                  NextButton(
+                    disabled: s == null,
+                  ),
+                  PlaylistButton(),
+                  const CoverWallButton(),
+                  const SizedBox(width: 8),
+                ],
+              )
             ],
           ),
         );

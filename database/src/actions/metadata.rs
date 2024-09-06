@@ -678,7 +678,7 @@ pub async fn get_parsed_file_by_id(
         .await?;
 
     let album = albums::Entity::find()
-        .filter(albums::Column::Id.eq(album_id.unwrap().id))
+        .filter(albums::Column::Id.eq(album_id.unwrap().album_id))
         .one(db)
         .await?;
 

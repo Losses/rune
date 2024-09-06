@@ -106,8 +106,11 @@ class GradientContainerState extends State<GradientContainer> {
   }
 
   void _updateMousePosition(PointerEvent event) {
-    final RenderBox renderBox =
-        _containerKey.currentContext!.findRenderObject() as RenderBox;
+    final currentContext = _containerKey.currentContext;
+
+    if (currentContext == null) return;
+
+    final RenderBox renderBox = currentContext.findRenderObject() as RenderBox;
     final Offset localPosition = renderBox.globalToLocal(event.position);
     setState(() {
       _mousePosition = localPosition;
