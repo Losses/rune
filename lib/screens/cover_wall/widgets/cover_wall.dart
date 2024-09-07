@@ -111,33 +111,37 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        final coverArtWall = ClipRect(
-            child: OverflowBox(
-                alignment: Alignment.topLeft,
-                maxWidth: (crossAxisCount * gridSize).toDouble(),
-                maxHeight: (mainAxisCount * gridSize).toDouble(),
-                child: Center(
-                    child: GradientContainer(
-                        gradientParams: GradientParams(
-                          multX: 2.0,
-                          multY: 2.0,
-                          hue: 180.0,
-                          brightness: 1.0,
-                        ),
-                        effectParams: EffectParams(
-                          mouseInfluence: -0.2,
-                          scale: 1.25,
-                          noise: 1.5,
-                          bw: 0.0,
-                        ),
-                        color: FluentTheme.of(context).accentColor,
-                        child: StaggeredGrid.count(
-                          crossAxisCount: crossAxisCount,
-                          mainAxisSpacing: 2,
-                          crossAxisSpacing: 2,
-                          children: _generateTiles(crossAxisCount,
-                              mainAxisCount, gridSize.toDouble()),
-                        )))));
+        final coverArtWall = widget.coverArtIds.isEmpty
+            ? Container(
+                color: Colors.black,
+              )
+            : ClipRect(
+                child: OverflowBox(
+                    alignment: Alignment.topLeft,
+                    maxWidth: (crossAxisCount * gridSize).toDouble(),
+                    maxHeight: (mainAxisCount * gridSize).toDouble(),
+                    child: Center(
+                        child: GradientContainer(
+                            gradientParams: GradientParams(
+                              multX: 2.0,
+                              multY: 2.0,
+                              hue: 180.0,
+                              brightness: 1.0,
+                            ),
+                            effectParams: EffectParams(
+                              mouseInfluence: -0.2,
+                              scale: 1.25,
+                              noise: 1.5,
+                              bw: 0.0,
+                            ),
+                            color: FluentTheme.of(context).accentColor,
+                            child: StaggeredGrid.count(
+                              crossAxisCount: crossAxisCount,
+                              mainAxisSpacing: 2,
+                              crossAxisSpacing: 2,
+                              children: _generateTiles(crossAxisCount,
+                                  mainAxisCount, gridSize.toDouble()),
+                            )))));
 
         return Stack(
           alignment: Alignment.bottomCenter,
@@ -209,7 +213,8 @@ class RandomGridState extends State<RandomGrid> {
 
         double randomValue1 = stringToDouble('$gridKey-${widget.seed}');
         double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
-        int coverIndex = (randomValue2 * (count - 1)).round();
+        int coverIndex =
+            (randomValue2 * (widget.coverArtIds.length - 1)).round();
 
         for (var cfg in config) {
           if (randomValue1 <= cfg.probability) {

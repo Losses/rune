@@ -1,7 +1,7 @@
 use dunce::canonicalize;
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult,
-    Order, QueryFilter, QueryTrait,
+    Order, PaginatorTrait, QueryFilter, QueryTrait,
 };
 use std::path::Path;
 
@@ -10,6 +10,8 @@ use migration::{Func, SimpleExpr};
 use metadata::cover_art::extract_cover_art_binary;
 
 use crate::entities::{media_cover_art, media_files};
+
+use super::utils::DatabaseExecutor;
 
 pub async fn get_magic_cover_art(
     db: &DatabaseConnection,
@@ -126,6 +128,40 @@ pub async fn sync_cover_art_by_file_id(
     } else {
         Ok(None)
     }
+}
+
+pub async fn delete_cover_art_by_file_id<E>(db: &E, file_id: i32) -> Result<(), sea_orm::DbErr>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    // Query file information
+    let file: Option<media_files::Model> = media_files::Entity::find_by_id(file_id).one(db).await?;
+
+    if let Some(file) = file {
+        if let Some(cover_art_id) = file.cover_art_id {
+            // Update the file's cover_art_id to None
+            let mut file_active_model: media_files::ActiveModel = file.into();
+            file_active_model.cover_art_id = ActiveValue::Set(None);
+            media_files::Entity::update(file_active_model)
+                .exec(db)
+                .await?;
+
+            // Check if there are other files linked to the same cover_art_id
+            let count = media_files::Entity::find()
+                .filter(media_files::Column::CoverArtId.eq(cover_art_id))
+                .count(db)
+                .await?;
+
+            if count == 0 {
+                // If no other files are linked to the same cover_art_id, delete the corresponding entry in the media_cover_art table
+                media_cover_art::Entity::delete_by_id(cover_art_id)
+                    .exec(db)
+                    .await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn get_cover_art_by_id(

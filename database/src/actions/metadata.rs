@@ -12,6 +12,7 @@ use metadata::describe::{describe_file, FileDescription};
 use metadata::reader::get_metadata;
 use metadata::scanner::AudioScanner;
 
+use crate::actions::cover_art::delete_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
 use crate::actions::search::{add_term, remove_term, CollectionType};
@@ -89,14 +90,17 @@ pub async fn sync_file_descriptions(
                     if existing_file.last_modified == description.last_modified {
                         // If the file's last modified date hasn't changed, skip it
                         debug!(
-                            "File's last modified date hasn't changed, skipping: {}",
+                            "File's last modified date hasn't changed ({}), skipping: {}",
+                            existing_file.last_modified,
                             description.file_name.clone()
                         );
                         continue;
                     } else {
                         // If the file's last modified date has changed, check the hash
                         debug!(
-                            "File's last modified date has changed, checking hash: {}",
+                            "File's last modified date has changed ({} -> {}), checking hash: {}",
+                            existing_file.last_modified,
+                            description.last_modified,
                             description.file_name.clone()
                         );
 
@@ -258,6 +262,8 @@ pub async fn process_files(
 
                             update_file_codec_information(&txn, &existing_file, description)
                                 .await?;
+
+                            delete_cover_art_by_file_id(&txn, existing_file.id).await?;
 
                             let file_metadata = read_metadata(description);
 
