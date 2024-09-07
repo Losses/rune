@@ -113,6 +113,9 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     cacheStyleSheetWithKey(fromKey);
     cacheStyleSheetWithKey(toKey);
 
+    _setVisibility(fromKey, false);
+    _setVisibility(toKey, false);
+
     final completer = Completer<bool>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -121,6 +124,10 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 
       final fromBoundingBox = _cachedBoundingBox[fromKey];
       final toBoundingBox = _cachedBoundingBox[toKey];
+
+      // Hide elements before starting animation
+      _setVisibility(fromKey, false);
+      _setVisibility(toKey, false);
 
       if (fromBoundingBox == null) {
         completer.complete(false);
@@ -135,10 +142,6 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
         completer.complete(false);
         return;
       }
-
-      // Hide elements before starting animation
-      _setVisibility(fromKey, false);
-      _setVisibility(toKey, false);
 
       final mountedContext = toBoundingBox.context.mounted
           ? toBoundingBox.context

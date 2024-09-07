@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:collection';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -139,10 +140,11 @@ class NavigationBarState extends State<NavigationBar> {
       if (previousItem != null && currentItem != null) {
         if (widget.query.getParent(path)?.path == _previousPath) {
           // parent to child
-          playFlipAnimation(context, 'child:$_previousPath', 'title:$path');
+          playFlipAnimation(
+              context, 'child:$_previousPath', 'title:$_previousPath');
         } else if (widget.query.getParent(_previousPath)?.path == path) {
           // child to parent
-          playFlipAnimation(context, 'title:$_previousPath', 'child:$path');
+          playFlipAnimation(context, 'title:$path', 'child:$path');
         } else {}
       }
     }
@@ -171,6 +173,28 @@ class NavigationBarState extends State<NavigationBar> {
     await flipAnimation?.flipAnimation(from, to);
   }
 
+  List<Timer> _slibingAnimationFutures = [];
+  List<double> _slibingOpacities = [];
+  NavigationItem? _lastParent;
+
+  @override
+  void dispose() {
+    super.dispose();
+
+    _disposeAnimations();
+  }
+
+  _disposeAnimations() {
+    for (final x in _slibingAnimationFutures) {
+      x.cancel();
+    }
+  }
+
+  _resetAnimations() {
+    _slibingAnimationFutures = [];
+    _slibingOpacities = [];
+  }
+
   @override
   Widget build(BuildContext context) {
     final path = GoRouterState.of(context).fullPath;
@@ -179,7 +203,7 @@ class NavigationBarState extends State<NavigationBar> {
     final slibings =
         widget.query.getSiblings(path)?.where((x) => !x.hidden).toList();
 
-    final titleFlipKey = 'title:${item?.path}';
+    final titleFlipKey = 'title:${parent?.path}';
 
     final parentWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
@@ -195,7 +219,7 @@ class NavigationBarState extends State<NavigationBar> {
                         height: 80,
                         width: 320,
                         child: FlipText(
-                          key: UniqueKey(),
+                          key: Key(titleFlipKey),
                           flipKey: titleFlipKey,
                           text: parent.title,
                           scale: 6,
@@ -206,10 +230,40 @@ class NavigationBarState extends State<NavigationBar> {
           : [],
     );
 
+    if (parent != _lastParent) {
+      _lastParent = parent;
+      _disposeAnimations();
+      _resetAnimations();
+
+      int itemIndex = slibings?.indexWhere((route) => route == item) ?? -1;
+
+      slibings?.asMap().entries.forEach((entry) {
+        final index = entry.key;
+        final isCurrent = itemIndex == index;
+
+        if (!isCurrent) {
+          final delay = ((index - itemIndex - 1).abs() * 100);
+          _slibingOpacities.add(0);
+
+          final timer = Timer(Duration(milliseconds: delay), () {
+            if (mounted) {
+              setState(() {
+                _slibingOpacities[index] = 1;
+              });
+            }
+          });
+          _slibingAnimationFutures.add(timer);
+        } else {
+          _slibingOpacities.add(1);
+        }
+      });
+    }
+
     final childrenWidget = Row(
       mainAxisAlignment: MainAxisAlignment.start,
-      children: slibings?.map((route) {
-            final flipKey = 'child:${route.path}';
+      children: slibings?.asMap().entries.map((entry) {
+            final route = entry.value;
+            final childFlipKey = 'child:${route.path}';
 
             return Padding(
               padding: const EdgeInsets.only(right: 24),
@@ -217,12 +271,17 @@ class NavigationBarState extends State<NavigationBar> {
                   onTap: () async {
                     _onRouteSelected(route);
                   },
-                  child: FlipText(
-                    key: UniqueKey(),
-                    flipKey: flipKey,
-                    text: route.title,
-                    scale: 1.2,
-                    alpha: route == item ? 255 : 100,
+                  child: AnimatedOpacity(
+                    key: Key('animation-$childFlipKey'),
+                    opacity: _slibingOpacities[entry.key],
+                    duration: const Duration(milliseconds: 300),
+                    child: FlipText(
+                      key: Key(childFlipKey),
+                      flipKey: childFlipKey,
+                      text: route.title,
+                      scale: 1.2,
+                      alpha: route == item ? 255 : 100,
+                    ),
                   )),
             );
           }).toList() ??
