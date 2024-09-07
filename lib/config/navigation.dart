@@ -1,4 +1,4 @@
-import '../widgets/navigation_bar.dart';
+import '../../widgets/navigation_bar/utils/navigation_item.dart';
 
 final List<NavigationItem> navigationItems = [
   NavigationItem('Rune', '/home', tappable: false, children: [

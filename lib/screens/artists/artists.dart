@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 import './artists_list.dart';
 

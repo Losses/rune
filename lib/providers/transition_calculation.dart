@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
-import 'package:player/widgets/navigation_bar.dart';
+
+import '../../widgets/navigation_bar/utils/navigation_item.dart';
 
 enum RouteRelation {
   parent,

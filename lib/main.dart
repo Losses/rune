@@ -19,9 +19,9 @@ import 'config/navigation.dart';
 
 import 'routes/welcome.dart' as welcome;
 
-import 'widgets/flip_animation.dart';
-import 'widgets/navigation_bar.dart';
 import 'widgets/playback_controller.dart';
+import 'widgets/navigation_bar/flip_animation.dart';
+import 'widgets/navigation_bar/navigation_bar.dart';
 
 import 'messages/generated.dart';
 

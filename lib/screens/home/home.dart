@@ -3,8 +3,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 
 import '../../providers/library_path.dart';
-import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});

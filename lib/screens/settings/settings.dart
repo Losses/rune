@@ -1,15 +1,15 @@
 import 'dart:io';
 
-import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../widgets/navigation_bar.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 import './widgets/settings_button.dart';
 import './widgets/progress_button.dart';

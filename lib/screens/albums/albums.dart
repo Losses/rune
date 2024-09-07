@@ -2,8 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import './albums_list.dart';
 
-import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 class AlbumsPage extends StatefulWidget {
   const AlbumsPage({super.key});

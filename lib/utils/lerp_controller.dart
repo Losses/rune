@@ -1,5 +1,6 @@
-import 'package:flutter/scheduler.dart';
 import 'dart:async';
+
+import 'package:flutter/scheduler.dart';
 
 class LerpController {
   late double _value;

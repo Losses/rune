@@ -1,104 +1,13 @@
 import 'dart:async';
-import 'dart:collection';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../widgets/flip_animation.dart';
-
-const navigationBarHeight = 64.0 + 40;
-
-class NavigationBarPlaceholder extends StatelessWidget {
-  const NavigationBarPlaceholder({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const SizedBox(height: navigationBarHeight);
-  }
-}
-
-class NavigationItem {
-  final String title;
-  final String path;
-  final bool hidden;
-  final bool tappable;
-  final List<NavigationItem>? children;
-
-  NavigationItem(this.title, this.path,
-      {this.hidden = false, this.tappable = true, this.children = const []});
-
-  @override
-  String toString() {
-    return 'NavigationItem(title: $title, path: $path, hidden: $hidden)';
-  }
-}
-
-class NavigationQuery {
-  final HashMap<String, NavigationItem> _pathToItem = HashMap();
-  final HashMap<String, String> _pathToParent = HashMap();
-  final HashMap<String, List<NavigationItem>> _pathToChildren = HashMap();
-  final List<NavigationItem> _rootItems = [];
-
-  NavigationQuery(List<NavigationItem> items) {
-    for (var item in items) {
-      _addItem(item, null);
-    }
-  }
-
-  void _addItem(NavigationItem item, String? parentPath) {
-    _pathToItem[item.path] = item;
-    if (parentPath != null) {
-      _pathToParent[item.path] = parentPath;
-      if (!_pathToChildren.containsKey(parentPath)) {
-        _pathToChildren[parentPath] = [];
-      }
-      _pathToChildren[parentPath]!.add(item);
-    } else {
-      _rootItems.add(item);
-    }
-
-    final children = item.children;
-    if (children != null) {
-      for (var child in children) {
-        _addItem(child, item.path);
-      }
-    }
-  }
-
-  NavigationItem? getItem(String? path) {
-    return _pathToItem[path];
-  }
-
-  NavigationItem? getParent(String? path) {
-    var parentPath = _pathToParent[path];
-    if (parentPath != null) {
-      return _pathToItem[parentPath];
-    }
-    return null;
-  }
-
-  List<NavigationItem>? getChildren(String? path) {
-    return _pathToChildren[path];
-  }
-
-  List<NavigationItem>? getSiblings(String? path) {
-    var parentPath = _pathToParent[path];
-    if (parentPath == null) {
-      // If there's no parent, it means this item is a root item
-      // Its siblings are all other root items
-      return _rootItems.toList();
-    }
-
-    var siblings = _pathToChildren[parentPath];
-    if (siblings == null) {
-      return null;
-    }
-
-    // Filter out the item itself from the list of siblings
-    return siblings.toList();
-  }
-}
+import './flip_text.dart';
+import './flip_animation_manager.dart';
+import './utils/navigation_item.dart';
+import './utils/navigation_query.dart';
 
 class NavigationBar extends StatefulWidget {
   final List<NavigationItem> items;

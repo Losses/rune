@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
 
-import './lerp_controller.dart';
+import '../utils/lerp_controller.dart';
 
 class SmoothHorizontalScroll extends StatefulWidget {
   final Widget Function(BuildContext, ScrollController) builder;
