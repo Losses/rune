@@ -107,8 +107,8 @@ class Rune extends StatelessWidget {
             ),
           ),
           locale: appTheme.locale,
-          routeInformationParser: router.routeInformationParser,
           routerDelegate: router.routerDelegate,
+          routeInformationParser: router.routeInformationParser,
           routeInformationProvider: router.routeInformationProvider,
           builder: (context, child) {
             final theme = FluentTheme.of(context);
@@ -147,11 +147,7 @@ class RouterFrame extends StatefulWidget {
 
 class _RouterFrameState extends State<RouterFrame>
     with TickerProviderStateMixin {
-  @override
-  void initState() {
-    super.initState();
-    widget.appTheme.addListener(_updateWindowEffectCallback);
-  }
+  late AnimationController _animationController;
 
   void _updateWindowEffectCallback() {
     final theme = FluentTheme.of(context);
@@ -169,34 +165,33 @@ class _RouterFrameState extends State<RouterFrame>
   }
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final theme = FluentTheme.of(context);
-    updateWindowEffect(theme);
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    widget.appTheme.addListener(_updateWindowEffectCallback);
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     widget.appTheme.removeListener(_updateWindowEffectCallback);
     super.dispose();
   }
 
+  String _lastRoute = '';
+  RouteRelation _lastCompareResult = RouteRelation.same;
+
   Widget _applyAnimation(Widget child, RouteRelation relation) {
     const distance = 0.1;
-    const duration = 300;
     const curve = Curves.easeOutQuint;
-
-    AnimationController createController() {
-      return AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: duration),
-      )..forward();
-    }
 
     Animation<Offset> createSlideAnimation(Offset begin) {
       return Tween<Offset>(begin: begin, end: Offset.zero).animate(
         CurvedAnimation(
-          parent: createController(),
+          parent: _animationController,
           curve: curve,
         ),
       );
@@ -205,7 +200,7 @@ class _RouterFrameState extends State<RouterFrame>
     Animation<double> createFadeAnimation() {
       return Tween<double>(begin: 0, end: 1).animate(
         CurvedAnimation(
-          parent: createController(),
+          parent: _animationController,
           curve: curve,
         ),
       );
@@ -214,7 +209,7 @@ class _RouterFrameState extends State<RouterFrame>
     Animation<double> createScaleAnimation() {
       return Tween<double>(begin: 1.1, end: 1).animate(
         CurvedAnimation(
-          parent: createController(),
+          parent: _animationController,
           curve: curve,
         ),
       );
@@ -267,8 +262,16 @@ class _RouterFrameState extends State<RouterFrame>
     final calculator = Provider.of<TransitionCalculationProvider>(context);
     final path = GoRouterState.of(context).fullPath ?? "/";
 
+    if (path == _lastRoute) {
+      return _applyAnimation(widget.child, _lastCompareResult);
+    }
+
     final relation = calculator.compareRoute(path);
     calculator.registerRoute(path);
+    _lastRoute = path;
+    _lastCompareResult = relation;
+    _animationController.reset();
+    _animationController.forward();
 
     return _applyAnimation(widget.child, relation);
   }
