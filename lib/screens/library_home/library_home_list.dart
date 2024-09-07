@@ -2,14 +2,8 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/widgets/start_screen/providers/start_screen_layout_manager.dart';
-import 'package:provider/provider.dart';
 
 import '../../config/animation.dart';
-
-import '../../messages/album.pb.dart';
-import '../../messages/artist.pb.dart';
-import '../../messages/library_home.pb.dart';
 
 import '../../screens/albums/albums_list.dart';
 import '../../screens/artists/artists_list.dart';
@@ -17,6 +11,11 @@ import '../../screens/artists/artists_list.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+
+import '../../messages/album.pb.dart';
+import '../../messages/artist.pb.dart';
+import '../../messages/library_home.pb.dart';
 
 class LibraryHomeListView extends StatefulWidget {
   final String libraryPath;
