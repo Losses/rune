@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:visibility_detector/visibility_detector.dart';
 
 import '../utils/cover_art_cache.dart';
 
@@ -63,16 +63,8 @@ class CoverArtState extends State<CoverArt> {
 
   @override
   Widget build(BuildContext context) {
-    return VisibilityDetector(
-      key: Key('cover-art-${widget.fileId ?? widget.coverArtId}'),
-      onVisibilityChanged: (visibilityInfo) {
-        if (visibilityInfo.visibleFraction > 0 && _coverArt == null && !_isLoading) {
-          setState(() {
-            _isLoading = true;
-          });
-          _loadCoverArt();
-        }
-      },
+    return Container(
+      key: ValueKey('cover-art-${widget.fileId ?? widget.coverArtId}'),
       child: _isLoading
           ? SizedBox(
               width: widget.size ?? double.infinity,

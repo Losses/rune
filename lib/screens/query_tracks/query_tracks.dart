@@ -7,7 +7,6 @@ import '../../utils/router_extra.dart';
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
 import '../../widgets/scaled.dart';
-import '../../widgets/navigation_bar.dart';
 import '../../widgets/playback_controller.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 

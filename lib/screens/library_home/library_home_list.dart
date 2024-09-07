@@ -20,8 +20,10 @@ import '../../widgets/start_screen/start_screen.dart';
 
 class LibraryHomeListView extends StatefulWidget {
   final String libraryPath;
+  final StartScreenLayoutManager layoutManager;
 
-  const LibraryHomeListView({super.key, required this.libraryPath});
+  const LibraryHomeListView(
+      {super.key, required this.libraryPath, required this.layoutManager});
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
@@ -31,24 +33,15 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void initState() {
     setState(() {
-      summary = fetchSummary(context);
+      summary = fetchSummary();
     });
+
+    super.initState();
   }
 
-  @override
-  void didUpdateWidget(covariant LibraryHomeListView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    setState(() {
-      summary = fetchSummary(context);
-    });
-  }
-
-  Future<List<Group<dynamic>>> fetchSummary(BuildContext context) async {
-    final layoutManager = Provider.of<StartScreenLayoutManager>(context);
-
+  Future<List<Group<dynamic>>> fetchSummary() async {
     final fetchLibrarySummary = FetchLibrarySummaryRequest();
     fetchLibrarySummary.sendSignalToRust(); // GENERATED
 
@@ -56,7 +49,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
     final librarySummary = rustSignal.message;
 
     Timer(Duration(milliseconds: gridAnimationDelay),
-        () => layoutManager.playAnimations());
+        () => widget.layoutManager.playAnimations());
 
     return [
       Group<Album>(groupTitle: "Albums", items: librarySummary.albums),

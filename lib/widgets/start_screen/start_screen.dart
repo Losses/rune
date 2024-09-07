@@ -79,6 +79,7 @@ class StartScreenState<T> extends State<StartScreen<T>> {
                     scrollController: scrollController,
                     builderDelegate: PagedChildBuilderDelegate<Group<T>>(
                       itemBuilder: (context, item, index) => StartGroup<T>(
+                        key: ValueKey(item.groupTitle),
                         groupIndex: index,
                         groupTitle: item.groupTitle,
                         items: item.items,

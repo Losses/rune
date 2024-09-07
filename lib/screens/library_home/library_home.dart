@@ -41,7 +41,11 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
         value: _layoutManager,
         child: Column(children: [
           const NavigationBarPlaceholder(),
-          Expanded(child: LibraryHomeListView(libraryPath: libraryPath)),
+          Expanded(
+              child: LibraryHomeListView(
+            libraryPath: libraryPath,
+            layoutManager: _layoutManager,
+          )),
           const PlaybackPlaceholder()
         ]));
   }

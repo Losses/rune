@@ -264,12 +264,6 @@ class _RouterFrameState extends State<RouterFrame>
   Widget build(BuildContext context) {
     FluentLocalizations.of(context);
 
-    if (widget.shellContext != null) {
-      if (Navigator.of(context).canPop() == false) {
-        setState(() {});
-      }
-    }
-
     final calculator = Provider.of<TransitionCalculationProvider>(context);
     final path = GoRouterState.of(context).fullPath ?? "/";
 
