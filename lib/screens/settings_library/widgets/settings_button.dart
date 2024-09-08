@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../widgets/settings_tile_title.dart';
+import 'settings_tile_title.dart';
 
 class SettingsButton extends StatelessWidget {
   const SettingsButton({

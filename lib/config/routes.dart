@@ -65,7 +65,15 @@ final routes = <GoRoute>[
   ),
   GoRoute(
     path: '/settings',
-    builder: (context, state) => const settings.SettingsPage(),
+    builder: (context, state) => const settings.SettingsHomePage(),
+  ),
+  GoRoute(
+    path: '/settings/library',
+    builder: (context, state) => const settings.SettingsLibraryPage(),
+  ),
+  GoRoute(
+    path: '/settings/test',
+    builder: (context, state) => const settings.SettingsTestPage(),
   ),
   GoRoute(
     path: '/search',

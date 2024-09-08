@@ -6,30 +6,27 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
-import './widgets/settings_button.dart';
-import './widgets/progress_button.dart';
-import './widgets/settings_tile_title.dart';
+import 'widgets/settings_button.dart';
+import 'widgets/progress_button.dart';
+import 'widgets/settings_tile_title.dart';
 
-class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+class SettingsLibraryPage extends StatefulWidget {
+  const SettingsLibraryPage({super.key});
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
+  State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
+class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   String selectedItem = '';
 
   @override
   Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final typography = theme.typography;
-
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: true);
@@ -39,12 +36,10 @@ class _SettingsPageState extends State<SettingsPage> {
     return Column(children: [
       const NavigationBarPlaceholder(),
       Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("Library", style: typography.title),
-            const SizedBox(height: 24),
             SettingsButton(
                 icon: Symbols.add,
                 title: "Add Library",

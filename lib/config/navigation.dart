@@ -10,11 +10,15 @@ final List<NavigationItem> navigationItems = [
         NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
       ]),
       NavigationItem('Playlists', '/playlists', children: [
-        NavigationItem('Playlist Query', '/playlists/:playlistId', hidden: true),
+        NavigationItem('Playlist Query', '/playlists/:playlistId',
+            hidden: true),
       ]),
       NavigationItem('Tracks', '/tracks'),
     ]),
-    NavigationItem('Settings', '/settings'),
+    NavigationItem('Settings', '/settings', children: [
+      NavigationItem('Library', '/settings/library'),
+      NavigationItem('Test', '/settings/test'),
+    ]),
   ]),
   NavigationItem('Search', '/search'),
 ];
