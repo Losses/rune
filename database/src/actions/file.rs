@@ -1,8 +1,7 @@
 use metadata::describe::FileDescription;
 use sea_orm::entity::prelude::*;
 use sea_orm::{
-    ColumnTrait, Condition, EntityTrait, FromQueryResult, Order, QueryFilter, QuerySelect,
-    QueryTrait,
+    ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QuerySelect, QueryTrait,
 };
 use std::path::Path;
 
@@ -166,9 +165,13 @@ pub async fn compound_query_media_files(
     artist_ids: Option<Vec<i32>>,
     album_ids: Option<Vec<i32>>,
     playlist_ids: Option<Vec<i32>>,
+    directories: Option<Vec<&str>>,
     cursor: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
+    use sea_orm::sea_query::Condition;
+    use sea_orm::sea_query::Expr;
+
     // Base query for media_files
     let mut query = media_files::Entity::find();
 
@@ -198,7 +201,7 @@ pub async fn compound_query_media_files(
         );
     }
 
-    // Filter by album_ids if provided
+    // Filter by playlist_ids if provided
     if let Some(playlist_ids) = playlist_ids {
         let playlist_subquery = media_file_playlists::Entity::find()
             .select_only()
@@ -209,6 +212,21 @@ pub async fn compound_query_media_files(
         query = query.filter(
             Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(playlist_subquery)),
         );
+    }
+
+    // Filter by directories if provided
+    if let Some(directories) = directories {
+        let mut dir_conditions = Condition::any();
+        for dir in directories {
+            let dir = dir.strip_prefix('/').unwrap_or(dir);
+
+            dir_conditions = dir_conditions.add(
+                Expr::col(media_files::Column::Directory)
+                    .eq(dir)
+                    .or(Expr::col(media_files::Column::Directory).like(format!("{}/%", dir))),
+            );
+        }
+        query = query.filter(dir_conditions);
     }
 
     // Use cursor pagination

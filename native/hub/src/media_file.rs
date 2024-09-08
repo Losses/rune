@@ -158,6 +158,7 @@ pub async fn compound_query_media_files_request(
         artist_ids_option,
         album_ids_option,
         playlist_ids_option,
+        None,
         cursor.try_into().unwrap(),
         page_size.try_into().unwrap(),
     )

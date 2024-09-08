@@ -12,6 +12,7 @@ class QueryTrackListView extends StatefulWidget {
   final List<int> artistIds;
   final List<int> albumIds;
   final List<int> playlistIds;
+  final List<String> directories;
   final StartScreenLayoutManager layoutManager;
 
   const QueryTrackListView({
@@ -20,6 +21,7 @@ class QueryTrackListView extends StatefulWidget {
     this.artistIds = const [],
     this.albumIds = const [],
     this.playlistIds = const [],
+    this.directories = const [],
   });
 
   @override
@@ -51,6 +53,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         artistIds: widget.artistIds,
         albumIds: widget.albumIds,
         playlistIds: widget.playlistIds,
+        directories: widget.directories,
       );
       fetchMediaFiles.sendSignalToRust(); // GENERATED
 
