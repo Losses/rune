@@ -96,7 +96,7 @@ pub async fn update_playlist(
     player_guard.play();
 }
 
-macro_rules! handle_collection_request {
+macro_rules! handle_add_collection_to_playlist_request {
     ($main_db:expr, $lib_path:expr, $player:expr, $dart_signal:expr, $get_media_file_ids_fn:expr) => {{
         let request = $dart_signal.message;
         let media_file_ids = $get_media_file_ids_fn(&$main_db, request.id)
@@ -169,21 +169,21 @@ pub async fn start_playing_collection_request(
     player.lock().await.clear_playlist();
 
     match dart_signal.message.r#type.as_str() {
-        "artist" => handle_collection_request!(
+        "artist" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,
             dart_signal,
             get_media_file_ids_of_artist
         ),
-        "album" => handle_collection_request!(
+        "album" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,
             dart_signal,
             get_media_file_ids_of_album
         ),
-        "playlist" => handle_collection_request!(
+        "playlist" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,
@@ -201,21 +201,21 @@ pub async fn add_to_queue_collection_request(
     dart_signal: DartSignal<AddToQueueCollectionRequest>,
 ) {
     match dart_signal.message.r#type.as_str() {
-        "artist" => handle_collection_request!(
+        "artist" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,
             dart_signal,
             get_media_file_ids_of_artist
         ),
-        "album" => handle_collection_request!(
+        "album" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,
             dart_signal,
             get_media_file_ids_of_album
         ),
-        "playlist" => handle_collection_request!(
+        "playlist" => handle_add_collection_to_playlist_request!(
             main_db,
             lib_path,
             player,

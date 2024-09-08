@@ -102,21 +102,31 @@ pub async fn initialize_player(
 
 pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistStatus) {
     use messages::playback::*;
+    use std::collections::HashMap;
 
     let file_ids: Vec<i32> = playlist.items.clone();
 
-    match get_metadata_summary_by_file_ids(db, file_ids).await {
+    match get_metadata_summary_by_file_ids(db, file_ids.clone()).await {
         Ok(summaries) => {
-            let items = summaries
+            // Create a HashMap to store summaries by their id
+            let summary_map: HashMap<i32, _> = summaries
                 .into_iter()
+                .map(|item| (item.id, item))
+                .collect();
+
+            // Reorder items according to file_ids
+            let items: Vec<PlaylistItem> = file_ids
+                .into_iter()
+                .filter_map(|id| summary_map.get(&id))
                 .map(|item| PlaylistItem {
                     id: item.id,
-                    artist: item.artist,
-                    album: item.album,
-                    title: item.title,
+                    artist: item.artist.clone(),
+                    album: item.album.clone(),
+                    title: item.title.clone(),
                     duration: item.duration,
                 })
                 .collect();
+
             PlaylistUpdate { items }.send_signal_to_dart(); // GENERATED
         }
         Err(e) => {
