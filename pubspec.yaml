@@ -60,7 +60,7 @@ dependencies:
   rxdart: ^0.28.0
   flutter_shaders: ^0.1.2
   flip_card: ^0.7.0
-  flutter_boring_avatars: ^1.1.0
+  flutter_boring_avatars: ^2.0.1
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
 

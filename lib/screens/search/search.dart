@@ -391,7 +391,7 @@ class ArtistItem extends CollectionSearchCard<Artist> {
     super.key,
     required super.index,
     required super.item,
-  }) : super(routePrefix: 'artists', emptyTileType: BoringAvatarsType.marble);
+  }) : super(routePrefix: 'artists', emptyTileType: BoringAvatarType.marble);
 
   @override
   int getItemId() => item.id;
@@ -408,7 +408,7 @@ class AlbumItem extends CollectionSearchCard<Album> {
     super.key,
     required super.index,
     required super.item,
-  }) : super(routePrefix: 'albums', emptyTileType: BoringAvatarsType.bauhaus);
+  }) : super(routePrefix: 'albums', emptyTileType: BoringAvatarType.bauhaus);
 
   @override
   int getItemId() => item.id;
@@ -426,7 +426,7 @@ class PlaylistItem extends CollectionSearchCard<Playlist> {
     required super.index,
     required super.item,
   }) : super(
-            routePrefix: 'playlists', emptyTileType: BoringAvatarsType.bauhaus);
+            routePrefix: 'playlists', emptyTileType: BoringAvatarType.bauhaus);
 
   @override
   int getItemId() => item.id;

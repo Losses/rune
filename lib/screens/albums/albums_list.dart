@@ -81,7 +81,7 @@ class AlbumItem extends StatelessWidget {
       child: FlipTile(
         name: album.name,
         coverIds: album.coverIds,
-        emptyTileType: BoringAvatarsType.marble,
+        emptyTileType: BoringAvatarType.marble,
         onPressed: () {
           context.push('/albums/${album.id}',
               extra: QueryTracksExtra(album.name));

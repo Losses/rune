@@ -81,7 +81,7 @@ class ArtistItem extends StatelessWidget {
       child: FlipTile(
         name: artist.name,
         coverIds: artist.coverIds,
-        emptyTileType: BoringAvatarsType.bauhaus,
+        emptyTileType: BoringAvatarType.bauhaus,
         onPressed: () {
           context.push('/artists/${artist.id}',
               extra: QueryTracksExtra(artist.name));

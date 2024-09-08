@@ -7,14 +7,14 @@ class FlipTile extends StatefulWidget {
   final String name;
   final List<int> coverIds;
   final VoidCallback onPressed;
-  final BoringAvatarsType emptyTileType;
+  final BoringAvatarType emptyTileType;
 
   const FlipTile(
       {super.key,
       required this.name,
       required this.coverIds,
       required this.onPressed,
-      this.emptyTileType = BoringAvatarsType.bauhaus});
+      this.emptyTileType = BoringAvatarType.bauhaus});
 
   @override
   FlipTileState createState() => FlipTileState();

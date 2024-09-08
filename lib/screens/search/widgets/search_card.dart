@@ -69,7 +69,7 @@ abstract class SearchCard extends StatelessWidget {
 abstract class CollectionSearchCard<T> extends SearchCard {
   final T item;
   final String routePrefix;
-  final BoringAvatarsType emptyTileType;
+  final BoringAvatarType emptyTileType;
 
   CollectionSearchCard({
     super.key,
@@ -93,7 +93,7 @@ abstract class CollectionSearchCard<T> extends SearchCard {
       child: FlipCoverGrid(
         numbers: getCoverIds(),
         id: getItemTitle(),
-        emptyTileType: BoringAvatarsType.bauhaus,
+        emptyTileType: BoringAvatarType.bauhaus,
       ),
     );
   }

@@ -83,7 +83,7 @@ class PlaylistItem extends StatelessWidget {
       child: FlipTile(
         name: playlist.name,
         coverIds: playlist.coverIds,
-        emptyTileType: BoringAvatarsType.bauhaus,
+        emptyTileType: BoringAvatarType.bauhaus,
         onPressed: () {
           context.push('/playlists/${playlist.id}',
               extra: QueryTracksExtra(playlist.name));
