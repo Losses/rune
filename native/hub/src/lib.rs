@@ -3,6 +3,7 @@ mod artist;
 mod common;
 mod connection;
 mod cover_art;
+mod directory;
 mod library_home;
 mod library_manage;
 mod media_file;
@@ -29,6 +30,7 @@ use crate::album::*;
 use crate::artist::*;
 use crate::connection::*;
 use crate::cover_art::*;
+use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
 use crate::media_file::*;
@@ -40,6 +42,7 @@ use crate::search::*;
 use messages::album::*;
 use messages::artist::*;
 use messages::cover_art::*;
+use messages::directory::*;
 use messages::library_home::*;
 use messages::library_manage::*;
 use messages::media_file::*;
@@ -161,6 +164,8 @@ async fn player_loop(path: String) {
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),
+
+            FetchDirectoryTreeRequest => (main_db),
         );
     });
 }

@@ -2,6 +2,7 @@ pub mod albums;
 pub mod analysis;
 pub mod artists;
 pub mod cover_art;
+pub mod directory;
 pub mod file;
 pub mod index;
 pub mod library;

@@ -1,0 +1,17 @@
+syntax = "proto3";
+package directory;
+
+message DirectoryTreeResponse {
+    string name = 1;
+    string path = 2;
+    repeated DirectoryTreeResponse children = 3;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchDirectoryTreeRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchDirectoryTreeResponse {
+  DirectoryTreeResponse root = 1;
+}
