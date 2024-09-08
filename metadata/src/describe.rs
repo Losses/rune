@@ -5,8 +5,10 @@ use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use analysis::fft::{get_codec_information, get_format};
+use anyhow::{bail, Context, Result};
 use symphonia::core::codecs::CODEC_TYPE_NULL;
+
+use analysis::fft::{get_codec_information, get_format};
 
 use crate::crc::media_crc32;
 
@@ -28,7 +30,7 @@ pub struct FileDescription {
 }
 
 impl FileDescription {
-    pub fn get_crc(&mut self) -> Result<String, Box<dyn std::error::Error>> {
+    pub fn get_crc(&mut self) -> Result<String> {
         let full_path = self.root_path.join(&self.directory).join(&self.file_name);
 
         if self.file_hash.is_none() {
@@ -48,49 +50,62 @@ impl FileDescription {
             let result = format!("{:08x}", crc);
             self.file_hash = Some(result.clone());
             Ok(result)
+        } else if let Some(result) = self.file_hash.clone() {
+            Ok(result)
         } else {
-            Ok(self.file_hash.clone().unwrap())
+            bail!("No file hash found")
         }
     }
 
-    pub fn get_codec_information(&mut self) -> Result<(u32, f64), symphonia::core::errors::Error> {
-        let format =
-            get_format(self.full_path.to_str().unwrap()).expect("no supported audio tracks");
+    pub fn get_codec_information(&mut self) -> Result<(u32, f64)> {
+        let full_math = match self.full_path.to_str() {
+            Some(full_path) => full_path,
+            _none => bail!("Failed to convert file path while getting codec information"),
+        };
+
+        let format = get_format(full_math)
+            .with_context(|| format!("No supported format found: {}", full_math))?;
+
         let track = format
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
             .expect("No supported audio tracks");
 
-        get_codec_information(track)
+        let codec_information = get_codec_information(track)
+            .with_context(|| format!("Failed to get codec information: {}", full_math))?;
+
+        Ok(codec_information)
     }
 }
 
 const CHUNK_SIZE: usize = 1024 * 400;
 
-pub fn describe_file(
-    file_path: &Path,
-    lib_path: &Path,
-) -> Result<FileDescription, Box<dyn std::error::Error>> {
+pub fn describe_file(file_path: &Path, lib_path: &Path) -> Result<FileDescription> {
     // Get file name
-    let file_name = file_path
+    let file_name = match file_path
         .file_name()
         .and_then(OsStr::to_str)
         .map(String::from)
-        .ok_or("Failed to get file name")?;
+    {
+        Some(x) => x,
+        _none => bail!("Failed to get file name: {:#?}", file_path),
+    };
 
     let rel_path = file_path.strip_prefix(lib_path)?;
 
     // Get directory
-    let directory = to_unix_path_string(
+    let directory = match to_unix_path_string(
         rel_path
             .parent()
             .and_then(Path::to_str)
             .map(String::from)
             .unwrap_or_else(|| String::from(""))
             .into(),
-    )
-    .unwrap();
+    ) {
+        Some(x) => x,
+        _none => bail!("Failed to convert path to UNIX style: {:#?}", file_path),
+    };
 
     // Get file extension
     let extension = file_path

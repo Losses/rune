@@ -167,7 +167,7 @@ async fn player_loop(path: String) {
 
 async fn main() {
     let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off,info",
+        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
     );
 
     tracing_subscriber::fmt()

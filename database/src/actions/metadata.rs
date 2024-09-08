@@ -29,7 +29,12 @@ pub struct FileMetadata {
 }
 
 pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
-    match get_metadata(description.full_path.to_str().unwrap(), None) {
+    let full_path = match description.full_path.to_str() {
+        Some(x) => x,
+        _none => return None,
+    };
+
+    match get_metadata(full_path, None) {
         Ok(metadata) => Some(FileMetadata {
             path: description.rel_path.clone(),
             metadata,
@@ -104,11 +109,9 @@ pub async fn sync_file_descriptions(
                             description.file_name.clone()
                         );
 
-                        let new_hash = if let Ok(hash) = description.get_crc() {
-                            hash
-                        } else {
-                            bail!("Failed to get CRC");
-                        };
+                        let new_hash = description.get_crc().with_context(|| {
+                            format!("Failed to get CRC: {}", description.file_name)
+                        })?;
 
                         if existing_file.file_hash == new_hash {
                             // If the hash is the same, update the last modified date
@@ -117,11 +120,14 @@ pub async fn sync_file_descriptions(
                                 description.file_name.clone()
                             );
 
-                            if let Err(e) =
-                                update_last_modified(&txn, &existing_file, description).await
-                            {
-                                bail!("Failed to update last modified: {}", e);
-                            }
+                            update_last_modified(&txn, &existing_file, description)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to update last modified: {}",
+                                        description.file_name.clone(),
+                                    )
+                                })?;
                         } else {
                             // If the hash is different, update the metadata
                             debug!(
@@ -129,23 +135,27 @@ pub async fn sync_file_descriptions(
                                 description.file_name.clone()
                             );
 
-                            if let Err(e) =
-                                update_file_codec_information(&txn, &existing_file, description)
-                                    .await
-                            {
-                                bail!("Failed to update file codec information: {}", e);
-                            }
+                            update_file_codec_information(&txn, &existing_file, description)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to update file codec information: {}",
+                                        description.file_name.clone(),
+                                    )
+                                })?;
 
                             let file_metadata = read_metadata(description);
 
                             match file_metadata {
                                 Some(x) => {
-                                    if let Err(e) =
-                                        update_file_metadata(&txn, &existing_file, description, &x)
-                                            .await
-                                    {
-                                        bail!("Failed to update file metadata: {}", e);
-                                    }
+                                    update_file_metadata(&txn, &existing_file, description, &x)
+                                        .await
+                                        .with_context(|| {
+                                            format!(
+                                                "Failed to update file metadata: {}",
+                                                description.file_name.clone(),
+                                            )
+                                        })?;
 
                                     update_search_term(existing_file.id, &x);
                                 }
@@ -168,12 +178,16 @@ pub async fn sync_file_descriptions(
                     let file_metadata = read_metadata(description);
 
                     if let Some(ref x) = file_metadata {
-                        if let Err(e) = insert_new_file(&txn, search_db, x, description).await {
-                            bail!("Failed to insert new file: {}", e);
-                        }
-
-                        if let Some(existing_file) = existing_file {
-                            update_search_term(existing_file.id, x);
+                        match insert_new_file(&txn, search_db, x, description).await {
+                            Ok(_) => {
+                                if let Some(existing_file) = existing_file {
+                                    update_search_term(existing_file.id, x);
+                                }
+                            }
+                            Err(_) => error!(
+                                "Failed to insert new file: {}",
+                                description.file_name.clone(),
+                            ),
                         }
                     } else {
                         error!(
@@ -192,7 +206,7 @@ pub async fn sync_file_descriptions(
     if let Some((id, name)) = search_term {
         add_term(search_db, CollectionType::Track, id, &name);
 
-        search_db.w.commit().unwrap();
+        search_db.w.commit()?;
     }
 
     debug!("Finished syncing file data");
@@ -204,7 +218,7 @@ pub async fn process_files(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     debug!("Starting to process multiple files");
 
     // Start a transaction
@@ -292,8 +306,13 @@ pub async fn process_files(
 
                     match file_metadata {
                         Some(x) => {
-                            modified = true;
-                            insert_new_file(&txn, search_db, &x, description).await?;
+                            match insert_new_file(&txn, search_db, &x, description).await {
+                                Ok(_) => modified = true,
+                                Err(_) => error!(
+                                    "Failed to insert new file: {}",
+                                    description.file_name.clone(),
+                                ),
+                            };
                         }
                         _none => {
                             error!(
@@ -310,7 +329,7 @@ pub async fn process_files(
     // Commit the transaction
     txn.commit().await?;
     if modified {
-        search_db.w.commit().unwrap();
+        search_db.w.commit()?;
     }
 
     info!("Finished processing multiple files");
@@ -322,7 +341,7 @@ pub async fn update_last_modified<E>(
     db: &E,
     existing_file: &media_files::Model,
     description: &FileDescription,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<()>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
@@ -337,7 +356,7 @@ pub async fn update_file_metadata<E>(
     existing_file: &media_files::Model,
     description: &mut FileDescription,
     metadata: &FileMetadata,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<()>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
@@ -375,14 +394,14 @@ pub async fn update_file_codec_information<E>(
     db: &E,
     existing_file: &media_files::Model,
     description: &mut FileDescription,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<()>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
-    let (sample_rate, duration_in_seconds) = description.get_codec_information().unwrap();
+    let (sample_rate, duration_in_seconds) = description.get_codec_information()?;
 
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
-    active_model.sample_rate = ActiveValue::Set(sample_rate.try_into().unwrap());
+    active_model.sample_rate = ActiveValue::Set(sample_rate.try_into()?);
     active_model.duration = ActiveValue::Set(duration_in_seconds);
     active_model.update(db).await?;
 
@@ -398,12 +417,15 @@ pub async fn insert_new_file<E>(
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
-    let (sample_rate, duration_in_seconds) = description.get_codec_information().unwrap();
+    let (sample_rate, duration_in_seconds) = description.get_codec_information()?;
 
+    description
+        .get_crc()
+        .with_context(|| format!("Failed to get CRC: {}", description.file_name))?;
     let new_hash = if let Ok(hash) = description.get_crc() {
         hash.clone()
     } else {
-        bail!("Failed to get CRC");
+        bail!("");
     };
 
     let new_file = media_files::ActiveModel {
@@ -411,7 +433,7 @@ where
         directory: ActiveValue::Set(description.directory.clone()),
         extension: ActiveValue::Set(description.extension.clone()),
         file_hash: ActiveValue::Set(new_hash),
-        sample_rate: ActiveValue::Set(sample_rate.try_into().unwrap()),
+        sample_rate: ActiveValue::Set(sample_rate.try_into()?),
         duration: ActiveValue::Set(duration_in_seconds),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
@@ -447,12 +469,10 @@ where
         .collect();
 
     if !new_metadata.is_empty() {
-        if let Err(e) = media_metadata::Entity::insert_many(new_metadata)
+        media_metadata::Entity::insert_many(new_metadata)
             .exec(main_db)
             .await
-        {
-            bail!("Failed to insert new metadata: {}", e);
-        }
+            .with_context(|| format!("Failed to insert new metadata: {}", description.file_name))?;
     }
 
     Ok(())
@@ -472,7 +492,7 @@ async fn clean_up_database(
             .join(PathBuf::from(&db_file.directory))
             .join(PathBuf::from(&db_file.file_name));
         if !full_path.exists() {
-            info!("Cleaning {}", full_path.to_str().unwrap());
+            info!("Cleaning {}", full_path.to_str().unwrap_or_default());
             // Delete the file record
             media_files::Entity::delete_by_id(db_file.id)
                 .exec(main_db)
@@ -484,7 +504,7 @@ async fn clean_up_database(
     }
 
     if modified {
-        search_db.w.commit().unwrap();
+        search_db.w.commit()?;
     }
 
     Ok(())
@@ -539,9 +559,7 @@ where
             }
         };
 
-        let file_ids = get_file_ids_by_descriptions(main_db, &descriptions)
-            .await
-            .unwrap();
+        let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
 
         match index_media_files(main_db, search_db, file_ids).await {
             Ok(_) => {}
@@ -665,8 +683,8 @@ pub async fn get_metadata_summary_by_file_id(
 pub async fn get_parsed_file_by_id(
     db: &DatabaseConnection,
     file_id: i32,
-) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>), sea_orm::DbErr> {
-    let file = get_metadata_summary_by_file_id(db, file_id).await.unwrap();
+) -> Result<(MetadataSummary, Vec<artists::Model>, Option<albums::Model>)> {
+    let file = get_metadata_summary_by_file_id(db, file_id).await?;
 
     let artist_ids = media_file_artists::Entity::find()
         .filter(media_file_artists::Column::MediaFileId.eq(file_id))
@@ -683,10 +701,15 @@ pub async fn get_parsed_file_by_id(
         .one(db)
         .await?;
 
-    let album = albums::Entity::find()
-        .filter(albums::Column::Id.eq(album_id.unwrap().album_id))
-        .one(db)
-        .await?;
+    let album = match album_id {
+        Some(album_id) => {
+            albums::Entity::find()
+                .filter(albums::Column::Id.eq(album_id.album_id))
+                .one(db)
+                .await?
+        }
+        _none => None,
+    };
 
     Ok((file, artists, album))
 }
