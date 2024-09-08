@@ -175,6 +175,9 @@ pub async fn compound_query_media_files(
     // Base query for media_files
     let mut query = media_files::Entity::find();
 
+    // Create an OR condition to hold all the subconditions
+    let mut or_condition = Condition::any();
+
     // Filter by artist_ids if provided
     if let Some(artist_ids) = artist_ids {
         let artist_subquery = media_file_artists::Entity::find()
@@ -183,8 +186,8 @@ pub async fn compound_query_media_files(
             .column(media_file_artists::Column::MediaFileId)
             .into_query();
 
-        query = query.filter(
-            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(artist_subquery)),
+        or_condition = or_condition.add(
+            Expr::col(media_files::Column::Id).in_subquery(artist_subquery),
         );
     }
 
@@ -196,8 +199,8 @@ pub async fn compound_query_media_files(
             .column(media_file_albums::Column::MediaFileId)
             .into_query();
 
-        query = query.filter(
-            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(album_subquery)),
+        or_condition = or_condition.add(
+            Expr::col(media_files::Column::Id).in_subquery(album_subquery),
         );
     }
 
@@ -209,8 +212,8 @@ pub async fn compound_query_media_files(
             .column(media_file_playlists::Column::MediaFileId)
             .into_query();
 
-        query = query.filter(
-            Condition::all().add(Expr::col(media_files::Column::Id).in_subquery(playlist_subquery)),
+        or_condition = or_condition.add(
+            Expr::col(media_files::Column::Id).in_subquery(playlist_subquery),
         );
     }
 
@@ -226,8 +229,11 @@ pub async fn compound_query_media_files(
                     .or(Expr::col(media_files::Column::Directory).like(format!("{}/%", dir))),
             );
         }
-        query = query.filter(dir_conditions);
+        or_condition = or_condition.add(dir_conditions);
     }
+
+    // Apply the OR condition to the query
+    query = query.filter(or_condition);
 
     // Use cursor pagination
     let mut cursor_by_id = query.cursor_by(media_files::Column::Id);
