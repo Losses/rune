@@ -31,8 +31,6 @@ class TrackListViewState extends State<TrackListView> {
     super.initState();
     _pagingController.addPageRequestListener((cursor) async {
       _fetchPage(cursor);
-      Timer(Duration(milliseconds: gridAnimationDelay),
-          () => widget.layoutManager.playAnimations());
     });
   }
 
@@ -56,6 +54,9 @@ class TrackListViewState extends State<TrackListView> {
         final nextCursor = cursor + newItems.length;
         _pagingController.appendPage(newItems, nextCursor);
       }
+
+      Timer(Duration(milliseconds: gridAnimationDelay),
+          () => widget.layoutManager.playAnimations());
     } catch (error) {
       _pagingController.error = error;
     }
