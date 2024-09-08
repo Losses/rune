@@ -41,6 +41,8 @@ class _RouterFrameState extends State<RouterFrame>
   late AnimationController _animationController;
 
   void _updateWindowEffectCallback() {
+    if (Platform.isLinux) return;
+
     final theme = FluentTheme.of(context);
     updateWindowEffect(theme);
   }
@@ -63,6 +65,12 @@ class _RouterFrameState extends State<RouterFrame>
       duration: const Duration(milliseconds: 300),
     );
     widget.appTheme.addListener(_updateWindowEffectCallback);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _updateWindowEffectCallback();
   }
 
   @override
