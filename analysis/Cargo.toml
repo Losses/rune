@@ -12,5 +12,6 @@ path = "src/lib.rs"
 anyhow = {version="1.0.86",  features = ["backtrace"] }
 lazy_static = "1.5.0"
 log = "0.4.22"
+rubato = "0.15.0"
 rustfft = "6.2.0"
 symphonia = "0.5.4"

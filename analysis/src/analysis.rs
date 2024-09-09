@@ -18,6 +18,9 @@ pub struct AnalysisParameter {
 pub struct AnalysisResult {
     pub stat: AudioStat,
     pub parameters: AnalysisParameter,
+    pub rms: f32,
+    pub zcr: usize,
+    pub energy: f32,
     pub spectral_centroid: f32,
     pub spectral_flatness: f32,
     pub spectral_flux: f32,
@@ -68,6 +71,9 @@ pub fn analyze_audio(file_path: &str, window_size: usize, overlap_size: usize) -
             window_size,
             overlap_size,
         },
+        rms: audio_desc.rms,
+        zcr: audio_desc.zcr,
+        energy: audio_desc.energy,
         spectral_centroid,
         spectral_flatness,
         spectral_flux,
@@ -118,7 +124,8 @@ pub fn normalize_analysis_result(result: AnalysisResult) -> NormalizedAnalysisRe
     let normalized_spectral_kurtosis = result.spectral_kurtosis / max_spectral_kurtosis;
 
     // Normalize chromagram
-    let normalized_chromagram: Vec<f32> = result.chromagram.iter().map(|&x| x / max_chroma).collect();
+    let normalized_chromagram: Vec<f32> =
+        result.chromagram.iter().map(|&x| x / max_chroma).collect();
 
     // Create and return the normalized analysis result
     NormalizedAnalysisResult {

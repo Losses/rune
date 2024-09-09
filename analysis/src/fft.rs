@@ -1,4 +1,10 @@
 use log::debug;
+
+use rubato::Resampler;
+use rubato::SincFixedIn;
+use rubato::SincInterpolationParameters;
+use rubato::SincInterpolationType;
+use rubato::WindowFunction;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::AudioBufferRef;
 use symphonia::core::audio::Signal;
@@ -12,11 +18,26 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+use crate::features::energy;
+use crate::features::rms;
+use crate::features::zcr;
+
+const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
+    sinc_len: 256,
+    f_cutoff: 0.95,
+    interpolation: SincInterpolationType::Linear,
+    oversampling_factor: 256,
+    window: WindowFunction::BlackmanHarris2,
+};
+
 pub struct AudioDescription {
     pub sample_rate: u32,
     pub duration: f64,
     pub total_samples: usize,
     pub spectrum: Vec<Complex<f32>>,
+    pub rms: f32,
+    pub zcr: usize,
+    pub energy: f32,
 }
 
 pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
@@ -104,12 +125,27 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
     let mut avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
     let mut count = 0;
     let mut total_samples = 0;
+    let mut total_rms = 0 as f32;
+    let mut total_zcr = 0;
+    let mut total_energy = 0 as f32;
 
     // Precompute Hanning window
     let hanning_window: Vec<f32> = build_hanning_window(window_size);
 
     // Buffer to hold audio samples until we have enough for one window
     let mut sample_buffer: Vec<f32> = Vec::new();
+
+    let resample_ratio = 11025_f64 / sample_rate as f64;
+
+    // Initialize the resampler
+    let mut resampler = SincFixedIn::<f32>::new(
+        resample_ratio,
+        2.0,
+        RESAMPLER_PARAMETER,
+        1024,
+        1, // Assuming mono for simplicity
+    )
+    .unwrap();
 
     // Decode loop.
     loop {
@@ -156,9 +192,21 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
                         total_samples += 1;
 
                         // Process the buffer when it reaches the window size
-                        while sample_buffer.len() >= window_size {
+                        while sample_buffer.len()
+                            >= (window_size as f64 / resample_ratio).ceil() as usize
+                        {
                             let chunk = &sample_buffer[..window_size];
-                            for (i, &sample) in chunk.iter().enumerate() {
+                            let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
+
+                            total_rms += rms(resampled_chunk);
+                            total_zcr += zcr(resampled_chunk);
+                            total_energy += energy(resampled_chunk);
+
+                            for (i, &sample) in resampled_chunk.iter().enumerate() {
+                                if i >= window_size {
+                                    break;
+                                }
+
                                 let windowed_sample = sample * hanning_window[i];
                                 buffer[i] = Complex::new(windowed_sample, 0.0);
                             }
@@ -228,7 +276,9 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
     if !sample_buffer.is_empty() {
         // Pad the remaining samples with zeros to reach window_size
         sample_buffer.resize(window_size, 0.0);
-        for (i, &sample) in sample_buffer.iter().enumerate() {
+        let resampled_chunk = resampler.process(&[&sample_buffer], None).unwrap();
+
+        for (i, &sample) in resampled_chunk[0].iter().enumerate() {
             let windowed_sample = sample * hanning_window[i];
             buffer[i] = Complex::new(windowed_sample, 0.0);
         }
@@ -258,5 +308,8 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         duration: duration_in_seconds,
         total_samples,
         spectrum: avg_spectrum,
+        rms: total_rms / count as f32,
+        zcr: total_zcr / count,
+        energy: total_energy / count as f32,
     }
 }
