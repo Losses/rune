@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use log::{error, info};
-use rayon::iter::IntoParallelRefIterator;
-use rayon::iter::ParallelIterator;
+use tokio::task;
+use tokio::sync::Semaphore;
 use sea_orm::entity::prelude::*;
 use sea_orm::FromQueryResult;
 use sea_orm::QuerySelect;
@@ -60,6 +60,8 @@ where
         .cursor_by(media_files::Column::Id);
 
     let mut total_processed = existed_tasks.len();
+    let lib_path = Arc::new(lib_path.to_path_buf());
+    let semaphore = Arc::new(Semaphore::new(4)); // Adjust the concurrency level as needed
 
     loop {
         // Fetch the next batch of files
@@ -80,40 +82,45 @@ where
             }
         }
 
-        let lib_path = Arc::new(lib_path.to_path_buf());
-
         info!("Starting a new batch: {} tasks", files.len());
 
-        // Parallel processing using rayon
-        let analysis_results: Vec<_> = files
-            .par_iter()
-            .map(|file| {
-                let lib_path: Arc<std::path::PathBuf> = Arc::clone(&lib_path);
-                let file = file.clone();
+        // Parallel processing using Tokio tasks
+        let mut tasks = Vec::with_capacity(files.len());
 
-                async move {
-                    let result = analysis_file(&file, &lib_path).await;
-                    info!("Analysed: {}", file.file_name);
-                    Ok::<_, sea_orm::DbErr>((file.id, Some(result)))
-                }
-            })
-            .collect::<Vec<_>>();
+        for file in &files {
+            let lib_path = Arc::clone(&lib_path);
+            let semaphore = Arc::clone(&semaphore);
+            let permit = semaphore.acquire_owned().await.unwrap();
+            let file = file.clone();
+
+            let handle = task::spawn(async move {
+                let _permit = permit; // Ensure the permit is held for the duration of the task
+                let result = analysis_file(&file, &lib_path).await;
+                info!("Analysed: {}", file.file_name);
+                Ok::<_, sea_orm::DbErr>((file.id, Some(result)))
+            });
+
+            tasks.push(handle);
+        }
 
         // Await all the futures
-        let analysis_results: Vec<_> = futures::future::join_all(analysis_results).await;
+        let analysis_results: Vec<_> = futures::future::join_all(tasks).await;
 
         // Start a transaction
         let txn = main_db.begin().await?;
 
         for result in analysis_results {
             match result {
-                Ok((file_id, Some(normalized_result))) => {
+                Ok(Ok((file_id, Some(normalized_result)))) => {
                     insert_analysis_result(&txn, file_id, normalized_result?).await?;
                     total_processed += 1;
                 }
-                Ok((_, None)) => {} // File was already processed
-                Err(e) => {
+                Ok(Ok((_, None))) => {} // File was already processed
+                Ok(Err(e)) => {
                     error!("Error processing file: {:?}", e);
+                }
+                Err(e) => {
+                    error!("Task join error: {:?}", e);
                 }
             }
         }
