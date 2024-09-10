@@ -1,11 +1,13 @@
-use futures::stream::{self, StreamExt};
 use std::path::Path;
 
 use anyhow::Result;
+use futures::stream::{self, StreamExt};
 use log::{error, info};
+use paste::paste;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, TransactionTrait};
+use sea_orm::{ActiveValue, QuerySelect, TransactionTrait};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use seq_macro::seq;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -41,12 +43,24 @@ pub async fn analysis_audio_library<F>(
 where
     F: Fn(usize, usize) + Send + Sync,
 {
-    let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
-
     info!(
         "Starting audio library analysis with batch size: {}",
         batch_size
     );
+
+    let existed_ids: Vec<i32> = media_analysis::Entity::find()
+        .select_only()
+        .column(media_analysis::Column::FileId)
+        .distinct()
+        .into_tuple::<i32>()
+        .all(main_db)
+        .await?;
+
+    info!("Anready analysed files: {}", existed_ids.len());
+
+    let mut cursor = media_files::Entity::find()
+        .filter(media_files::Column::Id.is_not_in(existed_ids))
+        .cursor_by(media_files::Column::Id);
 
     // Calculate the total number of tasks
     let total_tasks = media_files::Entity::find().count(main_db).await? as usize;
@@ -111,7 +125,7 @@ where
 
             let task = task::spawn(async move {
                 info!("Processing file with ID: {}", file_id);
-                analysis_file(&file, &lib_path).await
+                (file_id, analysis_file(&file, &lib_path).await)
             });
 
             tasks.push(task);
@@ -129,13 +143,15 @@ where
 
                 for result in results {
                     match result {
-                        Ok(x) => match x {
+                        Ok((file_id, x)) => match x {
                             Ok(x) => insert_analysis_result(&txn, file_id, x).await?,
                             Err(e) => error!("Error processing file: {:?}", e),
                         },
                         Err(e) => error!("Error processing file: {:?}", e),
                     }
                 }
+
+                txn.commit().await?;
 
                 // Update progress
                 total_processed += task_count;
@@ -213,7 +229,7 @@ async fn insert_analysis_result<E>(
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {
-    let new_analysis = media_analysis::ActiveModel {
+    let mut new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
         rms: ActiveValue::Set(Some(result.raw.rms as f64)),
         zcr: ActiveValue::Set(Some(result.zcr as f64)),
@@ -225,59 +241,22 @@ where
         spectral_spread: ActiveValue::Set(Some(result.spectral_spread as f64)),
         spectral_skewness: ActiveValue::Set(Some(result.spectral_skewness as f64)),
         spectral_kurtosis: ActiveValue::Set(Some(result.spectral_kurtosis as f64)),
-        chroma0: ActiveValue::Set(Some(result.chromagram[0] as f64)),
-        chroma1: ActiveValue::Set(Some(result.chromagram[1] as f64)),
-        chroma2: ActiveValue::Set(Some(result.chromagram[2] as f64)),
-        chroma3: ActiveValue::Set(Some(result.chromagram[3] as f64)),
-        chroma4: ActiveValue::Set(Some(result.chromagram[4] as f64)),
-        chroma5: ActiveValue::Set(Some(result.chromagram[5] as f64)),
-        chroma6: ActiveValue::Set(Some(result.chromagram[6] as f64)),
-        chroma7: ActiveValue::Set(Some(result.chromagram[7] as f64)),
-        chroma8: ActiveValue::Set(Some(result.chromagram[8] as f64)),
-        chroma9: ActiveValue::Set(Some(result.chromagram[9] as f64)),
-        chroma10: ActiveValue::Set(Some(result.chromagram[10] as f64)),
-        chroma11: ActiveValue::Set(Some(result.chromagram[11] as f64)),
         perceptual_spread: ActiveValue::Set(Some(result.raw.perceptual_spread as f64)),
         perceptual_sharpness: ActiveValue::Set(Some(result.raw.perceptual_sharpness as f64)),
-        perceptual_loudness0: ActiveValue::Set(Some(result.raw.perceptual_loudness[0] as f64)),
-        perceptual_loudness1: ActiveValue::Set(Some(result.raw.perceptual_loudness[1] as f64)),
-        perceptual_loudness2: ActiveValue::Set(Some(result.raw.perceptual_loudness[2] as f64)),
-        perceptual_loudness3: ActiveValue::Set(Some(result.raw.perceptual_loudness[3] as f64)),
-        perceptual_loudness4: ActiveValue::Set(Some(result.raw.perceptual_loudness[4] as f64)),
-        perceptual_loudness5: ActiveValue::Set(Some(result.raw.perceptual_loudness[5] as f64)),
-        perceptual_loudness6: ActiveValue::Set(Some(result.raw.perceptual_loudness[6] as f64)),
-        perceptual_loudness7: ActiveValue::Set(Some(result.raw.perceptual_loudness[7] as f64)),
-        perceptual_loudness8: ActiveValue::Set(Some(result.raw.perceptual_loudness[8] as f64)),
-        perceptual_loudness9: ActiveValue::Set(Some(result.raw.perceptual_loudness[9] as f64)),
-        perceptual_loudness10: ActiveValue::Set(Some(result.raw.perceptual_loudness[10] as f64)),
-        perceptual_loudness11: ActiveValue::Set(Some(result.raw.perceptual_loudness[11] as f64)),
-        perceptual_loudness12: ActiveValue::Set(Some(result.raw.perceptual_loudness[12] as f64)),
-        perceptual_loudness13: ActiveValue::Set(Some(result.raw.perceptual_loudness[13] as f64)),
-        perceptual_loudness14: ActiveValue::Set(Some(result.raw.perceptual_loudness[14] as f64)),
-        perceptual_loudness15: ActiveValue::Set(Some(result.raw.perceptual_loudness[15] as f64)),
-        perceptual_loudness16: ActiveValue::Set(Some(result.raw.perceptual_loudness[16] as f64)),
-        perceptual_loudness17: ActiveValue::Set(Some(result.raw.perceptual_loudness[17] as f64)),
-        perceptual_loudness18: ActiveValue::Set(Some(result.raw.perceptual_loudness[18] as f64)),
-        perceptual_loudness19: ActiveValue::Set(Some(result.raw.perceptual_loudness[19] as f64)),
-        perceptual_loudness20: ActiveValue::Set(Some(result.raw.perceptual_loudness[20] as f64)),
-        perceptual_loudness21: ActiveValue::Set(Some(result.raw.perceptual_loudness[21] as f64)),
-        perceptual_loudness22: ActiveValue::Set(Some(result.raw.perceptual_loudness[22] as f64)),
-        perceptual_loudness23: ActiveValue::Set(Some(result.raw.perceptual_loudness[23] as f64)),
-        mfcc0: ActiveValue::Set(Some(result.raw.mfcc[0] as f64)),
-        mfcc1: ActiveValue::Set(Some(result.raw.mfcc[1] as f64)),
-        mfcc2: ActiveValue::Set(Some(result.raw.mfcc[2] as f64)),
-        mfcc3: ActiveValue::Set(Some(result.raw.mfcc[3] as f64)),
-        mfcc4: ActiveValue::Set(Some(result.raw.mfcc[4] as f64)),
-        mfcc5: ActiveValue::Set(Some(result.raw.mfcc[5] as f64)),
-        mfcc6: ActiveValue::Set(Some(result.raw.mfcc[6] as f64)),
-        mfcc7: ActiveValue::Set(Some(result.raw.mfcc[7] as f64)),
-        mfcc8: ActiveValue::Set(Some(result.raw.mfcc[8] as f64)),
-        mfcc9: ActiveValue::Set(Some(result.raw.mfcc[9] as f64)),
-        mfcc10: ActiveValue::Set(Some(result.raw.mfcc[10] as f64)),
-        mfcc11: ActiveValue::Set(Some(result.raw.mfcc[11] as f64)),
-        mfcc12: ActiveValue::Set(Some(result.raw.mfcc[12] as f64)),
         ..Default::default()
     };
+
+    seq!(N in 0..12 {
+        new_analysis.chroma~N = ActiveValue::Set(Some(result.chroma[N] as f64));
+    });
+
+    seq!(N in 0..24 {
+        new_analysis.perceptual_loudness~N = ActiveValue::Set(Some(result.raw.perceptual_loudness[N] as f64));
+    });
+
+    seq!(N in 0..13 {
+        new_analysis.mfcc~N = ActiveValue::Set(Some(result.raw.mfcc[N] as f64));
+    });
 
     media_analysis::Entity::insert(new_analysis)
         .exec(db)
@@ -289,6 +268,9 @@ where
 /// Struct to store mean values of analysis results.
 #[derive(Debug)]
 pub struct AggregatedAnalysisResult {
+    pub rms: f64,
+    pub zcr: f64,
+    pub energy: f64,
     pub spectral_centroid: f64,
     pub spectral_flatness: f64,
     pub spectral_slope: f64,
@@ -296,7 +278,11 @@ pub struct AggregatedAnalysisResult {
     pub spectral_spread: f64,
     pub spectral_skewness: f64,
     pub spectral_kurtosis: f64,
-    pub chromagram: [f64; 12],
+    pub chroma: [f64; 12],
+    pub perceptual_spread: f64,
+    pub perceptual_sharpness: f64,
+    pub perceptual_loudness: [f64; 24],
+    pub mfcc: [f64; 13],
 }
 
 /// Macro to process individual fields by updating their sum and count.
@@ -309,13 +295,17 @@ macro_rules! process_field {
     };
 }
 
-/// Macro to process the chromagram array fields by updating their sum and count.
-macro_rules! process_chromagram {
-    ($sum:expr, $count:expr, $result:expr, $index:expr, $field:expr) => {
-        if let Some(value) = $field {
-            $sum.chromagram[$index] += value;
-            $count.chromagram[$index] += 1.0;
-        }
+/// Macro to process array fields by updating their sum and count.
+macro_rules! process_array {
+    ($sum:expr, $count:expr, $result:expr, $field_prefix:ident, $size:expr) => {
+        seq!(N in 0..$size {
+            paste! {
+                if let Some(value) = $result.[<$field_prefix N>] {
+                    $sum.[<$field_prefix>][N] += value;
+                    $count.[<$field_prefix>][N] += 1.0;
+                }
+            }
+        });
     };
 }
 
@@ -330,15 +320,19 @@ macro_rules! calculate_mean {
     };
 }
 
-/// Macro to calculate the mean of chromagram array fields.
-macro_rules! calculate_chromagram_mean {
-    ($sum:expr, $count:expr, $index:expr) => {
-        if $count.chromagram[$index] > 0.0 {
-            $sum.chromagram[$index] / $count.chromagram[$index]
-        } else {
-            0.0
+/// Macro to calculate the mean of array fields.
+macro_rules! calculate_array_mean {
+    ($sum:expr, $count:expr, $field:ident, $size:expr) => {{
+        let mut result = [0.0; $size];
+        for i in 0..$size {
+            result[i] = if $count.$field[i] > 0.0 {
+                $sum.$field[i] / $count.$field[i]
+            } else {
+                0.0
+            };
         }
-    };
+        result
+    }};
 }
 
 /// Computes the centralized analysis result from the database.
@@ -374,6 +368,9 @@ pub async fn get_centralized_analysis_result(
         .unwrap();
 
     let mut sum = AggregatedAnalysisResult {
+        rms: 0.0,
+        zcr: 0.0,
+        energy: 0.0,
         spectral_centroid: 0.0,
         spectral_flatness: 0.0,
         spectral_slope: 0.0,
@@ -381,10 +378,17 @@ pub async fn get_centralized_analysis_result(
         spectral_spread: 0.0,
         spectral_skewness: 0.0,
         spectral_kurtosis: 0.0,
-        chromagram: [0.0; 12],
+        chroma: [0.0; 12],
+        perceptual_spread: 0.0,
+        perceptual_sharpness: 0.0,
+        perceptual_loudness: [0.0; 24],
+        mfcc: [0.0; 13],
     };
 
     let mut count = AggregatedAnalysisResult {
+        rms: 0.0,
+        zcr: 0.0,
+        energy: 0.0,
         spectral_centroid: 0.0,
         spectral_flatness: 0.0,
         spectral_slope: 0.0,
@@ -392,10 +396,17 @@ pub async fn get_centralized_analysis_result(
         spectral_spread: 0.0,
         spectral_skewness: 0.0,
         spectral_kurtosis: 0.0,
-        chromagram: [0.0; 12],
+        chroma: [0.0; 12],
+        perceptual_spread: 0.0,
+        perceptual_sharpness: 0.0,
+        perceptual_loudness: [0.0; 24],
+        mfcc: [0.0; 13],
     };
 
     for result in analysis_results {
+        process_field!(sum, count, result, rms);
+        process_field!(sum, count, result, zcr);
+        process_field!(sum, count, result, energy);
         process_field!(sum, count, result, spectral_centroid);
         process_field!(sum, count, result, spectral_flatness);
         process_field!(sum, count, result, spectral_slope);
@@ -403,22 +414,18 @@ pub async fn get_centralized_analysis_result(
         process_field!(sum, count, result, spectral_spread);
         process_field!(sum, count, result, spectral_skewness);
         process_field!(sum, count, result, spectral_kurtosis);
+        process_field!(sum, count, result, perceptual_spread);
+        process_field!(sum, count, result, perceptual_sharpness);
 
-        process_chromagram!(sum, count, result, 0, result.chroma0);
-        process_chromagram!(sum, count, result, 1, result.chroma1);
-        process_chromagram!(sum, count, result, 2, result.chroma2);
-        process_chromagram!(sum, count, result, 3, result.chroma3);
-        process_chromagram!(sum, count, result, 4, result.chroma4);
-        process_chromagram!(sum, count, result, 5, result.chroma5);
-        process_chromagram!(sum, count, result, 6, result.chroma6);
-        process_chromagram!(sum, count, result, 7, result.chroma7);
-        process_chromagram!(sum, count, result, 8, result.chroma8);
-        process_chromagram!(sum, count, result, 9, result.chroma9);
-        process_chromagram!(sum, count, result, 10, result.chroma10);
-        process_chromagram!(sum, count, result, 11, result.chroma11);
+        process_array!(sum, count, result, perceptual_loudness, 24);
+        process_array!(sum, count, result, mfcc, 13);
+        process_array!(sum, count, result, chroma, 12);
     }
 
     AggregatedAnalysisResult {
+        rms: calculate_mean!(sum, count, rms),
+        zcr: calculate_mean!(sum, count, zcr),
+        energy: calculate_mean!(sum, count, energy),
         spectral_centroid: calculate_mean!(sum, count, spectral_centroid),
         spectral_flatness: calculate_mean!(sum, count, spectral_flatness),
         spectral_slope: calculate_mean!(sum, count, spectral_slope),
@@ -426,19 +433,10 @@ pub async fn get_centralized_analysis_result(
         spectral_spread: calculate_mean!(sum, count, spectral_spread),
         spectral_skewness: calculate_mean!(sum, count, spectral_skewness),
         spectral_kurtosis: calculate_mean!(sum, count, spectral_kurtosis),
-        chromagram: [
-            calculate_chromagram_mean!(sum, count, 0),
-            calculate_chromagram_mean!(sum, count, 1),
-            calculate_chromagram_mean!(sum, count, 2),
-            calculate_chromagram_mean!(sum, count, 3),
-            calculate_chromagram_mean!(sum, count, 4),
-            calculate_chromagram_mean!(sum, count, 5),
-            calculate_chromagram_mean!(sum, count, 6),
-            calculate_chromagram_mean!(sum, count, 7),
-            calculate_chromagram_mean!(sum, count, 8),
-            calculate_chromagram_mean!(sum, count, 9),
-            calculate_chromagram_mean!(sum, count, 10),
-            calculate_chromagram_mean!(sum, count, 11),
-        ],
+        perceptual_spread: calculate_mean!(sum, count, perceptual_spread),
+        perceptual_sharpness: calculate_mean!(sum, count, perceptual_sharpness),
+        chroma: calculate_array_mean!(sum, count, chroma, 12),
+        perceptual_loudness: calculate_array_mean!(sum, count, perceptual_loudness, 24),
+        mfcc: calculate_array_mean!(sum, count, mfcc, 13),
     }
 }

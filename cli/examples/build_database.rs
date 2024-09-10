@@ -1,8 +1,13 @@
+use log::{error, info};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::analysis::{analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback};
-use database::actions::metadata::{empty_progress_callback  as empty_scan_progress_callback, scan_audio_library};
+use database::actions::analysis::{
+    analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
+};
+use database::actions::metadata::{
+    empty_progress_callback as empty_scan_progress_callback, scan_audio_library,
+};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
 
@@ -39,13 +44,24 @@ async fn main() {
     )
     .await;
 
+    info!("Analysing tracks");
     // Analyze the audio files in the database
-    analysis_audio_library(&main_db, &root_path, 10, empty_analysis_progress_callback, None)
-        .await
-        .expect("Audio analysis failed");
+    analysis_audio_library(
+        &main_db,
+        &root_path,
+        10,
+        empty_analysis_progress_callback,
+        None,
+    )
+    .await
+    .expect("Audio analysis failed");
 
-    let analysis_db = connect_recommendation_db(&path).unwrap();
-    let _ = sync_recommendation(&main_db, &analysis_db).await;
+    info!("Syncing recommendation");
+    let recommend_db = connect_recommendation_db(&path).unwrap();
+    match sync_recommendation(&main_db, &recommend_db).await {
+        Ok(_) => info!("OK!"),
+        Err(e) => error!("Unable to sync recommendation: {}", e),
+    };
 
     println!("OK");
 }

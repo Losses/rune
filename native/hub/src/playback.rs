@@ -2,6 +2,7 @@ use dunce::canonicalize;
 use log::error;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -59,30 +60,23 @@ async fn play_file_by_id(
     }
 }
 
-
 fn files_to_playback_request(
     lib_path: &String,
-    files: std::result::Result<Vec<database::entities::media_files::Model>, sea_orm::DbErr>,
+    files: Vec<database::entities::media_files::Model>,
 ) -> std::vec::Vec<(i32, std::path::PathBuf)> {
-    match files {
-        Ok(files) => files
-            .into_iter()
-            .map(|file| {
-                let file_path = canonicalize(
-                    Path::new(lib_path)
-                        .join(&file.directory)
-                        .join(&file.file_name),
-                )
-                .unwrap();
+    files
+        .into_iter()
+        .map(|file| {
+            let file_path = canonicalize(
+                Path::new(lib_path)
+                    .join(&file.directory)
+                    .join(&file.file_name),
+            )
+            .unwrap();
 
-                (file.id, file_path)
-            })
-            .collect::<Vec<_>>(),
-        Err(e) => {
-            error!("Unable to get files: {}", e);
-            Vec::new()
-        }
-    }
+            (file.id, file_path)
+        })
+        .collect::<Vec<_>>()
 }
 
 pub async fn update_playlist(
@@ -103,7 +97,7 @@ macro_rules! handle_add_collection_to_playlist_request {
             .await
             .unwrap_or_default();
 
-        let files = get_files_by_ids(&$main_db, &media_file_ids).await;
+        let files = get_files_by_ids(&$main_db, &media_file_ids).await?;
         let requests = files_to_playback_request(&$lib_path, files);
 
         update_playlist(&$player, requests).await;
@@ -141,16 +135,21 @@ pub async fn recommend_and_play_request(
         }
     };
 
-    let files = get_files_by_ids(
-        &main_db,
-        &recommendations
-            .into_iter()
-            .map(|x| x.0 as i32)
-            .collect::<Vec<i32>>(),
-    )
-    .await;
+    let recommendation_ids: Vec<i32> = recommendations.iter().map(|x| x.0 as i32).collect();
 
-    let requests = files_to_playback_request(&lib_path, files);
+    let files = get_files_by_ids(&main_db, &recommendation_ids).await?;
+
+    // Create a HashMap to store file_id -> file mapping
+    let file_map: HashMap<i32, database::entities::media_files::Model> =
+        files.into_iter().map(|file| (file.id, file)).collect();
+
+    // Reorder files based on the order of recommendation_ids
+    let ordered_files: Vec<database::entities::media_files::Model> = recommendation_ids
+        .into_iter()
+        .filter_map(|id| file_map.get(&id).cloned())
+        .collect();
+
+    let requests = files_to_playback_request(&lib_path, ordered_files);
     update_playlist(&player, requests.clone()).await;
 
     let recommended_ids: Vec<i32> = requests.into_iter().map(|(id, _)| id).collect();
@@ -164,7 +163,7 @@ pub async fn start_playing_collection_request(
     lib_path: Arc<String>,
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<StartPlayingCollectionRequest>,
-) {
+) -> Result<()> {
     player.lock().await.pause();
     player.lock().await.clear_playlist();
 
@@ -192,6 +191,8 @@ pub async fn start_playing_collection_request(
         ),
         _ => {}
     }
+
+    Ok(())
 }
 
 pub async fn add_to_queue_collection_request(
@@ -199,7 +200,7 @@ pub async fn add_to_queue_collection_request(
     lib_path: Arc<String>,
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<AddToQueueCollectionRequest>,
-) {
+) -> Result<()> {
     match dart_signal.message.r#type.as_str() {
         "artist" => handle_add_collection_to_playlist_request!(
             main_db,
@@ -224,6 +225,8 @@ pub async fn add_to_queue_collection_request(
         ),
         _ => {}
     }
+
+    Ok(())
 }
 
 pub async fn start_roaming_collection_request(
@@ -232,7 +235,7 @@ pub async fn start_roaming_collection_request(
     lib_path: Arc<String>,
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<StartRoamingCollectionRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
     let media_file_ids = match request.r#type.as_str() {
         "artist" => get_media_file_ids_of_artist(&main_db, request.id).await,
@@ -251,10 +254,12 @@ pub async fn start_roaming_collection_request(
             .map(|x| x.0 as i32)
             .collect::<Vec<i32>>(),
     )
-    .await;
+    .await?;
 
     let requests = files_to_playback_request(&lib_path, files);
     update_playlist(&player, requests).await;
+
+    Ok(())
 }
 
 pub async fn play_request(player: Arc<Mutex<Player>>, _: DartSignal<PlayRequest>) {

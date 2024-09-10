@@ -131,7 +131,7 @@ pub struct NormalizedAnalysisResult {
     pub spectral_spread: f32,
     pub spectral_skewness: f32,
     pub spectral_kurtosis: f32,
-    pub chromagram: [f32; 12],
+    pub chroma: [f32; 12],
 }
 
 pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisResult {
@@ -159,7 +159,7 @@ pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisR
     let normalized_spectral_kurtosis = result.spectral_kurtosis / max_spectral_kurtosis;
 
     // Normalize chromagram
-    let normalized_chromagram: [f32; 12] = result
+    let normalized_chroma: [f32; 12] = result
         .chromagram
         .iter()
         .map(|&x| x / max_chroma)
@@ -182,6 +182,6 @@ pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisR
         spectral_spread: normalized_spectral_spread,
         spectral_skewness: normalized_spectral_skewness,
         spectral_kurtosis: normalized_spectral_kurtosis,
-        chromagram: normalized_chromagram,
+        chroma: normalized_chroma,
     }
 }
