@@ -1,15 +1,12 @@
+use futures::stream::{self, StreamExt};
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::Result;
 use log::{error, info};
-use tokio::task;
-use tokio::sync::Semaphore;
 use sea_orm::entity::prelude::*;
-use sea_orm::FromQueryResult;
-use sea_orm::QuerySelect;
 use sea_orm::{ActiveValue, TransactionTrait};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
@@ -20,11 +17,20 @@ use super::utils::DatabaseExecutor;
 
 pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 
-#[derive(Debug, FromQueryResult)]
-struct FileIdResult {
-    file_id: i32, // or whatever the type of FileId is
-}
-
+/// Analyze the audio library by reading existing files, checking if they have been analyzed,
+/// and performing audio analysis if not. The function uses cursor pagination to process files
+/// in batches for memory efficiency and utilizes multi-core parallelism for faster processing.
+/// The analysis results are normalized before being stored in the database.
+///
+/// # Arguments
+/// * `main_db` - A reference to the database connection.
+/// * `lib_path` - The root path for the audio files.
+/// * `batch_size` - The number of files to process in each batch.
+/// * `progress_callback` - A callback function to report progress.
+/// * `cancel_token` - An optional cancellation token to support task cancellation.
+///
+/// # Returns
+/// * `Result<(), sea_orm::DbErr>` - A result indicating success or failure.
 pub async fn analysis_audio_library<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
@@ -33,110 +39,136 @@ pub async fn analysis_audio_library<F>(
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize>
 where
-    F: Fn(usize, usize) + Send + Sync + 'static,
+    F: Fn(usize, usize) + Send + Sync,
 {
+    let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
+
     info!(
         "Starting audio library analysis with batch size: {}",
         batch_size
     );
 
+    // Calculate the total number of tasks
     let total_tasks = media_files::Entity::find().count(main_db).await? as usize;
 
-    let existed_tasks: Vec<i32> = media_analysis::Entity::find()
-        .select_only()
-        .column(media_analysis::Column::FileId)
-        .into_model::<FileIdResult>()
-        .all(main_db)
-        .await
-        .unwrap()
-        .into_iter()
-        .map(|x| x.file_id)
-        .collect();
+    let (tx, rx) = async_channel::bounded(batch_size);
+    let mut total_processed = 0;
 
-    info!("Media files already analysed: {}", existed_tasks.len());
+    // Producer task: fetch batches of files and send them to the consumer
+    let producer = async {
+        loop {
+            // Check for cancellation
+            if let Some(ref token) = cancel_token {
+                if token.is_cancelled() {
+                    info!("Cancellation requested. Exiting producer loop.");
+                    break;
+                }
+            }
 
-    let mut cursor = media_files::Entity::find()
-        .filter(media_files::Column::Id.is_not_in(existed_tasks.clone()))
-        .cursor_by(media_files::Column::Id);
+            // Fetch the next batch of files
+            let files: Vec<media_files::Model> = cursor
+                .first(batch_size.try_into().unwrap())
+                .all(main_db)
+                .await?;
 
-    let mut total_processed = existed_tasks.len();
-    let lib_path = Arc::new(lib_path.to_path_buf());
-    let semaphore = Arc::new(Semaphore::new(4)); // Adjust the concurrency level as needed
+            if files.is_empty() {
+                info!("No more files to process. Exiting loop.");
+                break;
+            }
 
-    loop {
-        // Fetch the next batch of files
-        let files: Vec<media_files::Model> = cursor
-            .first(batch_size.try_into().unwrap())
-            .all(main_db)
-            .await?;
+            for file in &files {
+                tx.send(file.clone()).await.unwrap();
+            }
 
-        if files.is_empty() {
-            break;
-        }
-
-        // Check for cancellation
-        if let Some(ref token) = cancel_token {
-            if token.is_cancelled() {
-                info!("Cancellation requested. Exiting loop.");
+            // Move the cursor to the next batch
+            if let Some(last_file) = files.last() {
+                info!("Moving cursor after file ID: {}", last_file.id);
+                cursor.after(last_file.id);
+            } else {
                 break;
             }
         }
 
-        info!("Starting a new batch: {} tasks", files.len());
+        drop(tx); // Close the channel to signal consumers to stop
+        Ok::<(), sea_orm::DbErr>(())
+    };
 
-        // Parallel processing using Tokio tasks
-        let mut tasks = Vec::with_capacity(files.len());
+    // Consumer task: process files as they are received
+    let consumer = async {
+        let mut tasks = Vec::new();
 
-        for file in &files {
-            let lib_path = Arc::clone(&lib_path);
-            let semaphore = Arc::clone(&semaphore);
-            let permit = semaphore.acquire_owned().await.unwrap();
-            let file = file.clone();
+        while let Ok(file) = rx.recv().await {
+            // Check for cancellation
+            if let Some(ref token) = cancel_token {
+                if token.is_cancelled() {
+                    info!("Cancellation requested. Exiting consumer loop.");
+                    break;
+                }
+            }
 
-            let handle = task::spawn(async move {
-                let _permit = permit; // Ensure the permit is held for the duration of the task
-                let result = analysis_file(&file, &lib_path).await;
-                info!("Analysed: {}", file.file_name);
-                Ok::<_, sea_orm::DbErr>((file.id, Some(result)))
+            let lib_path = lib_path.to_path_buf();
+            let file_id = file.id;
+
+            let task = task::spawn(async move {
+                info!("Processing file with ID: {}", file_id);
+                analysis_file(&file, &lib_path).await
             });
 
-            tasks.push(handle);
-        }
+            tasks.push(task);
 
-        // Await all the futures
-        let analysis_results: Vec<_> = futures::future::join_all(tasks).await;
+            // Process tasks in parallel up to the batch size
+            if tasks.len() >= batch_size {
+                let task_count = tasks.len();
+                let results: Vec<_> = stream::iter(tasks)
+                    .buffer_unordered(batch_size)
+                    .collect()
+                    .await;
+                tasks = Vec::new();
 
-        // Start a transaction
-        let txn = main_db.begin().await?;
+                let txn = main_db.begin().await?;
 
-        for result in analysis_results {
-            match result {
-                Ok(Ok((file_id, Some(normalized_result)))) => {
-                    insert_analysis_result(&txn, file_id, normalized_result?).await?;
-                    total_processed += 1;
+                for result in results {
+                    match result {
+                        Ok(x) => match x {
+                            Ok(x) => insert_analysis_result(&txn, file_id, x).await?,
+                            Err(e) => error!("Error processing file: {:?}", e),
+                        },
+                        Err(e) => error!("Error processing file: {:?}", e),
+                    }
                 }
-                Ok(Ok((_, None))) => {} // File was already processed
-                Ok(Err(e)) => {
-                    error!("Error processing file: {:?}", e);
-                }
-                Err(e) => {
-                    error!("Task join error: {:?}", e);
-                }
+
+                // Update progress
+                total_processed += task_count;
+                progress_callback(total_processed, total_tasks);
             }
         }
 
-        // Commit the transaction
-        txn.commit().await?;
+        // Process remaining tasks
+        if !tasks.is_empty() {
+            let task_count = tasks.len();
+            let results: Vec<_> = stream::iter(tasks)
+                .buffer_unordered(batch_size)
+                .collect()
+                .await;
+            for result in results {
+                if let Err(e) = result {
+                    error!("Error processing file: {:?}", e);
+                }
+            }
 
-        // Update progress
-        progress_callback(total_processed, total_tasks);
-
-        // Move the cursor to the next batch
-        if let Some(last_file) = files.last() {
-            info!("Moving cursor after file ID: {}", last_file.id);
-            cursor.after(last_file.id);
+            // Update progress for remaining tasks
+            total_processed += task_count;
+            progress_callback(total_processed, total_tasks);
         }
-    }
+
+        Ok::<(), sea_orm::DbErr>(())
+    };
+
+    // Run producer and consumer concurrently
+    let (producer_result, consumer_result) = futures::join!(producer, consumer);
+
+    producer_result?;
+    consumer_result?;
 
     info!("Audio library analysis completed.");
     Ok(total_tasks)

@@ -78,7 +78,7 @@ pub async fn scan_audio_library_request(
 
 pub fn determine_batch_size() -> usize {
     let num_cores = num_cpus::get();
-    let batch_size = num_cores / 3 * 2;
+    let batch_size = num_cores / 4 * 3;
     let min_batch_size = 1;
     let max_batch_size = 1000;
 
