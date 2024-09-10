@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Result;
 use log::{error, info};
 use rayon::iter::IntoParallelRefIterator;
 use rayon::iter::ParallelIterator;
@@ -30,7 +31,7 @@ pub async fn analysis_audio_library<F>(
     batch_size: usize,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
-) -> Result<usize, sea_orm::DbErr>
+) -> Result<usize>
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
@@ -107,7 +108,7 @@ where
         for result in analysis_results {
             match result {
                 Ok((file_id, Some(normalized_result))) => {
-                    insert_analysis_result(&txn, file_id, normalized_result).await?;
+                    insert_analysis_result(&txn, file_id, normalized_result?).await?;
                     total_processed += 1;
                 }
                 Ok((_, None)) => {} // File was already processed
@@ -141,7 +142,10 @@ where
 /// * `db` - A reference to the database connection.
 /// * `file` - A reference to the file model.
 /// * `root_path` - The root path for the audio files.
-async fn analysis_file(file: &media_files::Model, lib_path: &Path) -> NormalizedAnalysisResult {
+async fn analysis_file(
+    file: &media_files::Model,
+    lib_path: &Path,
+) -> Result<NormalizedAnalysisResult> {
     // Construct the full path to the file
     let file_path = lib_path.join(&file.directory).join(&file.file_name);
 
@@ -153,7 +157,7 @@ async fn analysis_file(file: &media_files::Model, lib_path: &Path) -> Normalized
     );
 
     // Normalize the analysis result
-    normalize_analysis_result(analysis_result)
+    Ok(normalize_analysis_result(&analysis_result?))
 }
 
 /// Insert the normalized analysis result into the database.
@@ -172,6 +176,9 @@ where
 {
     let new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
+        rms: ActiveValue::Set(Some(result.raw.rms as f64)),
+        zcr: ActiveValue::Set(Some(result.zcr as f64)),
+        energy: ActiveValue::Set(Some(result.energy as f64)),
         spectral_centroid: ActiveValue::Set(Some(result.spectral_centroid as f64)),
         spectral_flatness: ActiveValue::Set(Some(result.spectral_flatness as f64)),
         spectral_slope: ActiveValue::Set(Some(result.spectral_slope as f64)),
@@ -191,6 +198,45 @@ where
         chroma9: ActiveValue::Set(Some(result.chromagram[9] as f64)),
         chroma10: ActiveValue::Set(Some(result.chromagram[10] as f64)),
         chroma11: ActiveValue::Set(Some(result.chromagram[11] as f64)),
+        perceptual_spread: ActiveValue::Set(Some(result.raw.perceptual_spread as f64)),
+        perceptual_sharpness: ActiveValue::Set(Some(result.raw.perceptual_sharpness as f64)),
+        perceptual_loudness0: ActiveValue::Set(Some(result.raw.perceptual_loudness[0] as f64)),
+        perceptual_loudness1: ActiveValue::Set(Some(result.raw.perceptual_loudness[1] as f64)),
+        perceptual_loudness2: ActiveValue::Set(Some(result.raw.perceptual_loudness[2] as f64)),
+        perceptual_loudness3: ActiveValue::Set(Some(result.raw.perceptual_loudness[3] as f64)),
+        perceptual_loudness4: ActiveValue::Set(Some(result.raw.perceptual_loudness[4] as f64)),
+        perceptual_loudness5: ActiveValue::Set(Some(result.raw.perceptual_loudness[5] as f64)),
+        perceptual_loudness6: ActiveValue::Set(Some(result.raw.perceptual_loudness[6] as f64)),
+        perceptual_loudness7: ActiveValue::Set(Some(result.raw.perceptual_loudness[7] as f64)),
+        perceptual_loudness8: ActiveValue::Set(Some(result.raw.perceptual_loudness[8] as f64)),
+        perceptual_loudness9: ActiveValue::Set(Some(result.raw.perceptual_loudness[9] as f64)),
+        perceptual_loudness10: ActiveValue::Set(Some(result.raw.perceptual_loudness[10] as f64)),
+        perceptual_loudness11: ActiveValue::Set(Some(result.raw.perceptual_loudness[11] as f64)),
+        perceptual_loudness12: ActiveValue::Set(Some(result.raw.perceptual_loudness[12] as f64)),
+        perceptual_loudness13: ActiveValue::Set(Some(result.raw.perceptual_loudness[13] as f64)),
+        perceptual_loudness14: ActiveValue::Set(Some(result.raw.perceptual_loudness[14] as f64)),
+        perceptual_loudness15: ActiveValue::Set(Some(result.raw.perceptual_loudness[15] as f64)),
+        perceptual_loudness16: ActiveValue::Set(Some(result.raw.perceptual_loudness[16] as f64)),
+        perceptual_loudness17: ActiveValue::Set(Some(result.raw.perceptual_loudness[17] as f64)),
+        perceptual_loudness18: ActiveValue::Set(Some(result.raw.perceptual_loudness[18] as f64)),
+        perceptual_loudness19: ActiveValue::Set(Some(result.raw.perceptual_loudness[19] as f64)),
+        perceptual_loudness20: ActiveValue::Set(Some(result.raw.perceptual_loudness[20] as f64)),
+        perceptual_loudness21: ActiveValue::Set(Some(result.raw.perceptual_loudness[21] as f64)),
+        perceptual_loudness22: ActiveValue::Set(Some(result.raw.perceptual_loudness[22] as f64)),
+        perceptual_loudness23: ActiveValue::Set(Some(result.raw.perceptual_loudness[23] as f64)),
+        mfcc0: ActiveValue::Set(Some(result.raw.mfcc[0] as f64)),
+        mfcc1: ActiveValue::Set(Some(result.raw.mfcc[1] as f64)),
+        mfcc2: ActiveValue::Set(Some(result.raw.mfcc[2] as f64)),
+        mfcc3: ActiveValue::Set(Some(result.raw.mfcc[3] as f64)),
+        mfcc4: ActiveValue::Set(Some(result.raw.mfcc[4] as f64)),
+        mfcc5: ActiveValue::Set(Some(result.raw.mfcc[5] as f64)),
+        mfcc6: ActiveValue::Set(Some(result.raw.mfcc[6] as f64)),
+        mfcc7: ActiveValue::Set(Some(result.raw.mfcc[7] as f64)),
+        mfcc8: ActiveValue::Set(Some(result.raw.mfcc[8] as f64)),
+        mfcc9: ActiveValue::Set(Some(result.raw.mfcc[9] as f64)),
+        mfcc10: ActiveValue::Set(Some(result.raw.mfcc[10] as f64)),
+        mfcc11: ActiveValue::Set(Some(result.raw.mfcc[11] as f64)),
+        mfcc12: ActiveValue::Set(Some(result.raw.mfcc[12] as f64)),
         ..Default::default()
     };
 

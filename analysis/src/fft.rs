@@ -137,12 +137,14 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
 
     let resample_ratio = 11025_f64 / sample_rate as f64;
 
+    let actural_data_size = (window_size as f64 / resample_ratio).ceil() as usize;
+
     // Initialize the resampler
     let mut resampler = SincFixedIn::<f32>::new(
         resample_ratio,
         2.0,
         RESAMPLER_PARAMETER,
-        1024,
+        actural_data_size,
         1, // Assuming mono for simplicity
     )
     .unwrap();
@@ -192,10 +194,8 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
                         total_samples += 1;
 
                         // Process the buffer when it reaches the window size
-                        while sample_buffer.len()
-                            >= (window_size as f64 / resample_ratio).ceil() as usize
-                        {
-                            let chunk = &sample_buffer[..window_size];
+                        while sample_buffer.len() >= actural_data_size {
+                            let chunk = &sample_buffer[..actural_data_size];
                             let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
 
                             total_rms += rms(resampled_chunk);
@@ -270,27 +270,6 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
                 process_audio_buffer!(buf);
             }
         }
-    }
-
-    // Process any remaining samples in the buffer
-    if !sample_buffer.is_empty() {
-        // Pad the remaining samples with zeros to reach window_size
-        sample_buffer.resize(window_size, 0.0);
-        let resampled_chunk = resampler.process(&[&sample_buffer], None).unwrap();
-
-        for (i, &sample) in resampled_chunk[0].iter().enumerate() {
-            let windowed_sample = sample * hanning_window[i];
-            buffer[i] = Complex::new(windowed_sample, 0.0);
-        }
-
-        fft.process(&mut buffer);
-        debug!("FFT processed for remaining samples");
-
-        for (i, value) in buffer.iter().enumerate() {
-            avg_spectrum[i] += value;
-        }
-
-        count += 1;
     }
 
     if count == 0 {

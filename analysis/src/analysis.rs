@@ -1,20 +1,22 @@
+use anyhow::Result;
+
 use crate::features::*;
 use crate::fft::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AudioStat {
     pub sample_rate: u32,
     pub duration: f64,
     pub total_samples: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AnalysisParameter {
     pub window_size: usize,
     pub overlap_size: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct AnalysisResult {
     pub stat: AudioStat,
     pub parameters: AnalysisParameter,
@@ -29,10 +31,18 @@ pub struct AnalysisResult {
     pub spectral_spread: f32,
     pub spectral_skewness: f32,
     pub spectral_kurtosis: f32,
-    pub chromagram: Vec<f32>,
+    pub chromagram: [f32; 12],
+    pub perceptual_spread: f32,
+    pub perceptual_sharpness: f32,
+    pub perceptual_loudness: [f32; 24],
+    pub mfcc: [f32; 13],
 }
 
-pub fn analyze_audio(file_path: &str, window_size: usize, overlap_size: usize) -> AnalysisResult {
+pub fn analyze_audio(
+    file_path: &str,
+    window_size: usize,
+    overlap_size: usize,
+) -> Result<AnalysisResult> {
     // Perform FFT on the audio file to get the spectrum
     let audio_desc = fft(file_path, window_size, overlap_size);
 
@@ -50,18 +60,34 @@ pub fn analyze_audio(file_path: &str, window_size: usize, overlap_size: usize) -
 
     // Generate chroma filter bank and calculate chromagram
     let chroma_filter_bank = create_chroma_filter_bank(
-        12, // Number of chroma bins
-        audio_desc.sample_rate as f32,
+        12,      // Number of chroma bins
+        11025.0, // Sample Rate
         window_size,
         5.0,   // Center octave
         2.0,   // Octave width
         true,  // Base C
         440.0, // A440
     );
-    let chromagram = chroma(&amp_spectrum, &chroma_filter_bank);
+    let chromagram: [f32; 12] = chroma(&amp_spectrum, &chroma_filter_bank)
+        .try_into()
+        .expect("Expected a Vec of length 12");
+
+    let bark_scale = create_bark_scale(amp_spectrum.len(), 11025.0, amp_spectrum.len());
+    let loudness = loudness(&amp_spectrum, &bark_scale, None)?;
+    let perceptual_spread = perceptual_spread_from_loudness(&loudness)?;
+    let perceptual_sharpness = perceptual_sharpness_from_loudness(&loudness)?;
+    let perceptual_loudness: [f32; 24] = loudness
+        .specific
+        .try_into()
+        .expect("Expected a Vec of length 24");
+
+    let mel_filter_bank = create_mel_filter_bank(13, 11025.0, window_size);
+    let mfcc: [f32; 13] = mfcc(&amp_spectrum, &mel_filter_bank, 13, window_size)?
+        .try_into()
+        .expect("Expected a Vec of length 13");
 
     // Create and return the analysis result
-    AnalysisResult {
+    Ok(AnalysisResult {
         stat: AudioStat {
             sample_rate: audio_desc.sample_rate,
             duration: audio_desc.duration,
@@ -83,13 +109,20 @@ pub fn analyze_audio(file_path: &str, window_size: usize, overlap_size: usize) -
         spectral_skewness,
         spectral_kurtosis,
         chromagram,
-    }
+        perceptual_loudness,
+        perceptual_spread,
+        perceptual_sharpness,
+        mfcc,
+    })
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct NormalizedAnalysisResult {
     pub stat: AudioStat,
     pub parameters: AnalysisParameter,
+    pub raw: AnalysisResult,
+    pub zcr: f32,
+    pub energy: f32,
     pub spectral_centroid: f32,
     pub spectral_flatness: f32,
     pub spectral_flux: f32,
@@ -98,10 +131,10 @@ pub struct NormalizedAnalysisResult {
     pub spectral_spread: f32,
     pub spectral_skewness: f32,
     pub spectral_kurtosis: f32,
-    pub chromagram: Vec<f32>,
+    pub chromagram: [f32; 12],
 }
 
-pub fn normalize_analysis_result(result: AnalysisResult) -> NormalizedAnalysisResult {
+pub fn normalize_analysis_result(result: &AnalysisResult) -> NormalizedAnalysisResult {
     // Define the ranges for each feature
     let max_spectral_centroid = (result.parameters.window_size / 2) as f32;
     let max_spectral_flatness = 1.0;
@@ -114,6 +147,8 @@ pub fn normalize_analysis_result(result: AnalysisResult) -> NormalizedAnalysisRe
     let max_chroma = 1.0;
 
     // Normalize each feature
+    let normalized_zcr = result.zcr as f32 / ((result.stat.total_samples / 2) - 1) as f32;
+    let normalized_energy = result.energy / result.stat.total_samples as f32;
     let normalized_spectral_centroid = result.spectral_centroid / max_spectral_centroid;
     let normalized_spectral_flatness = result.spectral_flatness / max_spectral_flatness;
     let normalized_spectral_flux = result.spectral_flux / max_spectral_flux;
@@ -124,13 +159,21 @@ pub fn normalize_analysis_result(result: AnalysisResult) -> NormalizedAnalysisRe
     let normalized_spectral_kurtosis = result.spectral_kurtosis / max_spectral_kurtosis;
 
     // Normalize chromagram
-    let normalized_chromagram: Vec<f32> =
-        result.chromagram.iter().map(|&x| x / max_chroma).collect();
+    let normalized_chromagram: [f32; 12] = result
+        .chromagram
+        .iter()
+        .map(|&x| x / max_chroma)
+        .collect::<Vec<_>>()
+        .try_into()
+        .expect("Expected a Vec of length 12");
 
     // Create and return the normalized analysis result
     NormalizedAnalysisResult {
         stat: result.stat,
         parameters: result.parameters,
+        raw: *result,
+        zcr: normalized_zcr,
+        energy: normalized_energy,
         spectral_centroid: normalized_spectral_centroid,
         spectral_flatness: normalized_spectral_flatness,
         spectral_flux: normalized_spectral_flux,

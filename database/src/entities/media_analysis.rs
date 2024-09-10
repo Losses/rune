@@ -10,6 +10,12 @@ pub struct Model {
     pub id: i32,
     pub file_id: i32,
     #[sea_orm(column_type = "Double", nullable)]
+    pub rms: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    pub zcr: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    pub energy: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
     pub spectral_centroid: Option<f64>,
     #[sea_orm(column_type = "Double", nullable)]
     pub spectral_flatness: Option<f64>,
@@ -47,6 +53,84 @@ pub struct Model {
     pub chroma10: Option<f64>,
     #[sea_orm(column_type = "Double", nullable)]
     pub chroma11: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    pub perceptual_spread: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    pub perceptual_sharpness: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness0: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness1: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness2: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness3: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness4: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness5: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness6: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness7: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness8: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness9: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness10: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness11: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness12: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness13: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness14: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness15: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness16: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness17: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness18: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness19: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness20: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness21: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness22: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    perceptual_loudness23: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc0: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc1: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc2: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc3: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc4: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc5: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc6: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc7: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc8: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc9: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc10: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc11: Option<f64>,
+    #[sea_orm(column_type = "Double", nullable)]
+    mfcc12: Option<f64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

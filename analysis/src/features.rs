@@ -282,7 +282,11 @@ pub fn loudness(
     let number_of_bark_bands = number_of_bark_bands.unwrap_or(24);
 
     if amp_spectrum.len() != bark_scale.len() {
-        bail!("ampSpectrum and barkScale must have the same length");
+        bail!(
+            "ampSpectrum({}) and barkScale({}) must have the same length",
+            amp_spectrum.len(),
+            bark_scale.len()
+        );
     }
 
     let mut specific = vec![0.0; number_of_bark_bands];
@@ -321,9 +325,7 @@ pub fn loudness(
     Ok(BarkLoudness { specific, total })
 }
 
-pub fn perceptual_spread(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
-    let loudness_value = loudness(amp_spectrum, bark_scale, None)?;
-
+pub fn perceptual_spread_from_loudness(loudness_value: &BarkLoudness) -> Result<f32> {
     // Find the maximum specific loudness
     let max_specific = loudness_value
         .specific
@@ -337,9 +339,13 @@ pub fn perceptual_spread(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32
     Ok(spread)
 }
 
-pub fn perceptual_sharpness(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
+pub fn perceptual_spread(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
     let loudness_value = loudness(amp_spectrum, bark_scale, None)?;
 
+    perceptual_spread_from_loudness(&loudness_value)
+}
+
+pub fn perceptual_sharpness_from_loudness(loudness_value: &BarkLoudness) -> Result<f32> {
     let spec = &loudness_value.specific;
     let mut output = 0.0;
 
@@ -354,6 +360,12 @@ pub fn perceptual_sharpness(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<
     output *= 0.11 / loudness_value.total;
 
     Ok(output)
+}
+
+pub fn perceptual_sharpness(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
+    let loudness_value = loudness(amp_spectrum, bark_scale, None)?;
+
+    perceptual_sharpness_from_loudness(&loudness_value)
 }
 
 pub fn power_spectrum(amp_spectrum: &[f32]) -> Vec<f32> {
@@ -461,11 +473,11 @@ pub fn mfcc(
         .collect())
 }
 
-pub fn create_bark_scale(length: usize, sample_rate: f32, buffer_size: f32) -> Vec<f32> {
+pub fn create_bark_scale(length: usize, sample_rate: f32, buffer_size: usize) -> Vec<f32> {
     let mut bark_scale = vec![0.0; length];
 
     for (i, value) in bark_scale.iter_mut().enumerate() {
-        let mut val = (i as f32 * sample_rate) / buffer_size;
+        let mut val = (i as f32 * sample_rate) / buffer_size as f32;
         val = 13.0 * (val / 1315.8).atan() + 3.5 * ((val / 7518.0).powi(2)).atan();
         *value = val;
     }

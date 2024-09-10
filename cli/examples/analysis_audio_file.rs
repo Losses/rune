@@ -6,7 +6,14 @@ fn main() {
     let path = args.get(1).expect("file path not provided");
 
     // Process the audio file and perform FFT using Overlap-Save method.
-    let analysis_result = normalize_analysis_result(analyze_audio(path, 4096, 4096 / 2));
+    let analysis_result = match analyze_audio(path, 4096, 4096 / 2) {
+        Ok(x) => normalize_analysis_result(&x),
+        Err(e) => {
+            println!("Error: {}", e);
+            panic!("Unable to analysis the track");
+
+        },
+    };
 
     println!("{:#?}", analysis_result);
 }
