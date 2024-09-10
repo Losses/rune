@@ -1,45 +1,47 @@
 use std::collections::HashSet;
 use std::num::NonZeroUsize;
 
+use anyhow::{bail, Context, Result};
 use arroy::distances::Euclidean;
 use arroy::{Reader, Writer};
+use futures::future::join_all;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use sea_orm::entity::prelude::*;
+use sea_orm::{QueryOrder, QuerySelect};
 use seq_macro::seq;
 
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
-
-use super::analysis::AggregatedAnalysisResult;
+use crate::entities::{media_analysis, media_files};
 
 /// Get recommendations for a given item.
 ///
 /// # Arguments
-/// * `db_conn` - The tuple containing the LMDB environment and the Arroy database.
+/// * `main_db` - The tuple containing the LMDB environment and the Arroy database.
 /// * `item_id` - The ID of the item for which to get recommendations.
 /// * `n` - The number of recommendations to retrieve.
 ///
 /// # Returns
-/// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
+/// * `Result<Vec<(usize, f32)>>` - A vector of recommended item IDs and their distances.
 pub fn get_recommendation_by_file_id(
-    db_conn: &RecommendationDbConnection,
+    main_db: &RecommendationDbConnection,
     item_id: i32,
     n: usize,
-) -> Result<Vec<(u32, f32)>, Box<dyn std::error::Error>> {
-    let env = db_conn.env.clone();
-    let db = db_conn.db;
+) -> Result<Vec<(u32, f32)>> {
+    let env = main_db.env.clone();
+    let db = main_db.db;
     let rtxn = env.read_txn()?;
     let reader = Reader::<Euclidean>::open(&rtxn, 0, db)?;
-    let search_k = NonZeroUsize::new(n * reader.n_trees() * 61)
-        .ok_or("Failed to create NonZeroUsize from search_k")?;
+    let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
+        .with_context(|| "Failed to create NonZeroUsize from search_k")?;
 
     let item_id: u32 = item_id
         .try_into()
-        .map_err(|_| "Failed to convert item_id to u32")?;
+        .with_context(|| "Failed to convert item_id to u32")?;
 
     let results = reader
         .nns_by_item(&rtxn, item_id, n, Some(search_k), None)?
-        .ok_or("No results found for the given item_id")?;
+        .with_context(|| "No results found for the given item_id")?;
 
     Ok(results)
 }
@@ -47,95 +49,28 @@ pub fn get_recommendation_by_file_id(
 /// Get recommendations for a given item.
 ///
 /// # Arguments
-/// * `db_conn` - The tuple containing the LMDB environment and the Arroy database.
+/// * `recommend_db` - The tuple containing the LMDB environment and the Arroy database.
 /// * `item_id` - The ID of the item for which to get recommendations.
 /// * `n` - The number of recommendations to retrieve.
 ///
 /// # Returns
-/// * `Result<Vec<(usize, f32)>, Box<dyn std::error::Error>>` - A vector of recommended item IDs and their distances.
+/// * `Result<Vec<(usize, f32)>>` - A vector of recommended item IDs and their distances.
 pub fn get_recommendation_by_parameter(
-    db_conn: &RecommendationDbConnection,
-    parameter: AggregatedAnalysisResult,
+    recommend_db: &RecommendationDbConnection,
+    feature_vector: [f32; 61],
     n: usize,
-) -> Result<Vec<(u32, f32)>, Box<dyn std::error::Error>> {
-    let env = db_conn.env.clone();
-    let db = db_conn.db;
+) -> Result<Vec<(u32, f32)>> {
+    let env = recommend_db.env.clone();
+    let db = recommend_db.db;
     let rtxn = env.read_txn()?;
     let reader = Reader::<Euclidean>::open(&rtxn, 0, db)?;
     let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
-        .ok_or("Failed to create NonZeroUsize from search_k")?;
-
-    let feature_vector: Vec<f32> = vec![
-        parameter.rms,
-        parameter.zcr,
-        parameter.energy,
-        parameter.spectral_centroid,
-        parameter.spectral_flatness,
-        parameter.spectral_slope,
-        parameter.spectral_rolloff,
-        parameter.spectral_spread,
-        parameter.spectral_skewness,
-        parameter.spectral_kurtosis,
-        parameter.chroma[0],
-        parameter.chroma[1],
-        parameter.chroma[2],
-        parameter.chroma[3],
-        parameter.chroma[4],
-        parameter.chroma[5],
-        parameter.chroma[6],
-        parameter.chroma[7],
-        parameter.chroma[8],
-        parameter.chroma[9],
-        parameter.chroma[10],
-        parameter.chroma[11],
-        parameter.perceptual_spread,
-        parameter.perceptual_sharpness,
-        parameter.perceptual_loudness[0],
-        parameter.perceptual_loudness[1],
-        parameter.perceptual_loudness[2],
-        parameter.perceptual_loudness[3],
-        parameter.perceptual_loudness[4],
-        parameter.perceptual_loudness[5],
-        parameter.perceptual_loudness[6],
-        parameter.perceptual_loudness[7],
-        parameter.perceptual_loudness[8],
-        parameter.perceptual_loudness[9],
-        parameter.perceptual_loudness[10],
-        parameter.perceptual_loudness[11],
-        parameter.perceptual_loudness[12],
-        parameter.perceptual_loudness[13],
-        parameter.perceptual_loudness[14],
-        parameter.perceptual_loudness[15],
-        parameter.perceptual_loudness[16],
-        parameter.perceptual_loudness[17],
-        parameter.perceptual_loudness[18],
-        parameter.perceptual_loudness[19],
-        parameter.perceptual_loudness[20],
-        parameter.perceptual_loudness[21],
-        parameter.perceptual_loudness[22],
-        parameter.perceptual_loudness[23],
-        parameter.mfcc[0],
-        parameter.mfcc[1],
-        parameter.mfcc[2],
-        parameter.mfcc[3],
-        parameter.mfcc[4],
-        parameter.mfcc[5],
-        parameter.mfcc[6],
-        parameter.mfcc[7],
-        parameter.mfcc[8],
-        parameter.mfcc[9],
-        parameter.mfcc[10],
-        parameter.mfcc[11],
-        parameter.mfcc[12],
-    ]
-    .into_iter()
-    .map(|x| x as f32)
-    .collect();
+        .with_context(|| "Failed to create NonZeroUsize from search_k")?;
 
     let results = reader.nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)?;
 
     if results.is_empty() {
-        Err("No results found for the given parameter".into())
+        bail!("No results found for the given parameter")
     } else {
         Ok(results)
     }
@@ -148,18 +83,16 @@ pub fn get_recommendation_by_parameter(
 /// * `recommend_db` - The tuple containing the LMDB environment and the Arroy database.
 ///
 /// # Returns
-/// * `Result<(), Box<dyn std::error::Error>>` - A result indicating success or failure.
+/// * `Result<()>` - A result indicating success or failure.
 pub async fn sync_recommendation(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let env = recommend_db.env.clone();
     let arroy_db = recommend_db.db;
 
     // Fetch all analysis data
-    let analyses = crate::entities::media_analysis::Entity::find()
-        .all(main_db)
-        .await?;
+    let analyses = media_analysis::Entity::find().all(main_db).await?;
 
     // Track existing IDs in the main database
     let mut existing_ids: HashSet<i32> = HashSet::new();
@@ -225,4 +158,126 @@ pub async fn sync_recommendation(
     }
 
     Ok(())
+}
+
+pub async fn get_percentile(
+    main_db: &MainDbConnection,
+    n: usize,
+    column: media_analysis::Column,
+    percentile: f64,
+) -> Result<f32> {
+    // Check if values are empty
+    if n == 0 {
+        return Ok(0.0);
+    }
+
+    // Calculate the rank
+    let rank = percentile * (n as f64 - 1.0);
+    let index = rank.round() as u64;
+
+    let result = media_analysis::Entity::find()
+        .select_only()
+        .order_by_asc(column)
+        .column(media_analysis::Column::FileId)
+        .offset(index)
+        .limit(1)
+        .into_tuple::<f64>()
+        .one(main_db)
+        .await?;
+
+    Ok(result.unwrap_or_default() as f32)
+}
+
+pub async fn recommend_by_percentile(
+    main_db: &MainDbConnection,
+    recommend_db: &RecommendationDbConnection,
+    total_groups: usize,
+    group_index: usize,
+) -> Result<Vec<(u32, f32)>> {
+    let columns = [
+        media_analysis::Column::Rms,
+        media_analysis::Column::Zcr,
+        media_analysis::Column::Energy,
+        media_analysis::Column::SpectralCentroid,
+        media_analysis::Column::SpectralFlatness,
+        media_analysis::Column::SpectralSlope,
+        media_analysis::Column::SpectralRolloff,
+        media_analysis::Column::SpectralSpread,
+        media_analysis::Column::SpectralSkewness,
+        media_analysis::Column::SpectralKurtosis,
+        media_analysis::Column::Chroma0,
+        media_analysis::Column::Chroma1,
+        media_analysis::Column::Chroma2,
+        media_analysis::Column::Chroma3,
+        media_analysis::Column::Chroma4,
+        media_analysis::Column::Chroma5,
+        media_analysis::Column::Chroma6,
+        media_analysis::Column::Chroma7,
+        media_analysis::Column::Chroma8,
+        media_analysis::Column::Chroma9,
+        media_analysis::Column::Chroma10,
+        media_analysis::Column::Chroma11,
+        media_analysis::Column::PerceptualSpread,
+        media_analysis::Column::PerceptualSharpness,
+        media_analysis::Column::PerceptualLoudness0,
+        media_analysis::Column::PerceptualLoudness1,
+        media_analysis::Column::PerceptualLoudness2,
+        media_analysis::Column::PerceptualLoudness3,
+        media_analysis::Column::PerceptualLoudness4,
+        media_analysis::Column::PerceptualLoudness5,
+        media_analysis::Column::PerceptualLoudness6,
+        media_analysis::Column::PerceptualLoudness7,
+        media_analysis::Column::PerceptualLoudness8,
+        media_analysis::Column::PerceptualLoudness9,
+        media_analysis::Column::PerceptualLoudness10,
+        media_analysis::Column::PerceptualLoudness11,
+        media_analysis::Column::PerceptualLoudness12,
+        media_analysis::Column::PerceptualLoudness13,
+        media_analysis::Column::PerceptualLoudness14,
+        media_analysis::Column::PerceptualLoudness15,
+        media_analysis::Column::PerceptualLoudness16,
+        media_analysis::Column::PerceptualLoudness17,
+        media_analysis::Column::PerceptualLoudness18,
+        media_analysis::Column::PerceptualLoudness19,
+        media_analysis::Column::PerceptualLoudness20,
+        media_analysis::Column::PerceptualLoudness21,
+        media_analysis::Column::PerceptualLoudness22,
+        media_analysis::Column::PerceptualLoudness23,
+        media_analysis::Column::Mfcc0,
+        media_analysis::Column::Mfcc1,
+        media_analysis::Column::Mfcc2,
+        media_analysis::Column::Mfcc3,
+        media_analysis::Column::Mfcc4,
+        media_analysis::Column::Mfcc5,
+        media_analysis::Column::Mfcc6,
+        media_analysis::Column::Mfcc7,
+        media_analysis::Column::Mfcc8,
+        media_analysis::Column::Mfcc9,
+        media_analysis::Column::Mfcc10,
+        media_analysis::Column::Mfcc11,
+        media_analysis::Column::Mfcc12,
+    ];
+
+    let total_files = media_files::Entity::find().count(main_db).await? as usize;
+
+    let p = 1.0 / (total_groups as f64 + 2.0) * group_index as f64;
+    let futures = columns
+        .iter()
+        .map(|column| get_percentile(main_db, total_files, *column, p));
+
+    let percentiles = join_all(futures).await;
+
+    let mut virtual_point = Vec::new();
+    for percentile in percentiles {
+        match percentile {
+            Ok(value) => virtual_point.push(value),
+            Err(e) => return Err(e),
+        }
+    }
+
+    let virtual_point: [f32; 61] = virtual_point
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Failed to convert virtual_point to array"))?;
+
+    get_recommendation_by_parameter(recommend_db, virtual_point, total_files / total_groups)
 }

@@ -245,7 +245,7 @@ pub async fn start_roaming_collection_request(
     };
 
     let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await;
-    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated, 30).unwrap();
+    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30).unwrap();
 
     let files = get_files_by_ids(
         &main_db,

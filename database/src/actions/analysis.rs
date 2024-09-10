@@ -285,6 +285,79 @@ pub struct AggregatedAnalysisResult {
     pub mfcc: [f64; 13],
 }
 
+impl From<AggregatedAnalysisResult> for [f32; 61] {
+    fn from(val: AggregatedAnalysisResult) -> Self {
+        vec![
+            val.rms,
+            val.zcr,
+            val.energy,
+            val.spectral_centroid,
+            val.spectral_flatness,
+            val.spectral_slope,
+            val.spectral_rolloff,
+            val.spectral_spread,
+            val.spectral_skewness,
+            val.spectral_kurtosis,
+            val.chroma[0],
+            val.chroma[1],
+            val.chroma[2],
+            val.chroma[3],
+            val.chroma[4],
+            val.chroma[5],
+            val.chroma[6],
+            val.chroma[7],
+            val.chroma[8],
+            val.chroma[9],
+            val.chroma[10],
+            val.chroma[11],
+            val.perceptual_spread,
+            val.perceptual_sharpness,
+            val.perceptual_loudness[0],
+            val.perceptual_loudness[1],
+            val.perceptual_loudness[2],
+            val.perceptual_loudness[3],
+            val.perceptual_loudness[4],
+            val.perceptual_loudness[5],
+            val.perceptual_loudness[6],
+            val.perceptual_loudness[7],
+            val.perceptual_loudness[8],
+            val.perceptual_loudness[9],
+            val.perceptual_loudness[10],
+            val.perceptual_loudness[11],
+            val.perceptual_loudness[12],
+            val.perceptual_loudness[13],
+            val.perceptual_loudness[14],
+            val.perceptual_loudness[15],
+            val.perceptual_loudness[16],
+            val.perceptual_loudness[17],
+            val.perceptual_loudness[18],
+            val.perceptual_loudness[19],
+            val.perceptual_loudness[20],
+            val.perceptual_loudness[21],
+            val.perceptual_loudness[22],
+            val.perceptual_loudness[23],
+            val.mfcc[0],
+            val.mfcc[1],
+            val.mfcc[2],
+            val.mfcc[3],
+            val.mfcc[4],
+            val.mfcc[5],
+            val.mfcc[6],
+            val.mfcc[7],
+            val.mfcc[8],
+            val.mfcc[9],
+            val.mfcc[10],
+            val.mfcc[11],
+            val.mfcc[12],
+        ]
+        .into_iter()
+        .map(|x| x as f32)
+        .collect::<Vec<f32>>()
+        .try_into()
+        .expect("Expected a Vec of length 61")
+    }
+}
+
 /// Macro to process individual fields by updating their sum and count.
 macro_rules! process_field {
     ($sum:expr, $count:expr, $result:expr, $field:ident) => {
