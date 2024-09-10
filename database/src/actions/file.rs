@@ -1,8 +1,10 @@
+use anyhow::Result;
 use metadata::describe::FileDescription;
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QuerySelect, QueryTrait,
 };
+use std::collections::HashMap;
 use std::path::Path;
 
 use migration::{Func, SimpleExpr};
@@ -12,6 +14,25 @@ use crate::{get_by_id, get_by_ids};
 
 get_by_ids!(get_files_by_ids, media_files);
 get_by_id!(get_file_by_id, media_files);
+
+pub async fn get_ordered_files_by_ids(
+    main_db: &DatabaseConnection,
+    file_ids: &[i32],
+) -> Result<Vec<media_files::Model>> {
+    let files = get_files_by_ids(main_db, file_ids).await?;
+
+    // Create a HashMap to store file_id -> file mapping
+    let file_map: HashMap<i32, media_files::Model> =
+        files.into_iter().map(|file| (file.id, file)).collect();
+
+    // Reorder files based on the order of recommendation_ids
+    let ordered_files: Vec<media_files::Model> = file_ids
+        .iter()
+        .filter_map(|id| file_map.get(id).cloned())
+        .collect();
+
+    Ok(ordered_files)
+}
 
 pub async fn get_random_files(
     db: &DatabaseConnection,
@@ -186,9 +207,8 @@ pub async fn compound_query_media_files(
             .column(media_file_artists::Column::MediaFileId)
             .into_query();
 
-        or_condition = or_condition.add(
-            Expr::col(media_files::Column::Id).in_subquery(artist_subquery),
-        );
+        or_condition =
+            or_condition.add(Expr::col(media_files::Column::Id).in_subquery(artist_subquery));
     }
 
     // Filter by album_ids if provided
@@ -199,9 +219,8 @@ pub async fn compound_query_media_files(
             .column(media_file_albums::Column::MediaFileId)
             .into_query();
 
-        or_condition = or_condition.add(
-            Expr::col(media_files::Column::Id).in_subquery(album_subquery),
-        );
+        or_condition =
+            or_condition.add(Expr::col(media_files::Column::Id).in_subquery(album_subquery));
     }
 
     // Filter by playlist_ids if provided
@@ -212,9 +231,8 @@ pub async fn compound_query_media_files(
             .column(media_file_playlists::Column::MediaFileId)
             .into_query();
 
-        or_condition = or_condition.add(
-            Expr::col(media_files::Column::Id).in_subquery(playlist_subquery),
-        );
+        or_condition =
+            or_condition.add(Expr::col(media_files::Column::Id).in_subquery(playlist_subquery));
     }
 
     // Filter by directories if provided

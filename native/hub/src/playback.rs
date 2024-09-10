@@ -1,3 +1,4 @@
+use database::actions::recommendation::get_recommendation_by_percentile;
 use dunce::canonicalize;
 use log::error;
 use rinf::DartSignal;
@@ -25,6 +26,7 @@ use crate::messages::playback::{
     SeekRequest, SwitchRequest,
 };
 use crate::messages::recommend::{PlaybackRecommendation, RecommendAndPlayRequest};
+use crate::RecommendAndPlayMixRequest;
 use crate::{
     AddToQueueCollectionRequest, MovePlaylistItemRequest, StartPlayingCollectionRequest,
     StartRoamingCollectionRequest,
@@ -60,7 +62,7 @@ async fn play_file_by_id(
     }
 }
 
-fn files_to_playback_request(
+pub fn files_to_playback_request(
     lib_path: &String,
     files: Vec<database::entities::media_files::Model>,
 ) -> std::vec::Vec<(i32, std::path::PathBuf)> {
@@ -114,46 +116,6 @@ pub async fn play_file_request(
     let file_id = play_file_request.file_id;
 
     play_file_by_id(main_db, player, lib_path, file_id).await;
-
-    Ok(())
-}
-
-pub async fn recommend_and_play_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    lib_path: Arc<String>,
-    player: Arc<Mutex<Player>>,
-    dart_signal: DartSignal<RecommendAndPlayRequest>,
-) -> Result<()> {
-    let file_id = dart_signal.message.file_id;
-
-    let recommendations = match get_recommendation_by_file_id(&recommend_db, file_id, 30) {
-        Ok(recs) => recs,
-        Err(e) => {
-            error!("Error getting recommendations: {:#?}", e);
-            Vec::new()
-        }
-    };
-
-    let recommendation_ids: Vec<i32> = recommendations.iter().map(|x| x.0 as i32).collect();
-
-    let files = get_files_by_ids(&main_db, &recommendation_ids).await?;
-
-    // Create a HashMap to store file_id -> file mapping
-    let file_map: HashMap<i32, database::entities::media_files::Model> =
-        files.into_iter().map(|file| (file.id, file)).collect();
-
-    // Reorder files based on the order of recommendation_ids
-    let ordered_files: Vec<database::entities::media_files::Model> = recommendation_ids
-        .into_iter()
-        .filter_map(|id| file_map.get(&id).cloned())
-        .collect();
-
-    let requests = files_to_playback_request(&lib_path, ordered_files);
-    update_playlist(&player, requests.clone()).await;
-
-    let recommended_ids: Vec<i32> = requests.into_iter().map(|(id, _)| id).collect();
-    PlaybackRecommendation { recommended_ids }.send_signal_to_dart();
 
     Ok(())
 }
@@ -245,7 +207,8 @@ pub async fn start_roaming_collection_request(
     };
 
     let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await;
-    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30).unwrap();
+    let recommendations =
+        get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30).unwrap();
 
     let files = get_files_by_ids(
         &main_db,

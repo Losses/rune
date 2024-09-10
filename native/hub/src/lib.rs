@@ -11,6 +11,7 @@ mod messages;
 mod playback;
 mod player;
 mod playlist;
+mod recommend;
 mod search;
 
 use log::{debug, info};
@@ -37,6 +38,7 @@ use crate::media_file::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
+use crate::recommend::*;
 use crate::search::*;
 
 use messages::album::*;
@@ -118,7 +120,6 @@ async fn player_loop(path: String) {
             AnalyseAudioLibraryRequest => (main_db, recommend_db, cancel_token),
 
             PlayFileRequest => (main_db, lib_path, player),
-            RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
             PlayRequest => (player),
             PauseRequest => (player),
             NextRequest => (player),
@@ -127,6 +128,9 @@ async fn player_loop(path: String) {
             SeekRequest => (player),
             RemoveRequest => (player),
 
+            RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
+            RecommendAndPlayMixRequest => (main_db, recommend_db, lib_path, player),
+            
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             CompoundQueryMediaFilesRequest => (main_db, lib_path),

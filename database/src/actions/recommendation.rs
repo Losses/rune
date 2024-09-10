@@ -181,14 +181,14 @@ pub async fn get_percentile(
         .column(media_analysis::Column::FileId)
         .offset(index)
         .limit(1)
-        .into_tuple::<f64>()
+        .into_tuple::<i32>()
         .one(main_db)
-        .await?;
+        .await.with_context(|| "Unable to get analysis value")?;
 
     Ok(result.unwrap_or_default() as f32)
 }
 
-pub async fn recommend_by_percentile(
+pub async fn get_recommendation_by_percentile(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
     total_groups: usize,
@@ -258,9 +258,12 @@ pub async fn recommend_by_percentile(
         media_analysis::Column::Mfcc12,
     ];
 
-    let total_files = media_files::Entity::find().count(main_db).await? as usize;
+    let total_files = media_files::Entity::find()
+        .count(main_db)
+        .await
+        .with_context(|| "Unable to get total files")? as usize;
 
-    let p = 1.0 / (total_groups as f64 + 2.0) * group_index as f64;
+    let p = 1.0 / (total_groups + 2) as f64 * (group_index + 1) as f64;
     let futures = columns
         .iter()
         .map(|column| get_percentile(main_db, total_files, *column, p));
@@ -269,7 +272,7 @@ pub async fn recommend_by_percentile(
 
     let mut virtual_point = Vec::new();
     for percentile in percentiles {
-        match percentile {
+        match percentile.with_context(|| "Unable to calculate percentile") {
             Ok(value) => virtual_point.push(value),
             Err(e) => return Err(e),
         }
