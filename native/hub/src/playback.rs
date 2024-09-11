@@ -1,11 +1,9 @@
-use database::actions::recommendation::get_recommendation_by_percentile;
-use dunce::canonicalize;
-use log::error;
-use rinf::DartSignal;
-use sea_orm::DatabaseConnection;
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+
+use dunce::canonicalize;
+use rinf::DartSignal;
+use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
 use database::actions::albums::get_media_file_ids_of_album;
@@ -14,9 +12,7 @@ use database::actions::artists::get_media_file_ids_of_artist;
 use database::actions::file::get_file_by_id;
 use database::actions::file::get_files_by_ids;
 use database::actions::playlists::get_media_file_ids_of_playlist;
-use database::actions::recommendation::{
-    get_recommendation_by_file_id, get_recommendation_by_parameter,
-};
+use database::actions::recommendation::get_recommendation_by_parameter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use playback::player::Player;
 
@@ -25,8 +21,6 @@ use crate::messages::playback::{
     NextRequest, PauseRequest, PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest,
     SeekRequest, SwitchRequest,
 };
-use crate::messages::recommend::{PlaybackRecommendation, RecommendAndPlayRequest};
-use crate::RecommendAndPlayMixRequest;
 use crate::{
     AddToQueueCollectionRequest, MovePlaylistItemRequest, StartPlayingCollectionRequest,
     StartRoamingCollectionRequest,
@@ -206,9 +200,8 @@ pub async fn start_roaming_collection_request(
         _ => Ok(vec![]),
     };
 
-    let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await;
-    let recommendations =
-        get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30).unwrap();
+    let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await?;
+    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30)?;
 
     let files = get_files_by_ids(
         &main_db,

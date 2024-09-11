@@ -121,6 +121,7 @@ impl Error for ConnectRecommendationDbError {}
 
 const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
+#[derive(Debug, Clone)]
 pub struct RecommendationDbConnection {
     pub env: Env,
     pub db: ArroyDatabase<Euclidean>,

@@ -69,11 +69,15 @@ macro_rules! select_signal {
                 tokio::select! {
                     $(
                         dart_signal = [<receiver_ $type:snake>].recv() => {
-                            if let Some(dart_signal) = dart_signal {
-                                debug!("Processing signal: {}", stringify!($type));
-                                let handler_fn = [<$type:snake>];
-                                let _ = handler_fn($($arg.clone()),*, dart_signal).await;
-                            }
+                            $(let $arg = Arc::clone(&$arg);)*
+                            tokio::spawn(async move {
+                                if let Some(dart_signal) = dart_signal {
+                                    debug!("Processing signal: {}", stringify!($type));
+                                    let handler_fn = [<$type:snake>];
+                                    // Clone the arguments to pass them into the async block
+                                    let _ = handler_fn($($arg),*, dart_signal).await;
+                                }
+                            });
                         }
                     )*
                     else => continue,
@@ -82,8 +86,6 @@ macro_rules! select_signal {
         }
     };
 }
-
-rinf::write_interface!();
 
 async fn player_loop(path: String) {
     // Ensure that the path is set before calling fetch_media_files
@@ -111,7 +113,6 @@ async fn player_loop(path: String) {
         tokio::spawn(initialize_player(main_db.clone(), player.clone()));
 
         info!("Initializing UI events");
-
         select_signal!(
             cancel_token,
 
@@ -130,7 +131,8 @@ async fn player_loop(path: String) {
 
             RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
             RecommendAndPlayMixRequest => (main_db, recommend_db, lib_path, player),
-            
+            IfAnalysisExistsRequest => (main_db),
+
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             CompoundQueryMediaFilesRequest => (main_db, lib_path),
@@ -173,6 +175,8 @@ async fn player_loop(path: String) {
         );
     });
 }
+
+rinf::write_interface!();
 
 async fn main() {
     let filter = EnvFilter::new(

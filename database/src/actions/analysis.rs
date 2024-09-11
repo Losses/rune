@@ -56,7 +56,7 @@ where
         .all(main_db)
         .await?;
 
-    info!("Anready analysed files: {}", existed_ids.len());
+    info!("Already analysed files: {}", existed_ids.len());
 
     let mut cursor = media_files::Entity::find()
         .filter(media_files::Column::Id.is_not_in(existed_ids))
@@ -67,10 +67,11 @@ where
 
     let (tx, rx) = async_channel::bounded(batch_size);
     let mut total_processed = 0;
+    let mut has_more_files = true;
 
     // Producer task: fetch batches of files and send them to the consumer
     let producer = async {
-        loop {
+        while has_more_files {
             // Check for cancellation
             if let Some(ref token) = cancel_token {
                 if token.is_cancelled() {
@@ -87,6 +88,7 @@ where
 
             if files.is_empty() {
                 info!("No more files to process. Exiting loop.");
+                has_more_files = false;
                 break;
             }
 
@@ -99,6 +101,7 @@ where
                 info!("Moving cursor after file ID: {}", last_file.id);
                 cursor.after(last_file.id);
             } else {
+                has_more_files = false;
                 break;
             }
         }
@@ -123,9 +126,12 @@ where
             let lib_path = lib_path.to_path_buf();
             let file_id = file.id;
 
-            let task = task::spawn(async move {
+            let task = task::spawn_blocking(move || {
                 info!("Processing file with ID: {}", file_id);
-                (file_id, analysis_file(&file, &lib_path).await)
+                let result = tokio::task::block_in_place(move || async move {
+                    analysis_file(&file, &lib_path).await
+                });
+                (file_id, result)
             });
 
             tasks.push(task);
@@ -143,7 +149,7 @@ where
 
                 for result in results {
                     match result {
-                        Ok((file_id, x)) => match x {
+                        Ok((file_id, x)) => match x.await {
                             Ok(x) => insert_analysis_result(&txn, file_id, x).await?,
                             Err(e) => error!("Error processing file: {:?}", e),
                         },
@@ -287,7 +293,7 @@ pub struct AggregatedAnalysisResult {
 
 impl From<AggregatedAnalysisResult> for [f32; 61] {
     fn from(val: AggregatedAnalysisResult) -> Self {
-        vec![
+        [
             val.rms,
             val.zcr,
             val.energy,
@@ -298,60 +304,13 @@ impl From<AggregatedAnalysisResult> for [f32; 61] {
             val.spectral_spread,
             val.spectral_skewness,
             val.spectral_kurtosis,
-            val.chroma[0],
-            val.chroma[1],
-            val.chroma[2],
-            val.chroma[3],
-            val.chroma[4],
-            val.chroma[5],
-            val.chroma[6],
-            val.chroma[7],
-            val.chroma[8],
-            val.chroma[9],
-            val.chroma[10],
-            val.chroma[11],
-            val.perceptual_spread,
-            val.perceptual_sharpness,
-            val.perceptual_loudness[0],
-            val.perceptual_loudness[1],
-            val.perceptual_loudness[2],
-            val.perceptual_loudness[3],
-            val.perceptual_loudness[4],
-            val.perceptual_loudness[5],
-            val.perceptual_loudness[6],
-            val.perceptual_loudness[7],
-            val.perceptual_loudness[8],
-            val.perceptual_loudness[9],
-            val.perceptual_loudness[10],
-            val.perceptual_loudness[11],
-            val.perceptual_loudness[12],
-            val.perceptual_loudness[13],
-            val.perceptual_loudness[14],
-            val.perceptual_loudness[15],
-            val.perceptual_loudness[16],
-            val.perceptual_loudness[17],
-            val.perceptual_loudness[18],
-            val.perceptual_loudness[19],
-            val.perceptual_loudness[20],
-            val.perceptual_loudness[21],
-            val.perceptual_loudness[22],
-            val.perceptual_loudness[23],
-            val.mfcc[0],
-            val.mfcc[1],
-            val.mfcc[2],
-            val.mfcc[3],
-            val.mfcc[4],
-            val.mfcc[5],
-            val.mfcc[6],
-            val.mfcc[7],
-            val.mfcc[8],
-            val.mfcc[9],
-            val.mfcc[10],
-            val.mfcc[11],
-            val.mfcc[12],
         ]
-        .into_iter()
-        .map(|x| x as f32)
+        .iter()
+        .chain(&val.chroma)
+        .chain(&vec![val.perceptual_spread, val.perceptual_sharpness])
+        .chain(&val.perceptual_loudness)
+        .chain(&val.mfcc)
+        .map(|x| *x as f32)
         .collect::<Vec<f32>>()
         .try_into()
         .expect("Expected a Vec of length 61")
@@ -408,6 +367,14 @@ macro_rules! calculate_array_mean {
     }};
 }
 
+pub async fn if_analysis_exists(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
+    Ok(media_analysis::Entity::find()
+        .filter(media_analysis::Column::FileId.eq(file_id))
+        .count(main_db)
+        .await?
+        != 0)
+}
+
 /// Computes the centralized analysis result from the database.
 ///
 /// This function retrieves analysis results based on specified file IDs,
@@ -415,7 +382,7 @@ macro_rules! calculate_array_mean {
 ///
 /// # Arguments
 ///
-/// * `db` - A reference to the database connection.
+/// * `main_db` - A reference to the database connection.
 /// * `file_ids` - A vector of file IDs to filter the analysis results.
 ///
 /// # Returns
@@ -425,20 +392,19 @@ macro_rules! calculate_array_mean {
 /// # Example
 ///
 /// ```rust
-/// let db: DatabaseConnection = ...;
+/// let main_db: DatabaseConnection = ...;
 /// let file_ids = vec![1, 2, 3];
-/// let result = get_centralized_analysis_result(&db, file_ids).await;
+/// let result = get_centralized_analysis_result(&main_db, file_ids).await;
 /// println!("{:?}", result);
 /// ```
 pub async fn get_centralized_analysis_result(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     file_ids: Vec<i32>,
-) -> AggregatedAnalysisResult {
+) -> Result<AggregatedAnalysisResult> {
     let analysis_results = media_analysis::Entity::find()
         .filter(media_analysis::Column::FileId.is_in(file_ids))
-        .all(db)
-        .await
-        .unwrap();
+        .all(main_db)
+        .await?;
 
     let mut sum = AggregatedAnalysisResult {
         rms: 0.0,
@@ -495,7 +461,7 @@ pub async fn get_centralized_analysis_result(
         process_array!(sum, count, result, chroma, 12);
     }
 
-    AggregatedAnalysisResult {
+    Ok(AggregatedAnalysisResult {
         rms: calculate_mean!(sum, count, rms),
         zcr: calculate_mean!(sum, count, zcr),
         energy: calculate_mean!(sum, count, energy),
@@ -511,5 +477,5 @@ pub async fn get_centralized_analysis_result(
         chroma: calculate_array_mean!(sum, count, chroma, 12),
         perceptual_loudness: calculate_array_mean!(sum, count, perceptual_loudness, 24),
         mfcc: calculate_array_mean!(sum, count, mfcc, 13),
-    }
+    })
 }
