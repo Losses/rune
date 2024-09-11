@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::path::Path;
 
 use anyhow::Result;
-use log::{error, info};
+use log::{debug, error, info};
 use paste::paste;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, QuerySelect};
@@ -134,7 +134,7 @@ where
                                 match insert_analysis_result(&main_db, file_id, analysis_result)
                                     .await
                                 {
-                                    Ok(_) => info!("Finished analysis: {}", file_id),
+                                    Ok(_) => debug!("Finished analysis: {}", file_id),
                                     Err(e) => error!("Failed to insert analysis result: {}", e),
                                 }
                             }

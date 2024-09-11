@@ -14,8 +14,9 @@ mod playlist;
 mod recommend;
 mod search;
 
-use log::{debug, info};
 use std::sync::Arc;
+
+use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::filter::EnvFilter;
@@ -57,7 +58,13 @@ macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
         paste::paste! {
             $(
-                let mut [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver().unwrap();
+                let mut [<receiver_ $type:snake>] = match <$type>::get_dart_signal_receiver() {
+                    Ok(receiver) => receiver,
+                    Err(e) => {
+                        error!("Failed to get Dart signal receiver for {}: {}", stringify!($type), e);
+                        return;
+                    }
+                };
             )*
 
             loop {
@@ -70,14 +77,10 @@ macro_rules! select_signal {
                     $(
                         dart_signal = [<receiver_ $type:snake>].recv() => {
                             $(let $arg = Arc::clone(&$arg);)*
-                            tokio::spawn(async move {
-                                if let Some(dart_signal) = dart_signal {
-                                    debug!("Processing signal: {}", stringify!($type));
-                                    let handler_fn = [<$type:snake>];
-                                    // Clone the arguments to pass them into the async block
-                                    let _ = handler_fn($($arg),*, dart_signal).await;
-                                }
-                            });
+                            if let Some(dart_signal) = dart_signal {
+                                debug!("Processing signal: {}", stringify!($type));
+                                let _ = [<$type:snake>]($($arg),*, dart_signal).await;
+                            }
                         }
                     )*
                     else => continue,
@@ -88,19 +91,37 @@ macro_rules! select_signal {
 }
 
 async fn player_loop(path: String) {
-    // Ensure that the path is set before calling fetch_media_files
-
     info!("Media Library Received, initialize other receivers");
 
-    tokio::spawn(async {
-        // Move the path into the async block
+    tokio::spawn(async move {
         info!("Initializing database");
-        let main_db = Arc::new(connect_main_db(&path).await.unwrap());
-        let recommend_db = Arc::new(connect_recommendation_db(&path).unwrap());
-        let search_db = Arc::new(Mutex::new(connect_search_db(&path).unwrap()));
+
+        let main_db = match connect_main_db(&path).await {
+            Ok(db) => Arc::new(db),
+            Err(e) => {
+                error!("Failed to connect to main DB: {}", e);
+                return;
+            }
+        };
+
+        let recommend_db = match connect_recommendation_db(&path) {
+            Ok(db) => Arc::new(db),
+            Err(e) => {
+                error!("Failed to connect to recommendation DB: {}", e);
+                return;
+            }
+        };
+
+        let search_db = match connect_search_db(&path) {
+            Ok(db) => Arc::new(Mutex::new(db)),
+            Err(e) => {
+                error!("Failed to connect to search DB: {}", e);
+                return;
+            }
+        };
+
         let lib_path = Arc::new(path);
 
-        // Create a cancellation token
         let cancel_token = CancellationToken::new();
 
         info!("Initializing player");
@@ -189,5 +210,7 @@ async fn main() {
         .init();
 
     // Start receiving the media library path
-    let _ = receive_media_library_path(player_loop).await;
+    if let Err(e) = receive_media_library_path(player_loop).await {
+        error!("Failed to receive media library path: {}", e);
+    }
 }
