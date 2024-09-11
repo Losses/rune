@@ -6,7 +6,7 @@ use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
-use crate::internal::{PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
@@ -16,6 +16,8 @@ pub struct PlayerStatus {
     pub position: Duration,
     pub state: PlaybackState,
     pub playlist: Vec<i32>,
+    pub playback_mode: PlaybackMode,
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -83,7 +85,9 @@ impl Player {
             path: None,
             position: Duration::new(0, 0),
             state: PlaybackState::Stopped,
+            playback_mode: PlaybackMode::Sequential,
             playlist: Vec::new(),
+            ready: false,
         }));
 
         let commands = Arc::new(Mutex::new(cmd_tx));
@@ -122,11 +126,13 @@ impl Player {
                         id,
                         index,
                         path,
+                        playback_mode,
                         position,
                     } => {
                         status.id = Some(id);
                         status.index = Some(index);
                         status.path = Some(path);
+                        status.playback_mode = playback_mode;
                         status.position = position;
                         status.state = PlaybackState::Playing;
                     }
@@ -134,11 +140,13 @@ impl Player {
                         id,
                         index,
                         path,
+                        playback_mode,
                         position,
                     } => {
                         status.id = Some(id);
                         status.index = Some(index);
                         status.path = Some(path);
+                        status.playback_mode = playback_mode;
                         status.position = position;
                         status.state = PlaybackState::Paused;
                     }
@@ -153,12 +161,16 @@ impl Player {
                         id,
                         index,
                         path,
+                        playback_mode,
                         position,
+                        ready,
                     } => {
-                        status.id = Some(id);
-                        status.index = Some(index);
-                        status.path = Some(path);
+                        status.id = id;
+                        status.index = index;
+                        status.path = path;
+                        status.playback_mode = playback_mode;
                         status.position = position;
+                        status.ready = ready;
                     }
                     PlayerEvent::EndOfPlaylist => {
                         status.index = None;
@@ -170,7 +182,10 @@ impl Player {
                         id: _,
                         index: _,
                         path: _,
-                    } => {}
+                        playback_mode,
+                    } => {
+                        status.playback_mode = playback_mode;
+                    }
                     PlayerEvent::Error {
                         id,
                         index,
@@ -292,5 +307,9 @@ impl Player {
             old_index,
             new_index,
         })
+    }
+
+    pub fn set_playback_mode(&mut self, mode: PlaybackMode) {
+        self.command(PlayerCommand::SetPlaybackMode(mode))
     }
 }

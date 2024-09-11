@@ -72,12 +72,14 @@ pub async fn initialize_player(
                 state: status.state.to_string(),
                 progress_seconds: position.as_secs_f32(),
                 progress_percentage,
-                artist: meta.artist.clone(),
-                album: meta.album.clone(),
-                title: meta.title.clone(),
-                duration: meta.duration,
-                id: status.id.unwrap_or(0).try_into().unwrap(),
-                index: status.index.unwrap_or(0).try_into().unwrap(),
+                artist: Some(meta.artist.clone()),
+                album: Some(meta.album.clone()),
+                title: Some(meta.title.clone()),
+                duration: Some(meta.duration),
+                id: status.id,
+                index: status.index.map(|i| i as i32),
+                playback_mode: status.playback_mode.into(),
+                ready: status.ready,
             }
             .send_signal_to_dart();
         }
@@ -109,10 +111,8 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
     match get_metadata_summary_by_file_ids(db, file_ids.clone()).await {
         Ok(summaries) => {
             // Create a HashMap to store summaries by their id
-            let summary_map: HashMap<i32, _> = summaries
-                .into_iter()
-                .map(|item| (item.id, item))
-                .collect();
+            let summary_map: HashMap<i32, _> =
+                summaries.into_iter().map(|item| (item.id, item)).collect();
 
             // Reorder items according to file_ids
             let items: Vec<PlaylistItem> = file_ids

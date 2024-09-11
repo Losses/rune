@@ -1,14 +1,51 @@
-use log::{debug, error, info, warn};
-use rodio::{Decoder, OutputStream, Sink, Source};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+use log::{debug, error, info, warn};
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rodio::{Decoder, OutputStream, Sink, Source};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::realtime_fft::RealTimeFFT;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlaybackMode {
+    Sequential,
+    RepeatOne,
+    RepeatAll,
+    Shuffle,
+}
+
+impl TryFrom<u32> for PlaybackMode {
+    type Error = &'static str;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(PlaybackMode::Sequential),
+            1 => Ok(PlaybackMode::RepeatOne),
+            2 => Ok(PlaybackMode::RepeatAll),
+            3 => Ok(PlaybackMode::Shuffle),
+            _ => Err("Invalid value for PlaybackMode"),
+        }
+    }
+}
+
+impl From<PlaybackMode> for u32 {
+    fn from(mode: PlaybackMode) -> Self {
+        match mode {
+            PlaybackMode::Sequential => 0,
+            PlaybackMode::RepeatOne => 1,
+            PlaybackMode::RepeatAll => 2,
+            PlaybackMode::Shuffle => 3,
+        }
+    }
+}
 
 #[derive(Debug)]
 pub enum PlayerCommand {
@@ -24,6 +61,7 @@ pub enum PlayerCommand {
     RemoveFromPlaylist { index: usize },
     ClearPlaylist,
     MovePlayListItem { old_index: usize, new_index: usize },
+    SetPlaybackMode(PlaybackMode),
 }
 
 #[derive(Debug, Clone)]
@@ -33,12 +71,14 @@ pub enum PlayerEvent {
         id: i32,
         index: usize,
         path: PathBuf,
+        playback_mode: PlaybackMode,
         position: Duration,
     },
     Paused {
         id: i32,
         index: usize,
         path: PathBuf,
+        playback_mode: PlaybackMode,
         position: Duration,
     },
     EndOfPlaylist,
@@ -46,6 +86,7 @@ pub enum PlayerEvent {
         id: i32,
         index: usize,
         path: PathBuf,
+        playback_mode: PlaybackMode,
     },
     Error {
         id: i32,
@@ -54,10 +95,12 @@ pub enum PlayerEvent {
         error: String,
     },
     Progress {
-        id: i32,
-        index: usize,
-        path: PathBuf,
+        id: Option<i32>,
+        index: Option<usize>,
+        path: Option<PathBuf>,
         position: Duration,
+        playback_mode: PlaybackMode,
+        ready: bool,
     },
     PlaylistUpdated(Vec<i32>),
     RealtimeFFT(Vec<f32>),
@@ -76,6 +119,30 @@ enum InternalPlaybackState {
     Stopped,
 }
 
+/// Generates a random sequence from 1 to max_value and returns the nth value
+///
+/// # Parameters
+///
+/// * `seed` - The seed for the random number generator
+/// * `max_value` - The maximum value of the sequence
+/// * `n` - The nth value to return (1-based index)
+///
+/// # Returns
+///
+/// Returns the nth value, or None if n is out of range
+fn get_random_sequence(seed: u64, max_value: usize) -> Vec<usize> {
+    // Create a sequence from 1 to max_value
+    let mut values: Vec<usize> = (1..=max_value).collect();
+
+    // Create a random number generator with the given seed
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    // Shuffle the sequence
+    values.shuffle(&mut rng);
+
+    values
+}
+
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
@@ -89,6 +156,8 @@ pub(crate) struct PlayerInternal {
     state: InternalPlaybackState,
     debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
+    playback_mode: PlaybackMode,
+    random_map: Vec<usize>,
 }
 
 impl PlayerInternal {
@@ -110,6 +179,8 @@ impl PlayerInternal {
             state: InternalPlaybackState::Stopped,
             debounce_timer: None,
             cancellation_token,
+            playback_mode: PlaybackMode::Sequential,
+            random_map: [].to_vec(),
         }
     }
 
@@ -140,7 +211,8 @@ impl PlayerInternal {
                         PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path).await,
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
-                        PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await
+                        PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await,
+                        PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
                     }
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -174,7 +246,8 @@ impl PlayerInternal {
     fn load(&mut self, index: Option<usize>) {
         if let Some(index) = index {
             debug!("Loading track at index: {}", index);
-            let item = &self.playlist[index];
+            let mapped_index = self.get_mapped_track_index(index);
+            let item = &self.playlist[mapped_index];
             let file = File::open(item.path.clone());
             match file {
                 Ok(file) => {
@@ -213,8 +286,9 @@ impl PlayerInternal {
                             self.event_sender
                                 .send(PlayerEvent::Playing {
                                     id: self.current_track_id.unwrap(),
-                                    index: self.current_track_index.unwrap(),
+                                    index: mapped_index,
                                     path: self.current_track_path.clone().unwrap(),
+                                    playback_mode: self.playback_mode,
                                     position: Duration::new(0, 0),
                                 })
                                 .unwrap();
@@ -225,7 +299,7 @@ impl PlayerInternal {
                             self.event_sender
                                 .send(PlayerEvent::Error {
                                     id: self.current_track_id.unwrap(),
-                                    index,
+                                    index: mapped_index,
                                     path: item.path.clone(),
                                     error: "Failed to decode audio".to_string(),
                                 })
@@ -239,7 +313,7 @@ impl PlayerInternal {
                     self.event_sender
                         .send(PlayerEvent::Error {
                             id: self.current_track_id.unwrap(),
-                            index,
+                            index: mapped_index,
                             path: item.path.clone(),
                             error: "Failed to open file".to_string(),
                         })
@@ -256,11 +330,15 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.play();
             info!("Playback started");
+
+            let track_index = self.current_track_index.unwrap();
+            let track_index = self.get_mapped_track_index(track_index);
             self.event_sender
                 .send(PlayerEvent::Playing {
                     id: self.current_track_id.unwrap(),
-                    index: self.current_track_index.unwrap(),
+                    index: track_index,
                     path: self.current_track_path.clone().unwrap(),
+                    playback_mode: self.playback_mode,
                     position: Duration::new(0, 0),
                 })
                 .unwrap();
@@ -276,12 +354,17 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             sink.pause();
             info!("Playback paused");
+
+            let position = sink.get_pos();
+            let track_index = self.current_track_index.unwrap();
+            let track_index = self.get_mapped_track_index(track_index);
             self.event_sender
                 .send(PlayerEvent::Paused {
                     id: self.current_track_id.unwrap(),
-                    index: self.current_track_index.unwrap(),
+                    index: track_index,
                     path: self.current_track_path.clone().unwrap(),
-                    position: sink.get_pos(),
+                    playback_mode: self.playback_mode,
+                    position,
                 })
                 .unwrap();
             self.state = InternalPlaybackState::Paused;
@@ -301,31 +384,61 @@ impl PlayerInternal {
 
     fn next(&mut self) {
         if let Some(index) = self.current_track_index {
-            if index + 1 < self.playlist.len() {
-                self.current_track_index = Some(index + 1);
-                debug!("Moving to next track: {}", index + 1);
-                self.load(Some(index + 1));
-            } else {
-                info!("End of playlist reached");
-                self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
-                self.state = InternalPlaybackState::Stopped;
+            match self.playback_mode {
+                PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
+                    if index + 1 < self.playlist.len() {
+                        self.load(Some(index + 1));
+                    } else {
+                        info!("End of playlist reached");
+                        self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
+                        self.state = InternalPlaybackState::Stopped;
+                    }
+                }
+                PlaybackMode::RepeatAll => {
+                    if index + 1 < self.playlist.len() {
+                        self.load(Some(index + 1));
+                    } else {
+                        self.load(Some(0));
+                    }
+                }
+                PlaybackMode::Shuffle => {
+                    if index + 1 < self.playlist.len() {
+                        self.load(Some(index + 1));
+                    } else {
+                        self.update_random_map();
+                        self.load(Some(0));
+                    }
+                }
             }
-        } else {
-            warn!("Next command received but no track is currently playing");
         }
     }
 
     fn previous(&mut self) {
         if let Some(index) = self.current_track_index {
-            if index > 0 {
-                self.current_track_index = Some(index - 1);
-                debug!("Moving to previous track: {}", index - 1);
-                self.load(Some(index - 1));
-            } else {
-                error!("Previous command received but already at the first track");
+            match self.playback_mode {
+                PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
+                    if index > 0 {
+                        self.load(Some(index - 1));
+                    } else {
+                        info!("Begining of playlist reached");
+                    }
+                }
+                PlaybackMode::RepeatAll => {
+                    if index > 0 {
+                        self.load(Some(index - 1));
+                    } else {
+                        self.load(Some(self.playlist.len() - 1));
+                    }
+                }
+                PlaybackMode::Shuffle => {
+                    if index > 0 {
+                        self.load(Some(index - 1));
+                    } else {
+                        self.update_random_map();
+                        self.load(Some(self.playlist.len() - 1));
+                    }
+                }
             }
-        } else {
-            warn!("Previous command received but no track is currently playing");
         }
     }
 
@@ -344,11 +457,16 @@ impl PlayerInternal {
             match sink.try_seek(std::time::Duration::from_secs(position as u64)) {
                 Ok(_) => {
                     info!("Seeking to position: {} s", position);
+
+                    let position = sink.get_pos();
+                    let track_index = self.current_track_index.unwrap();
+                    let track_index = self.get_mapped_track_index(track_index);
                     match self.event_sender.send(PlayerEvent::Playing {
                         id: self.current_track_id.unwrap(),
-                        index: self.current_track_index.unwrap(),
+                        index: track_index,
                         path: self.current_track_path.clone().unwrap(),
-                        position: sink.get_pos(),
+                        playback_mode: self.playback_mode,
+                        position,
                     }) {
                         Ok(_) => (),
                         Err(e) => error!("Failed to send Playing event: {:?}", e),
@@ -365,6 +483,7 @@ impl PlayerInternal {
     async fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
         debug!("Adding to playlist: {:?}", path);
         self.playlist.push(PlaylistItem { id, path });
+        self.update_random_map();
         self.schedule_playlist_update();
     }
 
@@ -372,6 +491,7 @@ impl PlayerInternal {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", index);
             self.playlist.remove(index);
+            self.update_random_map();
             self.schedule_playlist_update();
         } else {
             error!(
@@ -383,6 +503,7 @@ impl PlayerInternal {
 
     async fn clear_playlist(&mut self) {
         self.playlist.clear();
+        self.update_random_map();
         self.current_track_index = None;
         self.sink = None;
         self._stream = None;
@@ -392,14 +513,49 @@ impl PlayerInternal {
         self.state = InternalPlaybackState::Stopped;
     }
 
+    fn set_playback_mode(&mut self, mode: PlaybackMode) {
+        self.playback_mode = mode;
+        if mode == PlaybackMode::Shuffle {
+            self.update_random_map();
+        }
+        self.send_progress();
+        info!("Playback mode set to {:?}", mode);
+    }
+
+    fn update_random_map(&mut self) {
+        let shuffle_seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        self.random_map = get_random_sequence(shuffle_seed, self.playlist.len());
+    }
+
+    fn get_mapped_track_index(&mut self, index: usize) -> usize {
+        if self.playback_mode == PlaybackMode::Shuffle {
+            self.random_map[index]
+        } else {
+            index
+        }
+    }
+
     fn send_progress(&mut self) {
+        let id = self.current_track_id;
+        let index = self.current_track_index;
+        let index = index.map(|x| self.get_mapped_track_index(x));
+        let path = self.current_track_path.clone();
+        let playback_mode = self.playback_mode;
+
         if let Some(sink) = &self.sink {
+            let position = sink.get_pos();
+
             if sink.empty() {
                 self.event_sender
                     .send(PlayerEvent::EndOfTrack {
-                        id: self.current_track_id.unwrap(),
-                        index: self.current_track_index.unwrap(),
-                        path: self.current_track_path.clone().unwrap(),
+                        id: id.unwrap(),
+                        index: index.unwrap(),
+                        path: path.unwrap(),
+                        playback_mode,
                     })
                     .unwrap();
 
@@ -409,13 +565,26 @@ impl PlayerInternal {
             } else {
                 self.event_sender
                     .send(PlayerEvent::Progress {
-                        id: self.current_track_id.unwrap(),
-                        index: self.current_track_index.unwrap(),
-                        path: self.current_track_path.clone().unwrap(),
-                        position: sink.get_pos(),
+                        id,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                        ready: true,
                     })
                     .unwrap();
             }
+        } else {
+            self.event_sender
+                .send(PlayerEvent::Progress {
+                    id,
+                    index,
+                    path,
+                    playback_mode,
+                    position: Duration::from_secs(0),
+                    ready: false,
+                })
+                .unwrap();
         }
     }
 
@@ -437,6 +606,7 @@ impl PlayerInternal {
 
         let item = self.playlist.remove(old_index);
         self.playlist.insert(new_index, item);
+        self.update_random_map();
 
         // Adjust current track index if necessary
         if let Some(current_index) = self.current_track_index {

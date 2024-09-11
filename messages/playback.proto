@@ -11,12 +11,14 @@ message PlaybackStatus {
   string state = 1;
   float progress_seconds = 2;
   float progress_percentage = 3;
-  string artist = 4;
-  string album = 5;
-  string title = 6;
-  double duration = 7;
-  uint32 index = 8;
-  uint32 id = 9;
+  optional string artist = 4;
+  optional string album = 5;
+  optional string title = 6;
+  optional double duration = 7;
+  optional int32 index = 8;
+  optional int32 id = 9;
+  uint32 playback_mode = 10;
+  bool ready = 11;
 }
 
 // [RINF:DART-SIGNAL]
@@ -30,6 +32,11 @@ message NextRequest {}
 
 // [RINF:DART-SIGNAL]
 message PreviousRequest {}
+
+// [RINF:DART-SIGNAL]
+message SetPlaybackModeRequest {
+  uint32 mode = 1;
+}
 
 // [RINF:DART-SIGNAL]
 message SwitchRequest {

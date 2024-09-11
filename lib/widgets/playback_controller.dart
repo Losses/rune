@@ -100,6 +100,92 @@ class NextButton extends StatelessWidget {
   }
 }
 
+enum PlaybackMode {
+  sequential,
+  repeatOne,
+  repeatAll,
+  shuffle,
+}
+
+extension PlaybackModeExtension on PlaybackMode {
+  int toValue() {
+    switch (this) {
+      case PlaybackMode.sequential:
+        return 0;
+      case PlaybackMode.repeatOne:
+        return 1;
+      case PlaybackMode.repeatAll:
+        return 2;
+      case PlaybackMode.shuffle:
+        return 3;
+    }
+  }
+
+  static PlaybackMode fromValue(int value) {
+    switch (value) {
+      case 0:
+        return PlaybackMode.sequential;
+      case 1:
+        return PlaybackMode.repeatOne;
+      case 2:
+        return PlaybackMode.repeatAll;
+      case 3:
+        return PlaybackMode.shuffle;
+      default:
+        throw ArgumentError('Invalid value for PlaybackMode: $value');
+    }
+  }
+}
+
+IconData modeToIcon(PlaybackMode mode) {
+  switch (mode) {
+    case PlaybackMode.sequential:
+      return Symbols.east;
+    case PlaybackMode.repeatAll:
+      return Symbols.repeat;
+    case PlaybackMode.repeatOne:
+      return Symbols.repeat_one;
+    case PlaybackMode.shuffle:
+      return Symbols.shuffle;
+  }
+}
+
+PlaybackMode nextMode(PlaybackMode mode) {
+  switch (mode) {
+    case PlaybackMode.sequential:
+      return PlaybackMode.repeatAll;
+    case PlaybackMode.repeatAll:
+      return PlaybackMode.repeatOne;
+    case PlaybackMode.repeatOne:
+      return PlaybackMode.shuffle;
+    case PlaybackMode.shuffle:
+      return PlaybackMode.sequential;
+  }
+}
+
+class PlaybackModeButton extends StatelessWidget {
+  const PlaybackModeButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<PlaybackStatusProvider>(
+      builder: (context, playbackStatusProvider, child) {
+        final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
+            playbackStatusProvider.playbackStatus?.playbackMode ?? 0);
+
+        return IconButton(
+          onPressed: () {
+            final next = nextMode(currentMode);
+            SetPlaybackModeRequest(mode: next.toValue())
+                .sendSignalToRust(); // GENERATED
+          },
+          icon: Icon(modeToIcon(currentMode)),
+        );
+      },
+    );
+  }
+}
+
 class PlaylistButton extends StatelessWidget {
   PlaylistButton({super.key});
 
@@ -112,98 +198,7 @@ class PlaylistButton extends StatelessWidget {
         preferredMode: FlyoutPlacementMode.topCenter,
       ),
       builder: (context) {
-        Typography typography = FluentTheme.of(context).typography;
-        Color accentColor = Color.alphaBlend(
-          FluentTheme.of(context).inactiveColor.withAlpha(100),
-          FluentTheme.of(context).accentColor,
-        );
-
-        return Selector<PlaybackStatusProvider, (int?, int?)>(
-            selector: (context, playbackStatusProvider) => (
-                  playbackStatusProvider.playbackStatus?.index,
-                  playbackStatusProvider.playbackStatus?.id
-                ),
-            builder: (context, playbackStatusProvider, child) {
-              return Consumer<PlaylistProvider>(
-                  builder: (context, playlistProvider, child) {
-                List<Widget> items = playlistProvider.items.map((item) {
-                  var isCurrent = playbackStatusProvider.$1 == item.index &&
-                      playbackStatusProvider.$2 == item.entry.id;
-                  var color = isCurrent ? accentColor : null;
-
-                  return ListTile.selectable(
-                    key: ValueKey(item.entry.id),
-                    title: Transform.translate(
-                      offset: const Offset(-8, 0),
-                      child: Row(
-                        children: [
-                          isCurrent
-                              ? Icon(Symbols.play_arrow, color: color, size: 24)
-                              : const SizedBox(width: 24),
-                          const SizedBox(
-                            width: 4,
-                          ),
-                          SizedBox(
-                            width: 320,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(item.entry.title,
-                                    overflow: TextOverflow.ellipsis,
-                                    style:
-                                        typography.body?.apply(color: color)),
-                                Opacity(
-                                  opacity: isCurrent ? 0.8 : 0.46,
-                                  child: Text(item.entry.artist,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: typography.caption
-                                          ?.apply(color: color)),
-                                ),
-                              ],
-                            ),
-                          )
-                        ],
-                      ),
-                    ),
-                    onPressed: () =>
-                        SwitchRequest(index: item.index).sendSignalToRust(),
-                  );
-                }).toList();
-
-                if (items.isEmpty) {
-                  items.add(
-                    ListTile.selectable(
-                      key: const Key("disabled"),
-                      leading: const Icon(Symbols.info),
-                      title: const Text('No items in playlist'),
-                      onPressed: () {},
-                    ),
-                  );
-                }
-
-                void onReorder(int oldIndex, int newIndex) {
-                  playlistProvider.reorderItems(oldIndex, newIndex);
-                }
-
-                return LayoutBuilder(builder:
-                    (BuildContext context, BoxConstraints constraints) {
-                  double maxHeight = constraints.maxHeight - 100;
-
-                  return ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxHeight: maxHeight,
-                        maxWidth: 400,
-                      ),
-                      child: FlyoutContent(
-                        child: ReorderableColumn(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          onReorder: onReorder,
-                          children: items,
-                        ),
-                      ));
-                });
-              });
-            });
+        return const Playlist();
       },
     );
   }
@@ -219,6 +214,107 @@ class PlaylistButton extends StatelessWidget {
         icon: const Icon(Symbols.list_alt),
       ),
     );
+  }
+}
+
+class Playlist extends StatelessWidget {
+  const Playlist({
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<PlaybackStatusProvider, (int?, int?)>(
+        selector: (context, playbackStatusProvider) => (
+              playbackStatusProvider.playbackStatus?.index,
+              playbackStatusProvider.playbackStatus?.id
+            ),
+        builder: (context, playbackStatusProvider, child) {
+          Typography typography = FluentTheme.of(context).typography;
+          Color accentColor = Color.alphaBlend(
+            FluentTheme.of(context).inactiveColor.withAlpha(100),
+            FluentTheme.of(context).accentColor,
+          );
+
+          return Consumer<PlaylistProvider>(
+              builder: (context, playlistProvider, child) {
+            List<Widget> items = playlistProvider.items.map((item) {
+              var isCurrent = playbackStatusProvider.$1 == item.index &&
+                  playbackStatusProvider.$2 == item.entry.id;
+              var color = isCurrent ? accentColor : null;
+
+              return ListTile.selectable(
+                key: ValueKey(item.entry.id),
+                title: Transform.translate(
+                  offset: const Offset(-8, 0),
+                  child: Row(
+                    children: [
+                      isCurrent
+                          ? Icon(Symbols.play_arrow, color: color, size: 24)
+                          : const SizedBox(width: 24),
+                      const SizedBox(
+                        width: 4,
+                      ),
+                      SizedBox(
+                        width: 320,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(item.entry.title,
+                                overflow: TextOverflow.ellipsis,
+                                style: typography.body?.apply(color: color)),
+                            Opacity(
+                              opacity: isCurrent ? 0.8 : 0.46,
+                              child: Text(item.entry.artist,
+                                  overflow: TextOverflow.ellipsis,
+                                  style:
+                                      typography.caption?.apply(color: color)),
+                            ),
+                          ],
+                        ),
+                      )
+                    ],
+                  ),
+                ),
+                onPressed: () =>
+                    SwitchRequest(index: item.index).sendSignalToRust(),
+              );
+            }).toList();
+
+            if (items.isEmpty) {
+              items.add(
+                ListTile.selectable(
+                  key: const Key("disabled"),
+                  leading: const Icon(Symbols.info),
+                  title: const Text('No items in playlist'),
+                  onPressed: () {},
+                ),
+              );
+            }
+
+            void onReorder(int oldIndex, int newIndex) {
+              playlistProvider.reorderItems(oldIndex, newIndex);
+            }
+
+            return LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+              double maxHeight = constraints.maxHeight - 100;
+
+              return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: maxHeight,
+                    maxWidth: 400,
+                  ),
+                  child: FlyoutContent(
+                    child: ReorderableColumn(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      onReorder: onReorder,
+                      children: items,
+                    ),
+                  ));
+            });
+          });
+        });
   }
 }
 
@@ -263,6 +359,8 @@ class PlaybackControllerState extends State<PlaybackController> {
 
         const scaleY = 0.9;
 
+        final notReady = s?.ready == null || s?.ready == false;
+
         return SizedBox(
           height: playbackControllerHeight,
           child: Stack(
@@ -294,7 +392,7 @@ class PlaybackControllerState extends State<PlaybackController> {
                         ),
                         Slider(
                           value: s != null ? s.progressPercentage * 100 : 0,
-                          onChanged: s != null
+                          onChanged: s != null && !notReady
                               ? (v) => SeekRequest(
                                       positionSeconds: (v / 100) * s.duration)
                                   .sendSignalToRust()
@@ -320,13 +418,14 @@ class PlaybackControllerState extends State<PlaybackController> {
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   PreviousButton(
-                    disabled: s == null,
+                    disabled: notReady,
                   ),
                   PlayPauseButton(
-                      disabled: s == null, state: s?.state ?? "Stopped"),
+                      disabled: notReady, state: s?.state ?? "Stopped"),
                   NextButton(
-                    disabled: s == null,
+                    disabled: notReady,
                   ),
+                  const PlaybackModeButton(),
                   PlaylistButton(),
                   const CoverWallButton(),
                   const SizedBox(width: 8),

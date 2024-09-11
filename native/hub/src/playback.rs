@@ -2,6 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use dunce::canonicalize;
+use log::debug;
+use log::info;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -21,6 +23,7 @@ use crate::messages::playback::{
     NextRequest, PauseRequest, PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest,
     SeekRequest, SwitchRequest,
 };
+use crate::SetPlaybackModeRequest;
 use crate::{
     AddToQueueCollectionRequest, MovePlaylistItemRequest, StartPlayingCollectionRequest,
     StartRoamingCollectionRequest,
@@ -232,6 +235,18 @@ pub async fn next_request(player: Arc<Mutex<Player>>, _: DartSignal<NextRequest>
 
 pub async fn previous_request(player: Arc<Mutex<Player>>, _: DartSignal<PreviousRequest>) {
     player.lock().await.previous()
+}
+
+pub async fn set_playback_mode_request(
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<SetPlaybackModeRequest>,
+) {
+    let mode = dart_signal.message.mode;
+    debug!("Setting playback mode to: {}", mode);
+    player
+        .lock()
+        .await
+        .set_playback_mode(mode.try_into().unwrap())
 }
 
 pub async fn switch_request(player: Arc<Mutex<Player>>, dart_signal: DartSignal<SwitchRequest>) {
