@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::path::Path;
 
 use anyhow::Result;
@@ -7,6 +8,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, QuerySelect};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use seq_macro::seq;
+use tokio::sync::Semaphore;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
@@ -103,6 +105,7 @@ where
     };
 
     let consumer_cancel_token = cancel_token.clone();
+    let semaphore = Arc::new(Semaphore::new(batch_size)); // Limit the concurrent task count 
     let consumer = {
         async move {
             while let Ok(file) = rx.recv().await {
@@ -116,6 +119,9 @@ where
                 let lib_path = lib_path.to_path_buf();
                 let file_id = file.id;
                 let main_db = main_db.clone(); // Clone the database connection for the task.
+                let semaphore = semaphore.clone(); // Clone the semaphore for the task.
+
+                let permit = semaphore.acquire_owned().await.unwrap(); // Acquire the permit
 
                 task::spawn(async move {
                     info!("Processing file with ID: {}", file_id);
@@ -136,6 +142,8 @@ where
                         },
                         Err(e) => error!("Failed to spawn analysis task: {}", e),
                     }
+
+                    drop(permit); // Release the permit
                 });
 
                 total_processed += 1;
