@@ -99,32 +99,30 @@ pub async fn analyse_audio_library_request(
     let closure_request_path = request_path.clone();
     let batch_size = determine_batch_size();
 
-    tokio::spawn(async move {
-        let total_files = analysis_audio_library(
-            &main_db,
-            Path::new(&request_path),
-            batch_size,
-            move |progress, total| {
-                AnalyseAudioLibraryProgress {
-                    path: closure_request_path.clone(), // Use the cloned path here
-                    progress: progress.try_into().unwrap(),
-                    total: total.try_into().unwrap(),
-                }
-                .send_signal_to_dart()
-            },
-            Some((*cancel_token).clone()),
-        )
+    let total_files = analysis_audio_library(
+        &main_db,
+        Path::new(&request_path),
+        batch_size,
+        move |progress, total| {
+            AnalyseAudioLibraryProgress {
+                path: closure_request_path.clone(), // Use the cloned path here
+                progress: progress.try_into().unwrap(),
+                total: total.try_into().unwrap(),
+            }
+            .send_signal_to_dart()
+        },
+        Some((*cancel_token).clone()),
+    )
+    .await
+    .expect("Audio analysis failed");
+
+    sync_recommendation(&main_db, &recommend_db)
         .await
-        .expect("Audio analysis failed");
+        .expect("Recommendation synchronization failed");
 
-        sync_recommendation(&main_db, &recommend_db)
-            .await
-            .expect("Recommendation synchronization failed");
-
-        AnalyseAudioLibraryResponse {
-            path: request_path.clone(), // Use the original cloned path here
-            total: total_files as i32,
-        }
-        .send_signal_to_dart();
-    });
+    AnalyseAudioLibraryResponse {
+        path: request_path.clone(), // Use the original cloned path here
+        total: total_files as i32,
+    }
+    .send_signal_to_dart();
 }
