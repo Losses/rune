@@ -24,9 +24,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(Mixes::Name).string().not_null())
                     .col(ColumnDef::new(Mixes::Group).string().null())
-                    .col(ColumnDef::new(Mixes::Combinition).integer().not_null())
-                    .col(ColumnDef::new(Mixes::Mode).integer().not_null())
-                    .col(ColumnDef::new(Mixes::Recommendation).integer().not_null())
+                    .col(ColumnDef::new(Mixes::Locked).boolean().not_null())
                     .col(ColumnDef::new(Mixes::ScriptletMode).boolean().not_null())
                     .col(ColumnDef::new(Mixes::CreatedAt).timestamp().not_null())
                     .col(ColumnDef::new(Mixes::UpdatedAt).timestamp().not_null())
@@ -48,9 +46,7 @@ pub enum Mixes {
     Id,
     Name,
     Group,
-    Combinition,
-    Mode,
-    Recommendation,
+    Locked,
     ScriptletMode,
     CreatedAt,
     UpdatedAt,

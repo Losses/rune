@@ -10,10 +10,8 @@ pub struct Model {
     pub id: i32,
     pub name: String,
     pub group: Option<String>,
-    pub combinition: i32,
-    pub mode: i32,
-    pub recommendation: i32,
     pub scriptlet_mode: bool,
+    pub locked: bool,
     pub created_at: String,
     pub updated_at: String,
 }
