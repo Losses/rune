@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use log::{debug, error};
 use rinf::DartSignal;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use database::actions::cover_art::get_magic_cover_art_id;
@@ -21,34 +22,17 @@ use database::connection::MainDbConnection;
 use database::connection::SearchDbConnection;
 use database::entities::playlists;
 
-use crate::messages::playlist::AddItemToPlaylistRequest;
-use crate::messages::playlist::AddItemToPlaylistResponse;
-use crate::messages::playlist::AddMediaFileToPlaylistRequest;
-use crate::messages::playlist::AddMediaFileToPlaylistResponse;
-use crate::messages::playlist::CheckItemsInPlaylistRequest;
-use crate::messages::playlist::CheckItemsInPlaylistResponse;
-use crate::messages::playlist::CreatePlaylistRequest;
-use crate::messages::playlist::CreatePlaylistResponse;
-use crate::messages::playlist::FetchPlaylistsGroupSummaryRequest;
-use crate::messages::playlist::FetchPlaylistsGroupsRequest;
-use crate::messages::playlist::GetPlaylistByIdRequest;
-use crate::messages::playlist::GetPlaylistByIdResponse;
-use crate::messages::playlist::GetUniquePlaylistGroupsRequest;
-use crate::messages::playlist::GetUniquePlaylistGroupsResponse;
-use crate::messages::playlist::Playlist;
-use crate::messages::playlist::PlaylistGroupSummaryResponse;
-use crate::messages::playlist::PlaylistsGroup;
-use crate::messages::playlist::PlaylistsGroupSummary;
-use crate::messages::playlist::PlaylistsGroups;
-use crate::messages::playlist::ReorderPlaylistItemPositionRequest;
-use crate::messages::playlist::ReorderPlaylistItemPositionResponse;
-use crate::messages::playlist::UpdatePlaylistRequest;
-use crate::messages::playlist::UpdatePlaylistResponse;
-use crate::FetchAllPlaylistsRequest;
-use crate::FetchAllPlaylistsResponse;
-use crate::FetchPlaylistsByIdsRequest;
-use crate::FetchPlaylistsByIdsResponse;
-use crate::PlaylistWithoutCoverIds;
+use crate::{
+    AddItemToPlaylistRequest, AddItemToPlaylistResponse, AddMediaFileToPlaylistRequest,
+    AddMediaFileToPlaylistResponse, CheckItemsInPlaylistRequest, CheckItemsInPlaylistResponse,
+    CreatePlaylistRequest, CreatePlaylistResponse, FetchAllPlaylistsRequest,
+    FetchAllPlaylistsResponse, FetchPlaylistsByIdsRequest, FetchPlaylistsByIdsResponse,
+    FetchPlaylistsGroupSummaryRequest, FetchPlaylistsGroupsRequest, GetPlaylistByIdRequest,
+    GetPlaylistByIdResponse, GetUniquePlaylistGroupsRequest, GetUniquePlaylistGroupsResponse,
+    Playlist, PlaylistGroupSummaryResponse, PlaylistWithoutCoverIds, PlaylistsGroup,
+    PlaylistsGroupSummary, PlaylistsGroups, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, UpdatePlaylistRequest, UpdatePlaylistResponse,
+};
 
 pub async fn fetch_playlists_group_summary_request(
     main_db: Arc<MainDbConnection>,

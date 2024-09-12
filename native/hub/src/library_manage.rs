@@ -9,7 +9,9 @@ use tokio_util::sync::CancellationToken;
 use database::actions::analysis::analysis_audio_library;
 use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::sync_recommendation;
-use database::connection::{MainDbConnection, RecommendationDbConnection, SearchDbConnection};
+use database::connection::MainDbConnection;
+use database::connection::RecommendationDbConnection;
+use database::connection::SearchDbConnection;
 
 use crate::messages::library_manage::{
     ScanAudioLibraryProgress, ScanAudioLibraryRequest, ScanAudioLibraryResponse,

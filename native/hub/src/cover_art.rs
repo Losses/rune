@@ -1,13 +1,17 @@
+use std::sync::Arc;
+
 use log::{debug, error, info, warn};
 use rinf::DartSignal;
-use std::sync::Arc;
 
 use database::actions::cover_art::get_cover_art_by_id;
 use database::actions::cover_art::get_random_cover_art_ids;
 use database::actions::cover_art::sync_cover_art_by_file_id;
 use database::connection::MainDbConnection;
 
-use crate::messages::cover_art::*;
+use crate::{
+    CoverArtByCoverArtIdResponse, CoverArtByFileIdResponse, GetCoverArtByCoverArtIdRequest,
+    GetCoverArtByFileIdRequest, GetRandomCoverArtIdsRequest, GetRandomCoverArtIdsResponse,
+};
 
 pub async fn get_cover_art_by_file_id_request(
     main_db: Arc<MainDbConnection>,

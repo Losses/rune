@@ -5,7 +5,8 @@ use rinf::DartSignal;
 
 use crate::DirectoryTreeResponse;
 
-use database::actions::directory::{get_directory_tree, DirectoryTree};
+use database::actions::directory::get_directory_tree;
+use database::actions::directory::DirectoryTree;
 use database::connection::MainDbConnection;
 
 use crate::{FetchDirectoryTreeRequest, FetchDirectoryTreeResponse};

@@ -1,24 +1,25 @@
-use database::actions::analysis::if_analysis_exists;
-use database::actions::file::get_ordered_files_by_ids;
+use std::sync::Arc;
+
 use log::error;
 use log::info;
 use rinf::DartSignal;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use database::actions::analysis::if_analysis_exists;
+use database::actions::file::get_ordered_files_by_ids;
 use database::actions::recommendation::get_recommendation_by_file_id;
 use database::actions::recommendation::get_recommendation_by_percentile;
-use database::connection::{MainDbConnection, RecommendationDbConnection};
+use database::connection::MainDbConnection;
+use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
 use crate::common::Result;
 use crate::files_to_playback_request;
-use crate::messages::recommend::{PlaybackRecommendation, RecommendAndPlayRequest};
 use crate::update_playlist;
-use crate::IfAnalysisExistsRequest;
-use crate::IfAnalysisExistsResponse;
-use crate::RecommendAndPlayMixRequest;
-use crate::RecommendAndPlayMixResponse;
+use crate::{
+    IfAnalysisExistsRequest, IfAnalysisExistsResponse, PlaybackRecommendation,
+    RecommendAndPlayMixRequest, RecommendAndPlayMixResponse, RecommendAndPlayRequest,
+};
 
 pub async fn recommend_and_play_request(
     main_db: Arc<MainDbConnection>,

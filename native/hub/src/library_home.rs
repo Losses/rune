@@ -1,8 +1,9 @@
-use database::actions::library::get_latest_albums_and_artists;
-use log::{info, error};
-use rinf::DartSignal;
 use std::sync::Arc;
 
+use log::{error, info};
+use rinf::DartSignal;
+
+use database::actions::library::get_latest_albums_and_artists;
 use database::connection::MainDbConnection;
 
 use crate::messages::album::Album;

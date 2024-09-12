@@ -1,17 +1,20 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task;
 
-use database::actions::metadata::{
-    get_metadata_summary_by_file_id, get_metadata_summary_by_file_ids, MetadataSummary,
-};
+use database::actions::metadata::get_metadata_summary_by_file_id;
+use database::actions::metadata::get_metadata_summary_by_file_ids;
+use database::actions::metadata::MetadataSummary;
 use database::connection::MainDbConnection;
-use playback::player::{Player, PlaylistStatus};
+use playback::player::Player;
+use playback::player::PlaylistStatus;
 
 use crate::common::Result;
-use crate::messages;
+use crate::{PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
 
 pub async fn initialize_player(
     main_db: Arc<MainDbConnection>,
@@ -68,7 +71,7 @@ pub async fn initialize_player(
                 position.as_secs_f32() / (duration as f32)
             };
 
-            messages::playback::PlaybackStatus {
+            PlaybackStatus {
                 state: status.state.to_string(),
                 progress_seconds: position.as_secs_f32(),
                 progress_percentage,
@@ -103,9 +106,6 @@ pub async fn initialize_player(
 }
 
 pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistStatus) {
-    use messages::playback::*;
-    use std::collections::HashMap;
-
     let file_ids: Vec<i32> = playlist.items.clone();
 
     match get_metadata_summary_by_file_ids(db, file_ids.clone()).await {
@@ -136,7 +136,5 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
 }
 
 pub async fn send_realtime_fft(value: Vec<f32>) {
-    use messages::playback::*;
-
     RealtimeFft { value }.send_signal_to_dart(); // GENERATED
 }

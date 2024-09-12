@@ -1,6 +1,7 @@
+use log::info;
+
 use crate::common::*;
 use crate::messages;
-use log::info;
 
 pub async fn receive_media_library_path<F, Fut>(main_loop: F) -> Result<()>
 where

@@ -1,9 +1,11 @@
-use database::actions::search::{search_for, CollectionType};
+use std::sync::Arc;
+
 use log::{debug, warn};
 use rinf::DartSignal;
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use database::actions::search::search_for;
+use database::actions::search::CollectionType;
 use database::connection::SearchDbConnection;
 
 use crate::messages::search::{SearchForRequest, SearchForResponse};

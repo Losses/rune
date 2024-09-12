@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use dunce::canonicalize;
 use log::debug;
-use log::info;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -15,18 +14,16 @@ use database::actions::file::get_file_by_id;
 use database::actions::file::get_files_by_ids;
 use database::actions::playlists::get_media_file_ids_of_playlist;
 use database::actions::recommendation::get_recommendation_by_parameter;
-use database::connection::{MainDbConnection, RecommendationDbConnection};
+use database::connection::MainDbConnection;
+use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
 use crate::common::Result;
-use crate::messages::playback::{
-    NextRequest, PauseRequest, PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest,
-    SeekRequest, SwitchRequest,
-};
-use crate::SetPlaybackModeRequest;
 use crate::{
-    AddToQueueCollectionRequest, MovePlaylistItemRequest, StartPlayingCollectionRequest,
-    StartRoamingCollectionRequest,
+    AddToQueueCollectionRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
+    PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest, SeekRequest,
+    SetPlaybackModeRequest, StartPlayingCollectionRequest, StartRoamingCollectionRequest,
+    SwitchRequest,
 };
 
 async fn play_file_by_id(

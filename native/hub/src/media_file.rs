@@ -1,12 +1,14 @@
+use std::path::Path;
+use std::sync::Arc;
+
 use database::connection::MainDbConnection;
 use dunce::canonicalize;
 use log::debug;
 use log::{error, info};
 use rinf::DartSignal;
-use std::path::Path;
-use std::sync::Arc;
 
-use database::actions::file::{compound_query_media_files, get_files_by_ids};
+use database::actions::file::compound_query_media_files;
+use database::actions::file::get_files_by_ids;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;

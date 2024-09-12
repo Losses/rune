@@ -1,24 +1,21 @@
-use database::actions::artists::get_artists_by_ids;
-use database::actions::cover_art::get_magic_cover_art_id;
-use database::actions::library::get_artist_cover_ids;
-use log::{debug, error};
-use rinf::DartSignal;
 use std::sync::Arc;
 
+use log::{debug, error};
+use rinf::DartSignal;
+
+use database::actions::artists::get_artists_by_ids;
 use database::actions::artists::get_artists_groups;
+use database::actions::cover_art::get_magic_cover_art_id;
+use database::actions::library::get_artist_cover_ids;
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
 use database::entities::artists;
 
-use crate::messages::artist::Artist;
-use crate::messages::artist::ArtistGroupSummaryResponse;
-use crate::messages::artist::ArtistsGroup;
-use crate::messages::artist::ArtistsGroupSummary;
-use crate::messages::artist::ArtistsGroups;
-use crate::messages::artist::FetchArtistsGroupSummaryRequest;
-use crate::messages::artist::FetchArtistsGroupsRequest;
-use crate::FetchArtistsByIdsRequest;
-use crate::FetchArtistsByIdsResponse;
+use crate::{
+    Artist, ArtistGroupSummaryResponse, ArtistsGroup, ArtistsGroupSummary, ArtistsGroups,
+    FetchArtistsByIdsRequest, FetchArtistsByIdsResponse, FetchArtistsGroupSummaryRequest,
+    FetchArtistsGroupsRequest,
+};
 
 pub async fn fetch_artists_group_summary_request(
     main_db: Arc<MainDbConnection>,

@@ -1,24 +1,21 @@
-use database::actions::albums::get_albums_by_ids;
-use database::actions::cover_art::get_magic_cover_art_id;
-use database::actions::library::get_album_cover_ids;
-use log::{debug, error};
-use rinf::DartSignal;
 use std::sync::Arc;
 
+use log::{debug, error};
+use rinf::DartSignal;
+
+use database::actions::albums::get_albums_by_ids;
 use database::actions::albums::get_albums_groups;
+use database::actions::cover_art::get_magic_cover_art_id;
+use database::actions::library::get_album_cover_ids;
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
 use database::entities::albums;
 
-use crate::messages::album::Album;
-use crate::messages::album::AlbumGroupSummaryResponse;
-use crate::messages::album::AlbumsGroup;
-use crate::messages::album::AlbumsGroupSummary;
-use crate::messages::album::AlbumsGroups;
-use crate::messages::album::FetchAlbumsGroupSummaryRequest;
-use crate::messages::album::FetchAlbumsGroupsRequest;
-use crate::FetchAlbumsByIdsRequest;
-use crate::FetchAlbumsByIdsResponse;
+use crate::{
+    Album, AlbumGroupSummaryResponse, AlbumsGroup, AlbumsGroupSummary, AlbumsGroups,
+    FetchAlbumsByIdsRequest, FetchAlbumsByIdsResponse, FetchAlbumsGroupSummaryRequest,
+    FetchAlbumsGroupsRequest,
+};
 
 pub async fn fetch_albums_group_summary_request(
     main_db: Arc<MainDbConnection>,
