@@ -23,7 +23,7 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Playlists::Name).string().not_null())
-                    .col(ColumnDef::new(Playlists::Group).string().null())
+                    .col(ColumnDef::new(Playlists::Group).string().not_null())
                     .col(ColumnDef::new(Playlists::CreatedAt).timestamp().not_null())
                     .col(ColumnDef::new(Playlists::UpdatedAt).timestamp().not_null())
                     .to_owned(),

@@ -9,8 +9,8 @@ pub struct Model {
     pub id: i32,
     #[sea_orm(unique)]
     pub media_file_id: i32,
-    pub album_id: i32,
     pub track_number: Option<i32>,
+    pub album_id: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

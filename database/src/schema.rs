@@ -92,37 +92,6 @@ impl QueryRoot {
         let db = ctx.data::<DatabaseConnection>().unwrap();
         playlists::Entity::find_by_id(id).one(db).await
     }
-
-    async fn smart_playlists(
-        &self,
-        ctx: &Context<'_>,
-    ) -> Result<Vec<smart_playlists::Model>, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-        smart_playlists::Entity::find().all(db).await
-    }
-
-    async fn smart_playlist(
-        &self,
-        ctx: &Context<'_>,
-        id: i32,
-    ) -> Result<Option<smart_playlists::Model>, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-        smart_playlists::Entity::find_by_id(id).one(db).await
-    }
-
-    async fn user_logs(&self, ctx: &Context<'_>) -> Result<Vec<user_logs::Model>, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-        user_logs::Entity::find().all(db).await
-    }
-
-    async fn user_log(
-        &self,
-        ctx: &Context<'_>,
-        id: i32,
-    ) -> Result<Option<user_logs::Model>, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-        user_logs::Entity::find_by_id(id).one(db).await
-    }
 }
 
 #[ComplexObject]
@@ -159,11 +128,6 @@ impl media_files::Model {
         self.find_related(media_file_playlists::Entity)
             .all(db)
             .await
-    }
-
-    async fn user_logs(&self, ctx: &Context<'_>) -> Result<Vec<user_logs::Model>, sea_orm::DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-        self.find_related(user_logs::Entity).all(db).await
     }
 }
 
@@ -281,58 +245,6 @@ impl MutationRoot {
         let res = playlists::Entity::insert(new_playlist).exec(db).await?;
 
         playlists::Entity::find_by_id(res.last_insert_id)
-            .one(db)
-            .await
-            .map(|b| b.unwrap())
-    }
-
-    async fn add_smart_playlist(
-        &self,
-        ctx: &Context<'_>,
-        name: String,
-        query: String,
-        created_at: String,
-        updated_at: String,
-    ) -> Result<smart_playlists::Model, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-
-        let new_smart_playlist = smart_playlists::ActiveModel {
-            name: ActiveValue::Set(name),
-            query: ActiveValue::Set(query),
-            created_at: ActiveValue::Set(created_at),
-            updated_at: ActiveValue::Set(updated_at),
-            ..Default::default()
-        };
-
-        let res = smart_playlists::Entity::insert(new_smart_playlist)
-            .exec(db)
-            .await?;
-
-        smart_playlists::Entity::find_by_id(res.last_insert_id)
-            .one(db)
-            .await
-            .map(|b| b.unwrap())
-    }
-
-    async fn add_user_log(
-        &self,
-        ctx: &Context<'_>,
-        file_id: i32,
-        listen_time: String,
-        progress: f64,
-    ) -> Result<user_logs::Model, DbErr> {
-        let db = ctx.data::<DatabaseConnection>().unwrap();
-
-        let new_user_log = user_logs::ActiveModel {
-            file_id: ActiveValue::Set(file_id),
-            listen_time: ActiveValue::Set(listen_time),
-            progress: ActiveValue::Set(progress),
-            ..Default::default()
-        };
-
-        let res = user_logs::Entity::insert(new_user_log).exec(db).await?;
-
-        user_logs::Entity::find_by_id(res.last_insert_id)
             .one(db)
             .await
             .map(|b| b.unwrap())

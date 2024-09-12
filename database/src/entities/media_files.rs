@@ -32,12 +32,14 @@ pub enum Relation {
         on_delete = "Cascade"
     )]
     MediaCoverArt,
+    #[sea_orm(has_one = "super::media_file_albums::Entity")]
+    MediaFileAlbums,
+    #[sea_orm(has_many = "super::media_file_artists::Entity")]
+    MediaFileArtists,
+    #[sea_orm(has_many = "super::media_file_playlists::Entity")]
+    MediaFilePlaylists,
     #[sea_orm(has_many = "super::media_metadata::Entity")]
     MediaMetadata,
-    #[sea_orm(has_many = "super::media_file_playlists::Entity")]
-    PlaylistItems,
-    #[sea_orm(has_many = "super::user_logs::Entity")]
-    UserLogs,
 }
 
 impl Related<super::media_analysis::Entity> for Entity {
@@ -52,21 +54,27 @@ impl Related<super::media_cover_art::Entity> for Entity {
     }
 }
 
-impl Related<super::media_metadata::Entity> for Entity {
+impl Related<super::media_file_albums::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::MediaMetadata.def()
+        Relation::MediaFileAlbums.def()
+    }
+}
+
+impl Related<super::media_file_artists::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::MediaFileArtists.def()
     }
 }
 
 impl Related<super::media_file_playlists::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::PlaylistItems.def()
+        Relation::MediaFilePlaylists.def()
     }
 }
 
-impl Related<super::user_logs::Entity> for Entity {
+impl Related<super::media_metadata::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::UserLogs.def()
+        Relation::MediaMetadata.def()
     }
 }
 
@@ -78,10 +86,12 @@ pub enum RelatedEntity {
     MediaAnalysis,
     #[sea_orm(entity = "super::media_cover_art::Entity")]
     MediaCoverArt,
+    #[sea_orm(entity = "super::media_file_albums::Entity")]
+    MediaFileAlbums,
+    #[sea_orm(entity = "super::media_file_artists::Entity")]
+    MediaFileArtists,
+    #[sea_orm(entity = "super::media_file_playlists::Entity")]
+    MediaFilePlaylists,
     #[sea_orm(entity = "super::media_metadata::Entity")]
     MediaMetadata,
-    #[sea_orm(entity = "super::media_file_playlists::Entity")]
-    PlaylistItems,
-    #[sea_orm(entity = "super::user_logs::Entity")]
-    UserLogs,
 }

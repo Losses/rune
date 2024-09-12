@@ -4,26 +4,29 @@ use async_graphql::SimpleObject;
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, SimpleObject)]
-#[graphql(complex, name = "Playlists")]
-#[sea_orm(table_name = "playlists")]
+#[sea_orm(table_name = "mixes")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub name: String,
-    pub group: String,
+    pub group: Option<String>,
+    pub combinition: i32,
+    pub mode: i32,
+    pub recommendation: i32,
+    pub scriptlet_mode: bool,
     pub created_at: String,
     pub updated_at: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::media_file_playlists::Entity")]
-    MediaFilePlaylists,
+    #[sea_orm(has_many = "super::mix_queries::Entity")]
+    MixQueries,
 }
 
-impl Related<super::media_file_playlists::Entity> for Entity {
+impl Related<super::mix_queries::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::MediaFilePlaylists.def()
+        Relation::MixQueries.def()
     }
 }
 
@@ -31,6 +34,6 @@ impl ActiveModelBehavior for ActiveModel {}
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelatedEntity)]
 pub enum RelatedEntity {
-    #[sea_orm(entity = "super::media_file_playlists::Entity")]
-    MediaFilePlaylists,
+    #[sea_orm(entity = "super::mix_queries::Entity")]
+    MixQueries,
 }
