@@ -11,6 +11,7 @@ pub struct Model {
     pub name: String,
     pub group: Option<String>,
     pub scriptlet_mode: bool,
+    pub mode: i32,
     pub locked: bool,
     pub created_at: String,
     pub updated_at: String,
