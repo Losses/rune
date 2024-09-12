@@ -7,6 +7,7 @@ pub use super::media_cover_art::Entity as MediaCoverArt;
 pub use super::media_file_albums::Entity as MediaFileAlbums;
 pub use super::media_file_artists::Entity as MediaFileArtists;
 pub use super::media_file_playlists::Entity as MediaFilePlaylists;
+pub use super::media_file_stats::Entity as MediaFileStats;
 pub use super::media_files::Entity as MediaFiles;
 pub use super::media_metadata::Entity as MediaMetadata;
 pub use super::mix_queries::Entity as MixQueries;

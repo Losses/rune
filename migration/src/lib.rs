@@ -12,6 +12,7 @@ mod m20230806_000011_create_albums_table;
 mod m20230806_000012_create_media_file_albums_table;
 mod m20230912_000013_create_mixes_table;
 mod m20230912_000014_create_mix_queries_table;
+mod m20230912_000015_create_media_file_stats_table;
 
 pub struct Migrator;
 
@@ -31,6 +32,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20230806_000012_create_media_file_albums_table::Migration),
             Box::new(m20230912_000013_create_mixes_table::Migration),
             Box::new(m20230912_000014_create_mix_queries_table::Migration),
+            Box::new(m20230912_000015_create_media_file_stats_table::Migration),
         ]
     }
 }

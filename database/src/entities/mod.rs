@@ -9,6 +9,7 @@ pub mod media_cover_art;
 pub mod media_file_albums;
 pub mod media_file_artists;
 pub mod media_file_playlists;
+pub mod media_file_stats;
 pub mod media_files;
 pub mod media_metadata;
 pub mod mix_queries;
