@@ -96,7 +96,6 @@
             clippy
             rust-analyzer
             rustup
-          ] ++ [
             gtk3
             pinnedJDK
             androidCustomPackage
@@ -107,6 +106,12 @@
             clang
             cmake
             libstdcxx5
+            unzip
+            fontconfig
+            mesa
+            libxkbcommon
+            pkgs.xorg.libX11
+            libGL
           ];
 
           RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.default.override {
@@ -122,7 +127,10 @@
             export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
             export GRADLE_USER_HOME=/home/specx/.gradle
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
+            export LD_LIBRARY_PATH=${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
+            echo ===
+            echo ${pkgs.fontconfig.lib}
           '';
         };
       }

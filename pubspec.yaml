@@ -34,7 +34,11 @@ dependencies:
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
-  rinf: 6.15.0
+  rinf:
+    git:
+      url: https://github.com/Losses/rinf.git
+      ref: main
+      path: flutter_package
   protobuf: ^3.1.0
   fluent_ui: ^4.9.0
   flutter_acrylic: ^1.1.4

@@ -217,7 +217,7 @@ async fn insert_analysis_result(
         new_analysis.chroma~N = ActiveValue::Set(Some(result.chroma[N] as f64));
     });
 
-    seq!(N in 0..24 {
+    seq!(N in 0..23 {
         new_analysis.perceptual_loudness~N = ActiveValue::Set(Some(result.raw.perceptual_loudness[N] as f64));
     });
 
