@@ -42,4 +42,22 @@ flutter run
 For detailed instructions on writing Rust and Flutter together,
 please refer to Rinf's [documentation](https://rinf.cunarist.com).
 
+## Tips For Compiling On macOS
 
+Ensure you have
+[Flutter SDK](https://docs.flutter.dev/get-started/install)
+and [Rust toolchain](https://www.rust-lang.org/tools/install)
+installed using the official methods or your preferred setup.
+
+For [CocoaPods](https://cocoapods.org/), avoid using the default
+Ruby version provided by macOS
+(see
+_[Do Not Use the macOS System Ruby](https://mac.install.guide/faq/do-not-use-mac-system-ruby/)_
+).
+
+If you prefer a quicker solution without managing Ruby versions,
+you can install CocoaPods via Homebrew:
+
+```bash
+brew install cocoapods
+```
