@@ -14,59 +14,52 @@ use super::analysis::get_centralized_analysis_result;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
 
-fn parse_and_push<T>(parameter: &str, operator: &str, vec: &mut Vec<T>)
+fn parse_parameter<T>(parameter: &str, operator: &str) -> Option<T>
 where
     T: std::str::FromStr,
     T::Err: std::fmt::Debug,
 {
     match parameter.parse::<T>() {
-        Ok(x) => vec.push(x),
-        Err(_) => warn!(
-            "Unable to parse the parameter of operator: {}({})",
-            operator, parameter
-        ),
-    }
-}
-
-fn parse_order(parameter: &str) -> Option<bool> {
-    match parameter {
-        "asc" => Some(true),
-        "desc" => Some(false),
-        _ => {
-            warn!("Invalid sort parameter: {}", parameter);
-            None
-        }
-    }
-}
-
-fn parse_bool(parameter: &str) -> Option<bool> {
-    match parameter {
-        "true" => Some(true),
-        "false" => Some(false),
-        _ => {
-            warn!("Invalid sort parameter: {}", parameter);
-            None
-        }
-    }
-}
-
-fn parse_u64(parameter: &str) -> Option<u64> {
-    match parameter.parse::<u64>() {
         Ok(x) => Some(x),
         Err(_) => {
-            warn!("Invalid parse i32 parameter: {}", parameter);
+            warn!(
+                "Unable to parse the parameter of operator: {}({})",
+                operator, parameter
+            );
             None
         }
     }
 }
 
-fn parse_i32(parameter: &str) -> Option<i32> {
-    match parameter.parse::<i32>() {
-        Ok(x) => Some(x),
-        Err(_) => {
-            warn!("Invalid parse i32 parameter: {}", parameter);
-            None
-        }
+fn apply_sorting(
+    query: Select<media_files::Entity>,
+    column: media_files::Column,
+    asc: Option<bool>,
+) -> Select<media_files::Entity> {
+    if let Some(asc) = asc {
+        println!("Applying sorting: {:#?}", column);
+        query.order_by(column, if asc { Order::Asc } else { Order::Desc })
+    } else {
+        query
+    }
+}
+
+fn apply_join_filter(
+    query: Select<media_files::Entity>,
+    filter_liked: Option<bool>,
+    sort_playedthrough_asc: Option<bool>,
+    sort_skipped_asc: Option<bool>,
+) -> Select<media_files::Entity> {
+    if filter_liked.is_some() || sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() {
+        query.join(
+            sea_orm::JoinType::LeftJoin,
+            media_file_stats::Entity::belongs_to(media_files::Entity)
+                .from(media_file_stats::Column::MediaFileId)
+                .to(media_files::Column::Id)
+                .into(),
+        )
+    } else {
+        query
     }
 }
 
@@ -90,39 +83,44 @@ pub async fn query_mix_media_files(
     let mut sort_skipped_asc: Option<bool> = None;
 
     let mut filter_liked: Option<bool> = None;
-
     let mut pipe_limit: Option<u64> = None;
     let mut pipe_recommend: Option<i32> = None;
 
     for (operator, parameter) in queries {
         match operator.as_str() {
-            "lib::artist" => parse_and_push(&parameter, &operator, &mut artist_ids),
-            "lib::album" => parse_and_push(&parameter, &operator, &mut album_ids),
-            "lib::playlist" => parse_and_push(&parameter, &operator, &mut playlist_ids),
-            "lib::track" => parse_and_push(&parameter, &operator, &mut track_ids),
+            "lib::artist" => {
+                if let Some(id) = parse_parameter::<i32>(&parameter, &operator) {
+                    artist_ids.push(id)
+                }
+            }
+            "lib::album" => {
+                if let Some(id) = parse_parameter::<i32>(&parameter, &operator) {
+                    album_ids.push(id)
+                }
+            }
+            "lib::playlist" => {
+                if let Some(id) = parse_parameter::<i32>(&parameter, &operator) {
+                    playlist_ids.push(id)
+                }
+            }
+            "lib::track" => {
+                if let Some(id) = parse_parameter::<i32>(&parameter, &operator) {
+                    track_ids.push(id)
+                }
+            }
             "directory.deep" => directories_deep.push(parameter.clone()),
             "directory.shallow" => directories_shallow.push(parameter.clone()),
             "sort::last_modified" => {
-                sort_last_modified_asc = parse_order(&parameter);
+                sort_last_modified_asc = parse_parameter::<bool>(&parameter, &operator)
             }
-            "sort::duration" => {
-                sort_duration_asc = parse_order(&parameter);
-            }
+            "sort::duration" => sort_duration_asc = parse_parameter::<bool>(&parameter, &operator),
             "sort::playedthrough" => {
-                sort_playedthrough_asc = parse_order(&parameter);
+                sort_playedthrough_asc = parse_parameter::<bool>(&parameter, &operator)
             }
-            "sort::skipped" => {
-                sort_skipped_asc = parse_order(&parameter);
-            }
-            "filter::liked" => {
-                filter_liked = parse_bool(&parameter);
-            }
-            "pipe::limit" => {
-                pipe_limit = parse_u64(&parameter);
-            }
-            "pipe::pipe_recommend" => {
-                pipe_recommend = parse_i32(&parameter);
-            }
+            "sort::skipped" => sort_skipped_asc = parse_parameter::<bool>(&parameter, &operator),
+            "filter::liked" => filter_liked = parse_parameter::<bool>(&parameter, &operator),
+            "pipe::limit" => pipe_limit = parse_parameter::<u64>(&parameter, &operator),
+            "pipe::recommend" => pipe_recommend = parse_parameter::<i32>(&parameter, &operator),
             _ => warn!("Unknown operator: {}", operator),
         }
     }
@@ -204,58 +202,50 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(dir_conditions);
     }
 
-    // Apply the OR condition to the query
-    query = query.filter(or_condition);
-
-    // Apply sorting if provided
-    if let Some(asc) = sort_last_modified_asc {
-        query = query.order_by(
-            media_files::Column::LastModified,
-            if asc { Order::Asc } else { Order::Desc },
+    if let Some(liked) = filter_liked {
+        query = query.filter(
+            Condition::all()
+                .add(or_condition)
+                .add(media_file_stats::Column::Liked.eq(liked)),
         );
-    }
-
-    if let Some(asc) = sort_duration_asc {
-        query = query.order_by(
-            media_files::Column::Duration,
-            if asc { Order::Asc } else { Order::Desc },
-        );
+    } else {
+        query = query.filter(or_condition);
     }
 
     // Join with media_file_stats table for sorting by playedthrough and skipped, and filtering by liked
-    if sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() || filter_liked.is_some() {
-        query = query.join(
-            sea_orm::JoinType::LeftJoin,
-            media_file_stats::Entity::belongs_to(media_files::Entity)
-                .from(media_file_stats::Column::MediaFileId)
-                .to(media_files::Column::Id)
-                .into(),
-        );
-    }
-
-    if let Some(asc) = sort_playedthrough_asc {
-        query = query.order_by(
-            media_file_stats::Column::PlayedThrough,
-            if asc { Order::Asc } else { Order::Desc },
-        );
-    }
-
-    if let Some(asc) = sort_skipped_asc {
-        query = query.order_by(
-            media_file_stats::Column::Skipped,
-            if asc { Order::Asc } else { Order::Desc },
-        );
-    }
-
-    if let Some(liked) = filter_liked {
-        query = query.filter(media_file_stats::Column::Liked.eq(liked));
-    }
-
-    if let Some(query_limit) = pipe_limit {
-        query = query.limit(query_limit);
-    }
+    query = apply_join_filter(
+        query,
+        filter_liked,
+        sort_playedthrough_asc,
+        sort_skipped_asc,
+    );
 
     if let Some(recommend_n) = pipe_recommend {
+        query = apply_sorting(
+            query,
+            media_files::Column::LastModified,
+            sort_last_modified_asc,
+        );
+        query = apply_sorting(query, media_files::Column::Duration, sort_duration_asc);
+
+        if let Some(asc) = sort_playedthrough_asc {
+            query = query.order_by(
+                media_file_stats::Column::PlayedThrough,
+                if asc { Order::Asc } else { Order::Desc },
+            );
+        }
+
+        if let Some(asc) = sort_skipped_asc {
+            query = query.order_by(
+                media_file_stats::Column::Skipped,
+                if asc { Order::Asc } else { Order::Desc },
+            );
+        }
+
+        if let Some(query_limit) = pipe_limit {
+            query = query.limit(query_limit);
+        }
+
         let file_ids = query
             .select_only()
             .column(media_files::Column::Id)
@@ -278,14 +268,54 @@ pub async fn query_mix_media_files(
     }
 
     // Use cursor pagination
-    let mut cursor_by_id = query.cursor_by(media_files::Column::Id);
+    let mut cursor_by = query.clone().cursor_by(media_files::Column::Id);
+    let mut final_asc = true;
 
-    // Retrieve the specified number of rows
-    let media_files = cursor_by_id
-        .after(cursor as i32)
-        .first(page_size as u64)
-        .all(main_db)
-        .await?;
+    if let Some(asc) = sort_last_modified_asc {
+        cursor_by = query.clone().cursor_by(media_files::Column::LastModified);
+
+        final_asc = asc;
+    }
+
+    if let Some(asc) = sort_duration_asc {
+        cursor_by = query.clone().cursor_by(media_files::Column::Duration);
+
+        final_asc = asc;
+    }
+
+    if let Some(asc) = sort_playedthrough_asc {
+        cursor_by = query
+            .clone()
+            .cursor_by(media_file_stats::Column::PlayedThrough);
+
+        final_asc = asc;
+    }
+
+    if let Some(asc) = sort_skipped_asc {
+        cursor_by = query.clone().cursor_by(media_file_stats::Column::Skipped);
+
+        final_asc = asc;
+    }
+
+    if let Some(limit) = pipe_limit {
+        if cursor as u64 >= limit {
+            return Ok(vec![]);
+        }
+    }
+
+    let final_page_size = if let Some(limit) = pipe_limit {
+        (limit - cursor as u64).min(page_size as u64)
+    } else {
+        page_size as u64
+    };
+
+    let media_files = (if final_asc {
+        cursor_by.after(cursor as i32).first(final_page_size)
+    } else {
+        cursor_by.desc().before(cursor as i32).first(final_page_size)
+    })
+    .all(main_db)
+    .await?;
 
     Ok(media_files)
 }

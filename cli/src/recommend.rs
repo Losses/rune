@@ -21,7 +21,7 @@ pub struct RecommendMusicOptions<'a> {
 
 pub async fn recommend_music(
     main_db: &MainDbConnection,
-    analysis_db: &RecommendationDbConnection,
+    recommend_db: &RecommendationDbConnection,
     options: RecommendMusicOptions<'_>,
 ) {
     let RecommendMusicOptions {
@@ -49,7 +49,7 @@ pub async fn recommend_music(
     };
 
     let recommendations: Vec<(u32, f32)> =
-        match get_recommendation_by_file_id(analysis_db, file_id, num) {
+        match get_recommendation_by_file_id(recommend_db, file_id, num) {
             Ok(recommendations) => recommendations,
             Err(e) => {
                 eprintln!("Failed to get recommendations: {}", e);

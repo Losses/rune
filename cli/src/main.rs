@@ -3,6 +3,7 @@ use database::actions::search::search_for;
 use dunce::canonicalize;
 use log::{error, info};
 use rune::index::index_audio_library;
+use rune::mix::{mixes, RecommendMixOptions};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
@@ -52,6 +53,25 @@ enum Commands {
         /// The file path of the music to get recommendations for
         #[arg(short = 'p', long, group = "recommend_group")]
         file_path: Option<PathBuf>,
+
+        /// The number of recommendations to retrieve
+        #[arg(short, long, default_value_t = 10)]
+        num: usize,
+
+        /// The format of the output (json or m3u8)
+        #[arg(short, long)]
+        format: Option<String>,
+
+        /// The output file path (required if format is specified)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
+    /// Recommend mixes
+    Mix {
+        /// The mix parameters to get recommendations for
+        #[arg(short, long)]
+        mix_parameters: String,
 
         /// The number of recommendations to retrieve
         #[arg(short, long, default_value_t = 10)]
@@ -175,6 +195,24 @@ async fn main() {
                     path: &path,
                     item_id: *item_id,
                     file_path: file_path.as_ref(),
+                    num: *num,
+                    format: format.as_ref().map(|x| x.as_str()),
+                    output: output.as_ref(),
+                },
+            )
+            .await;
+        }
+        Commands::Mix {
+            mix_parameters,
+            num,
+            format,
+            output,
+        } => {
+            mixes(
+                &main_db,
+                &analysis_db,
+                RecommendMixOptions {
+                    mix_parameters,
                     num: *num,
                     format: format.as_ref().map(|x| x.as_str()),
                     output: output.as_ref(),
