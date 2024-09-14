@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 log = { version = "0.4.22" }
-sea-orm = { version="0.12.15", features = [ "sqlx-sqlite", "runtime-async-std-native-tls", "macros", "debug-print" ] }
+sea-orm = { version="0.12.15", features = [ "sqlx-sqlite", "runtime-async-std-rustls", "macros", "debug-print" ] }
 sea-orm-migration = "0.12.15"
 async-graphql = "7.0.6"
 migration = { path = "../migration" }

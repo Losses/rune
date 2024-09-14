@@ -82,6 +82,7 @@
           buildInputs = with pkgs; [
             (pkgs.rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" "cargo" "rustc" ];
+              targets = [ "aarch64-unknown-linux-gnu" ];
             })
             expidusPkgs.flutter
             android-studio
@@ -112,6 +113,8 @@
             libxkbcommon
             pkgs.xorg.libX11
             libGL
+            wayland
+            pkgsCross.aarch64-multiplatform.buildPackages.binutils
           ];
 
           RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.default.override {
@@ -126,11 +129,14 @@
             export JAVA_HOME=${pinnedJDK}
             export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
             export GRADLE_USER_HOME=/home/specx/.gradle
+            export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
+            export PKG_CONFIG_ALLOW_CROSS=1
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
-            export LD_LIBRARY_PATH=${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
+            export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
-            echo ===
-            echo ${pkgs.fontconfig.lib}
+            echo AAAA
+            echo ${pkgs.pkgsCross.aarch64-multiplatform.buildPackages.binutils}  
+            echo VVVV
           '';
         };
       }
