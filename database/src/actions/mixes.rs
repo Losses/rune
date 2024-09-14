@@ -108,8 +108,8 @@ pub async fn query_mix_media_files(
                     track_ids.push(id)
                 }
             }
-            "directory.deep" => directories_deep.push(parameter.clone()),
-            "directory.shallow" => directories_shallow.push(parameter.clone()),
+            "lib::directory.deep" => directories_deep.push(parameter.clone()),
+            "lib::directory.shallow" => directories_shallow.push(parameter.clone()),
             "sort::last_modified" => {
                 sort_last_modified_asc = parse_parameter::<bool>(&parameter, &operator)
             }
