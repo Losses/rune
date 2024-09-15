@@ -39,7 +39,8 @@ void main() async {
     SystemTheme.accentColor.load();
   }
 
-  if (isDesktop) {
+
+  if (isDesktop && !Platform.isLinux) {
     await flutter_acrylic.Window.initialize();
   }
 

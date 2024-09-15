@@ -37,7 +37,7 @@ dependencies:
   rinf:
     git:
       url: https://github.com/Losses/rinf.git
-      ref: b99ec4b
+      ref: cbc7b5f
       path: flutter_package
   protobuf: ^3.1.0
   fluent_ui: ^4.9.0
