@@ -85,6 +85,9 @@
             (rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" ];
             })
+            clippy
+            rust-analyzer
+            rustup
             pkgs.buildPackages.pkg-config
             expidusPkgs.flutter
             android-studio
@@ -112,16 +115,12 @@
             libxkbcommon
             pkgs.xorg.libX11
             libGL
-            wayland
+            wayland.dev
             zstd.dev
             lmdb.dev
             sqlite.dev
             openssl.dev
           ];
-
-          RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.default.override {
-            extensions = [ "rust-src" ];
-          }}/lib/rustlib/src/rust/library";
 
           shellHook = ''
             alias ls=exa
@@ -135,8 +134,9 @@
             export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
             export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
             export PKG_CONFIG_ALLOW_CROSS=1
+            export PKG_CONFIG_PATH=${pkgs.zstd.dev}/lib/pkgconfig:${pkgs.lmdb.dev}/lib/pkgconfig:${pkgs.sqlite.dev}/lib/pkgconfig:${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.alsa-lib.dev}/lib/pkgconfig
+            export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
-            export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:${pkgs.zstd.dev}/lib:${pkgs.lmdb.dev}/lib:${pkgs.sqlite.dev}/lib:${pkgs.openssl.dev}/lib:$LD_LIBRARY_PATH
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
           '';
         };
@@ -153,7 +153,6 @@
             clang,
             cmake,
             libgcc,
-            libstdcxx5,
             qemu,
             openssl,
             stdenv,
@@ -192,7 +191,6 @@
               clang
               cmake
               libgcc
-              libstdcxx5
               clippy
               rust-analyzer
               rustup
@@ -241,9 +239,7 @@
               export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
               export CXXFLAGS="--gcc-toolchain=${libgcc}"
               export LDFLAGS="--gcc-toolchain=${libgcc}"
-              echo ^^^
-              echo ${libgcc}
-              echo VVV
+              export CMAKE_EXE_LINKER_FLAGS="$PATH -L${libgcc}/lib"
             '';
           }
         ) { };
