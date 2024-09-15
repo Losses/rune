@@ -76,37 +76,37 @@
         );
 
         pinnedJDK = pkgs.jdk17;
+
+        rust-bin = rust-overlay.lib.mkRustBin { } pkgs.buildPackages;
       in {
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
-          buildInputs = with pkgs; [
-            (pkgs.rust-bin.stable.latest.default.override {
-              extensions = [ "rust-src" "cargo" "rustc" ];
-              targets = [ "aarch64-unknown-linux-gnu" ];
+          nativeBuildInputs = with pkgs; [
+            (rust-bin.stable.latest.default.override {
+              extensions = [ "rust-src" ];
             })
+            pkgs.buildPackages.pkg-config
             expidusPkgs.flutter
             android-studio
-            pkg-config
-            eza
-            fd
-            alsa-lib
-            mount
-            libpulseaudio
-            pulseaudioFull
-            clippy
-            rust-analyzer
-            rustup
-            gtk3
-            pinnedJDK
             androidCustomPackage
+            pinnedJDK
+            clang
+            libstdcxx5
+            cmake
             protobuf_26
             pcre2
             mount
             ninja
-            clang
-            cmake
-            libstdcxx5
             unzip
+          ];
+
+          buildInputs = with pkgs; [
+            eza
+            fd
+            gtk3
+            alsa-lib
+            libpulseaudio
+            pulseaudioFull
             fontconfig
             mesa
             libxkbcommon
@@ -117,7 +117,6 @@
             lmdb.dev
             sqlite.dev
             openssl.dev
-            pkgsCross.aarch64-multiplatform.buildPackages.gcc
           ];
 
           RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.default.override {
@@ -132,15 +131,122 @@
             export JAVA_HOME=${pinnedJDK}
             export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
             export GRADLE_USER_HOME=/home/specx/.gradle
-            export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
-            export PKG_CONFIG_ALLOW_CROSS=1
             export ZSTD_SYS_USE_PKG_CONFIG=1
             export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
+            export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
+            export PKG_CONFIG_ALLOW_CROSS=1
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
             export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:${pkgs.zstd.dev}/lib:${pkgs.lmdb.dev}/lib:${pkgs.sqlite.dev}/lib:${pkgs.openssl.dev}/lib:$LD_LIBRARY_PATH
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
           '';
         };
+
+
+        devShells.cross = let
+          pkgsCross = nixpkgs.legacyPackages.x86_64-linux.pkgsCross.aarch64-multiplatform;
+          rust-bin = rust-overlay.lib.mkRustBin { } pkgsCross.buildPackages;
+        in
+        pkgsCross.callPackage (
+          {
+            mkShell,
+            pkg-config,
+            clang,
+            cmake,
+            libgcc,
+            libstdcxx5,
+            qemu,
+            openssl,
+            stdenv,
+            zstd,
+            lmdb,
+            sqlite,
+            clippy,
+            rust-analyzer,
+            rustup,
+            mount,
+            protobuf_26,
+            pcre2,
+            ninja,
+            unzip,
+            eza,
+            fd,
+            alsa-lib,
+            libpulseaudio,
+            pulseaudioFull,
+            gtk3,
+            fontconfig,
+            mesa,
+            libxkbcommon,
+            libGL,
+            wayland,
+          }:
+          mkShell {
+            name = "Cross Shell that Combined Flutter and Rust Dev Shell";
+
+            nativeBuildInputs = [
+              (rust-bin.stable.latest.default.override {
+                extensions = [ "rust-src" ];
+                targets = [ "aarch64-unknown-linux-gnu" ];
+              })
+              pkg-config
+              clang
+              cmake
+              libgcc
+              libstdcxx5
+              clippy
+              rust-analyzer
+              rustup
+              mount
+              protobuf_26
+              pcre2
+              ninja
+              unzip
+            ];
+
+            depsBuildBuild = [ qemu ];
+
+            buildInputs = [
+              eza
+              fd
+              libpulseaudio
+              pulseaudioFull
+              gtk3
+              fontconfig
+              mesa
+              libxkbcommon
+              pkgsCross.xorg.libX11
+              libGL
+              wayland
+              zstd
+              lmdb
+              sqlite
+              openssl
+              alsa-lib
+            ];
+
+            env = {
+              CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${stdenv.cc.targetPrefix}cc";
+              CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = "qemu-aarch64";
+              RUST_BACKTRACE = 1;
+              ZSTD_SYS_USE_PKG_CONFIG = 1;
+              LIBSQLITE3_SYS_USE_PKG_CONFIG = 1;
+              PKG_CONFIG_ALLOW_CROSS = 1;
+            };
+
+            shellHook = ''
+              alias ls=exa
+              alias find=fd
+              alias rinf='flutter pub run rinf'
+              export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig
+              export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
+              export CXXFLAGS="--gcc-toolchain=${libgcc}"
+              export LDFLAGS="--gcc-toolchain=${libgcc}"
+              echo ^^^
+              echo ${libgcc}
+              echo VVV
+            '';
+          }
+        ) { };
       }
     );
 }
