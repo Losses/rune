@@ -86,7 +86,6 @@
             })
             expidusPkgs.flutter
             android-studio
-            openssl
             pkg-config
             eza
             fd
@@ -116,6 +115,8 @@
             wayland
             zstd.dev
             lmdb.dev
+            sqlite.dev
+            openssl.dev
             pkgsCross.aarch64-multiplatform.buildPackages.gcc
           ];
 
@@ -134,8 +135,9 @@
             export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
             export PKG_CONFIG_ALLOW_CROSS=1
             export ZSTD_SYS_USE_PKG_CONFIG=1
+            export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
-            export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:${pkgs.zstd.dev}/lib:${pkgs.lmdb.dev}/lib:$LD_LIBRARY_PATH
+            export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:${pkgs.zstd.dev}/lib:${pkgs.lmdb.dev}/lib:${pkgs.sqlite.dev}/lib:${pkgs.openssl.dev}/lib:$LD_LIBRARY_PATH
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
           '';
         };
