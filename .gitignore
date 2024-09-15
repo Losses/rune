@@ -142,3 +142,6 @@ target/
 
 # Generated messages
 */**/messages/
+
+# eLinux
+result
