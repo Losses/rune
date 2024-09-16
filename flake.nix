@@ -180,9 +180,8 @@
             libGL,
             wayland,
             gcc,
-            libcxx,
-            libgcc,
             xorg,
+            libffi,
           }:
           mkShell {
             name = "Cross Shell that Combined Flutter and Rust Dev Shell";
@@ -226,29 +225,31 @@
               sqlite
               openssl
               alsa-lib
-              libgcc
+              libffi
             ];
 
             env = {
               CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${stdenv.cc.targetPrefix}cc";
               CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = "qemu-aarch64";
               RUST_BACKTRACE = 1;
+              PKG_CONFIG_ALLOW_CROSS = 1;
               ZSTD_SYS_USE_PKG_CONFIG = 1;
               LIBSQLITE3_SYS_USE_PKG_CONFIG = 1;
-              PKG_CONFIG_ALLOW_CROSS = 1;
             };
 
             shellHook = ''
               alias ls=exa
               alias find=fd
               alias rinf='flutter pub run rinf'
+              alias build='flutter-elinux build elinux --target-arch=arm64'
               export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
-              export LDFLAGS="-L${stdenv.cc.libc}/lib -L${libgcc}/lib -L${stdenv.cc.cc.lib}/lib $LDFLAGS"
-              export LD_LIBRARY_PATH=${fontconfig.lib}/lib:${libxkbcommon}/lib:${xorg.libX11}/lib:${libGL}/lib:$LD_LIBRARY_PATH
-              export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig
+              export LDFLAGS="-L${stdenv.cc.cc.lib}/lib -L${wayland}/lib $LDFLAGS"
+              export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig:${libffi.dev}/lib/pkgconfig:${wayland.dev}/lib/pkgconfig
               export CC="${stdenv.cc.targetPrefix}clang"
               export CXX="${stdenv.cc.targetPrefix}clang++"
 
+              echo "${libffi}"
+              echo "${libffi.dev}"
               echo "Using CC: $CC"
               echo "Using CXX: $CXX"
             '';

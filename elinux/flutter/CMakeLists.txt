@@ -54,6 +54,35 @@ target_link_libraries(flutter INTERFACE "${FLUTTER_LIBRARY}")
 target_link_libraries(flutter INTERFACE "${FLUTTER_EMBEDDER_LIBRARY}")
 add_dependencies(flutter flutter_assemble)
 
+# === Find Dependencies ===
+find_package(Fontconfig REQUIRED)
+find_package(X11 REQUIRED xkbcommon)
+find_package(OpenGL REQUIRED COMPONENTS EGL)
+
+# Use pkg-config to find Wayland libraries
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(WAYLAND_CLIENT REQUIRED wayland-client)
+pkg_check_modules(WAYLAND_CURSOR REQUIRED wayland-cursor)
+pkg_check_modules(WAYLAND_EGL REQUIRED wayland-egl)
+
+# Link the dependencies to the flutter target
+target_link_libraries(flutter INTERFACE
+  Fontconfig::Fontconfig
+  X11::xkbcommon
+  OpenGL::EGL
+  ${WAYLAND_CLIENT_LIBRARIES}
+  ${WAYLAND_CURSOR_LIBRARIES}
+  ${WAYLAND_EGL_LIBRARIES}
+)
+
+# Include directories for the dependencies
+target_include_directories(flutter INTERFACE
+  ${X11_INCLUDE_DIR}
+  ${WAYLAND_CLIENT_INCLUDE_DIRS}
+  ${WAYLAND_CURSOR_INCLUDE_DIRS}
+  ${WAYLAND_EGL_INCLUDE_DIRS}
+)
+
 # === Wrapper ===
 list(APPEND CPP_WRAPPER_SOURCES_CORE
   "core_implementations.cc"
