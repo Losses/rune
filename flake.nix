@@ -132,7 +132,6 @@
             export GRADLE_USER_HOME=/home/specx/.gradle
             export ZSTD_SYS_USE_PKG_CONFIG=1
             export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
-            export PKG_CONFIG_PATH=${pkgs.openssl.dev}/lib/pkgconfig
             export PKG_CONFIG_ALLOW_CROSS=1
             export PKG_CONFIG_PATH=${pkgs.zstd.dev}/lib/pkgconfig:${pkgs.lmdb.dev}/lib/pkgconfig:${pkgs.sqlite.dev}/lib/pkgconfig:${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.alsa-lib.dev}/lib/pkgconfig
             export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
@@ -145,14 +144,17 @@
         devShells.cross = let
           pkgsCross = nixpkgs.legacyPackages.x86_64-linux.pkgsCross.aarch64-multiplatform;
           rust-bin = rust-overlay.lib.mkRustBin { } pkgsCross.buildPackages;
+
+          expidusPkgs = import expidus-nixpkgs { inherit system; };
         in
         pkgsCross.callPackage (
           {
+            eza,
             mkShell,
             pkg-config,
-            clang,
             cmake,
-            libgcc,
+            clang,
+            binutils,
             qemu,
             openssl,
             stdenv,
@@ -167,7 +169,6 @@
             pcre2,
             ninja,
             unzip,
-            eza,
             fd,
             alsa-lib,
             libpulseaudio,
@@ -178,11 +179,16 @@
             libxkbcommon,
             libGL,
             wayland,
+            gcc,
+            libcxx,
+            libgcc,
+            xorg,
           }:
           mkShell {
             name = "Cross Shell that Combined Flutter and Rust Dev Shell";
 
             nativeBuildInputs = [
+              eza
               (rust-bin.stable.latest.default.override {
                 extensions = [ "rust-src" ];
                 targets = [ "aarch64-unknown-linux-gnu" ];
@@ -190,7 +196,8 @@
               pkg-config
               clang
               cmake
-              libgcc
+              binutils
+              expidusPkgs.flutter
               clippy
               rust-analyzer
               rustup
@@ -204,7 +211,6 @@
             depsBuildBuild = [ qemu ];
 
             buildInputs = [
-              eza
               fd
               libpulseaudio
               pulseaudioFull
@@ -212,7 +218,7 @@
               fontconfig
               mesa
               libxkbcommon
-              pkgsCross.xorg.libX11
+              xorg.libX11
               libGL
               wayland
               zstd
@@ -220,6 +226,7 @@
               sqlite
               openssl
               alsa-lib
+              libgcc
             ];
 
             env = {
@@ -235,11 +242,15 @@
               alias ls=exa
               alias find=fd
               alias rinf='flutter pub run rinf'
-              export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig
               export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
-              export CXXFLAGS="--gcc-toolchain=${libgcc}"
-              export LDFLAGS="--gcc-toolchain=${libgcc}"
-              export CMAKE_EXE_LINKER_FLAGS="$PATH -L${libgcc}/lib"
+              export LDFLAGS="-L${stdenv.cc.libc}/lib -L${libgcc}/lib -L${stdenv.cc.cc.lib}/lib $LDFLAGS"
+              export LD_LIBRARY_PATH=${fontconfig.lib}/lib:${libxkbcommon}/lib:${xorg.libX11}/lib:${libGL}/lib:$LD_LIBRARY_PATH
+              export PKG_CONFIG_PATH=${zstd.dev}/lib/pkgconfig:${lmdb.dev}/lib/pkgconfig:${sqlite.dev}/lib/pkgconfig:${openssl.dev}/lib/pkgconfig:${alsa-lib.dev}/lib/pkgconfig
+              export CC="${stdenv.cc.targetPrefix}clang"
+              export CXX="${stdenv.cc.targetPrefix}clang++"
+
+              echo "Using CC: $CC"
+              echo "Using CXX: $CXX"
             '';
           }
         ) { };
