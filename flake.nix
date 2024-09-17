@@ -81,7 +81,8 @@
       in {
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
-          nativeBuildInputs = with pkgs; [
+
+          buildInputs = with pkgs; [
             (rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" ];
             })
@@ -103,9 +104,6 @@
             ninja
             unzip
             wayland
-          ];
-
-          buildInputs = with pkgs; [
             eza
             fd
             gtk3
@@ -123,18 +121,20 @@
             sqlite.dev
           ];
 
+          env = {
+            JAVA_HOME = "${pinnedJDK}";
+            ANDROID_HOME = "${androidCustomPackage}/share/android-sdk";
+            GRADLE_USER_HOME = "/home/specx/.gradle";
+            RUST_BACKTRACE = 1;
+          };
+
           shellHook = ''
             alias ls=exa
             alias find=fd
             alias rinf='flutter pub run rinf'
-            export RUST_BACKTRACE=1
-            export JAVA_HOME=${pinnedJDK}
-            export ANDROID_HOME=${androidCustomPackage}/share/android-sdk
-            export GRADLE_USER_HOME=/home/specx/.gradle
             export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
             export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidCustomPackage}/share/android-sdk/build-tools/34.0.0/aapt2"
             export PATH=${androidCustomPackage}/share/android-sdk/platform-tools:${androidCustomPackage}/share/android-sdk/tools:${androidCustomPackage}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
-            echo ${pkgs.openssl.dev}
           '';
         };
 

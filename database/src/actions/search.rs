@@ -1,5 +1,7 @@
+use core::fmt;
 use std::collections::HashMap;
 use std::error::Error;
+use std::str::FromStr;
 
 use deunicode::deunicode;
 use log::warn;
@@ -17,6 +19,40 @@ pub enum CollectionType {
     Directory,
     Album,
     Playlist,
+}
+
+#[derive(Debug, Clone)]
+pub enum ParseCollectionTypeError {
+    InvalidType,
+}
+
+impl fmt::Display for ParseCollectionTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Invalid collection type")
+    }
+}
+
+impl std::error::Error for ParseCollectionTypeError {}
+
+impl FromStr for CollectionType {
+    type Err = ParseCollectionTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "track" => Ok(CollectionType::Track),
+            "artist" => Ok(CollectionType::Artist),
+            "directory" => Ok(CollectionType::Directory),
+            "album" => Ok(CollectionType::Album),
+            "playlist" => Ok(CollectionType::Playlist),
+            _ => Err(ParseCollectionTypeError::InvalidType),
+        }
+    }
+}
+
+pub fn convert_to_collection_types(input: Vec<String>) -> Vec<CollectionType> {
+    input.into_iter()
+        .filter_map(|s| s.parse::<CollectionType>().ok())
+        .collect()
 }
 
 impl From<CollectionType> for i64 {
@@ -84,6 +120,7 @@ pub fn add_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: 
 pub fn search_for(
     search_db: &mut SearchDbConnection,
     query_str: &str,
+    search_fields: Option<Vec<CollectionType>>,
     n: usize,
 ) -> Result<HashMap<CollectionType, Vec<i64>>, Box<dyn Error>> {
     let schema = &search_db.schema;
@@ -105,6 +142,12 @@ pub fn search_for(
         CollectionType::Directory,
         CollectionType::Playlist,
     ] {
+        if let Some(ref search_fields) = search_fields {
+            if !search_fields.contains(&collection_type) {
+                continue;
+            }
+        }
+
         let type_value = i64::from(collection_type.clone());
         let filter_collector = FilterCollector::new(
             "type".to_string(),

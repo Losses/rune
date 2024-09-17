@@ -4,7 +4,8 @@ package search;
 // [RINF:DART-SIGNAL]
 message SearchForRequest {
   string query_str = 1;
-  int32 n = 2;
+  repeated string fields = 2;
+  int32 n = 3;
 }
 
 // [RINF:RUST-SIGNAL]

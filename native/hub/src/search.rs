@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use database::actions::search::convert_to_collection_types;
 use log::{debug, warn};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -16,13 +17,23 @@ pub async fn search_for_request(
 ) {
     let request = dart_signal.message;
     let query_str = request.query_str;
+    let search_fields = convert_to_collection_types(request.fields);
     let n = request.n as usize;
 
     debug!("Received search request: query_str={}, n={}", query_str, n);
 
     let mut search_db = search_db.lock().await;
 
-    match search_for(&mut search_db, &query_str, n) {
+    match search_for(
+        &mut search_db,
+        &query_str,
+        if search_fields.is_empty() {
+            None
+        } else {
+            Some(search_fields)
+        },
+        n,
+    ) {
         Ok(results) => {
             let mut artists: Vec<i32> = Vec::new();
             let mut albums: Vec<i32> = Vec::new();

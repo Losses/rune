@@ -182,7 +182,7 @@ class _SearchPageState extends State<SearchPage> {
       trailingIcon: IgnorePointer(
         child: IconButton(
           onPressed: () {},
-          icon: const Icon(FluentIcons.search),
+          icon: const Icon(Symbols.search, size: 16,),
         ),
       ),
     );
