@@ -45,3 +45,18 @@ message FetchAlbumsByIdsRequest {
 message FetchAlbumsByIdsResponse {
   repeated Album result = 1;
 }
+
+message AlbumSummary {
+  int32 id = 1;
+  string name = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message SearchAlbumSummaryRequest {
+  int32 n = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message SearchAlbumSummaryResponse {
+  repeated AlbumSummary result = 1;
+}

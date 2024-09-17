@@ -13,6 +13,7 @@ use crate::connection::SearchDbConnection;
 use crate::entities::{media_file_playlists, playlists};
 use crate::get_by_id;
 use crate::get_by_ids;
+use crate::get_first_n;
 use crate::{get_all_ids, get_groups};
 
 use super::utils::CountByFirstLetter;
@@ -40,6 +41,7 @@ get_all_ids!(
 );
 get_by_ids!(get_playlists_by_ids, playlists);
 get_by_id!(get_playlist_by_id, playlists);
+get_first_n!(list_playlists, playlists);
 
 /// Create a new playlist.
 ///

@@ -158,6 +158,7 @@ async fn player_loop(path: String) {
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             CompoundQueryMediaFilesRequest => (main_db, lib_path),
+            SearchMediaFileSummaryRequest => (main_db),
 
             StartPlayingCollectionRequest => (main_db, lib_path, player),
             AddToQueueCollectionRequest => (main_db, lib_path, player),
@@ -171,10 +172,12 @@ async fn player_loop(path: String) {
             FetchArtistsGroupSummaryRequest => (main_db),
             FetchArtistsGroupsRequest => (main_db),
             FetchArtistsByIdsRequest => (main_db),
+            SearchArtistSummaryRequest => (main_db),
 
             FetchAlbumsGroupSummaryRequest => (main_db),
             FetchAlbumsGroupsRequest => (main_db),
             FetchAlbumsByIdsRequest => (main_db),
+            SearchAlbumSummaryRequest => (main_db),
 
             FetchPlaylistsGroupSummaryRequest => (main_db),
             FetchPlaylistsGroupsRequest => (main_db),
@@ -189,6 +192,7 @@ async fn player_loop(path: String) {
             ReorderPlaylistItemPositionRequest => (main_db),
             GetUniquePlaylistGroupsRequest => (main_db),
             GetPlaylistByIdRequest => (main_db),
+            SearchPlaylistSummaryRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),

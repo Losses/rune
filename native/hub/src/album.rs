@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use database::actions::albums::list_albums;
 use log::{debug, error};
 use rinf::DartSignal;
 
@@ -11,6 +12,9 @@ use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
 use database::entities::albums;
 
+use crate::AlbumSummary;
+use crate::SearchAlbumSummaryRequest;
+use crate::SearchAlbumSummaryResponse;
 use crate::{
     Album, AlbumGroupSummaryResponse, AlbumsGroup, AlbumsGroupSummary, AlbumsGroups,
     FetchAlbumsByIdsRequest, FetchAlbumsByIdsResponse, FetchAlbumsGroupSummaryRequest,
@@ -111,6 +115,31 @@ pub async fn fetch_albums_by_ids_request(
         }
         Err(e) => {
             error!("Failed to fetch albums groups: {}", e);
+        }
+    };
+}
+
+pub async fn search_album_summary_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<SearchAlbumSummaryRequest>,
+) {
+    let request = dart_signal.message;
+
+    match list_albums(&main_db, request.n.try_into().unwrap()).await {
+        Ok(items) => {
+            SearchAlbumSummaryResponse {
+                result: items
+                    .into_iter()
+                    .map(|x| AlbumSummary {
+                        id: x.id,
+                        name: x.name,
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to search album summary: {}", e);
         }
     };
 }

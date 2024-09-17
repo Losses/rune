@@ -10,10 +10,11 @@ use std::path::Path;
 use migration::{Func, SimpleExpr};
 
 use crate::entities::{media_file_albums, media_file_artists, media_file_playlists, media_files};
-use crate::{get_by_id, get_by_ids};
+use crate::{get_by_id, get_by_ids, get_first_n};
 
 get_by_ids!(get_files_by_ids, media_files);
 get_by_id!(get_file_by_id, media_files);
+get_first_n!(list_files, media_files);
 
 pub async fn get_ordered_files_by_ids(
     main_db: &DatabaseConnection,

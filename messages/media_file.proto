@@ -60,3 +60,18 @@ message FetchMediaFileByIdsRequest {
 message FetchMediaFileByIdsResponse {
   repeated MediaFile result = 1;
 }
+
+message MediaFileSummary {
+  int32 id = 1;
+  string name = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message SearchMediaFileSummaryRequest {
+  int32 n = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message SearchMediaFileSummaryResponse {
+  repeated MediaFileSummary result = 1;
+}

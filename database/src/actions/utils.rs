@@ -244,3 +244,23 @@ macro_rules! get_by_id {
         }
     };
 }
+
+#[macro_export]
+macro_rules! get_first_n {
+    ($fn_name:ident, $item_entity:ident) => {
+        
+        pub async fn $fn_name(
+            db: &DatabaseConnection,
+            n: u64,
+        ) -> Result<Vec<$item_entity::Model>, sea_orm::DbErr> {
+            use sea_orm::QuerySelect;
+
+            let item = $item_entity::Entity::find()
+                .limit(n)
+                .all(db)
+                .await?;
+
+            Ok(item)
+        }
+    };
+}

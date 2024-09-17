@@ -220,7 +220,7 @@ async fn main() {
             )
             .await;
         }
-        Commands::Search { query, num } => match search_for(&mut search_db, query, *num) {
+        Commands::Search { query, num } => match search_for(&mut search_db, query, None, *num) {
             Ok(results) => {
                 for (collection_type, ids) in results {
                     info!("{:?}: {:?}", collection_type, ids);

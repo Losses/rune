@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use database::actions::playlists::list_playlists;
 use log::{debug, error};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -22,6 +23,9 @@ use database::connection::MainDbConnection;
 use database::connection::SearchDbConnection;
 use database::entities::playlists;
 
+use crate::PlaylistSummary;
+use crate::SearchPlaylistSummaryRequest;
+use crate::SearchPlaylistSummaryResponse;
 use crate::{
     AddItemToPlaylistRequest, AddItemToPlaylistResponse, AddMediaFileToPlaylistRequest,
     AddMediaFileToPlaylistResponse, CheckItemsInPlaylistRequest, CheckItemsInPlaylistResponse,
@@ -376,4 +380,29 @@ pub async fn get_playlist_by_id_request(
             error!("Failed to get playlist by id: {}", e);
         }
     }
+}
+
+pub async fn search_playlist_summary_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<SearchPlaylistSummaryRequest>,
+) {
+    let request = dart_signal.message;
+
+    match list_playlists(&main_db, request.n.try_into().unwrap()).await {
+        Ok(items) => {
+            SearchPlaylistSummaryResponse {
+                result: items
+                    .into_iter()
+                    .map(|x| PlaylistSummary {
+                        id: x.id,
+                        name: x.name,
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            error!("Failed to search album summary: {}", e);
+        }
+    };
 }

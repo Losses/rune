@@ -7,8 +7,8 @@ use log::debug;
 use log::{error, info};
 use rinf::DartSignal;
 
-use database::actions::file::compound_query_media_files;
 use database::actions::file::get_files_by_ids;
+use database::actions::file::{compound_query_media_files, list_files};
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;
@@ -231,4 +231,38 @@ pub async fn fetch_parsed_media_file_request(
         }
     };
     Ok(())
+}
+
+pub async fn search_media_file_summary_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<SearchMediaFileSummaryRequest>,
+) {
+    let request = dart_signal.message;
+
+    match list_files(&main_db, request.n.try_into().unwrap()).await {
+        Ok(items) => {
+            let media_summaries = get_metadata_summary_by_files(&main_db, items);
+
+            match media_summaries.await {
+                Ok(media_summaries) => {
+                    SearchMediaFileSummaryResponse {
+                        result: media_summaries
+                            .into_iter()
+                            .map(|x| MediaFileSummary {
+                                id: x.id,
+                                name: x.title,
+                            })
+                            .collect(),
+                    }
+                    .send_signal_to_dart();
+                }
+                Err(e) => {
+                    error!("Error happened while getting media summaries: {:#?}", e)
+                }
+            }
+        }
+        Err(e) => {
+            error!("Failed to search media file summary: {}", e);
+        }
+    };
 }

@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:collection';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/artist.pb.dart';
-import 'package:player/messages/search.pb.dart';
 
+import '../../messages/artist.pb.dart';
+import '../../messages/search.pb.dart';
+
+import '../../utils/clear_text_utils/clear_text_controller.dart';
+import '../../utils/clear_text_utils/clear_text_focus_node.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 class InteractiveTag extends BaseButton {
@@ -124,8 +127,6 @@ class SettingsMixPage extends StatefulWidget {
 class _SettingsMixPageState extends State<SettingsMixPage> {
   @override
   Widget build(BuildContext context) {
-    final typography = FluentTheme.of(context).typography;
-
     return Column(children: [
       const NavigationBarPlaceholder(),
       Padding(
@@ -140,21 +141,12 @@ class _SettingsMixPageState extends State<SettingsMixPage> {
                   Text("Create Mix"),
                 ],
               ),
-              content: Column(
+              content: const Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Artists',
-                    style: typography.bodyStrong,
-                  ),
-                  const SearchInput(
-                    field: 'artist',
-                  ),
-                  Text(
-                    'Albums',
-                    style: typography.bodyStrong,
-                  ),
+                  Text('Artists'),
+                  SearchInput(field: 'artist'),
                 ],
               ),
               actions: [
@@ -192,17 +184,33 @@ class SearchInput extends StatefulWidget {
 }
 
 class _SearchInputState extends State<SearchInput> {
-  late SearchTask<AutoSuggestBoxItem<int>> searcher;
+  late SearchTask<AutoSuggestBoxItem<int>> _searcher;
   List<AutoSuggestBoxItem<int>> searchResults = [];
   LinkedHashSet<AutoSuggestBoxItem<int>> selectedItems = LinkedHashSet();
 
-  final searchFocusNode = FocusNode();
-  final searchController = TextEditingController();
+  late DeleteDetectingController _controller;
+  late DeleteDetectingFocusNode _focusNode;
+  late final Future<List<AutoSuggestBoxItem<int>>> _initResult =
+      getInitResult();
+
+  Future<List<AutoSuggestBoxItem<int>>> getInitResult() async {
+    SearchArtistSummaryRequest(n: 50).sendSignalToRust();
+    return (await SearchArtistSummaryResponse.rustSignalStream.first)
+        .message
+        .result
+        .map((x) => AutoSuggestBoxItem<int>(value: x.id, label: x.name))
+        .toList();
+  }
 
   @override
   void initState() {
+    _controller = DeleteDetectingController();
+    _focusNode = DeleteDetectingFocusNode(_controller, false);
     super.initState();
-    searcher = SearchTask<AutoSuggestBoxItem<int>>(
+    _controller.addListener(_search);
+    _controller.isTextClearedNotifier.addListener(_handleTextCleared);
+
+    _searcher = SearchTask<AutoSuggestBoxItem<int>>(
         notifyWhenStateChange: false,
         searchDelegate: (query) async {
           final ids = (await searchFor(query, widget.field)).artists;
@@ -215,31 +223,61 @@ class _SearchInputState extends State<SearchInput> {
               .toList();
         });
 
-    searcher.addListener(() {
+    _searcher.addListener(() {
       setState(() {
-        searchResults = searcher.searchResults;
+        searchResults = _searcher.searchResults;
       });
     });
+  }
+
+  void _search() async {
+    if (_controller.clearText.isEmpty) {
+      final initResult = await _initResult;
+
+      if (searchResults == initResult) return;
+      if (mounted) {
+        setState(() {
+          searchResults = initResult;
+        });
+      }
+    } else {
+      _searcher.search(_controller.clearText);
+    }
+  }
+
+  void _handleTextCleared() {
+    if (_controller.isTextClearedNotifier.value) {
+      setState(() {
+        final list = selectedItems.toList();
+
+        if (list.isNotEmpty) {
+          list.removeLast();
+        }
+
+        selectedItems = LinkedHashSet.from(list);
+      });
+    }
   }
 
   @override
   void dispose() {
     super.dispose();
-    searcher.dispose();
+    _searcher.dispose();
+    _focusNode.dispose();
+    _controller.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return AutoSuggestBox(
-      controller: searchController,
-      focusNode: searchFocusNode,
+      controller: _controller,
+      focusNode: _focusNode,
       items: searchResults,
-      onSelectedBehavior: OnSelectBehavior.clear,
-      onChanged: (text, reason) {
-        searcher.search(text);
-      },
+      onSelectTextDelegate: (item) => '\u200B',
       onSelected: (item) {
-        selectedItems.add(item);
+        setState(() {
+          selectedItems.add(item);
+        });
       },
       sorter: (text, items) => items,
       leadingIcon: Padding(
