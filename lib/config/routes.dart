@@ -76,6 +76,10 @@ final routes = <GoRoute>[
     builder: (context, state) => const settings.SettingsTestPage(),
   ),
   GoRoute(
+    path: '/settings/mix',
+    builder: (context, state) => const settings.SettingsMixPage(),
+  ),
+  GoRoute(
     path: '/search',
     builder: (context, state) => const search.SearchPage(),
   ),

@@ -27,6 +27,9 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
             Button(
                 child: const Text("Test"),
                 onPressed: () => context.push('/settings/test')),
+            Button(
+                child: const Text("Mix"),
+                onPressed: () => context.push('/settings/mix')),
             const Text("Mix"),
             Wrap(
               children: [
