@@ -48,4 +48,21 @@ class MixEditorData {
       likedOnly: likedOnly ?? this.likedOnly,
     );
   }
+
+  @override
+  String toString() {
+    return '''MixEditorData(
+    artists: $artists,
+    albums: $albums,
+    playlists: $playlists,
+    tracks: $tracks,
+    directories: $directories,
+    limit: $limit,
+    mode: $mode,
+    recommendation: $recommendation,
+    sortBy: $sortBy,
+    likedOnly: $likedOnly,
+)
+''';
+  }
 }

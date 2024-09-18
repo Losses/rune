@@ -1,26 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/settings_test/widgets/mix_editor.dart';
-import '../../../messages/search.pb.dart';
-
-
-
-Future<Map<String, List<int>>> searchFor(String query, String field) async {
-  final searchRequest =
-      SearchForRequest(queryStr: query, fields: [field], n: 30);
-  searchRequest.sendSignalToRust(); // GENERATED
-
-  final message = (await SearchForResponse.rustSignalStream.first).message;
-
-  final Map<String, List<int>> result = {};
-
-  result['artists'] = message.artists;
-  result['albums'] = message.albums;
-  result['playlists'] = message.playlists;
-  result['tracks'] = message.tracks;
-
-  return result;
-}
 
 class EditMixDialog extends StatefulWidget {
   const EditMixDialog({super.key});

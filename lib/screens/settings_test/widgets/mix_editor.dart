@@ -7,6 +7,7 @@ import '../../../screens/settings_test/widgets/toggle_switch_section.dart';
 import '../../../screens/settings_test/widgets/search_chip_input_section.dart';
 
 import '../../../messages/album.pb.dart';
+import '../../../messages/search.pb.dart';
 import '../../../messages/media_file.pb.dart';
 import '../../../messages/artist.pbserver.dart';
 import '../../../messages/playlist.pbserver.dart';
@@ -16,7 +17,6 @@ import '../config/sort_select_items.dart';
 import '../config/recommend_select_items.dart';
 
 import './slider_section.dart';
-import './edit_mix_dialog.dart';
 import './directory_section.dart';
 import './select_input_section.dart';
 
@@ -111,6 +111,23 @@ class _MixEditorState extends State<MixEditor> {
       ),
     );
   }
+}
+
+Future<Map<String, List<int>>> searchFor(String query, String field) async {
+  final searchRequest =
+      SearchForRequest(queryStr: query, fields: [field], n: 30);
+  searchRequest.sendSignalToRust(); // GENERATED
+
+  final message = (await SearchForResponse.rustSignalStream.first).message;
+
+  final Map<String, List<int>> result = {};
+
+  result['artists'] = message.artists;
+  result['albums'] = message.albums;
+  result['playlists'] = message.playlists;
+  result['tracks'] = message.tracks;
+
+  return result;
 }
 
 Future<List<AutoSuggestBoxItem<int>>> _getInitResult(
