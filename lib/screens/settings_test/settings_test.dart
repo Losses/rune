@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/playback_controller.dart';
 import '../../widgets/directory/directory_tree.dart';
+import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 class SettingsTestPage extends StatefulWidget {

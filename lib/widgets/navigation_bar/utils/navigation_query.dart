@@ -1,5 +1,6 @@
 import 'dart:collection';
-import 'package:player/widgets/navigation_bar/utils/navigation_item.dart';
+
+import '../../../widgets/navigation_bar/utils/navigation_item.dart';
 
 class NavigationQuery {
   final HashMap<String, NavigationItem> _pathToItem = HashMap();

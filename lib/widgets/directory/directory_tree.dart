@@ -1,19 +1,54 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/directory/utils/convertion.dart';
 
-import '../../../messages/directory.pb.dart';
+import '../../widgets/directory/utils/convertion.dart';
+import '../../messages/directory.pb.dart';
+
+class DirectoryTreeController extends ChangeNotifier {
+  Set<String>? _selectedValue;
+
+  DirectoryTreeController(this._selectedValue);
+
+  Set<String>? get value => _selectedValue;
+
+  set value(Set<String>? value) {
+    if (_selectedValue != value) {
+      _selectedValue = value;
+      notifyListeners();
+    }
+  }
+}
 
 class DirectoryTree extends StatefulWidget {
-  final Future<void> Function(Iterable<String>) onSelectionChanged;
+  final Future<void> Function(Iterable<String>)? onSelectionChanged;
+  final DirectoryTreeController? controller;
 
-  const DirectoryTree({super.key, required this.onSelectionChanged});
+  const DirectoryTree({
+    super.key,
+    this.onSelectionChanged,
+    this.controller,
+  });
 
   @override
   State<DirectoryTree> createState() => _DirectoryTreeState();
 }
 
 class _DirectoryTreeState extends State<DirectoryTree> {
+  late final DirectoryTreeController _controller;
   Future<TreeViewItem> directoryTree = fetchAndConvertDirectoryTree();
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = widget.controller ?? DirectoryTreeController({});
+  }
+
+  @override
+  void dispose() {
+    if (widget.controller == null) {
+      _controller.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -27,11 +62,24 @@ class _DirectoryTreeState extends State<DirectoryTree> {
           } else if (!snapshot.hasData) {
             return const Center(child: Text('No data available'));
           } else {
+            final root = TreeViewItem(
+              content: const Text('/'),
+              value: '/',
+              expanded: true,
+              children: snapshot.data!.children,
+            );
+
+            final value = _controller.value;
+
+            if (value != null) {
+              updateTreeViewSelection(root, value);
+            }
+
             return TreeView(
               selectionMode: TreeViewSelectionMode.multiple,
               scrollPrimary: true,
               shrinkWrap: true,
-              items: snapshot.data!.children,
+              items: [root],
               onItemInvoked: (item, reason) async {
                 if (reason == TreeViewItemInvokeReason.pressed) {
                   setState(() {
@@ -44,11 +92,17 @@ class _DirectoryTreeState extends State<DirectoryTree> {
                 }
               },
               onSelectionChanged: (selectedItems) async {
-                final Iterable<String> items =
-                    selectedItems.map((i) => i.value.toString());
+                _controller.value = Set.from(
+                    selectedItems.map((x) => x.value as String).toList());
 
-                return widget.onSelectionChanged(
-                    completeToCompact(items, snapshot.data!));
+                if (widget.onSelectionChanged != null) {
+                  final Iterable<String> items =
+                      selectedItems.map((i) => i.value.toString());
+
+                  widget.onSelectionChanged!(
+                    completeToCompact(items, snapshot.data!),
+                  );
+                }
               },
             );
           }
@@ -80,4 +134,12 @@ Future<TreeViewItem> fetchAndConvertDirectoryTree() async {
   final root = await fetchDirectoryTree();
 
   return convertDirectoryTree(root);
+}
+
+void updateTreeViewSelection(TreeViewItem item, Set<String> selectedValues) {
+  item.selected = selectedValues.contains(item.value);
+
+  for (var child in item.children) {
+    updateTreeViewSelection(child, selectedValues);
+  }
 }

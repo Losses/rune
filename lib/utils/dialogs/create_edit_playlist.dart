@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/playlist.pb.dart';
+
+import '../../messages/playlist.pb.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;

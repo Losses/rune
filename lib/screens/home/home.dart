@@ -2,9 +2,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 
-import '../../providers/library_path.dart';
-import '../../widgets/playback_controller.dart';
+import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../providers/library_path.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});

@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
 
-import '../messages/playback.pb.dart';
+import '../../messages/playback.pb.dart';
 
 class FFTVisualize extends StatefulWidget {
   const FFTVisualize({super.key});

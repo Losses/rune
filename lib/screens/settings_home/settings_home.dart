@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/messages/recommend.pbserver.dart';
 
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../messages/recommend.pbserver.dart';
 
 class SettingsHomePage extends StatefulWidget {
   const SettingsHomePage({super.key});

@@ -3,14 +3,14 @@ import 'package:hashlib/hashlib.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/status.dart';
-import 'package:player/utils/ax_shadow.dart';
-import 'package:player/widgets/gradient_container.dart';
-import 'package:player/widgets/playback_controller.dart';
 import 'package:provider/provider.dart';
 
-import '../../../messages/cover_art.pb.dart';
+import '../../../utils/ax_shadow.dart';
 import '../../../widgets/cover_art.dart';
+import '../../../widgets/gradient_container.dart';
+import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../../messages/cover_art.pb.dart';
+import '../../../providers/status.dart';
 
 const int count = 40;
 

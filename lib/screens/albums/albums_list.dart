@@ -1,14 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/widgets/context_menu_wrapper.dart';
 
-import '../../../utils/router_extra.dart';
-import '../../../utils/context_menu/collection_item_context_menu.dart';
-import '../../../widgets/flip_tile.dart';
-import '../../../widgets/grouped_list_base.dart';
-import '../../../widgets/start_screen/start_screen.dart';
-import '../../../messages/album.pb.dart';
+import '../../utils/router_extra.dart';
+import '../../utils/context_menu/collection_item_context_menu.dart';
+import '../../widgets/flip_tile.dart';
+import '../../widgets/grouped_list_base.dart';
+import '../../widgets/context_menu_wrapper.dart';
+import '../../widgets/start_screen/start_screen.dart';
+import '../../messages/album.pb.dart';
 
 class AlbumsListView extends GroupedListBase<Album, AlbumsGroupSummary> {
   const AlbumsListView({super.key});

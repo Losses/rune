@@ -1,4 +1,3 @@
-import 'package:player/providers/library_manager.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -6,6 +5,7 @@ import 'package:mesh_gradient/mesh_gradient.dart';
 
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
+import '../../providers/library_manager.dart';
 
 extension ColorBrightness on Color {
   Color darken([double amount = .1]) {

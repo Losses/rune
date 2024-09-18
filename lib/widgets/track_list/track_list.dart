@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/start_screen/providers/managed_start_screen_item.dart';
 
-import '../../../../widgets/smooth_horizontal_scroll.dart';
-import '../../../../messages/media_file.pb.dart';
+import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../messages/media_file.pb.dart';
 
 import './track_list_item.dart';
 
