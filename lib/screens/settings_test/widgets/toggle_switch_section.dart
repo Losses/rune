@@ -41,7 +41,9 @@ class ToggleSwitchSectionState extends State<ToggleSwitchSection> {
       content: Expanded(child: widget.content),
       leadingContent: true,
       onChanged: (bool value) {
-        _controller.isChecked = value;
+        setState(() {
+          _controller.isChecked = value;
+        });
       },
     );
   }
