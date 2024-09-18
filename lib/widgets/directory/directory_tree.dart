@@ -6,7 +6,8 @@ import '../../messages/directory.pb.dart';
 class DirectoryTreeController extends ChangeNotifier {
   Set<String>? _selectedValue;
 
-  DirectoryTreeController(this._selectedValue);
+  DirectoryTreeController([selectedValue])
+      : _selectedValue = selectedValue ?? {};
 
   Set<String>? get value => _selectedValue;
 

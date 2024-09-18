@@ -9,8 +9,8 @@ class SliderSection extends StatefulWidget {
 
   const SliderSection({
     super.key,
-    required this.title,
     this.controller,
+    required this.title,
     this.defaultValue = 0.0,
   });
 

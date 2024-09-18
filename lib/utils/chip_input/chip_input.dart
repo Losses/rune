@@ -9,7 +9,12 @@ import '../clear_text_utils/clear_text_controller.dart';
 import '../clear_text_utils/clear_text_focus_node.dart';
 
 class ChipInputController<T> extends ChangeNotifier {
-  final LinkedHashSet<AutoSuggestBoxItem<T>> _selectedItems = LinkedHashSet();
+  final LinkedHashSet<AutoSuggestBoxItem<T>> _selectedItems;
+
+  ChipInputController([LinkedHashSet<AutoSuggestBoxItem<T>>? selectedItems])
+      : _selectedItems =
+            // ignore: prefer_collection_literals
+            selectedItems ?? LinkedHashSet<AutoSuggestBoxItem<T>>();
 
   LinkedHashSet<AutoSuggestBoxItem<T>> get selectedItems => _selectedItems;
 
@@ -168,10 +173,7 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
       decorationBuilder: (context, body, prefix, suffix) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            prefix ?? Container(),
-            body
-          ],
+          children: [prefix ?? Container(), body],
         );
       },
     );
