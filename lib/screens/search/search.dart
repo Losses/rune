@@ -182,7 +182,10 @@ class _SearchPageState extends State<SearchPage> {
       trailingIcon: IgnorePointer(
         child: IconButton(
           onPressed: () {},
-          icon: const Icon(Symbols.search, size: 16,),
+          icon: const Icon(
+            Symbols.search,
+            size: 16,
+          ),
         ),
       ),
     );
@@ -235,14 +238,15 @@ class _SearchPageState extends State<SearchPage> {
                           final int column = index ~/ rows;
 
                           return ManagedStartScreenItem(
-                              key: Key('$selectedItem-$row:$column'),
-                              prefix: selectedItem,
-                              groupId: 0,
-                              row: row,
-                              column: column,
-                              width: cellSize / ratio,
-                              height: cellSize,
-                              child: x.value);
+                            key: Key('$selectedItem-$row:$column'),
+                            prefix: selectedItem,
+                            groupId: 0,
+                            row: row,
+                            column: column,
+                            width: cellSize / ratio,
+                            height: cellSize,
+                            child: x.value,
+                          );
                         }).toList());
                   })),
                 ],
@@ -262,12 +266,16 @@ class _SearchPageState extends State<SearchPage> {
                   children: [
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          vertical: 13, horizontal: 16),
+                        vertical: 13,
+                        horizontal: 16,
+                      ),
                       child: Text("Search", style: typography.bodyLarge),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          vertical: 8, horizontal: 16),
+                        vertical: 8,
+                        horizontal: 16,
+                      ),
                       child: SizedBox(
                         height: 36,
                         child: Row(
@@ -309,8 +317,11 @@ class _SearchPageState extends State<SearchPage> {
                                 color: theme.accentColor,
                                 borderRadius: BorderRadius.circular(2),
                               ),
-                              child: Icon(searchIcons[index],
-                                  color: theme.activeColor, size: 26),
+                              child: Icon(
+                                searchIcons[index],
+                                color: theme.activeColor,
+                                size: 26,
+                              ),
                             ),
                             title: Row(
                               children: [
@@ -425,8 +436,7 @@ class PlaylistItem extends CollectionSearchCard<Playlist> {
     super.key,
     required super.index,
     required super.item,
-  }) : super(
-            routePrefix: 'playlists', emptyTileType: BoringAvatarType.bauhaus);
+  }) : super(routePrefix: 'playlists', emptyTileType: BoringAvatarType.bauhaus);
 
   @override
   int getItemId() => item.id;

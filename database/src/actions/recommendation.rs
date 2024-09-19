@@ -4,15 +4,15 @@ use std::num::NonZeroUsize;
 use anyhow::{bail, Context, Result};
 use arroy::distances::Euclidean;
 use arroy::{Reader, Writer};
-use futures::future::join_all;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use sea_orm::entity::prelude::*;
-use sea_orm::{QueryOrder, QuerySelect};
 use seq_macro::seq;
 
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{media_analysis, media_files};
+
+use super::analysis::get_percentile_analysis_result;
 
 /// Get recommendations for a given item.
 ///
@@ -160,127 +160,19 @@ pub async fn sync_recommendation(
     Ok(())
 }
 
-pub async fn get_percentile(
-    main_db: &MainDbConnection,
-    n: usize,
-    column: media_analysis::Column,
-    percentile: f64,
-) -> Result<f32> {
-    // Check if values are empty
-    if n == 0 {
-        return Ok(0.0);
-    }
-
-    // Calculate the rank
-    let rank = percentile * (n as f64 - 1.0);
-    let index = rank.round() as u64;
-
-    let result = media_analysis::Entity::find()
-        .select_only()
-        .order_by_asc(column)
-        .column(media_analysis::Column::FileId)
-        .offset(index)
-        .limit(1)
-        .into_tuple::<i32>()
-        .one(main_db)
-        .await.with_context(|| "Unable to get analysis value")?;
-
-    Ok(result.unwrap_or_default() as f32)
-}
-
 pub async fn get_recommendation_by_percentile(
     main_db: &MainDbConnection,
     recommend_db: &RecommendationDbConnection,
     total_groups: usize,
     group_index: usize,
 ) -> Result<Vec<(u32, f32)>> {
-    let columns = [
-        media_analysis::Column::Rms,
-        media_analysis::Column::Zcr,
-        media_analysis::Column::Energy,
-        media_analysis::Column::SpectralCentroid,
-        media_analysis::Column::SpectralFlatness,
-        media_analysis::Column::SpectralSlope,
-        media_analysis::Column::SpectralRolloff,
-        media_analysis::Column::SpectralSpread,
-        media_analysis::Column::SpectralSkewness,
-        media_analysis::Column::SpectralKurtosis,
-        media_analysis::Column::Chroma0,
-        media_analysis::Column::Chroma1,
-        media_analysis::Column::Chroma2,
-        media_analysis::Column::Chroma3,
-        media_analysis::Column::Chroma4,
-        media_analysis::Column::Chroma5,
-        media_analysis::Column::Chroma6,
-        media_analysis::Column::Chroma7,
-        media_analysis::Column::Chroma8,
-        media_analysis::Column::Chroma9,
-        media_analysis::Column::Chroma10,
-        media_analysis::Column::Chroma11,
-        media_analysis::Column::PerceptualSpread,
-        media_analysis::Column::PerceptualSharpness,
-        media_analysis::Column::PerceptualLoudness0,
-        media_analysis::Column::PerceptualLoudness1,
-        media_analysis::Column::PerceptualLoudness2,
-        media_analysis::Column::PerceptualLoudness3,
-        media_analysis::Column::PerceptualLoudness4,
-        media_analysis::Column::PerceptualLoudness5,
-        media_analysis::Column::PerceptualLoudness6,
-        media_analysis::Column::PerceptualLoudness7,
-        media_analysis::Column::PerceptualLoudness8,
-        media_analysis::Column::PerceptualLoudness9,
-        media_analysis::Column::PerceptualLoudness10,
-        media_analysis::Column::PerceptualLoudness11,
-        media_analysis::Column::PerceptualLoudness12,
-        media_analysis::Column::PerceptualLoudness13,
-        media_analysis::Column::PerceptualLoudness14,
-        media_analysis::Column::PerceptualLoudness15,
-        media_analysis::Column::PerceptualLoudness16,
-        media_analysis::Column::PerceptualLoudness17,
-        media_analysis::Column::PerceptualLoudness18,
-        media_analysis::Column::PerceptualLoudness19,
-        media_analysis::Column::PerceptualLoudness20,
-        media_analysis::Column::PerceptualLoudness21,
-        media_analysis::Column::PerceptualLoudness22,
-        media_analysis::Column::PerceptualLoudness23,
-        media_analysis::Column::Mfcc0,
-        media_analysis::Column::Mfcc1,
-        media_analysis::Column::Mfcc2,
-        media_analysis::Column::Mfcc3,
-        media_analysis::Column::Mfcc4,
-        media_analysis::Column::Mfcc5,
-        media_analysis::Column::Mfcc6,
-        media_analysis::Column::Mfcc7,
-        media_analysis::Column::Mfcc8,
-        media_analysis::Column::Mfcc9,
-        media_analysis::Column::Mfcc10,
-        media_analysis::Column::Mfcc11,
-        media_analysis::Column::Mfcc12,
-    ];
+    let p = 1.0 / (total_groups + 2) as f64 * (group_index + 1) as f64;
 
+    let virtual_point = get_percentile_analysis_result(main_db, p).await?;
     let total_files = media_files::Entity::find()
         .count(main_db)
         .await
         .with_context(|| "Unable to get total files")? as usize;
-
-    let p = 1.0 / (total_groups + 2) as f64 * (group_index + 1) as f64;
-    let futures = columns
-        .iter()
-        .map(|column| get_percentile(main_db, total_files, *column, p));
-
-    let percentiles = join_all(futures).await;
-
-    let mut virtual_point = Vec::new();
-    for percentile in percentiles {
-        match percentile.with_context(|| "Unable to calculate percentile") {
-            Ok(value) => virtual_point.push(value),
-            Err(e) => return Err(e),
-        }
-    }
-
-    let virtual_point: [f32; 61] = virtual_point
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("Failed to convert virtual_point to array"))?;
 
     get_recommendation_by_parameter(recommend_db, virtual_point, total_files / total_groups)
 }

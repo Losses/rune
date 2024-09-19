@@ -79,6 +79,7 @@ class Rune extends StatelessWidget {
           themeMode: appTheme.mode,
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
+          // scrollBehavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,

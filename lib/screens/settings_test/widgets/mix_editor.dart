@@ -50,9 +50,8 @@ class _MixEditorState extends State<MixEditor> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<MixEditorController>(
       create: (_) => _controller,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
           SearchChipInputSection(
             controller: _controller.artistsController,
@@ -84,7 +83,9 @@ class _MixEditorState extends State<MixEditor> {
           ),
           DirectorySection(controller: _controller.directoryController),
           SliderSection(
-              controller: _controller.limitController, title: "Limit"),
+            title: 'Amount',
+            controller: _controller.limitController,
+          ),
           SelectInputSection(
             controller: _controller.modeController,
             title: "Mode",
@@ -95,7 +96,7 @@ class _MixEditorState extends State<MixEditor> {
             controller: _controller.recommendationController,
             title: "Recommendation",
             items: recommendSelectItems,
-            defaultValue: '99',
+            defaultValue: '',
           ),
           SelectInputSection(
             controller: _controller.sortByController,

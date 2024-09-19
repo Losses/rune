@@ -159,6 +159,7 @@ async fn player_loop(path: String) {
             FetchParsedMediaFileRequest => (main_db, lib_path),
             CompoundQueryMediaFilesRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
+            MixQueryRequest => (main_db, recommend_db),
 
             StartPlayingCollectionRequest => (main_db, lib_path, player),
             AddToQueueCollectionRequest => (main_db, lib_path, player),

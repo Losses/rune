@@ -1,7 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../screens/settings_test/utils/mix_editor_data.dart';
 import '../../screens/settings_test/widgets/mix_editor_controller.dart';
+
+import '../../messages/media_file.pb.dart';
 
 import './widgets/mix_editor.dart';
 
@@ -19,7 +22,7 @@ class _SettingsMixPageState extends State<SettingsMixPage> {
   void initState() {
     super.initState();
     _controller.addListener(() {
-      print(_controller.getData());
+      print(mixEditorDataToQuery(_controller.getData()));
     });
   }
 
@@ -45,9 +48,7 @@ class _SettingsMixPageState extends State<SettingsMixPage> {
               width: 400,
               child: SizedBox(
                 height: height - reduce,
-                child: SingleChildScrollView(
-                  child: MixEditor(controller: _controller),
-                ),
+                child: MixEditor(controller: _controller),
               ),
             ),
             Expanded(child: Container()),
@@ -56,4 +57,14 @@ class _SettingsMixPageState extends State<SettingsMixPage> {
       )
     ]);
   }
+}
+
+fetchPlaylistsByIds(List<(String, String)> queries) async {
+  final request = MixQueryRequest(
+      queries: queries
+          .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
+          .toList());
+  request.sendSignalToRust(); // GENERATED
+
+  return (await MixQueryResponse.rustSignalStream.first).message.result;
 }

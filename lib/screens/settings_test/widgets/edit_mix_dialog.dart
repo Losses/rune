@@ -23,12 +23,11 @@ class _EditMixDialogState extends State<EditMixDialog> {
         ],
       ),
       content: Container(
-          constraints: BoxConstraints(
-            maxHeight: height < reduce ? reduce : height - reduce,
-          ),
-          child: const SingleChildScrollView(
-            child: MixEditor(),
-          )),
+        constraints: BoxConstraints(
+          maxHeight: height < reduce ? reduce : height - reduce,
+        ),
+        child: const MixEditor(),
+      ),
       actions: [
         FilledButton(
           child: const Text('Query'),

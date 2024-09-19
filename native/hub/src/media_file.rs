@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use database::connection::MainDbConnection;
+use database::actions::mixes::query_mix_media_files;
+use database::connection::{MainDbConnection, RecommendationDbConnection};
 use dunce::canonicalize;
 use log::debug;
 use log::{error, info};
@@ -265,4 +266,53 @@ pub async fn search_media_file_summary_request(
             error!("Failed to search media file summary: {}", e);
         }
     };
+}
+
+pub async fn mix_query_request(
+    main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
+    dart_signal: DartSignal<MixQueryRequest>,
+) -> Result<()> {
+    let request = dart_signal.message;
+
+    let queries = request
+        .queries
+        .into_iter()
+        .map(|x| (x.operator, x.parameter))
+        .collect();
+
+    match query_mix_media_files(
+        &main_db,
+        &recommend_db,
+        queries,
+        request.cursor as usize,
+        request.page_size as usize,
+    )
+    .await
+    {
+        Ok(items) => {
+            let media_summaries = get_metadata_summary_by_files(&main_db, items);
+
+            match media_summaries.await {
+                Ok(media_summaries) => {
+                    MixQueryResponse {
+                        result: media_summaries
+                            .into_iter()
+                            .map(|x| MediaFileSummary {
+                                id: x.id,
+                                name: x.title,
+                            })
+                            .collect(),
+                    }
+                    .send_signal_to_dart();
+                }
+                Err(e) => {
+                    error!("Error happened while getting media summaries: {:#?}", e)
+                }
+            }
+        }
+        Err(e) => error!("Unable to query mix media files: ${}", e),
+    }
+
+    Ok(())
 }

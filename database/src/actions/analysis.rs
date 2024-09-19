@@ -1,11 +1,12 @@
-use std::sync::Arc;
 use std::path::Path;
+use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use futures::future::join_all;
 use log::{debug, error, info};
 use paste::paste;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ActiveValue, QuerySelect};
+use sea_orm::{ActiveValue, QueryOrder, QuerySelect};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use seq_macro::seq;
 use tokio::sync::Semaphore;
@@ -105,7 +106,7 @@ where
     };
 
     let consumer_cancel_token = cancel_token.clone();
-    let semaphore = Arc::new(Semaphore::new(batch_size)); // Limit the concurrent task count 
+    let semaphore = Arc::new(Semaphore::new(batch_size)); // Limit the concurrent task count
     let consumer = {
         async move {
             while let Ok(file) = rx.recv().await {
@@ -439,4 +440,91 @@ pub async fn get_centralized_analysis_result(
         perceptual_loudness: calculate_array_mean!(sum, count, perceptual_loudness, 24),
         mfcc: calculate_array_mean!(sum, count, mfcc, 13),
     })
+}
+
+pub async fn get_percentile(
+    main_db: &DatabaseConnection,
+    n: usize,
+    column: media_analysis::Column,
+    percentile: f64,
+) -> Result<f32> {
+    // Check if values are empty
+    if n == 0 {
+        return Ok(0.0);
+    }
+
+    // Calculate the rank
+    let rank = percentile * (n as f64 - 1.0);
+    let index = rank.round() as u64;
+
+    let result = media_analysis::Entity::find()
+        .select_only()
+        .order_by_asc(column)
+        .column(media_analysis::Column::FileId)
+        .offset(index)
+        .limit(1)
+        .into_tuple::<i32>()
+        .one(main_db)
+        .await
+        .with_context(|| "Unable to get analysis value")?;
+
+    Ok(result.unwrap_or_default() as f32)
+}
+
+pub async fn get_percentile_analysis_result(
+    main_db: &DatabaseConnection,
+    percentile: f64,
+) -> Result<[f32; 61]> {
+    let columns: Vec<media_analysis::Column> = [
+        media_analysis::Column::Rms,
+        media_analysis::Column::Zcr,
+        media_analysis::Column::Energy,
+        media_analysis::Column::SpectralCentroid,
+        media_analysis::Column::SpectralFlatness,
+        media_analysis::Column::SpectralSlope,
+        media_analysis::Column::SpectralRolloff,
+        media_analysis::Column::SpectralSpread,
+        media_analysis::Column::SpectralSkewness,
+        media_analysis::Column::SpectralKurtosis,
+    ]
+    .into_iter()
+    .chain(seq!(N in 0..12 {[
+        #(media_analysis::Column::Chroma~N,)*
+    ]}))
+    .chain([
+        media_analysis::Column::PerceptualSpread,
+        media_analysis::Column::PerceptualSharpness,
+    ])
+    .chain(seq!(N in 0..23 {[
+        #(media_analysis::Column::PerceptualLoudness~N,)*
+    ]}))
+    .chain(seq!(N in 0..13 {[
+        #(media_analysis::Column::Mfcc~N,)*
+    ]}))
+    .collect();
+
+    let total_files = media_files::Entity::find()
+        .count(main_db)
+        .await
+        .with_context(|| "Unable to get total files")? as usize;
+
+    let futures = columns
+        .iter()
+        .map(|column| get_percentile(main_db, total_files, *column, percentile));
+
+    let percentiles = join_all(futures).await;
+
+    let mut virtual_point = Vec::new();
+    for percentile in percentiles {
+        match percentile.with_context(|| "Unable to calculate percentile") {
+            Ok(value) => virtual_point.push(value),
+            Err(e) => return Err(e),
+        }
+    }
+
+    let virtual_point: [f32; 61] = virtual_point
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Failed to convert virtual_point to array"))?;
+
+    Ok(virtual_point)
 }

@@ -4,8 +4,8 @@ import '../../../screens/settings_test/widgets/select_input_section.dart';
 
 final recommendSelectItems = [
   SelectItem(
-      value: "99", title: "No Recommendation", icon: Symbols.circles_ext),
-  SelectItem(value: "98", title: "Based on All", icon: Symbols.blur_circular),
+      value: "", title: "No Recommendation", icon: Symbols.circles_ext),
+  SelectItem(value: "-1", title: "Based on All", icon: Symbols.blur_circular),
   SelectItem(value: "0", title: "Group 1", icon: Symbols.counter_1),
   SelectItem(value: "1", title: "Group 2", icon: Symbols.counter_2),
   SelectItem(value: "2", title: "Group 3", icon: Symbols.counter_3),
