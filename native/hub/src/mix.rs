@@ -19,7 +19,7 @@ use crate::{
     FetchMixesByIdsResponse, FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest,
     GetMixByIdRequest, GetMixByIdResponse, GetUniqueMixGroupsRequest, GetUniqueMixGroupsResponse,
     Mix, MixGroupSummaryResponse, MixQueryRequest, MixQueryResponse, MixWithoutCoverIds,
-    MixesGroup, MixesGroupSummary, MixesGroups, UpdateMixRequest,
+    MixesGroup, MixesGroupSummary, MixesGroups, UpdateMixRequest, UpdateMixResponse,
 };
 
 pub async fn fetch_mixes_group_summary_request(
@@ -215,27 +215,37 @@ pub async fn update_mix_request(
     )
     .await
     {
-        Ok(_) => info!("Mix updated"),
+        Ok(mix) => {
+            if !request.queries.is_empty() {
+                match replace_mix_queries(
+                    &main_db,
+                    request.mix_id,
+                    request
+                        .queries
+                        .into_iter()
+                        .map(|x| (x.operator, x.parameter))
+                        .collect(),
+                    None,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        info!("Mix queries created");
+                        UpdateMixResponse {
+                            mix: Some(MixWithoutCoverIds {
+                                id: mix.id,
+                                name: mix.name,
+                                group: mix.group,
+                            }),
+                        }
+                        .send_signal_to_dart();
+                    }
+                    Err(e) => error!("Failed to update replace mix queries: {}", e),
+                };
+            }
+        }
         Err(e) => error!("Failed to update mix metadata: {}", e),
     };
-
-    if !request.queries.is_empty() {
-        match replace_mix_queries(
-            &main_db,
-            request.mix_id,
-            request
-                .queries
-                .into_iter()
-                .map(|x| (x.operator, x.parameter))
-                .collect(),
-            None,
-        )
-        .await
-        {
-            Ok(_) => info!("Mix queries created"),
-            Err(e) => error!("Failed to update replace mix queries: {}", e),
-        };
-    }
 }
 
 pub async fn add_item_to_mix_request(

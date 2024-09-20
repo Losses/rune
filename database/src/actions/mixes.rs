@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use chrono::Utc;
@@ -95,25 +96,20 @@ pub async fn create_mix(
     Ok(inserted_mix)
 }
 
-pub async fn get_all_mixes(
-    db: &DatabaseConnection,
-) -> Result<Vec<mixes::Model>, Box<dyn std::error::Error>> {
+pub async fn get_all_mixes(db: &DatabaseConnection) -> Result<Vec<mixes::Model>> {
     use mixes::Entity as MixEntity;
 
     let mixes = MixEntity::find().all(db).await?;
     Ok(mixes)
 }
 
-pub async fn get_mix_by_id(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Model> {
     use mixes::Entity as MixEntity;
 
     let mix = MixEntity::find_by_id(id).one(db).await?;
     match mix {
         Some(m) => Ok(m),
-        None => Err("Mix not found".into()),
+        None => bail!("Mix not found"),
     }
 }
 
@@ -125,40 +121,40 @@ pub async fn update_mix(
     scriptlet_mode: Option<bool>,
     mode: Option<i32>,
     locked: Option<bool>,
-) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+) -> Result<mixes::Model> {
     use mixes::Entity as MixEntity;
 
-    let mut mix: mixes::ActiveModel = MixEntity::find_by_id(id)
-        .one(db)
-        .await?
-        .ok_or("Mix not found")?
-        .into();
+    let mix = MixEntity::find_by_id(id).one(db).await?;
 
-    if let Some(name) = name {
-        mix.name = ActiveValue::Set(name);
-    }
-    if let Some(group) = group {
-        mix.group = ActiveValue::Set(group);
-    }
-    if let Some(scriptlet_mode) = scriptlet_mode {
-        mix.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
-    }
-    if let Some(mode) = mode {
-        mix.mode = ActiveValue::Set(mode);
-    }
-    if let Some(locked) = locked {
-        mix.locked = ActiveValue::Set(locked);
-    }
+    if let Some(mix) = mix {
+        let mut active_model: mixes::ActiveModel = mix.into();
 
-    mix.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-    let updated_mix = mix.update(db).await?;
-    Ok(updated_mix)
+        if let Some(name) = name {
+            active_model.name = ActiveValue::Set(name);
+        }
+        if let Some(group) = group {
+            active_model.group = ActiveValue::Set(group);
+        }
+        if let Some(scriptlet_mode) = scriptlet_mode {
+            active_model.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
+        }
+        if let Some(mode) = mode {
+            active_model.mode = ActiveValue::Set(mode);
+        }
+        if let Some(locked) = locked {
+            active_model.locked = ActiveValue::Set(locked);
+        }
+
+        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+        let updated_mix = active_model.update(db).await?;
+
+        Ok(updated_mix)
+    } else {
+        bail!("Mix not found");
+    }
 }
 
-pub async fn delete_mix(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn delete_mix(db: &DatabaseConnection, id: i32) -> Result<()> {
     use mixes::Entity as MixEntity;
 
     let mix = MixEntity::find_by_id(id).one(db).await?;
@@ -166,7 +162,7 @@ pub async fn delete_mix(
         m.delete(db).await?;
         Ok(())
     } else {
-        Err("Mix not found".into())
+        bail!("Mix not found")
     }
 }
 
@@ -243,32 +239,26 @@ pub async fn replace_mix_queries(
     Ok(results)
 }
 
-pub async fn get_all_mix_queries(
-    db: &DatabaseConnection,
-) -> Result<Vec<mix_queries::Model>, Box<dyn std::error::Error>> {
+pub async fn get_all_mix_queries(db: &DatabaseConnection) -> Result<Vec<mix_queries::Model>> {
     use mix_queries::Entity as MixQueryEntity;
 
     let mix_queries = MixQueryEntity::find().all(db).await?;
     Ok(mix_queries)
 }
 
-pub async fn get_mix_query_by_id(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<mix_queries::Model, Box<dyn std::error::Error>> {
+pub async fn get_mix_query_by_id(db: &DatabaseConnection, id: i32) -> Result<mix_queries::Model> {
     use mix_queries::Entity as MixQueryEntity;
 
     let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
     match mix_query {
         Some(mq) => Ok(mq),
-        None => Err("Mix query not found".into()),
+        None => {
+            bail!("Mix query not found")
+        }
     }
 }
 
-pub async fn delete_mix_query(
-    db: &DatabaseConnection,
-    id: i32,
-) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn delete_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
     let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
@@ -276,13 +266,11 @@ pub async fn delete_mix_query(
         mq.delete(db).await?;
         Ok(())
     } else {
-        Err("Mix query not found".into())
+        bail!("Mix query not found");
     }
 }
 
-pub async fn get_unique_mix_groups(
-    db: &DatabaseConnection,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub async fn get_unique_mix_groups(db: &DatabaseConnection) -> Result<Vec<String>> {
     use mixes::Entity as PlaylistEntity;
 
     let unique_groups: Vec<String> = PlaylistEntity::find()

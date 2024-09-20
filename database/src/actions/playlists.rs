@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 
+use anyhow::bail;
+use anyhow::Result;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
@@ -51,13 +53,13 @@ get_first_n!(list_playlists, playlists);
 /// * `group` - The group to which the playlist belongs.
 ///
 /// # Returns
-/// * `Result<Model, Box<dyn std::error::Error>>` - The created playlist model or an error.
+/// * `Result<Model>` - The created playlist model or an error.
 pub async fn create_playlist(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     name: String,
     group: String,
-) -> Result<playlists::Model, Box<dyn std::error::Error>> {
+) -> Result<playlists::Model> {
     use playlists::ActiveModel;
 
     // Create a new playlist active model
@@ -90,10 +92,8 @@ pub async fn create_playlist(
 /// * `db` - A reference to the database connection.
 ///
 /// # Returns
-/// * `Result<Vec<Model>, Box<dyn std::error::Error>>` - The playlists or an error.
-pub async fn get_all_playlists(
-    db: &DatabaseConnection,
-) -> Result<Vec<playlists::Model>, Box<dyn std::error::Error>> {
+/// * `Result<Vec<Model>>` - The playlists or an error.
+pub async fn get_all_playlists(db: &DatabaseConnection) -> Result<Vec<playlists::Model>> {
     use playlists::Entity as PlaylistEntity;
 
     // Find the playlist by ID
@@ -114,46 +114,48 @@ pub async fn get_all_playlists(
 /// * `group` - The new group for the playlist.
 ///
 /// # Returns
-/// * `Result<Model, Box<dyn std::error::Error>>` - The updated playlist model or an error.
+/// * `Result<Model>` - The updated playlist model or an error.
 pub async fn update_playlist(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     playlist_id: i32,
     name: Option<String>,
     group: Option<String>,
-) -> Result<playlists::Model, Box<dyn std::error::Error>> {
+) -> Result<playlists::Model> {
     use playlists::Entity as PlaylistEntity;
 
     // Find the playlist by ID
-    let mut playlist: playlists::ActiveModel = PlaylistEntity::find_by_id(playlist_id)
-        .one(main_db)
-        .await?
-        .ok_or("Playlist not found")?
-        .into();
+    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
 
-    // Update the fields if provided
-    if let Some(name) = name {
-        playlist.name = ActiveValue::Set(name);
+    if let Some(playlist) = playlist {
+        let mut active_model: playlists::ActiveModel = playlist.into();
+
+        // Update the fields if provided
+        if let Some(name) = name {
+            active_model.name = ActiveValue::Set(name);
+        }
+        if let Some(group) = group {
+            active_model.group = ActiveValue::Set(group);
+        }
+
+        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+
+        // Update the playlist in the database
+        let updated_playlist = active_model.update(main_db).await?;
+
+        add_term(
+            search_db,
+            CollectionType::Playlist,
+            updated_playlist.id,
+            &updated_playlist.name.clone(),
+        );
+
+        search_db.w.commit().unwrap();
+
+        Ok(updated_playlist)
+    } else {
+        bail!("Playlist not found");
     }
-    if let Some(group) = group {
-        playlist.group = ActiveValue::Set(group);
-    }
-
-    playlist.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-    // Update the playlist in the database
-    let updated_playlist = playlist.update(main_db).await?;
-
-    add_term(
-        search_db,
-        CollectionType::Playlist,
-        updated_playlist.id,
-        &updated_playlist.name.clone(),
-    );
-
-    search_db.w.commit().unwrap();
-
-    Ok(updated_playlist)
 }
 
 /// Add a media file to a playlist.
@@ -165,13 +167,13 @@ pub async fn update_playlist(
 /// * `position` - The optional position of the media file in the playlist.
 ///
 /// # Returns
-/// * `Result<Model, Box<dyn std::error::Error>>` - The created media file playlist model or an error.
+/// * `Result<Model>` - The created media file playlist model or an error.
 pub async fn add_item_to_playlist(
     db: &DatabaseConnection,
     playlist_id: i32,
     media_file_id: i32,
     position: Option<i32>,
-) -> Result<media_file_playlists::Model, Box<dyn std::error::Error>> {
+) -> Result<media_file_playlists::Model> {
     use media_file_playlists::Entity as MediaFilePlaylistEntity;
     use playlists::Entity as PlaylistEntity;
 
@@ -201,15 +203,15 @@ pub async fn add_item_to_playlist(
     let media_file_playlist = new_media_file_playlist.insert(db).await?;
 
     // Find the playlist by ID
-    let mut playlist: playlists::ActiveModel = PlaylistEntity::find_by_id(playlist_id)
-        .one(db)
-        .await?
-        .ok_or("Playlist not found")?
-        .into();
+    let playlist = PlaylistEntity::find_by_id(playlist_id).one(db).await?;
 
-    playlist.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-    let _ = playlist.update(db).await?;
+    if let Some(playlist) = playlist {
+        let mut active_model: playlists::ActiveModel = playlist.into();
+        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+        let _ = active_model.update(db).await?;
+    } else {
+        bail!("Playlist not found")
+    }
 
     Ok(media_file_playlist)
 }
@@ -223,31 +225,32 @@ pub async fn add_item_to_playlist(
 /// * `new_position` - The new position for the media file.
 ///
 /// # Returns
-/// * `Result<(), Box<dyn std::error::Error>>` - An empty result or an error.
+/// * `Result<()>` - An empty result or an error.
 pub async fn reorder_playlist_item_position(
     db: &DatabaseConnection,
     playlist_id: i32,
     media_file_id: i32,
     new_position: i32,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     use media_file_playlists::Entity as MediaFilePlaylistEntity;
 
     // Find the media file playlist item
-    let mut item: media_file_playlists::ActiveModel = MediaFilePlaylistEntity::find()
+    let item = MediaFilePlaylistEntity::find()
         .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
         .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))
         .one(db)
-        .await?
-        .ok_or("Media file not found in playlist")?
-        .into();
+        .await?;
 
-    // Update the position
-    item.position = ActiveValue::Set(new_position);
+    if let Some(item) = item {
+        // Update the position
+        let mut active_model: media_file_playlists::ActiveModel = item.into();
+        active_model.position = ActiveValue::Set(new_position);
+        let _ = active_model.update(db).await?;
 
-    // Update the media file playlist item in the database
-    item.update(db).await?;
-
-    Ok(())
+        Ok(())
+    } else {
+        bail!("Media file not found in playlist")
+    }
 }
 
 /// Get all unique playlist groups.
@@ -256,10 +259,8 @@ pub async fn reorder_playlist_item_position(
 /// * `db` - A reference to the database connection.
 ///
 /// # Returns
-/// * `Result<Vec<String>, Box<dyn std::error::Error>>` - A vector of unique playlist group values or an error.
-pub async fn get_unique_playlist_groups(
-    db: &DatabaseConnection,
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+/// * `Result<Vec<String>>` - A vector of unique playlist group values or an error.
+pub async fn get_unique_playlist_groups(db: &DatabaseConnection) -> Result<Vec<String>> {
     use playlists::Entity as PlaylistEntity;
 
     // Query distinct group values from the playlists table
