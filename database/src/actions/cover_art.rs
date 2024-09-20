@@ -1,9 +1,11 @@
+use std::path::Path;
+
+use anyhow::Result;
 use dunce::canonicalize;
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult,
     Order, PaginatorTrait, QueryFilter, QueryTrait,
 };
-use std::path::Path;
 
 use migration::{Func, SimpleExpr};
 
@@ -182,7 +184,7 @@ pub async fn get_cover_art_by_id(
 pub async fn get_random_cover_art_ids(
     db: &DatabaseConnection,
     n: usize,
-) -> Result<Vec<media_cover_art::Model>, Box<dyn std::error::Error>> {
+) -> Result<Vec<media_cover_art::Model>> {
     let mut query: sea_orm::sea_query::SelectStatement = media_cover_art::Entity::find()
         .filter(media_cover_art::Column::FileHash.ne(String::new()))
         .as_query()

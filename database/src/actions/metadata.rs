@@ -482,7 +482,7 @@ async fn clean_up_database(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     root_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<()> {
     let db_files = media_files::Entity::find().all(main_db).await?;
 
     let mut modified = false;
