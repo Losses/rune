@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Context;
 use anyhow::Result;
 use chrono::Utc;
@@ -21,6 +23,53 @@ use crate::entities::{
 use super::analysis::get_centralized_analysis_result;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
+use crate::get_by_id;
+use crate::get_by_ids;
+use crate::get_first_n;
+
+use super::utils::CountByFirstLetter;
+
+impl CountByFirstLetter for mixes::Entity {
+    fn group_column() -> Self::Column {
+        mixes::Column::Group
+    }
+
+    fn id_column() -> Self::Column {
+        mixes::Column::Id
+    }
+}
+
+get_by_ids!(get_mixes_by_ids, mixes);
+get_by_id!(get_mixes_by_id, mixes);
+get_first_n!(list_mixes, mixes);
+
+pub async fn get_mixes_groups(
+    db: &DatabaseConnection,
+    groups: Vec<String>,
+) -> Result<Vec<(String, Vec<mixes::Model>)>> {
+    let entities: Vec<mixes::Model> = mixes::Entity::find()
+        .filter(mixes::Column::Group.is_in(groups.clone()))
+        .all(db)
+        .await?;
+
+    let mut grouped_entities: HashMap<String, Vec<mixes::Model>> = HashMap::new();
+    for entity in entities {
+        grouped_entities
+            .entry(entity.group.clone())
+            .or_default()
+            .push(entity);
+    }
+
+    let result = groups
+        .into_iter()
+        .map(|group| {
+            let entities_in_group = grouped_entities.remove(&group).unwrap_or_default();
+            (group, entities_in_group)
+        })
+        .collect();
+
+    Ok(result)
+}
 
 pub async fn create_mix(
     db: &DatabaseConnection,
@@ -28,12 +77,12 @@ pub async fn create_mix(
     scriptlet_mode: bool,
     mode: i32,
     locked: bool,
-) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+) -> Result<mixes::Model> {
     use mixes::ActiveModel;
 
     let new_mix = ActiveModel {
         name: ActiveValue::Set(name.clone()),
-        group: ActiveValue::Set(Some(generate_group_name(&name))),
+        group: ActiveValue::Set(generate_group_name(&name)),
         scriptlet_mode: ActiveValue::Set(scriptlet_mode),
         mode: ActiveValue::Set(mode),
         locked: ActiveValue::Set(locked),
@@ -89,7 +138,7 @@ pub async fn update_mix(
         mix.name = ActiveValue::Set(name);
     }
     if let Some(group) = group {
-        mix.group = ActiveValue::Set(Some(group));
+        mix.group = ActiveValue::Set(group);
     }
     if let Some(scriptlet_mode) = scriptlet_mode {
         mix.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
@@ -231,6 +280,22 @@ pub async fn delete_mix_query(
     }
 }
 
+pub async fn get_unique_mix_groups(
+    db: &DatabaseConnection,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    use mixes::Entity as PlaylistEntity;
+
+    let unique_groups: Vec<String> = PlaylistEntity::find()
+        .select_only()
+        .column(mixes::Column::Group)
+        .distinct()
+        .into_tuple::<String>()
+        .all(db)
+        .await?;
+
+    Ok(unique_groups)
+}
+
 #[derive(Debug)]
 enum QueryOperator {
     LibArtist(i32),
@@ -263,6 +328,42 @@ where
             );
             None
         }
+    }
+}
+
+pub async fn add_item_to_mix(
+    db: &DatabaseConnection,
+    mix_id: i32,
+    operator: String,
+    parameter: String,
+) -> Result<mix_queries::Model> {
+    use mix_queries::ActiveModel;
+    use mix_queries::Entity as MixQueryEntity;
+
+    // Check for duplicates: check if there is already an entry with the same mix_id, operator, and parameter in the mix_queries table
+    let existing_item = MixQueryEntity::find()
+        .filter(mix_queries::Column::MixId.eq(mix_id))
+        .filter(mix_queries::Column::Operator.eq(operator.clone()))
+        .filter(mix_queries::Column::Parameter.eq(parameter.clone()))
+        .one(db)
+        .await?;
+
+    if let Some(existing_item) = existing_item {
+        // If the entry already exists, return the existing entry directly
+        Ok(existing_item)
+    } else {
+        // If the entry does not exist, insert a new entry
+        let new_mix_query = ActiveModel {
+            mix_id: ActiveValue::Set(mix_id),
+            operator: ActiveValue::Set(operator),
+            parameter: ActiveValue::Set(parameter),
+            created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+            ..Default::default()
+        };
+
+        let inserted_mix_query = new_mix_query.insert(db).await?;
+        Ok(inserted_mix_query)
     }
 }
 

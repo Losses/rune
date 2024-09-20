@@ -9,7 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub name: String,
-    pub group: Option<String>,
+    pub group: String,
     pub scriptlet_mode: bool,
     pub mode: i32,
     pub locked: bool,

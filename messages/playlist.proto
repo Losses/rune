@@ -76,17 +76,6 @@ message UpdatePlaylistResponse {
 }
 
 // [RINF:DART-SIGNAL]
-message CheckItemsInPlaylistRequest {
-  int32 playlist_id = 1;
-  repeated int32 media_file_ids = 2;
-}
-
-// [RINF:RUST-SIGNAL]
-message CheckItemsInPlaylistResponse {
-  repeated int32 duplicate_media_file_ids = 1;
-}
-
-// [RINF:DART-SIGNAL]
 message AddItemToPlaylistRequest {
   int32 playlist_id = 1;
   int32 media_file_id = 2;

@@ -52,12 +52,12 @@ Widget buildCollectionItemContextMenu(
       ),
       const MenuFlyoutSeparator(),
       MenuFlyoutSubItem(
-        leading: const Icon(Symbols.list_alt),
-        text: const Text('Add to Playlist'),
+        leading: const Icon(Symbols.magic_button),
+        text: const Text('Add to Mix'),
         items: (context) => [
           MenuFlyoutItem(
             leading: const Icon(Symbols.add),
-            text: const Text('New Auto Playlist'),
+            text: const Text('New Mix'),
             onPressed: () async {
               Flyout.of(context).close();
             },

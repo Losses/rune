@@ -156,39 +156,6 @@ pub async fn update_playlist(
     Ok(updated_playlist)
 }
 
-/// Check for duplicate items in a playlist.
-///
-/// # Arguments
-/// * `db` - A reference to the database connection.
-/// * `playlist_id` - The ID of the playlist to check.
-///
-/// # Returns
-/// * `Result<Vec<i32>, Box<dyn std::error::Error>>` - A vector of duplicate media file IDs or an error.
-pub async fn check_items_in_playlist(
-    db: &DatabaseConnection,
-    playlist_id: i32,
-    media_file_ids: Vec<i32>,
-) -> Result<Vec<i32>, Box<dyn std::error::Error>> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-
-    let items = MediaFilePlaylistEntity::find()
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .filter(media_file_playlists::Column::MediaFileId.is_in(media_file_ids.clone()))
-        .all(db)
-        .await?;
-
-    let seen: HashSet<_> = media_file_ids.into_iter().collect();
-    let mut duplicates = vec![];
-
-    for item in items {
-        if seen.contains(&item.media_file_id) {
-            duplicates.push(item.media_file_id);
-        }
-    }
-
-    Ok(duplicates)
-}
-
 /// Add a media file to a playlist.
 ///
 /// # Arguments

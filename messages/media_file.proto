@@ -60,20 +60,3 @@ message SearchMediaFileSummaryRequest {
 message SearchMediaFileSummaryResponse {
   repeated MediaFileSummary result = 1;
 }
-
-message MixQuery {
-  string operator = 1;
-  string parameter = 2;
-}
-
-// [RINF:DART-SIGNAL]
-message MixQueryRequest {
-  repeated MixQuery queries = 1;
-  int32 cursor = 2;
-  int32 page_size = 3;
-}
-
-// [RINF:RUST-SIGNAL]
-message MixQueryResponse {
-  repeated MediaFile result = 1;
-}

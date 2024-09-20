@@ -1,0 +1,142 @@
+syntax = "proto3";
+package mix;
+
+import "media_file.proto";
+
+message MixQuery {
+  string operator = 1;
+  string parameter = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message MixQueryRequest {
+  repeated MixQuery queries = 1;
+  int32 cursor = 2;
+  int32 page_size = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message MixQueryResponse {
+  repeated media_file.MediaFile result = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchMixesGroupSummaryRequest {
+}
+
+message MixesGroupSummary {
+  string group_title = 1;
+  int32 count = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message MixGroupSummaryResponse {
+  repeated MixesGroupSummary mixes_groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchMixesGroupsRequest {
+  repeated string group_titles = 1;
+}
+
+message Mix {
+  int32 id = 1;
+  string name = 2;
+  string group = 3;
+  repeated int32 cover_ids = 4;
+}
+
+message MixWithoutCoverIds {
+  int32 id = 1;
+  string name = 2;
+  string group = 3;
+}
+
+message MixesGroup {
+  string group_title = 1;
+  repeated Mix mixes = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message MixesGroups {
+  repeated MixesGroup groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchAllMixesRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchAllMixesResponse {
+  repeated MixWithoutCoverIds mixes = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message CreateMixRequest {
+  string name = 1;
+  string group = 2;
+  bool scriptlet_mode = 3;
+  int32 mode = 4;
+  repeated MixQuery queries = 5;
+}
+
+// [RINF:RUST-SIGNAL]
+message CreateMixResponse {
+  MixWithoutCoverIds mix = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message UpdateMixRequest {
+  int32 mix_id = 1;
+  string name = 2;
+  string group = 3;
+  bool scriptlet_mode = 4;
+  int32 mode = 5;
+  repeated MixQuery queries = 6;
+}
+
+// [RINF:RUST-SIGNAL]
+message UpdateMixResponse {
+  MixWithoutCoverIds mix = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message AddItemToMixRequest {
+  int32 mix_id = 1;
+  string operator = 2;
+  string parameter = 3;
+}
+
+// [RINF:RUST-SIGNAL]
+message AddItemToMixResponse {
+  bool success = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message GetUniqueMixGroupsRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message GetUniqueMixGroupsResponse {
+  repeated string groups = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message GetMixByIdRequest {
+  int32 mix_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message GetMixByIdResponse {
+  MixWithoutCoverIds mix = 1;
+}
+
+// [RINF:DART-SIGNAL]
+message FetchMixesByIdsRequest {
+  repeated int32 ids = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchMixesByIdsResponse {
+  repeated Mix result = 1;
+}
