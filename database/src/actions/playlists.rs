@@ -247,44 +247,6 @@ pub async fn add_item_to_playlist(
     Ok(media_file_playlist)
 }
 
-/// Add a media file to a playlist.
-///
-/// # Arguments
-/// * `db` - A reference to the database connection.
-/// * `playlist_id` - The ID of the playlist to add the media file to.
-/// * `media_file_id` - The ID of the media file to add.
-///
-/// # Returns
-/// * `Result<Model, Box<dyn std::error::Error>>` - The created media file playlist model or an error.
-pub async fn add_media_file_to_playlist(
-    db: &DatabaseConnection,
-    playlist_id: i32,
-    media_file_id: i32,
-) -> Result<media_file_playlists::Model, Box<dyn std::error::Error>> {
-    use media_file_playlists::Entity as MediaFilePlaylistEntity;
-
-    // Get the current maximum position in the playlist
-    let max_position = MediaFilePlaylistEntity::find()
-        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-        .order_by_desc(media_file_playlists::Column::Position)
-        .one(db)
-        .await?
-        .map_or(0, |item| item.position);
-
-    // Create a new media file playlist active model
-    let new_media_file_playlist = media_file_playlists::ActiveModel {
-        playlist_id: ActiveValue::Set(playlist_id),
-        media_file_id: ActiveValue::Set(media_file_id),
-        position: ActiveValue::Set(max_position + 1),
-        ..Default::default()
-    };
-
-    // Insert the new media file playlist into the database
-    let media_file_playlist = new_media_file_playlist.insert(db).await?;
-
-    Ok(media_file_playlist)
-}
-
 /// Reorder a media file in a playlist.
 ///
 /// # Arguments

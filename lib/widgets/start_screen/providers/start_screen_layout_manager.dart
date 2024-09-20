@@ -41,7 +41,8 @@ class StartScreenLayoutManager with ChangeNotifier {
   Timer? _animationTimer;
 
   StartItemRegisterResult registerItem(
-      int groupId, int row, int column, VoidCallback startAnimation, [String? prefix]) {
+      int groupId, int row, int column, VoidCallback startAnimation,
+      [String? prefix]) {
     if (_animationFinished) {
       return StartItemRegisterResult(skipAnimation: true, data: null);
     }
@@ -101,13 +102,13 @@ class StartScreenLayoutManager with ChangeNotifier {
 
     // Increase the animation distance by speed every frame
     _animationTimer = Timer.periodic(const Duration(milliseconds: 16), (timer) {
-      if (_currentAnimationDistance > maxDistance) return;
-
       _currentAnimationDistance += speed;
 
       // Find elements whose distance is less than or equal to _currentAnimationDistance and have not played their animation
       _items.forEach((key, item) {
-        if (item.distance < _currentAnimationDistance && !item.played) {
+        if ((item.distance < _currentAnimationDistance ||
+                _currentAnimationDistance > maxDistance) &&
+            !item.played) {
           item.startAnimation();
           item.played = true;
         }

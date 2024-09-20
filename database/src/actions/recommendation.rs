@@ -67,7 +67,9 @@ pub fn get_recommendation_by_parameter(
     let search_k = NonZeroUsize::new(n * reader.n_trees() * 15)
         .with_context(|| "Failed to create NonZeroUsize from search_k")?;
 
-    let results = reader.nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)?;
+    let results = reader
+        .nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)
+        .with_context(|| "Failed to get recommendation by parameter")?;
 
     if results.is_empty() {
         bail!("No results found for the given parameter")

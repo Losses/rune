@@ -36,7 +36,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/artists/:artistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      artistIds: [int.parse(state.pathParameters['artistId'] ?? "0")],
+      queries: [("lib::artist", state.pathParameters['artistId'] ?? "0")],
     ),
   ),
   GoRoute(
@@ -46,7 +46,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/albums/:albumId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      albumIds: [int.parse(state.pathParameters['albumId'] ?? "0")],
+      queries: [("lib::album", state.pathParameters['albumId'] ?? "0")],
     ),
   ),
   GoRoute(
@@ -56,7 +56,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/playlists/:playlistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      playlistIds: [int.parse(state.pathParameters['playlistId'] ?? "0")],
+      queries: [("lib::playlist", state.pathParameters['playlistId'] ?? "0")],
     ),
   ),
   GoRoute(

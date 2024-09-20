@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 use log::{debug, error, info};
 use paste::paste;
@@ -218,7 +218,7 @@ async fn insert_analysis_result(
         new_analysis.chroma~N = ActiveValue::Set(Some(result.chroma[N] as f64));
     });
 
-    seq!(N in 0..23 {
+    seq!(N in 0..24 {
         new_analysis.perceptual_loudness~N = ActiveValue::Set(Some(result.raw.perceptual_loudness[N] as f64));
     });
 
@@ -457,16 +457,20 @@ pub async fn get_percentile(
     let rank = percentile * (n as f64 - 1.0);
     let index = rank.round() as u64;
 
-    let result = media_analysis::Entity::find()
+    let result = match media_analysis::Entity::find()
         .select_only()
         .order_by_asc(column)
-        .column(media_analysis::Column::FileId)
+        .column(column)
         .offset(index)
         .limit(1)
-        .into_tuple::<i32>()
+        .into_tuple::<f32>()
         .one(main_db)
         .await
-        .with_context(|| "Unable to get analysis value")?;
+    {
+        Ok(x) => x,
+        Err(_) => Some(0.0),
+    };
+    // .with_context(|| "Unable to get analysis value")?;
 
     Ok(result.unwrap_or_default() as f32)
 }
@@ -495,7 +499,7 @@ pub async fn get_percentile_analysis_result(
         media_analysis::Column::PerceptualSpread,
         media_analysis::Column::PerceptualSharpness,
     ])
-    .chain(seq!(N in 0..23 {[
+    .chain(seq!(N in 0..24 {[
         #(media_analysis::Column::PerceptualLoudness~N,)*
     ]}))
     .chain(seq!(N in 0..13 {[
@@ -516,15 +520,20 @@ pub async fn get_percentile_analysis_result(
 
     let mut virtual_point = Vec::new();
     for percentile in percentiles {
-        match percentile.with_context(|| "Unable to calculate percentile") {
-            Ok(value) => virtual_point.push(value),
-            Err(e) => return Err(e),
-        }
+        virtual_point.push(percentile.with_context(|| "Unable to calculate percentiles")?);
+    }
+
+    if virtual_point.len() != 61 {
+        bail!(
+            "Failed to convert virtual_point to array: incorrect length (got {}, expected {})",
+            virtual_point.len(),
+            61
+        );
     }
 
     let virtual_point: [f32; 61] = virtual_point
         .try_into()
-        .map_err(|_| anyhow::anyhow!("Failed to convert virtual_point to array"))?;
+        .expect("Length checked above, this should never fail");
 
     Ok(virtual_point)
 }

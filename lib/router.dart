@@ -10,9 +10,9 @@ import 'config/navigation.dart';
 
 import 'routes/welcome.dart' as welcome;
 
-import 'widgets/playback_controller/playback_controller.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
+import 'widgets/playback_controller/playback_controller.dart';
 
 import 'providers/library_path.dart';
 import 'providers/transition_calculation.dart';

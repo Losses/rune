@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/utils/query_mix_tracks.dart';
 
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
@@ -9,19 +10,13 @@ import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart
 import '../../../messages/media_file.pb.dart';
 
 class QueryTrackListView extends StatefulWidget {
-  final List<int> artistIds;
-  final List<int> albumIds;
-  final List<int> playlistIds;
-  final List<String> directories;
+  final List<(String, String)> queries;
   final StartScreenLayoutManager layoutManager;
 
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
-    this.artistIds = const [],
-    this.albumIds = const [],
-    this.playlistIds = const [],
-    this.directories = const [],
+    this.queries = const [],
   });
 
   @override
@@ -47,21 +42,11 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   Future<void> _fetchPage(int cursor) async {
     try {
-      final fetchMediaFiles = CompoundQueryMediaFilesRequest(
-        cursor: cursor,
-        pageSize: _pageSize,
-        artistIds: widget.artistIds,
-        albumIds: widget.albumIds,
-        playlistIds: widget.playlistIds,
-        directories: widget.directories,
+      final newItems = await queryMixTracks(
+        widget.queries,
+        cursor,
+        _pageSize,
       );
-      fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-      // Listen for the response from Rust
-      final rustSignal =
-          await CompoundQueryMediaFilesResponse.rustSignalStream.first;
-      final mediaFileList = rustSignal.message;
-      final newItems = mediaFileList.mediaFiles;
 
       final isLastPage = newItems.length < _pageSize;
       if (isLastPage) {

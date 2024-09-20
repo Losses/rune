@@ -8,7 +8,6 @@ use tokio::sync::Mutex;
 use database::actions::cover_art::get_magic_cover_art_id;
 use database::actions::library::get_playlist_cover_ids;
 use database::actions::playlists::add_item_to_playlist;
-use database::actions::playlists::add_media_file_to_playlist;
 use database::actions::playlists::check_items_in_playlist;
 use database::actions::playlists::create_playlist;
 use database::actions::playlists::get_all_playlists;
@@ -27,15 +26,15 @@ use crate::PlaylistSummary;
 use crate::SearchPlaylistSummaryRequest;
 use crate::SearchPlaylistSummaryResponse;
 use crate::{
-    AddItemToPlaylistRequest, AddItemToPlaylistResponse, AddMediaFileToPlaylistRequest,
-    AddMediaFileToPlaylistResponse, CheckItemsInPlaylistRequest, CheckItemsInPlaylistResponse,
-    CreatePlaylistRequest, CreatePlaylistResponse, FetchAllPlaylistsRequest,
-    FetchAllPlaylistsResponse, FetchPlaylistsByIdsRequest, FetchPlaylistsByIdsResponse,
-    FetchPlaylistsGroupSummaryRequest, FetchPlaylistsGroupsRequest, GetPlaylistByIdRequest,
-    GetPlaylistByIdResponse, GetUniquePlaylistGroupsRequest, GetUniquePlaylistGroupsResponse,
-    Playlist, PlaylistGroupSummaryResponse, PlaylistWithoutCoverIds, PlaylistsGroup,
-    PlaylistsGroupSummary, PlaylistsGroups, ReorderPlaylistItemPositionRequest,
-    ReorderPlaylistItemPositionResponse, UpdatePlaylistRequest, UpdatePlaylistResponse,
+    AddItemToPlaylistRequest, AddItemToPlaylistResponse, CheckItemsInPlaylistRequest,
+    CheckItemsInPlaylistResponse, CreatePlaylistRequest, CreatePlaylistResponse,
+    FetchAllPlaylistsRequest, FetchAllPlaylistsResponse, FetchPlaylistsByIdsRequest,
+    FetchPlaylistsByIdsResponse, FetchPlaylistsGroupSummaryRequest, FetchPlaylistsGroupsRequest,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, GetUniquePlaylistGroupsRequest,
+    GetUniquePlaylistGroupsResponse, Playlist, PlaylistGroupSummaryResponse,
+    PlaylistWithoutCoverIds, PlaylistsGroup, PlaylistsGroupSummary, PlaylistsGroups,
+    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse, UpdatePlaylistRequest,
+    UpdatePlaylistResponse,
 };
 
 pub async fn fetch_playlists_group_summary_request(
@@ -281,28 +280,6 @@ pub async fn add_item_to_playlist_request(
         Err(e) => {
             error!("Failed to add item to playlist: {}", e);
             AddItemToPlaylistResponse { success: false }.send_signal_to_dart();
-        }
-    }
-}
-
-pub async fn add_media_file_to_playlist_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<AddMediaFileToPlaylistRequest>,
-) {
-    let request = dart_signal.message;
-
-    debug!(
-        "Adding media file to playlist: playlist_id={}, media_file_id={}",
-        request.playlist_id, request.media_file_id
-    );
-
-    match add_media_file_to_playlist(&main_db, request.playlist_id, request.media_file_id).await {
-        Ok(_) => {
-            AddMediaFileToPlaylistResponse { success: true }.send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to add media file to playlist: {}", e);
-            AddMediaFileToPlaylistResponse { success: false }.send_signal_to_dart();
         }
     }
 }

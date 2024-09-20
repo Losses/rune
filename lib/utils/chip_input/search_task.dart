@@ -1,15 +1,15 @@
 import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
-class SearchTask<T> extends ChangeNotifier {
-  String _lastSearched = '';
+class SearchTask<T, P> extends ChangeNotifier {
+  P? _lastSearched;
   Timer? _debounce;
 
   bool notifyWhenStateChange;
 
   bool _isRequestInProgress = false;
   List<T> searchResults = [];
-  final Future<List<T>> Function(String) searchDelegate;
+  final Future<List<T>> Function(P) searchDelegate;
 
   /// Creates a search task with the given delegate and state change notification option.
   SearchTask({
@@ -18,7 +18,7 @@ class SearchTask<T> extends ChangeNotifier {
   });
 
   /// Registers a search task with a debounce mechanism.
-  void search(String task) {
+  void search(P task) {
     if (_lastSearched == task) return;
 
     _lastSearched = task;
@@ -31,7 +31,7 @@ class SearchTask<T> extends ChangeNotifier {
   }
 
   /// Performs the search using the search delegate.
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(P query) async {
     if (_isRequestInProgress) return;
     _isRequestInProgress = true;
 

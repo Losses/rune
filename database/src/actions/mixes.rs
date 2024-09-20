@@ -1,12 +1,19 @@
+use anyhow::Context;
 use anyhow::Result;
+use chrono::Utc;
 use log::warn;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Expr;
+use sea_orm::ActiveValue;
+use sea_orm::TransactionTrait;
 use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
 use crate::actions::analysis::get_percentile_analysis_result;
+use crate::actions::utils::generate_group_name;
 use crate::connection::RecommendationDbConnection;
+use crate::entities::mix_queries;
+use crate::entities::mixes;
 use crate::entities::{
     media_file_albums, media_file_artists, media_file_playlists, media_file_stats, media_files,
 };
@@ -14,6 +21,215 @@ use crate::entities::{
 use super::analysis::get_centralized_analysis_result;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
+
+pub async fn create_mix(
+    db: &DatabaseConnection,
+    name: String,
+    scriptlet_mode: bool,
+    mode: i32,
+    locked: bool,
+) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+    use mixes::ActiveModel;
+
+    let new_mix = ActiveModel {
+        name: ActiveValue::Set(name.clone()),
+        group: ActiveValue::Set(Some(generate_group_name(&name))),
+        scriptlet_mode: ActiveValue::Set(scriptlet_mode),
+        mode: ActiveValue::Set(mode),
+        locked: ActiveValue::Set(locked),
+        created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+        ..Default::default()
+    };
+
+    let inserted_mix = new_mix.insert(db).await?;
+    Ok(inserted_mix)
+}
+
+pub async fn get_all_mixes(
+    db: &DatabaseConnection,
+) -> Result<Vec<mixes::Model>, Box<dyn std::error::Error>> {
+    use mixes::Entity as MixEntity;
+
+    let mixes = MixEntity::find().all(db).await?;
+    Ok(mixes)
+}
+
+pub async fn get_mix_by_id(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+    use mixes::Entity as MixEntity;
+
+    let mix = MixEntity::find_by_id(id).one(db).await?;
+    match mix {
+        Some(m) => Ok(m),
+        None => Err("Mix not found".into()),
+    }
+}
+
+pub async fn update_mix(
+    db: &DatabaseConnection,
+    id: i32,
+    name: Option<String>,
+    group: Option<String>,
+    scriptlet_mode: Option<bool>,
+    mode: Option<i32>,
+    locked: Option<bool>,
+) -> Result<mixes::Model, Box<dyn std::error::Error>> {
+    use mixes::Entity as MixEntity;
+
+    let mut mix: mixes::ActiveModel = MixEntity::find_by_id(id)
+        .one(db)
+        .await?
+        .ok_or("Mix not found")?
+        .into();
+
+    if let Some(name) = name {
+        mix.name = ActiveValue::Set(name);
+    }
+    if let Some(group) = group {
+        mix.group = ActiveValue::Set(Some(group));
+    }
+    if let Some(scriptlet_mode) = scriptlet_mode {
+        mix.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
+    }
+    if let Some(mode) = mode {
+        mix.mode = ActiveValue::Set(mode);
+    }
+    if let Some(locked) = locked {
+        mix.locked = ActiveValue::Set(locked);
+    }
+
+    mix.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+    let updated_mix = mix.update(db).await?;
+    Ok(updated_mix)
+}
+
+pub async fn delete_mix(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use mixes::Entity as MixEntity;
+
+    let mix = MixEntity::find_by_id(id).one(db).await?;
+    if let Some(m) = mix {
+        m.delete(db).await?;
+        Ok(())
+    } else {
+        Err("Mix not found".into())
+    }
+}
+
+pub async fn replace_mix_queries(
+    db: &DatabaseConnection,
+    mix_id: i32,
+    operator_parameters: Vec<(String, String)>,
+    group: Option<i32>,
+) -> Result<Vec<mix_queries::Model>> {
+    use mix_queries::ActiveModel;
+    use mix_queries::Entity as MixQueryEntity;
+
+    let txn = db.begin().await?;
+    let mut results = Vec::new();
+    let mut existing_ids = Vec::new();
+
+    for (operator, parameter) in &operator_parameters {
+        let mix_query = MixQueryEntity::find()
+            .filter(mix_queries::Column::MixId.eq(mix_id))
+            .filter(mix_queries::Column::Operator.eq(operator))
+            .filter(mix_queries::Column::Parameter.eq(parameter))
+            .one(&txn)
+            .await?;
+
+        let mut active_model = if let Some(existing_mix_query) = mix_query {
+            existing_ids.push(existing_mix_query.id);
+            existing_mix_query.into()
+        } else {
+            ActiveModel {
+                mix_id: ActiveValue::Set(mix_id),
+                operator: ActiveValue::Set(operator.clone()),
+                parameter: ActiveValue::Set(parameter.clone()),
+                group: ActiveValue::Set(group.unwrap_or_default()),
+                created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                ..Default::default()
+            }
+        };
+
+        if let Some(group) = group {
+            active_model.group = ActiveValue::Set(group);
+        }
+
+        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+
+        let result = if active_model.id.is_set() {
+            active_model.update(&txn).await?
+        } else {
+            active_model.insert(&txn).await?
+        };
+
+        results.push(result);
+    }
+
+    let mut operator_parameter_conditions = Condition::any();
+    for (operator, parameter) in &operator_parameters {
+        operator_parameter_conditions = operator_parameter_conditions.add(
+            Condition::all()
+                .add(mix_queries::Column::Operator.eq(operator.clone()))
+                .add(mix_queries::Column::Parameter.eq(parameter.clone())),
+        );
+    }
+
+    let delete_condition = Condition::all()
+        .add(mix_queries::Column::MixId.eq(mix_id))
+        .add(Condition::not(operator_parameter_conditions));
+
+    MixQueryEntity::delete_many()
+        .filter(delete_condition)
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    Ok(results)
+}
+
+pub async fn get_all_mix_queries(
+    db: &DatabaseConnection,
+) -> Result<Vec<mix_queries::Model>, Box<dyn std::error::Error>> {
+    use mix_queries::Entity as MixQueryEntity;
+
+    let mix_queries = MixQueryEntity::find().all(db).await?;
+    Ok(mix_queries)
+}
+
+pub async fn get_mix_query_by_id(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<mix_queries::Model, Box<dyn std::error::Error>> {
+    use mix_queries::Entity as MixQueryEntity;
+
+    let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
+    match mix_query {
+        Some(mq) => Ok(mq),
+        None => Err("Mix query not found".into()),
+    }
+}
+
+pub async fn delete_mix_query(
+    db: &DatabaseConnection,
+    id: i32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use mix_queries::Entity as MixQueryEntity;
+
+    let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
+    if let Some(mq) = mix_query {
+        mq.delete(db).await?;
+        Ok(())
+    } else {
+        Err("Mix query not found".into())
+    }
+}
 
 #[derive(Debug)]
 enum QueryOperator {
@@ -132,12 +348,12 @@ macro_rules! apply_cursor_sorting_macro {
 
 // Macro to handle subquery filters
 macro_rules! add_subquery_filter {
-    ($or_condition:expr, $ids:expr, $entity:ty, $column:expr) => {
+    ($or_condition:expr, $ids:expr, $entity:ty, $column:expr, $file_column:expr) => {
         if !$ids.is_empty() {
             let subquery = <$entity>::find()
                 .select_only()
                 .filter($column.is_in($ids))
-                .column(media_file_artists::Column::MediaFileId)
+                .column($file_column)
                 .into_query();
 
             $or_condition =
@@ -203,7 +419,8 @@ pub async fn query_mix_media_files(
         or_condition,
         artist_ids,
         media_file_artists::Entity,
-        media_file_artists::Column::ArtistId
+        media_file_artists::Column::ArtistId,
+        media_file_artists::Column::MediaFileId
     );
 
     // Filter by album_ids if provided
@@ -211,7 +428,8 @@ pub async fn query_mix_media_files(
         or_condition,
         album_ids,
         media_file_albums::Entity,
-        media_file_albums::Column::AlbumId
+        media_file_albums::Column::AlbumId,
+        media_file_albums::Column::MediaFileId
     );
 
     // Filter by playlist_ids if provided
@@ -219,7 +437,8 @@ pub async fn query_mix_media_files(
         or_condition,
         playlist_ids,
         media_file_playlists::Entity,
-        media_file_playlists::Column::PlaylistId
+        media_file_playlists::Column::PlaylistId,
+        media_file_playlists::Column::MediaFileId
     );
 
     // Filter by track_ids if provided
@@ -303,17 +522,20 @@ pub async fn query_mix_media_files(
             .distinct()
             .into_tuple::<i32>()
             .all(main_db)
-            .await?;
+            .await
+            .with_context(|| "Failed to query file ids for recommendation")?;
 
         let virtual_point: [f32; 61] = if recommend_group >= 0 {
             get_percentile_analysis_result(
                 main_db,
                 1.0 / (9 + 2) as f64 * (recommend_group + 1) as f64,
             )
-            .await?
+            .await
+            .with_context(|| "Failed to query percentile data")?
         } else {
             get_centralized_analysis_result(main_db, file_ids)
-                .await?
+                .await
+                .with_context(|| "Failed to query centralized data")?
                 .into()
         };
 
@@ -324,7 +546,8 @@ pub async fn query_mix_media_files(
         };
 
         let file_ids =
-            get_recommendation_by_parameter(recommend_db, virtual_point, recommend_n as usize)?
+            get_recommendation_by_parameter(recommend_db, virtual_point, recommend_n as usize)
+                .with_context(|| "Failed to get recommendation by parameters")?
                 .into_iter()
                 .map(|x| x.0 as i32)
                 .collect::<Vec<i32>>();

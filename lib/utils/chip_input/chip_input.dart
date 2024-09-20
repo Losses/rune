@@ -64,7 +64,7 @@ class ChipInput<T> extends StatefulWidget {
 }
 
 class _ChipInputState<T> extends State<ChipInput<T>> {
-  late SearchTask<AutoSuggestBoxItem<T>> _searcher;
+  late SearchTask<AutoSuggestBoxItem<T>, String> _searcher;
   List<AutoSuggestBoxItem<T>> searchResults = [];
   late ChipInputController<T> _controller;
 
@@ -87,7 +87,7 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
 
     _initResult = widget.getInitResult();
 
-    _searcher = SearchTask<AutoSuggestBoxItem<T>>(
+    _searcher = SearchTask<AutoSuggestBoxItem<T>, String>(
       notifyWhenStateChange: false,
       searchDelegate: (query) async {
         return await widget.searchFor(query);

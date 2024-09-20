@@ -37,21 +37,6 @@ message MediaFileList {
 }
 
 // [RINF:DART-SIGNAL]
-message CompoundQueryMediaFilesRequest {
-  int32 cursor = 1;
-  int32 page_size = 2;
-  repeated int32 artist_ids = 3;
-  repeated int32 album_ids = 4;
-  repeated int32 playlist_ids = 5;
-  repeated string directories = 6;
-}
-
-// [RINF:RUST-SIGNAL]
-message CompoundQueryMediaFilesResponse {
-  repeated MediaFile media_files = 1;
-}
-
-// [RINF:DART-SIGNAL]
 message FetchMediaFileByIdsRequest {
   repeated int32 ids = 1;
 }
@@ -90,5 +75,5 @@ message MixQueryRequest {
 
 // [RINF:RUST-SIGNAL]
 message MixQueryResponse {
-  repeated MediaFileSummary result = 1;
+  repeated MediaFile result = 1;
 }

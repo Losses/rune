@@ -11,15 +11,12 @@ import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class QueryTracksPage extends StatefulWidget {
-  final List<int> artistIds;
-  final List<int> albumIds;
-  final List<int> playlistIds;
+  final List<(String, String)> queries;
 
-  const QueryTracksPage(
-      {super.key,
-      this.artistIds = const [],
-      this.albumIds = const [],
-      this.playlistIds = const []});
+  const QueryTracksPage({
+    super.key,
+    this.queries = const [],
+  });
 
   @override
   State<QueryTracksPage> createState() => _QueryTracksPageState();
@@ -46,9 +43,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
           Expanded(
             child: QueryTrackListView(
               layoutManager: _layoutManager,
-              artistIds: widget.artistIds,
-              albumIds: widget.albumIds,
-              playlistIds: widget.playlistIds,
+              queries: widget.queries,
             ),
           ),
           const PlaybackPlaceholder(),

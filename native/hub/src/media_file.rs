@@ -9,7 +9,7 @@ use log::{error, info};
 use rinf::DartSignal;
 
 use database::actions::file::get_files_by_ids;
-use database::actions::file::{compound_query_media_files, list_files};
+use database::actions::file::list_files;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;
@@ -121,68 +121,6 @@ pub async fn fetch_media_file_by_ids_request(
     };
 }
 
-pub async fn compound_query_media_files_request(
-    db: Arc<DatabaseConnection>,
-    lib_path: Arc<String>,
-    dart_signal: DartSignal<CompoundQueryMediaFilesRequest>,
-) -> Result<()> {
-    let query_media_files = dart_signal.message;
-    let cursor = query_media_files.cursor;
-    let page_size = query_media_files.page_size;
-    let artist_ids = query_media_files.artist_ids;
-    let album_ids = query_media_files.album_ids;
-    let playlist_ids = query_media_files.playlist_ids;
-
-    info!(
-        "Compound query media list with artist_ids: {:?}, album_ids: {:?}, playlist_ids: {:?}, page: {}, size: {}",
-        artist_ids, album_ids, playlist_ids, cursor, page_size
-    );
-
-    let artist_ids_option = if artist_ids.is_empty() {
-        None
-    } else {
-        Some(artist_ids)
-    };
-
-    let album_ids_option = if album_ids.is_empty() {
-        None
-    } else {
-        Some(album_ids)
-    };
-
-    let playlist_ids_option = if playlist_ids.is_empty() {
-        None
-    } else {
-        Some(playlist_ids)
-    };
-
-    let media_entries = compound_query_media_files(
-        &db,
-        artist_ids_option,
-        album_ids_option,
-        playlist_ids_option,
-        None,
-        cursor.try_into().unwrap(),
-        page_size.try_into().unwrap(),
-    )
-    .await?;
-
-    let media_summaries = get_metadata_summary_by_files(&db, media_entries);
-
-    match media_summaries.await {
-        Ok(media_summaries) => {
-            let media_files = parse_media_files(media_summaries, lib_path).await?;
-            CompoundQueryMediaFilesResponse { media_files }.send_signal_to_dart();
-            // GENERATED
-        }
-        Err(e) => {
-            error!("Error happened while getting media summaries: {:#?}", e)
-        }
-    }
-
-    Ok(())
-}
-
 pub async fn fetch_parsed_media_file_request(
     db: Arc<DatabaseConnection>,
     lib_path: Arc<String>,
@@ -271,6 +209,7 @@ pub async fn search_media_file_summary_request(
 pub async fn mix_query_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
+    lib_path: Arc<String>,
     dart_signal: DartSignal<MixQueryRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
@@ -290,28 +229,21 @@ pub async fn mix_query_request(
     )
     .await
     {
-        Ok(items) => {
-            let media_summaries = get_metadata_summary_by_files(&main_db, items);
+        Ok(media_entries) => {
+            let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
 
             match media_summaries.await {
                 Ok(media_summaries) => {
-                    MixQueryResponse {
-                        result: media_summaries
-                            .into_iter()
-                            .map(|x| MediaFileSummary {
-                                id: x.id,
-                                name: x.title,
-                            })
-                            .collect(),
-                    }
-                    .send_signal_to_dart();
+                    let result = parse_media_files(media_summaries, lib_path).await?;
+                    MixQueryResponse { result }.send_signal_to_dart();
+                    // GENERATED
                 }
                 Err(e) => {
                     error!("Error happened while getting media summaries: {:#?}", e)
                 }
             }
         }
-        Err(e) => error!("Unable to query mix media files: ${}", e),
+        Err(e) => error!("Unable to query mix media files: {}", e),
     }
 
     Ok(())

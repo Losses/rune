@@ -17,7 +17,7 @@ class MixEditorController extends ChangeNotifier {
   final SliderController limitController = SliderController();
   final SelectInputController modeController = SelectInputController('99');
   final SelectInputController recommendationController =
-      SelectInputController('99');
+      SelectInputController('');
   final SelectInputController sortByController =
       SelectInputController('default');
   final ToggleSwitchController likedController = ToggleSwitchController(false);
