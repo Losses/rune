@@ -8,6 +8,7 @@ mod library_home;
 mod library_manage;
 mod media_file;
 mod messages;
+mod mix;
 mod playback;
 mod player;
 mod playlist;
@@ -36,6 +37,7 @@ use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
 use crate::media_file::*;
+use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
@@ -49,6 +51,7 @@ use messages::directory::*;
 use messages::library_home::*;
 use messages::library_manage::*;
 use messages::media_file::*;
+use messages::mix::*;
 use messages::playback::*;
 use messages::playlist::*;
 use messages::recommend::*;
@@ -158,7 +161,6 @@ async fn player_loop(path: String) {
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
-            MixQueryRequest => (main_db, recommend_db, lib_path),
 
             StartPlayingCollectionRequest => (main_db, lib_path, player),
             AddToQueueCollectionRequest => (main_db, lib_path, player),
@@ -186,12 +188,22 @@ async fn player_loop(path: String) {
             MovePlaylistItemRequest => (player),
             CreatePlaylistRequest => (main_db, search_db),
             UpdatePlaylistRequest => (main_db, search_db),
-            CheckItemsInPlaylistRequest => (main_db),
             AddItemToPlaylistRequest => (main_db),
             ReorderPlaylistItemPositionRequest => (main_db),
             GetUniquePlaylistGroupsRequest => (main_db),
             GetPlaylistByIdRequest => (main_db),
             SearchPlaylistSummaryRequest => (main_db),
+
+            FetchMixesGroupSummaryRequest => (main_db),
+            FetchMixesGroupsRequest => (main_db),
+            FetchMixesByIdsRequest => (main_db),
+            FetchAllMixesRequest => (main_db),
+            CreateMixRequest => (main_db),
+            UpdateMixRequest => (main_db),
+            AddItemToMixRequest => (main_db),
+            GetUniqueMixGroupsRequest => (main_db),
+            GetMixByIdRequest => (main_db),
+            MixQueryRequest => (main_db, recommend_db, lib_path),
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),

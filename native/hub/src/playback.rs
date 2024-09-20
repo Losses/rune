@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Result;
 use dunce::canonicalize;
 use log::debug;
 use rinf::DartSignal;
@@ -18,7 +19,6 @@ use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
-use crate::common::Result;
 use crate::{
     AddToQueueCollectionRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
     PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest, SeekRequest,

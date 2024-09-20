@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::Result;
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -13,7 +14,6 @@ use database::connection::MainDbConnection;
 use playback::player::Player;
 use playback::player::PlaylistStatus;
 
-use crate::common::Result;
 use crate::{PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
 
 pub async fn initialize_player(

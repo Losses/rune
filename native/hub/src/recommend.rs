@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Result;
 use log::error;
 use log::info;
 use rinf::DartSignal;
@@ -13,7 +14,6 @@ use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
-use crate::common::Result;
 use crate::files_to_playback_request;
 use crate::update_playlist;
 use crate::{

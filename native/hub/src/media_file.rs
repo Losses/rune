@@ -1,8 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use database::actions::mixes::query_mix_media_files;
-use database::connection::{MainDbConnection, RecommendationDbConnection};
+use anyhow::Result;
 use dunce::canonicalize;
 use log::debug;
 use log::{error, info};
@@ -16,14 +15,14 @@ use database::actions::metadata::MetadataSummary;
 use sea_orm::DatabaseConnection;
 
 use database::actions::file::get_media_files;
+use database::connection::MainDbConnection;
 
-use crate::common::*;
 use crate::messages;
 use crate::messages::album::Album;
 use crate::messages::artist::Artist;
 use messages::media_file::*;
 
-async fn parse_media_files(
+pub async fn parse_media_files(
     media_summaries: Vec<MetadataSummary>,
     lib_path: Arc<String>,
 ) -> Result<Vec<MediaFile>> {
@@ -204,47 +203,4 @@ pub async fn search_media_file_summary_request(
             error!("Failed to search media file summary: {}", e);
         }
     };
-}
-
-pub async fn mix_query_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    lib_path: Arc<String>,
-    dart_signal: DartSignal<MixQueryRequest>,
-) -> Result<()> {
-    let request = dart_signal.message;
-
-    let queries = request
-        .queries
-        .into_iter()
-        .map(|x| (x.operator, x.parameter))
-        .collect();
-
-    match query_mix_media_files(
-        &main_db,
-        &recommend_db,
-        queries,
-        request.cursor as usize,
-        request.page_size as usize,
-    )
-    .await
-    {
-        Ok(media_entries) => {
-            let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
-
-            match media_summaries.await {
-                Ok(media_summaries) => {
-                    let result = parse_media_files(media_summaries, lib_path).await?;
-                    MixQueryResponse { result }.send_signal_to_dart();
-                    // GENERATED
-                }
-                Err(e) => {
-                    error!("Error happened while getting media summaries: {:#?}", e)
-                }
-            }
-        }
-        Err(e) => error!("Unable to query mix media files: {}", e),
-    }
-
-    Ok(())
 }
