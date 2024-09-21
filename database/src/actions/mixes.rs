@@ -238,24 +238,16 @@ pub async fn replace_mix_queries(
 
     Ok(results)
 }
-
-pub async fn get_all_mix_queries(db: &DatabaseConnection) -> Result<Vec<mix_queries::Model>> {
+pub async fn get_mix_queries_by_mix_id(
+    db: &DatabaseConnection,
+    mix_id: i32,
+) -> Result<Vec<mix_queries::Model>> {
     use mix_queries::Entity as MixQueryEntity;
 
-    let mix_queries = MixQueryEntity::find().all(db).await?;
-    Ok(mix_queries)
-}
-
-pub async fn get_mix_query_by_id(db: &DatabaseConnection, id: i32) -> Result<mix_queries::Model> {
-    use mix_queries::Entity as MixQueryEntity;
-
-    let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
-    match mix_query {
-        Some(mq) => Ok(mq),
-        None => {
-            bail!("Mix query not found")
-        }
-    }
+    Ok(MixQueryEntity::find()
+        .filter(mix_queries::Column::MixId.eq(mix_id))
+        .all(db)
+        .await?)
 }
 
 pub async fn delete_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
@@ -345,6 +337,7 @@ pub async fn add_item_to_mix(
             mix_id: ActiveValue::Set(mix_id),
             operator: ActiveValue::Set(operator),
             parameter: ActiveValue::Set(parameter),
+            group: ActiveValue::Set(0),
             created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
             updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
             ..Default::default()

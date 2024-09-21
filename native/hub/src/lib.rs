@@ -204,6 +204,7 @@ async fn player_loop(path: String) {
             GetUniqueMixGroupsRequest => (main_db),
             GetMixByIdRequest => (main_db),
             MixQueryRequest => (main_db, recommend_db, lib_path),
+            FetchMixQueriesRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),

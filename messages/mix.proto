@@ -140,3 +140,14 @@ message FetchMixesByIdsRequest {
 message FetchMixesByIdsResponse {
   repeated Mix result = 1;
 }
+
+// [RINF:DART-SIGNAL]
+message FetchMixQueriesRequest {
+  int32 mix_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message FetchMixQueriesResponse {
+  repeated MixQuery result = 1;
+}
+

@@ -2,14 +2,14 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/settings_test/widgets/mix_editor.dart';
 
-class EditMixDialog extends StatefulWidget {
-  const EditMixDialog({super.key});
+class MixStudioDialog extends StatefulWidget {
+  const MixStudioDialog({super.key});
 
   @override
-  State<EditMixDialog> createState() => _EditMixDialogState();
+  State<MixStudioDialog> createState() => _MixStudioDialogState();
 }
 
-class _EditMixDialogState extends State<EditMixDialog> {
+class _MixStudioDialogState extends State<MixStudioDialog> {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.of(context).size.height;

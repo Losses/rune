@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-
-import '../../messages/playlist.pb.dart';
+import 'package:player/messages/playlist.pb.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
@@ -132,15 +131,6 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   }
 }
 
-Future<PlaylistWithoutCoverIds?> showCreateEditPlaylistDialog(
-    BuildContext context,
-    {int? playlistId}) async {
-  return await showDialog<PlaylistWithoutCoverIds?>(
-    context: context,
-    builder: (context) => CreateEditPlaylistDialog(playlistId: playlistId),
-  );
-}
-
 Future<List<String>> getGroupList() async {
   final fetchGroupsRequest = FetchPlaylistsGroupSummaryRequest();
   fetchGroupsRequest.sendSignalToRust(); // GENERATED
@@ -166,7 +156,9 @@ Future<PlaylistWithoutCoverIds> getPlaylistById(int playlistId) async {
 }
 
 Future<PlaylistWithoutCoverIds> createPlaylist(
-    String name, String group) async {
+  String name,
+  String group,
+) async {
   final createRequest = CreatePlaylistRequest(name: name, group: group);
   createRequest.sendSignalToRust(); // GENERATED
 
@@ -178,7 +170,10 @@ Future<PlaylistWithoutCoverIds> createPlaylist(
 }
 
 Future<PlaylistWithoutCoverIds> updatePlaylist(
-    int playlistId, String name, String group) async {
+  int playlistId,
+  String name,
+  String group,
+) async {
   final updateRequest = UpdatePlaylistRequest(
     playlistId: playlistId,
     name: name,

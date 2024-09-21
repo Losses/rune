@@ -6,8 +6,9 @@ use rinf::DartSignal;
 
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
-    add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mixes_by_ids, get_mixes_groups,
-    get_unique_mix_groups, query_mix_media_files, replace_mix_queries, update_mix,
+    add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
+    get_mixes_by_ids, get_mixes_groups, get_unique_mix_groups, query_mix_media_files,
+    replace_mix_queries, update_mix,
 };
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
@@ -15,11 +16,12 @@ use database::entities::mixes;
 
 use crate::{
     parse_media_files, AddItemToMixRequest, AddItemToMixResponse, CreateMixRequest,
-    CreateMixResponse, FetchAllMixesRequest, FetchAllMixesResponse, FetchMixesByIdsRequest,
-    FetchMixesByIdsResponse, FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest,
-    GetMixByIdRequest, GetMixByIdResponse, GetUniqueMixGroupsRequest, GetUniqueMixGroupsResponse,
-    Mix, MixGroupSummaryResponse, MixQueryRequest, MixQueryResponse, MixWithoutCoverIds,
-    MixesGroup, MixesGroupSummary, MixesGroups, UpdateMixRequest, UpdateMixResponse,
+    CreateMixResponse, FetchAllMixesRequest, FetchAllMixesResponse, FetchMixQueriesRequest,
+    FetchMixQueriesResponse, FetchMixesByIdsRequest, FetchMixesByIdsResponse,
+    FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest, GetMixByIdRequest, GetMixByIdResponse,
+    GetUniqueMixGroupsRequest, GetUniqueMixGroupsResponse, Mix, MixGroupSummaryResponse, MixQuery,
+    MixQueryRequest, MixQueryResponse, MixWithoutCoverIds, MixesGroup, MixesGroupSummary,
+    MixesGroups, UpdateMixRequest, UpdateMixResponse,
 };
 
 pub async fn fetch_mixes_group_summary_request(
@@ -359,4 +361,26 @@ pub async fn mix_query_request(
     }
 
     Ok(())
+}
+
+pub async fn fetch_mix_queries_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<FetchMixQueriesRequest>,
+) {
+    let request = dart_signal.message;
+
+    match get_mix_queries_by_mix_id(&main_db, request.mix_id).await {
+        Ok(queries) => {
+            FetchMixQueriesResponse {
+                result: queries
+                    .into_iter()
+                    .map(|x| MixQuery {
+                        operator: x.operator,
+                        parameter: x.parameter,
+                    })
+                    .collect(),
+            }.send_signal_to_dart();
+        }
+        Err(e) => error!("Unable to get mix queries files: {}", e),
+    }
 }

@@ -4,7 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../../utils/router_extra.dart';
-import '../../utils/dialogs/create_edit_playlist.dart';
+import '../dialogs/playlist/create_edit_playlist.dart';
 import '../../screens/settings_library/widgets/progress_button.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';

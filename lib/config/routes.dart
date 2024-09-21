@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 
 import '../routes/home.dart' as home;
+import '../routes/mixes.dart' as mixes;
 import '../routes/tracks.dart' as tracks;
 import '../routes/albums.dart' as albums;
 import '../routes/search.dart' as search;
@@ -57,6 +58,16 @@ final routes = <GoRoute>[
     path: '/playlists/:playlistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
       queries: [("lib::playlist", state.pathParameters['playlistId'] ?? "0")],
+    ),
+  ),
+  GoRoute(
+    path: '/mixes',
+    builder: (context, state) => const mixes.MixesPage(),
+  ),
+  GoRoute(
+    path: '/mixes/:mixId',
+    builder: (context, state) => mixes.MixTrackesPage(
+      mixId: int.parse(state.pathParameters['mixId'] ?? "0"),
     ),
   ),
   GoRoute(

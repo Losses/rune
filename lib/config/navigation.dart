@@ -4,14 +4,32 @@ final List<NavigationItem> navigationItems = [
   NavigationItem('Rune', '/home', tappable: false, children: [
     NavigationItem('Library', '/library', children: [
       NavigationItem('Artists', '/artists', children: [
-        NavigationItem('Artist Query', '/artists/:artistId', hidden: true),
+        NavigationItem(
+          'Artist Query',
+          '/artists/:artistId',
+          hidden: true,
+        ),
       ]),
       NavigationItem('Albums', '/albums', children: [
-        NavigationItem('Artist Query', '/albums/:albumId', hidden: true),
+        NavigationItem(
+          'Artist Query',
+          '/albums/:albumId',
+          hidden: true,
+        ),
       ]),
       NavigationItem('Playlists', '/playlists', children: [
-        NavigationItem('Playlist Query', '/playlists/:playlistId',
-            hidden: true),
+        NavigationItem(
+          'Playlist Query',
+          '/playlists/:playlistId',
+          hidden: true,
+        ),
+      ]),
+      NavigationItem('Mixes', '/mixes', children: [
+        NavigationItem(
+          'Mix Query',
+          '/mixes/:mixId',
+          hidden: true,
+        ),
       ]),
       NavigationItem('Tracks', '/tracks'),
     ]),
