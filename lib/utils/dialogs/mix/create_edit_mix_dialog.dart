@@ -19,9 +19,9 @@ class CreateEditMixDialog extends StatefulWidget {
 
 class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   final titleController = TextEditingController();
+  final groupController = TextEditingController();
   bool isLoading = false;
   List<String> groupList = ['Favorite'];
-  String selectedGroup = 'Favorite';
 
   MixWithoutCoverIds? mix;
 
@@ -45,7 +45,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
     mix = await getMixById(mixId);
     if (mix != null) {
       titleController.text = mix!.name;
-      selectedGroup = mix!.group;
+      groupController.text = mix!.group;
     }
     setState(() {});
   }
@@ -73,24 +73,15 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
           const SizedBox(height: 16),
           InfoLabel(
             label: 'Group',
-            child: EditableComboBox<String>(
-              value: selectedGroup,
-              items: groupList.map<ComboBoxItem<String>>((e) {
-                return ComboBoxItem<String>(
+            child: AutoSuggestBox<String>(
+              controller: groupController,
+              items: groupList.map<AutoSuggestBoxItem<String>>((e) {
+                return AutoSuggestBoxItem<String>(
                   value: e,
-                  child: Text(e),
+                  label: e,
                 );
               }).toList(),
-              onChanged: isLoading
-                  ? null
-                  : (group) {
-                      setState(() => selectedGroup = group ?? selectedGroup);
-                    },
-              placeholder: const Text('Select a group'),
-              onFieldSubmitted: (String text) {
-                setState(() => selectedGroup = text);
-                return text;
-              },
+              placeholder: "Select a group",
             ),
           ),
           const SizedBox(height: 8),
@@ -112,7 +103,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                     response = await updateMix(
                       widget.mixId!,
                       titleController.text,
-                      selectedGroup,
+                      groupController.text,
                       false,
                       99,
                       operator == null ? [] : [operator],
@@ -120,7 +111,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                   } else {
                     response = await createMix(
                       titleController.text,
-                      selectedGroup,
+                      groupController.text,
                       false,
                       99,
                       operator == null ? [] : [operator],

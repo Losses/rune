@@ -18,9 +18,9 @@ class CreateEditPlaylistDialog extends StatefulWidget {
 
 class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   final titleController = TextEditingController();
+  final groupController = TextEditingController();
   bool isLoading = false;
   List<String> groupList = ['Favorite'];
-  String selectedGroup = 'Favorite';
 
   PlaylistWithoutCoverIds? playlist;
 
@@ -44,7 +44,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     playlist = await getPlaylistById(playlistId);
     if (playlist != null) {
       titleController.text = playlist!.name;
-      selectedGroup = playlist!.group;
+      groupController.text = playlist!.group;
     }
     setState(() {});
   }
@@ -72,24 +72,15 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           const SizedBox(height: 16),
           InfoLabel(
             label: 'Group',
-            child: EditableComboBox<String>(
-              value: selectedGroup,
-              items: groupList.map<ComboBoxItem<String>>((e) {
-                return ComboBoxItem<String>(
+            child: AutoSuggestBox<String>(
+              controller: groupController,
+              items: groupList.map<AutoSuggestBoxItem<String>>((e) {
+                return AutoSuggestBoxItem<String>(
                   value: e,
-                  child: Text(e),
+                  label: e,
                 );
               }).toList(),
-              onChanged: isLoading
-                  ? null
-                  : (group) {
-                      setState(() => selectedGroup = group ?? selectedGroup);
-                    },
-              placeholder: const Text('Select a group'),
-              onFieldSubmitted: (String text) {
-                setState(() => selectedGroup = text);
-                return text;
-              },
+              placeholder: "Select a group",
             ),
           ),
           const SizedBox(height: 8),
@@ -109,12 +100,12 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                     response = await updatePlaylist(
                       widget.playlistId!,
                       titleController.text,
-                      selectedGroup,
+                      groupController.text,
                     );
                   } else {
                     response = await createPlaylist(
                       titleController.text,
-                      selectedGroup,
+                      groupController.text,
                     );
                   }
 

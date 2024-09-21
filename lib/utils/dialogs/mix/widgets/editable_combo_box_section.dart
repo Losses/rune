@@ -51,30 +51,15 @@ class _EditableComboBoxSectionState extends State<EditableComboBoxSection> {
                 child: FutureBuilder<List<String>>(
                     future: items,
                     builder: (context, snapshot) {
-                      return EditableComboBox<String>(
-                        value: _controller.value.text,
+                      return AutoSuggestBox<String>(
+                        controller: _controller,
                         items: (snapshot.data ?? [])
-                            .map<ComboBoxItem<String>>((e) {
-                          return ComboBoxItem<String>(
+                            .map<AutoSuggestBoxItem<String>>((e) {
+                          return AutoSuggestBoxItem<String>(
                             value: e,
-                            child: Text(e),
+                            label: e,
                           );
                         }).toList(),
-                        onChanged: (String? text) {
-                          if (text != null) {
-                            setState(
-                              () => _controller.value =
-                                  TextEditingValue(text: text),
-                            );
-                          }
-                        },
-                        onFieldSubmitted: (String text) {
-                          setState(
-                            () => _controller.value =
-                                TextEditingValue(text: text),
-                          );
-                          return text;
-                        },
                       );
                     }),
               ),
