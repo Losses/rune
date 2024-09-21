@@ -154,7 +154,7 @@ pub async fn update_mix(
     }
 }
 
-pub async fn delete_mix(db: &DatabaseConnection, id: i32) -> Result<()> {
+pub async fn remove_mix(db: &DatabaseConnection, id: i32) -> Result<()> {
     use mixes::Entity as MixEntity;
 
     let mix = MixEntity::find_by_id(id).one(db).await?;
@@ -250,7 +250,7 @@ pub async fn get_mix_queries_by_mix_id(
         .await?)
 }
 
-pub async fn delete_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
+pub async fn remove_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
     let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;

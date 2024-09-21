@@ -132,7 +132,7 @@ pub async fn sync_cover_art_by_file_id(
     }
 }
 
-pub async fn delete_cover_art_by_file_id<E>(db: &E, file_id: i32) -> Result<(), sea_orm::DbErr>
+pub async fn remove_cover_art_by_file_id<E>(db: &E, file_id: i32) -> Result<(), sea_orm::DbErr>
 where
     E: DatabaseExecutor + sea_orm::ConnectionTrait,
 {

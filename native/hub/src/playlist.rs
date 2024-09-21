@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use database::actions::playlists::list_playlists;
+use database::actions::playlists::remove_playlist;
 use log::{debug, error};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -22,6 +23,8 @@ use database::connection::SearchDbConnection;
 use database::entities::playlists;
 
 use crate::PlaylistSummary;
+use crate::RemovePlaylistRequest;
+use crate::RemovePlaylistResponse;
 use crate::SearchPlaylistSummaryRequest;
 use crate::SearchPlaylistSummaryResponse;
 use crate::{
@@ -228,6 +231,36 @@ pub async fn update_playlist_request(
         }
         Err(e) => {
             error!("Failed to update playlist: {}", e);
+        }
+    }
+}
+
+pub async fn remove_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    search_db: Arc<Mutex<SearchDbConnection>>,
+    dart_signal: DartSignal<RemovePlaylistRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Removing playlist: id={}", request.playlist_id);
+
+    let mut search_db = search_db.lock().await;
+
+    match remove_playlist(&main_db, &mut search_db, request.playlist_id).await {
+        Ok(_) => {
+            RemovePlaylistResponse {
+                playlist_id: request.playlist_id,
+                success: true,
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            RemovePlaylistResponse {
+                playlist_id: request.playlist_id,
+                success: false,
+            }
+            .send_signal_to_dart();
+            error!("Failed to remove playlist: {}", e);
         }
     }
 }

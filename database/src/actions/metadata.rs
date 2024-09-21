@@ -12,7 +12,7 @@ use metadata::describe::{describe_file, FileDescription};
 use metadata::reader::get_metadata;
 use metadata::scanner::AudioScanner;
 
-use crate::actions::cover_art::delete_cover_art_by_file_id;
+use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
 use crate::actions::search::{add_term, remove_term, CollectionType};
@@ -277,7 +277,7 @@ pub async fn process_files(
                             update_file_codec_information(&txn, &existing_file, description)
                                 .await?;
 
-                            delete_cover_art_by_file_id(&txn, existing_file.id).await?;
+                            remove_cover_art_by_file_id(&txn, existing_file.id).await?;
 
                             let file_metadata = read_metadata(description);
 

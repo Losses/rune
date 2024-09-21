@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/utils/dialogs/mix/remove_mix_dialog.dart';
+import 'package:player/utils/dialogs/playlist/remove_playlist_dialog.dart';
 
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
@@ -28,9 +30,18 @@ final Map<String, String> typeToEditLabel = {
   "mix": "Edit Mix",
 };
 
-final Map<String, void Function()> typeToRemove = {
-  "playlist": () {},
-  "mix": () {},
+final Map<String, void Function(BuildContext context, int id)> typeToRemove = {
+  "playlist": (context, id) {
+    showRemovePlaylistDialog(context, id);
+  },
+  "mix": (context, id) {
+    showRemoveMixDialog(context, id);
+  },
+};
+
+final Map<String, String> typeToRemoveLabel = {
+  "playlist": "Remove Playlist",
+  "mix": "Remove Mix",
 };
 
 void openCollectionItemContextMenu(
@@ -105,8 +116,8 @@ Widget buildCollectionItemContextMenu(
     items.add(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
-        text: const Text('Remove'),
-        onPressed: () => {remove()},
+        text: Text(typeToRemoveLabel[type] ?? 'Remove'),
+        onPressed: () => {remove(context, id)},
       ),
     );
   }

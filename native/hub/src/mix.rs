@@ -7,7 +7,7 @@ use rinf::DartSignal;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
     add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
-    get_mixes_by_ids, get_mixes_groups, get_unique_mix_groups, query_mix_media_files,
+    get_mixes_by_ids, get_mixes_groups, get_unique_mix_groups, query_mix_media_files, remove_mix,
     replace_mix_queries, update_mix,
 };
 use database::actions::utils::create_count_by_first_letter;
@@ -21,7 +21,7 @@ use crate::{
     FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest, GetMixByIdRequest, GetMixByIdResponse,
     GetUniqueMixGroupsRequest, GetUniqueMixGroupsResponse, Mix, MixGroupSummaryResponse, MixQuery,
     MixQueryRequest, MixQueryResponse, MixWithoutCoverIds, MixesGroup, MixesGroupSummary,
-    MixesGroups, UpdateMixRequest, UpdateMixResponse,
+    MixesGroups, RemoveMixRequest, RemoveMixResponse, UpdateMixRequest, UpdateMixResponse,
 };
 
 pub async fn fetch_mixes_group_summary_request(
@@ -251,6 +251,33 @@ pub async fn update_mix_request(
         }
         Err(e) => error!("Failed to update mix metadata: {}", e),
     };
+}
+
+pub async fn remove_mix_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<RemoveMixRequest>,
+) {
+    let request = dart_signal.message;
+
+    debug!("Removing mix: id={}", request.mix_id);
+
+    match remove_mix(&main_db, request.mix_id).await {
+        Ok(_) => {
+            RemoveMixResponse {
+                mix_id: request.mix_id,
+                success: true,
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            RemoveMixResponse {
+                mix_id: request.mix_id,
+                success: false,
+            }
+            .send_signal_to_dart();
+            error!("Failed to remove mix: {}", e);
+        }
+    }
 }
 
 pub async fn add_item_to_mix_request(

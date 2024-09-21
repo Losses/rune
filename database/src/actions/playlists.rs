@@ -9,14 +9,11 @@ use sea_orm::QuerySelect;
 
 use chrono::Utc;
 
-use crate::actions::search::add_term;
 use crate::actions::search::CollectionType;
+use crate::actions::search::{add_term, remove_term};
 use crate::connection::SearchDbConnection;
 use crate::entities::{media_file_playlists, playlists};
-use crate::get_by_id;
-use crate::get_by_ids;
-use crate::get_first_n;
-use crate::{get_all_ids, get_groups};
+use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
 
 use super::utils::CountByFirstLetter;
 
@@ -156,6 +153,48 @@ pub async fn update_playlist(
     } else {
         bail!("Playlist not found");
     }
+}
+
+/// Remove a playlist by its ID.
+///
+/// # Arguments
+/// * `main_db` - A reference to the main database connection.
+/// * `search_db` - A mutable reference to the search database connection.
+/// * `playlist_id` - The ID of the playlist to delete.
+///
+/// # Returns
+/// * `Result<()>` - An empty result or an error.
+pub async fn remove_playlist(
+    main_db: &DatabaseConnection,
+    search_db: &mut SearchDbConnection,
+    playlist_id: i32,
+) -> Result<()> {
+    use media_file_playlists::Entity as MediaFilePlaylistEntity;
+    use playlists::Entity as PlaylistEntity;
+
+    // Check if the playlist exists
+    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
+    if playlist.is_none() {
+        bail!("Playlist not found");
+    }
+
+    // Delete all media file associations with this playlist
+    MediaFilePlaylistEntity::delete_many()
+        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
+        .exec(main_db)
+        .await?;
+
+    // Delete the playlist itself
+    PlaylistEntity::delete_by_id(playlist_id)
+        .exec(main_db)
+        .await?;
+
+    // Remove the playlist term from the search database
+    remove_term(search_db, CollectionType::Playlist, playlist_id);
+
+    search_db.w.commit().unwrap();
+
+    Ok(())
 }
 
 /// Add a media file to a playlist.

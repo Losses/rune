@@ -75,6 +75,18 @@ message UpdatePlaylistResponse {
   PlaylistWithoutCoverIds playlist = 1;
 }
 
+
+// [RINF:DART-SIGNAL]
+message RemovePlaylistRequest {
+  int32 playlist_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message RemovePlaylistResponse {
+  int32 playlist_id = 1;
+  bool success = 2;
+}
+
 // [RINF:DART-SIGNAL]
 message AddItemToPlaylistRequest {
   int32 playlist_id = 1;
