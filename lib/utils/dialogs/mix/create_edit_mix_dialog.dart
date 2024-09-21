@@ -6,8 +6,9 @@ import './utils.dart';
 
 class CreateEditMixDialog extends StatefulWidget {
   final int? mixId;
+  final (String, String)? operator;
 
-  const CreateEditMixDialog({super.key, this.mixId});
+  const CreateEditMixDialog({super.key, this.mixId, this.operator});
 
   @override
   CreateEditMixDialogState createState() => CreateEditMixDialogState();
@@ -101,17 +102,25 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                     isLoading = true;
                   });
 
+                  final operator = widget.operator;
+
                   MixWithoutCoverIds? response;
                   if (widget.mixId != null) {
                     response = await updateMix(
                       widget.mixId!,
                       titleController.text,
                       selectedGroup,
+                      false,
+                      99,
+                      operator == null ? [] : [operator],
                     );
                   } else {
                     response = await createMix(
                       titleController.text,
                       selectedGroup,
+                      false,
+                      99,
+                      operator == null ? [] : [operator],
                     );
                   }
 

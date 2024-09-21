@@ -125,18 +125,11 @@ Widget buildCollectionItemContextMenu(
             onPressed: () async {
               Flyout.of(context).close();
 
-              final mix = await showCreateEditMixDialog(context, mixId: null);
-
-              if (mix == null) return;
-
-              final fetchMediaFiles = AddItemToMixRequest(
-                mixId: mix.id,
-                operator: operator,
-                parameter: id.toString(),
+              await showCreateEditMixDialog(
+                context,
+                mixId: null,
+                operator: (operator, id.toString()),
               );
-              fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-              await AddItemToMixResponse.rustSignalStream.first;
             },
           ),
         ],

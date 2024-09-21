@@ -13,7 +13,6 @@ use sea_orm::TransactionTrait;
 use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
 use crate::actions::analysis::get_percentile_analysis_result;
-use crate::actions::utils::generate_group_name;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;

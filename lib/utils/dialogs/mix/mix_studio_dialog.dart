@@ -1,16 +1,17 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/messages/mix.pbserver.dart';
+import 'package:player/utils/dialogs/mix/utils.dart';
 import 'package:provider/provider.dart';
-
-import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 
 import '../../../utils/query_mix_tracks.dart';
 import '../../../utils/chip_input/search_task.dart';
 import '../../../utils/dialogs/mix/widgets/mix_editor.dart';
 import '../../../utils/dialogs/mix/utils/mix_editor_data.dart';
 import '../../../utils/dialogs/mix/widgets/mix_editor_controller.dart';
+import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/search.dart';
 
 import '../../../messages/media_file.pb.dart';
@@ -26,14 +27,13 @@ class MixStudioDialog extends StatefulWidget {
 
 class _MixStudioDialogState extends State<MixStudioDialog> {
   late final _controller = MixEditorController();
-
   final _layoutManager = StartScreenLayoutManager();
-
   final _searchManager = SearchTask<MediaFile, List<(String, String)>>(
     notifyWhenStateChange: false,
     searchDelegate: queryMixTracks,
   );
 
+  bool isLoading = false;
   String _query = '';
 
   @override
@@ -143,15 +143,47 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
       ),
       actions: [
         FilledButton(
-          child: const Text('Query'),
-          onPressed: () {
-            Navigator.pop(context, 'User deleted file');
-            // Delete file here
-          },
+          onPressed: isLoading
+              ? null
+              : () async {
+                  setState(() {
+                    isLoading = true;
+                  });
+
+                  MixWithoutCoverIds? response;
+                  if (widget.mixId != null) {
+                    response = await updateMix(
+                      widget.mixId!,
+                      _controller.titleController.text,
+                      _controller.groupController.text,
+                      false,
+                      int.parse(
+                          _controller.modeController.selectedValue ?? '99'),
+                      mixEditorDataToQuery(_controller.getData()),
+                    );
+                  } else {
+                    response = await createMix(
+                      _controller.titleController.text,
+                      _controller.groupController.text,
+                      false,
+                      int.parse(
+                          _controller.modeController.selectedValue ?? '99'),
+                      mixEditorDataToQuery(_controller.getData()),
+                    );
+                  }
+
+                  setState(() {
+                    isLoading = false;
+                  });
+
+                  if (!context.mounted) return;
+                  Navigator.pop(context, response);
+                },
+          child: Text(widget.mixId != null ? 'Save' : 'Create'),
         ),
         Button(
+          onPressed: isLoading ? null : () => Navigator.pop(context, null),
           child: const Text('Cancel'),
-          onPressed: () => Navigator.pop(context, 'User canceled dialog'),
         ),
       ],
     );

@@ -37,8 +37,17 @@ Future<List<(String, String)>> fetchMixQueriesByQueryId(int mixId) async {
 Future<MixWithoutCoverIds> createMix(
   String name,
   String group,
+  bool scriptletMode,
+  int mode,
+  Iterable<(String, String)> queries,
 ) async {
-  final createRequest = CreateMixRequest(name: name, group: group);
+  final createRequest = CreateMixRequest(
+    name: name,
+    group: group,
+    scriptletMode: scriptletMode,
+    mode: mode,
+    queries: queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)),
+  );
   createRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
@@ -52,11 +61,17 @@ Future<MixWithoutCoverIds> updateMix(
   int mixId,
   String name,
   String group,
+  bool scriptletMode,
+  int mode,
+  Iterable<(String, String)> queries,
 ) async {
   final updateRequest = UpdateMixRequest(
     mixId: mixId,
     name: name,
     group: group,
+    scriptletMode: scriptletMode,
+    mode: mode,
+    queries: queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)),
   );
   updateRequest.sendSignalToRust(); // GENERATED
 
