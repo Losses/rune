@@ -1,3 +1,8 @@
+import 'package:player/messages/mix.pbserver.dart';
+import 'package:player/utils/api/add_item_to_mix.dart';
+import 'package:player/utils/api/add_item_to_playlist.dart';
+import 'package:player/utils/api/get_all_mixes.dart';
+import 'package:player/utils/dialogs/mix/create_edit_mix.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
@@ -33,12 +38,18 @@ void openTrackItemContextMenu(
   final analysed = await ifAnalysisExists(fileId);
 
   final playlists = await getAllPlaylists();
+  final mixes = await getAllMixes();
   final parsedMediaFile = await getParsedMediaFile(fileId);
 
   contextController.showFlyout(
     position: position,
     builder: (context) => buildTrackItemContextMenu(
-        context, parsedMediaFile, playlists, analysed),
+      context,
+      parsedMediaFile,
+      playlists,
+      mixes,
+      analysed,
+    ),
   );
 }
 
@@ -149,21 +160,34 @@ class AnalysisActionButton extends StatelessWidget {
 }
 
 Widget buildTrackItemContextMenu(
-    BuildContext context,
-    FetchParsedMediaFileResponse item,
-    List<PlaylistWithoutCoverIds> playlists,
-    bool analysed) {
-  final List<MenuFlyoutItem> items = playlists.map((playlist) {
+  BuildContext context,
+  FetchParsedMediaFileResponse item,
+  List<PlaylistWithoutCoverIds> playlists,
+  List<MixWithoutCoverIds> mixes,
+  bool analysed,
+) {
+  final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.list_alt),
       text: Text(playlist.name),
       onPressed: () {
-        final fetchMediaFiles = AddItemToPlaylistRequest(
-          playlistId: playlist.id,
-          mediaFileId: item.file.id,
-          position: null,
+        addItemToPlaylist(playlist.id, item.file.id);
+
+        Flyout.of(context).close();
+      },
+    );
+  }).toList();
+
+  final List<MenuFlyoutItem> mixItems = mixes.map((mixes) {
+    return MenuFlyoutItem(
+      leading: const Icon(Symbols.magic_button),
+      text: Text(mixes.name),
+      onPressed: () {
+        addItemToMix(
+          mixes.id,
+          "lib::track",
+          item.file.id.toString(),
         );
-        fetchMediaFiles.sendSignalToRust(); // GENERATED
 
         Flyout.of(context).close();
       },
@@ -214,8 +238,10 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.album),
         text: const Text('Go to Album'),
         onPressed: () => {
-          GoRouter.of(context).replace('/albums/${item.album.id}',
-              extra: QueryTracksExtra(item.album.name))
+          GoRouter.of(context).replace(
+            '/albums/${item.album.id}',
+            extra: QueryTracksExtra(item.album.name),
+          )
         },
       ),
       const MenuFlyoutSeparator(),
@@ -234,18 +260,37 @@ Widget buildTrackItemContextMenu(
 
               if (playlist == null) return;
 
-              final fetchMediaFiles = AddItemToPlaylistRequest(
-                playlistId: playlist.id,
-                mediaFileId: item.file.id,
-                position: null,
-              );
-              fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-              await AddItemToPlaylistResponse.rustSignalStream.first;
+              await addItemToPlaylist(playlist.id, item.file.id);
             },
           ),
-          if (items.isNotEmpty) const MenuFlyoutSeparator(),
-          ...items
+          if (playlistItems.isNotEmpty) const MenuFlyoutSeparator(),
+          ...playlistItems
+        ],
+      ),
+      MenuFlyoutSubItem(
+        leading: const Icon(Symbols.magic_button),
+        text: const Text('Add to Mix'),
+        items: (context) => [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.add),
+            text: const Text('New Mix'),
+            onPressed: () async {
+              Flyout.of(context).close();
+
+              final playlist =
+                  await showCreateEditMixDialog(context, mixId: null);
+
+              if (playlist == null) return;
+
+              await addItemToMix(
+                playlist.id,
+                "lib::track",
+                item.file.id.toString(),
+              );
+            },
+          ),
+          if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
+          ...mixItems
         ],
       ),
     ],

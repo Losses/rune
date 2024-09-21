@@ -1,13 +1,16 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/utils/dialogs/mix/remove_mix_dialog.dart';
-import 'package:player/utils/dialogs/playlist/remove_playlist_dialog.dart';
 
+import '../../utils/api/get_all_mixes.dart';
+import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
+import '../../utils/dialogs/mix/remove_mix_dialog.dart';
+import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 
 import '../../messages/playback.pb.dart';
+import '../../messages/mix.pbserver.dart';
 
 final Map<String, String> typeToOperator = {
   "album": "lib::album",
@@ -61,9 +64,12 @@ void openCollectionItemContextMenu(
     ancestor: Navigator.of(context).context.findRenderObject(),
   );
 
+  final mixes = await getAllMixes();
+
   contextController.showFlyout(
     position: position,
-    builder: (context) => buildCollectionItemContextMenu(context, type, id),
+    builder: (context) =>
+        buildCollectionItemContextMenu(context, type, id, mixes),
   );
 }
 
@@ -71,10 +77,27 @@ Widget buildCollectionItemContextMenu(
   BuildContext context,
   String type,
   int id,
+  List<MixWithoutCoverIds> mixes,
 ) {
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
   final remove = typeToRemove[type];
+
+  final List<MenuFlyoutItem> mixItems = mixes.map((mix) {
+    return MenuFlyoutItem(
+      leading: const Icon(Symbols.magic_button),
+      text: Text(mix.name),
+      onPressed: () {
+        addItemToMix(
+          mix.id,
+          operator ?? "lib::unknown",
+          id.toString(),
+        );
+
+        Flyout.of(context).close();
+      },
+    );
+  }).toList();
 
   List<MenuFlyoutItemBase> items = [
     MenuFlyoutItem(
@@ -142,6 +165,8 @@ Widget buildCollectionItemContextMenu(
               );
             },
           ),
+          if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
+          ...mixItems
         ],
       ),
     );
