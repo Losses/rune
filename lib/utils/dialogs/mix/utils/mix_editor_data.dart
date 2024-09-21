@@ -1,4 +1,6 @@
 class MixEditorData {
+  final String title;
+  final String group;
   final List<int> artists;
   final List<int> albums;
   final List<int> playlists;
@@ -11,6 +13,8 @@ class MixEditorData {
   final bool likedOnly;
 
   MixEditorData({
+    this.title = '',
+    this.group = '',
     this.artists = const [],
     this.albums = const [],
     this.playlists = const [],

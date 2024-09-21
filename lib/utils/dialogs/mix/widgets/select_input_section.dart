@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/screens/settings_test/utils/select_input_controller.dart';
+
+import '../../mix/utils/select_input_controller.dart';
 
 class SelectItem {
   final String value;

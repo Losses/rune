@@ -1,6 +1,6 @@
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../screens/settings_test/widgets/select_input_section.dart';
+import '../widgets/select_input_section.dart';
 
 final sortSelectItems = [
   SelectItem(value: "default", title: "Default", icon: Symbols.stream),

@@ -75,6 +75,7 @@ pub async fn get_mixes_groups(
 pub async fn create_mix(
     db: &DatabaseConnection,
     name: String,
+    group: String,
     scriptlet_mode: bool,
     mode: i32,
     locked: bool,
@@ -82,8 +83,8 @@ pub async fn create_mix(
     use mixes::ActiveModel;
 
     let new_mix = ActiveModel {
-        name: ActiveValue::Set(name.clone()),
-        group: ActiveValue::Set(generate_group_name(&name)),
+        name: ActiveValue::Set(name),
+        group: ActiveValue::Set(group),
         scriptlet_mode: ActiveValue::Set(scriptlet_mode),
         mode: ActiveValue::Set(mode),
         locked: ActiveValue::Set(locked),

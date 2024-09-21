@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'package:player/screens/settings_test/utils/slider_controller.dart';
+import 'package:player/utils/dialogs/mix/utils/slider_controller.dart';
 
 class SliderSection extends StatefulWidget {
   final String title;

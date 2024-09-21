@@ -49,7 +49,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     return ContentDialog(
       title: Column(
         children: [
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Text(widget.playlistId != null ? 'Edit Playlist' : 'Create Playlist'),
         ],
       ),

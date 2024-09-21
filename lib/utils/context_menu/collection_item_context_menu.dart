@@ -1,7 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
+import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 
 import '../../messages/mix.pb.dart';
 import '../../messages/playback.pb.dart';
@@ -10,6 +12,26 @@ final Map<String, String> typeToOperator = {
   "album": "lib::album",
   "artist": "lib::artist",
   "playlist": "lib::playlist",
+  "track": "lib::track",
+};
+
+final Map<String, void Function(BuildContext context, int id)> typeToEdit = {
+  "playlist": (context, id) async {
+    showCreateEditPlaylistDialog(context, playlistId: id);
+  },
+  "mix": (context, id) {
+    showMixStudioDialog(context, mixId: id);
+  },
+};
+
+final Map<String, String> typeToEditLabel = {
+  "playlist": "Edit Playlist",
+  "mix": "Edit Mix",
+};
+
+final Map<String, void Function()> typeToRemove = {
+  "playlist": () {},
+  "mix": () {},
 };
 
 void openCollectionItemContextMenu(
@@ -41,6 +63,8 @@ Widget buildCollectionItemContextMenu(
   int id,
 ) {
   final operator = typeToOperator[type];
+  final edit = typeToEdit[type];
+  final remove = typeToRemove[type];
 
   List<MenuFlyoutItemBase> items = [
     MenuFlyoutItem(
@@ -64,6 +88,29 @@ Widget buildCollectionItemContextMenu(
       },
     ),
   ];
+
+  if (edit != null) {
+    items.add(const MenuFlyoutSeparator());
+    items.add(
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.edit),
+        text: Text(typeToEditLabel[type] ?? 'Edit'),
+        onPressed: () {
+          edit(context, id);
+        },
+      ),
+    );
+  }
+
+  if (remove != null) {
+    items.add(
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.delete),
+        text: const Text('Remove'),
+        onPressed: () => {remove()},
+      ),
+    );
+  }
 
   if (operator != null) {
     items.add(const MenuFlyoutSeparator());

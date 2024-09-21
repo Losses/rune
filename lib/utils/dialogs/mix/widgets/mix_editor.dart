@@ -1,24 +1,27 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/messages/mix.pbserver.dart';
+import 'package:player/utils/dialogs/mix/widgets/editable_combo_box_section.dart';
+import 'package:player/utils/dialogs/mix/widgets/input_section.dart';
 
 import 'package:provider/provider.dart';
 
-import '../../../screens/settings_test/widgets/mix_editor_controller.dart';
-import '../../../screens/settings_test/widgets/toggle_switch_section.dart';
-import '../../../screens/settings_test/widgets/search_chip_input_section.dart';
+import 'mix_editor_controller.dart';
+import 'toggle_switch_section.dart';
+import 'search_chip_input_section.dart';
 
-import '../../../messages/album.pb.dart';
-import '../../../messages/search.pb.dart';
-import '../../../messages/media_file.pb.dart';
-import '../../../messages/artist.pbserver.dart';
-import '../../../messages/playlist.pbserver.dart';
+import '../../../../messages/album.pb.dart';
+import '../../../../messages/search.pb.dart';
+import '../../../../messages/media_file.pb.dart';
+import '../../../../messages/artist.pbserver.dart';
+import '../../../../messages/playlist.pbserver.dart';
 
 import '../config/mode_select_items.dart';
 import '../config/sort_select_items.dart';
 import '../config/recommend_select_items.dart';
 
-import './slider_section.dart';
-import './directory_section.dart';
-import './select_input_section.dart';
+import 'slider_section.dart';
+import 'directory_section.dart';
+import 'select_input_section.dart';
 
 class MixEditor extends StatefulWidget {
   final MixEditorController? controller;
@@ -51,8 +54,17 @@ class _MixEditorState extends State<MixEditor> {
     return ChangeNotifierProvider<MixEditorController>(
       create: (_) => _controller,
       child: ListView(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.only(right: 16),
         children: [
+          InputSection(
+            controller: _controller.titleController,
+            title: 'Title',
+          ),
+          EditableComboBoxSection(
+            controller: _controller.groupController,
+            title: 'Group',
+            getItems: _getUniqueMixGroups,
+          ),
           SearchChipInputSection(
             controller: _controller.artistsController,
             title: 'Artists',
@@ -223,4 +235,11 @@ Future<List<(int, String)>> _fetchTrackByIds(List<int> ids) async {
       .result
       .map((x) => (x.id, x.title))
       .toList();
+}
+
+Future<List<String>> _getUniqueMixGroups() async {
+  GetUniqueMixGroupsRequest().sendSignalToRust();
+  return (await GetUniqueMixGroupsResponse.rustSignalStream.first)
+      .message
+      .groups;
 }

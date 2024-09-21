@@ -1,13 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../utils/chip_input/chip_input.dart';
-import '../../../widgets/directory/directory_tree.dart';
-import '../../../screens/settings_test/utils/mix_editor_data.dart';
-import '../../../screens/settings_test/utils/slider_controller.dart';
-import '../../../screens/settings_test/utils/select_input_controller.dart';
-import '../../../screens/settings_test/utils/toggle_switch_controller.dart';
+import '../../../chip_input/chip_input.dart';
+import '../../../../widgets/directory/directory_tree.dart';
+import '../utils/mix_editor_data.dart';
+import '../utils/slider_controller.dart';
+import '../utils/select_input_controller.dart';
+import '../utils/toggle_switch_controller.dart';
 
 class MixEditorController extends ChangeNotifier {
+  final TextEditingController titleController = TextEditingController();
+  final TextEditingController groupController = TextEditingController();
   final ChipInputController<int> artistsController = ChipInputController<int>();
   final ChipInputController<int> albumsController = ChipInputController<int>();
   final ChipInputController<int> playlistsController =
@@ -27,6 +29,8 @@ class MixEditorController extends ChangeNotifier {
   }
 
   void _initListeners() {
+    titleController.addListener(_notifyListeners);
+    groupController.addListener(_notifyListeners);
     artistsController.addListener(_notifyListeners);
     albumsController.addListener(_notifyListeners);
     playlistsController.addListener(_notifyListeners);
@@ -45,6 +49,8 @@ class MixEditorController extends ChangeNotifier {
 
   @override
   void dispose() {
+    titleController.removeListener(_notifyListeners);
+    groupController.removeListener(_notifyListeners);
     artistsController.removeListener(_notifyListeners);
     albumsController.removeListener(_notifyListeners);
     playlistsController.removeListener(_notifyListeners);
@@ -56,6 +62,8 @@ class MixEditorController extends ChangeNotifier {
     sortByController.removeListener(_notifyListeners);
     likedController.removeListener(_notifyListeners);
 
+    titleController.dispose();
+    groupController.dispose();
     artistsController.dispose();
     albumsController.dispose();
     playlistsController.dispose();
@@ -72,6 +80,8 @@ class MixEditorController extends ChangeNotifier {
 
   MixEditorData getData() {
     return MixEditorData(
+      title: titleController.value.text,
+      group: groupController.value.text,
       artists: artistsController.selectedItems
           .map((item) => item.value)
           .where((value) => value != null)
@@ -102,6 +112,9 @@ class MixEditorController extends ChangeNotifier {
   }
 
   void setData(MixEditorData data) {
+    titleController.text = data.title;
+    groupController.text = data.group;
+
     artistsController.clearItems();
     for (var artist in data.artists) {
       artistsController.addItem(

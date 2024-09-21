@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../utils/chip_input/chip_input.dart';
+import '../../../chip_input/chip_input.dart';
 
 class SearchChipInputSection extends StatefulWidget {
   final String title;

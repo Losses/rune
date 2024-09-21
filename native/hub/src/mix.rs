@@ -155,6 +155,7 @@ pub async fn create_mix_request(
     match create_mix(
         &main_db,
         request.name,
+        request.group,
         request.scriptlet_mode,
         request.mode,
         false,
