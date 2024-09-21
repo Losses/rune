@@ -1,7 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/mix.pbserver.dart';
-import 'package:player/utils/dialogs/mix/widgets/editable_combo_box_section.dart';
-import 'package:player/utils/dialogs/mix/widgets/input_section.dart';
 
 import 'package:provider/provider.dart';
 
@@ -9,11 +6,19 @@ import 'mix_editor_controller.dart';
 import 'toggle_switch_section.dart';
 import 'search_chip_input_section.dart';
 
-import '../../../../messages/album.pb.dart';
 import '../../../../messages/search.pb.dart';
-import '../../../../messages/media_file.pb.dart';
-import '../../../../messages/artist.pbserver.dart';
-import '../../../../messages/playlist.pbserver.dart';
+
+import '../../../api/fetch_track_by_ids.dart';
+import '../../../api/fetch_track_summary.dart';
+import '../../../api/fetch_album_summary.dart';
+import '../../../api/fetch_albums_by_ids.dart';
+import '../../../api/fetch_artists_by_ids.dart';
+import '../../../api/fetch_artist_summary.dart';
+import '../../../api/get_unique_mix_groups.dart';
+import '../../../api/fetch_playlist_summary.dart';
+import '../../../api/fetch_playlists_by_ids.dart';
+import '../../../dialogs/mix/widgets/input_section.dart';
+import '../../../dialogs/mix/widgets/editable_combo_box_section.dart';
 
 import '../config/mode_select_items.dart';
 import '../config/sort_select_items.dart';
@@ -63,35 +68,49 @@ class _MixEditorState extends State<MixEditor> {
           EditableComboBoxSection(
             controller: _controller.groupController,
             title: 'Group',
-            getItems: _getUniqueMixGroups,
+            getItems: getUniqueMixGroups,
           ),
           SearchChipInputSection(
             controller: _controller.artistsController,
             title: 'Artists',
-            getInitResult: () => _getInitResult(_fetchArtistSummary),
+            getInitResult: () => getInitResult(fetchArtistSummary),
             searchForItems: (query) =>
-                _searchItems(query, 'artists', _fetchArtistsByIds),
+                _searchItems(query, 'artists', (x) async {
+              return (await fetchArtistsByIds(x))
+                  .map((x) => (x.id, x.name))
+                  .toList();
+            }),
           ),
           SearchChipInputSection(
             controller: _controller.albumsController,
             title: 'Albums',
-            getInitResult: () => _getInitResult(_fetchAlbumSummary),
-            searchForItems: (query) =>
-                _searchItems(query, 'albums', _fetchAlbumsByIds),
+            getInitResult: () => getInitResult(fetchAlbumSummary),
+            searchForItems: (query) => _searchItems(query, 'albums', (x) async {
+              return (await fetchAlbumsByIds(x))
+                  .map((x) => (x.id, x.name))
+                  .toList();
+            }),
           ),
           SearchChipInputSection(
             controller: _controller.playlistsController,
             title: 'Playlists',
-            getInitResult: () => _getInitResult(_fetchPlaylistSummary),
+            getInitResult: () => getInitResult(fetchPlaylistSummary),
             searchForItems: (query) =>
-                _searchItems(query, 'playlists', _fetchPlaylistsByIds),
+                _searchItems(query, 'playlists', (x) async {
+              return (await fetchPlaylistsByIds(x))
+                  .map((x) => (x.id, x.name))
+                  .toList();
+            }),
           ),
           SearchChipInputSection(
             controller: _controller.tracksController,
             title: 'Tracks',
-            getInitResult: () => _getInitResult(_fetchTrackSummary),
-            searchForItems: (query) =>
-                _searchItems(query, 'tracks', _fetchTrackByIds),
+            getInitResult: () => getInitResult(fetchTrackSummary),
+            searchForItems: (query) => _searchItems(query, 'tracks', (x) async {
+              return (await fetchTrackByIds(x))
+                  .map((x) => (x.id, x.title))
+                  .toList();
+            }),
           ),
           DirectorySection(controller: _controller.directoryController),
           SliderSection(
@@ -143,7 +162,7 @@ Future<Map<String, List<int>>> searchFor(String query, String field) async {
   return result;
 }
 
-Future<List<AutoSuggestBoxItem<int>>> _getInitResult(
+Future<List<AutoSuggestBoxItem<int>>> getInitResult(
     Future<List<(int, String)>> Function() fetchSummary) async {
   final summary = await fetchSummary();
   return summary
@@ -163,83 +182,4 @@ Future<List<AutoSuggestBoxItem<int>>> _searchItems<T>(
   return items
       .map((x) => AutoSuggestBoxItem<int>(value: x.$1, label: x.$2))
       .toList();
-}
-
-Future<List<(int, String)>> _fetchArtistSummary() async {
-  SearchArtistSummaryRequest(n: 50).sendSignalToRust();
-  return (await SearchArtistSummaryResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchAlbumSummary() async {
-  SearchAlbumSummaryRequest(n: 50).sendSignalToRust();
-  return (await SearchAlbumSummaryResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchPlaylistSummary() async {
-  SearchPlaylistSummaryRequest(n: 50).sendSignalToRust();
-  return (await SearchPlaylistSummaryResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchTrackSummary() async {
-  SearchMediaFileSummaryRequest(n: 50).sendSignalToRust();
-  return (await SearchMediaFileSummaryResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchArtistsByIds(List<int> ids) async {
-  FetchArtistsByIdsRequest(ids: ids).sendSignalToRust();
-  return (await FetchArtistsByIdsResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchAlbumsByIds(List<int> ids) async {
-  FetchAlbumsByIdsRequest(ids: ids).sendSignalToRust();
-  return (await FetchAlbumsByIdsResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchPlaylistsByIds(List<int> ids) async {
-  FetchPlaylistsByIdsRequest(ids: ids).sendSignalToRust();
-  return (await FetchPlaylistsByIdsResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.name))
-      .toList();
-}
-
-Future<List<(int, String)>> _fetchTrackByIds(List<int> ids) async {
-  FetchMediaFileByIdsRequest(ids: ids).sendSignalToRust();
-  return (await FetchMediaFileByIdsResponse.rustSignalStream.first)
-      .message
-      .result
-      .map((x) => (x.id, x.title))
-      .toList();
-}
-
-Future<List<String>> _getUniqueMixGroups() async {
-  GetUniqueMixGroupsRequest().sendSignalToRust();
-  return (await GetUniqueMixGroupsResponse.rustSignalStream.first)
-      .message
-      .groups;
 }

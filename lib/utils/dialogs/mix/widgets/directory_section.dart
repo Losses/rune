@@ -43,7 +43,7 @@ class _DirectorySectionState extends State<DirectorySection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Directory"),
+        const Text("Directories"),
         const SizedBox(height: 4),
         Button(
           onPressed: () async {

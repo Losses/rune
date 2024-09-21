@@ -6,6 +6,11 @@ import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
+import '../../utils/api/search_for.dart';
+import '../../utils/api/fetch_albums_by_ids.dart';
+import '../../utils/api/fetch_artists_by_ids.dart';
+import '../../utils/api/fetch_playlists_by_ids.dart';
+import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/cover_art.dart';
 import '../../widgets/slide_fade_transition.dart';
@@ -446,45 +451,4 @@ class PlaylistItem extends CollectionSearchCard<Playlist> {
 
   @override
   List<int> getCoverIds() => item.coverIds;
-}
-
-Future<SearchForResponse> searchFor(String query) async {
-  final searchRequest = SearchForRequest(queryStr: query, n: 30);
-  searchRequest.sendSignalToRust(); // GENERATED
-
-  return (await SearchForResponse.rustSignalStream.first).message;
-}
-
-Future<List<MediaFile>> fetchMediaFileByIds(List<int> ids) async {
-  final request = FetchMediaFileByIdsRequest(ids: ids);
-  request.sendSignalToRust(); // GENERATED
-
-  return (await FetchMediaFileByIdsResponse.rustSignalStream.first)
-      .message
-      .result;
-}
-
-Future<List<Album>> fetchAlbumsByIds(List<int> ids) async {
-  final request = FetchAlbumsByIdsRequest(ids: ids);
-  request.sendSignalToRust(); // GENERATED
-
-  return (await FetchAlbumsByIdsResponse.rustSignalStream.first).message.result;
-}
-
-Future<List<Artist>> fetchArtistsByIds(List<int> ids) async {
-  final request = FetchArtistsByIdsRequest(ids: ids);
-  request.sendSignalToRust(); // GENERATED
-
-  return (await FetchArtistsByIdsResponse.rustSignalStream.first)
-      .message
-      .result;
-}
-
-Future<List<Playlist>> fetchPlaylistsByIds(List<int> ids) async {
-  final request = FetchPlaylistsByIdsRequest(ids: ids);
-  request.sendSignalToRust(); // GENERATED
-
-  return (await FetchPlaylistsByIdsResponse.rustSignalStream.first)
-      .message
-      .result;
 }

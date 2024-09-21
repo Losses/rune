@@ -83,24 +83,24 @@ class MixEditorController extends ChangeNotifier {
       title: titleController.value.text,
       group: groupController.value.text,
       artists: artistsController.selectedItems
-          .map((item) => item.value)
-          .where((value) => value != null)
-          .cast<int>()
+          .map((item) => (item.value, item.label))
+          .where((value) => value.$1 != null)
+          .cast<(int, String)>()
           .toList(),
       albums: albumsController.selectedItems
-          .map((item) => item.value)
-          .where((value) => value != null)
-          .cast<int>()
+          .map((item) => (item.value, item.label))
+          .where((value) => value.$1 != null)
+          .cast<(int, String)>()
           .toList(),
       playlists: playlistsController.selectedItems
-          .map((item) => item.value)
-          .where((value) => value != null)
-          .cast<int>()
+          .map((item) => (item.value, item.label))
+          .where((value) => value.$1 != null)
+          .cast<(int, String)>()
           .toList(),
       tracks: tracksController.selectedItems
-          .map((item) => item.value)
-          .where((value) => value != null)
-          .cast<int>()
+          .map((item) => (item.value, item.label))
+          .where((value) => value.$1 != null)
+          .cast<(int, String)>()
           .toList(),
       directories: directoryController.value ?? {},
       limit: limitController.value,
@@ -117,26 +117,26 @@ class MixEditorController extends ChangeNotifier {
 
     artistsController.clearItems();
     for (var artist in data.artists) {
-      artistsController.addItem(
-          AutoSuggestBoxItem<int>(value: artist, label: artist.toString()));
+      artistsController
+          .addItem(AutoSuggestBoxItem<int>(value: artist.$1, label: artist.$2));
     }
 
     albumsController.clearItems();
     for (var album in data.albums) {
-      albumsController.addItem(
-          AutoSuggestBoxItem<int>(value: album, label: album.toString()));
+      albumsController
+          .addItem(AutoSuggestBoxItem<int>(value: album.$1, label: album.$2));
     }
 
     playlistsController.clearItems();
     for (var playlist in data.playlists) {
       playlistsController.addItem(
-          AutoSuggestBoxItem<int>(value: playlist, label: playlist.toString()));
+          AutoSuggestBoxItem<int>(value: playlist.$1, label: playlist.$2));
     }
 
     tracksController.clearItems();
     for (var track in data.tracks) {
-      tracksController.addItem(
-          AutoSuggestBoxItem<int>(value: track, label: track.toString()));
+      tracksController
+          .addItem(AutoSuggestBoxItem<int>(value: track.$1, label: track.$2));
     }
 
     directoryController.value = data.directories;

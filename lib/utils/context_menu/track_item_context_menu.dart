@@ -1,16 +1,20 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
 
 import '../../utils/router_extra.dart';
-import '../dialogs/playlist/create_edit_playlist.dart';
+import '../../utils/api/get_all_playlists.dart';
+import '../../utils/api/if_analysis_exists.dart';
+import '../../utils/api/get_parsed_media_file.dart';
 import '../../screens/settings_library/widgets/progress_button.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';
 import '../../messages/recommend.pbserver.dart';
-import '../../providers/library_manager.dart';
 import '../../providers/library_path.dart';
+import '../../providers/library_manager.dart';
+
+import '../dialogs/playlist/create_edit_playlist.dart';
 
 void openTrackItemContextMenu(
     Offset localPosition,
@@ -246,36 +250,4 @@ Widget buildTrackItemContextMenu(
       ),
     ],
   );
-}
-
-Future<bool> ifAnalysisExists(int fileId) async {
-  final fetchRequest = IfAnalysisExistsRequest(fileId: fileId);
-  fetchRequest.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await IfAnalysisExistsResponse.rustSignalStream.first;
-  final response = rustSignal.message;
-
-  return response.exists;
-}
-
-Future<List<PlaylistWithoutCoverIds>> getAllPlaylists() async {
-  final fetchRequest = FetchAllPlaylistsRequest();
-  fetchRequest.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await FetchAllPlaylistsResponse.rustSignalStream.first;
-  final response = rustSignal.message;
-
-  return response.playlists;
-}
-
-Future<FetchParsedMediaFileResponse> getParsedMediaFile(int fileId) async {
-  final fetchRequest = FetchParsedMediaFileRequest(id: fileId);
-  fetchRequest.sendSignalToRust(); // GENERATED
-
-  final rustSignal = await FetchParsedMediaFileResponse.rustSignalStream.first;
-  final response = rustSignal.message;
-
-  return response;
 }

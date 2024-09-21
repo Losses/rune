@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/utils/query_mix_tracks.dart';
+import 'package:player/utils/api/query_mix_tracks.dart';
 
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';

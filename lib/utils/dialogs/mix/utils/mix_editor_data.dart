@@ -1,10 +1,15 @@
+import 'package:player/utils/api/fetch_albums_by_ids.dart';
+import 'package:player/utils/api/fetch_artists_by_ids.dart';
+import 'package:player/utils/api/fetch_playlists_by_ids.dart';
+import 'package:player/utils/api/fetch_track_by_ids.dart';
+
 class MixEditorData {
   final String title;
   final String group;
-  final List<int> artists;
-  final List<int> albums;
-  final List<int> playlists;
-  final List<int> tracks;
+  final List<(int, String)> artists;
+  final List<(int, String)> albums;
+  final List<(int, String)> playlists;
+  final List<(int, String)> tracks;
   final Set<String> directories;
   final double limit;
   final String mode;
@@ -13,25 +18,27 @@ class MixEditorData {
   final bool likedOnly;
 
   MixEditorData({
-    this.title = '',
-    this.group = '',
+    required this.title,
+    required this.group,
     this.artists = const [],
     this.albums = const [],
     this.playlists = const [],
     this.tracks = const [],
     this.directories = const {},
-    this.limit = 0.0,
-    this.mode = '99',
-    this.recommendation = '',
-    this.sortBy = 'default',
-    this.likedOnly = false,
+    required this.limit,
+    required this.mode,
+    required this.recommendation,
+    required this.sortBy,
+    required this.likedOnly,
   });
 
   MixEditorData copyWith({
-    List<int>? artists,
-    List<int>? albums,
-    List<int>? playlists,
-    List<int>? tracks,
+    String? title,
+    String? group,
+    List<(int, String)>? artists,
+    List<(int, String)>? albums,
+    List<(int, String)>? playlists,
+    List<(int, String)>? tracks,
     Set<String>? directories,
     double? limit,
     String? mode,
@@ -40,6 +47,8 @@ class MixEditorData {
     bool? likedOnly,
   }) {
     return MixEditorData(
+      title: title ?? this.title,
+      group: group ?? this.group,
       artists: artists ?? this.artists,
       albums: albums ?? this.albums,
       playlists: playlists ?? this.playlists,
@@ -56,6 +65,8 @@ class MixEditorData {
   @override
   String toString() {
     return '''MixEditorData(
+    title: $title,
+    group: $group,
     artists: $artists,
     albums: $albums,
     playlists: $playlists,
@@ -71,11 +82,15 @@ class MixEditorData {
   }
 }
 
-MixEditorData queryToMixEditorData(List<(String, String)> query) {
-  List<int> artists = [];
-  List<int> albums = [];
-  List<int> playlists = [];
-  List<int> tracks = [];
+Future<MixEditorData> queryToMixEditorData(
+  String title,
+  String group,
+  List<(String, String)> query,
+) async {
+  List<int> artistsId = [];
+  List<int> albumsId = [];
+  List<int> playlistsId = [];
+  List<int> tracksId = [];
   Set<String> directories = {};
   double limit = 0.0;
   String mode = '99';
@@ -86,16 +101,16 @@ MixEditorData queryToMixEditorData(List<(String, String)> query) {
   for (var item in query) {
     switch (item.$1) {
       case 'lib::artist':
-        artists.add(int.parse(item.$2));
+        artistsId.add(int.parse(item.$2));
         break;
       case 'lib::album':
-        albums.add(int.parse(item.$2));
+        albumsId.add(int.parse(item.$2));
         break;
       case 'lib::playlist':
-        playlists.add(int.parse(item.$2));
+        playlistsId.add(int.parse(item.$2));
         break;
       case 'lib::track':
-        tracks.add(int.parse(item.$2));
+        tracksId.add(int.parse(item.$2));
         break;
       case 'lib::directory.deep':
         directories.add(item.$2);
@@ -118,7 +133,19 @@ MixEditorData queryToMixEditorData(List<(String, String)> query) {
     }
   }
 
+  final List<(int, String)> artists =
+      (await fetchArtistsByIds(artistsId)).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> albums =
+      (await fetchAlbumsByIds(albumsId)).map((x) => (x.id, x.name)).toList();
+  List<(int, String)> playlists = (await fetchPlaylistsByIds(playlistsId))
+      .map((x) => (x.id, x.name))
+      .toList();
+  List<(int, String)> tracks =
+      (await fetchTrackByIds(tracksId)).map((x) => (x.id, x.title)).toList();
+
   return MixEditorData(
+    title: title,
+    group: group,
     artists: artists,
     albums: albums,
     playlists: playlists,
@@ -136,19 +163,19 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
   List<(String, String)> query = [];
 
   for (var artist in data.artists) {
-    query.add(('lib::artist', artist.toString()));
+    query.add(('lib::artist', artist.$1.toString()));
   }
 
   for (var album in data.albums) {
-    query.add(('lib::album', album.toString()));
+    query.add(('lib::album', album.$1.toString()));
   }
 
   for (var playlist in data.playlists) {
-    query.add(('lib::playlist', playlist.toString()));
+    query.add(('lib::playlist', playlist.$1.toString()));
   }
 
   for (var track in data.tracks) {
-    query.add(('lib::track', track.toString()));
+    query.add(('lib::track', track.$1.toString()));
   }
 
   for (var directory in data.directories) {
@@ -160,7 +187,7 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
   }
 
   if (data.limit > 0) {
-    query.add(('pipe::limit', data.limit.toString()));
+    query.add(('pipe::limit', data.limit.round().toString()));
   }
 
   if (data.recommendation != '') {

@@ -1,7 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/screens/query_tracks/query_tracks.dart';
 
-import '../../utils/dialogs/mix/utils.dart';
+import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
+import '../../screens/query_tracks/query_tracks.dart';
+
 
 class MixTrackesPage extends StatefulWidget {
   final int mixId;
@@ -19,7 +20,7 @@ class _MixTrackesPageState extends State<MixTrackesPage> {
   void initState() {
     super.initState();
 
-    queries = fetchMixQueriesByQueryId(widget.mixId);
+    queries = fetchMixQueriesByMixId(widget.mixId);
   }
 
   @override

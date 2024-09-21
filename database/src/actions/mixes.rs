@@ -171,12 +171,10 @@ pub async fn replace_mix_queries(
     mix_id: i32,
     operator_parameters: Vec<(String, String)>,
     group: Option<i32>,
-) -> Result<Vec<mix_queries::Model>> {
-    use mix_queries::ActiveModel;
+) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
     let txn = db.begin().await?;
-    let mut results = Vec::new();
     let mut existing_ids = Vec::new();
 
     for (operator, parameter) in &operator_parameters {
@@ -185,35 +183,37 @@ pub async fn replace_mix_queries(
             .filter(mix_queries::Column::Operator.eq(operator))
             .filter(mix_queries::Column::Parameter.eq(parameter))
             .one(&txn)
-            .await?;
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to query existed query with `{}({})`",
+                    operator, parameter
+                )
+            })?;
 
-        let mut active_model = if let Some(existing_mix_query) = mix_query {
+        if let Some(existing_mix_query) = mix_query {
             existing_ids.push(existing_mix_query.id);
-            existing_mix_query.into()
         } else {
-            ActiveModel {
+            let mix_query = mix_queries::ActiveModel {
                 mix_id: ActiveValue::Set(mix_id),
                 operator: ActiveValue::Set(operator.clone()),
                 parameter: ActiveValue::Set(parameter.clone()),
                 group: ActiveValue::Set(group.unwrap_or_default()),
                 created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
                 ..Default::default()
-            }
+            };
+
+            mix_queries::Entity::insert(mix_query)
+                .exec(&txn)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to insert new query with `{}({})`",
+                        operator, parameter
+                    )
+                })?;
         };
-
-        if let Some(group) = group {
-            active_model.group = ActiveValue::Set(group);
-        }
-
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-
-        let result = if active_model.id.is_set() {
-            active_model.update(&txn).await?
-        } else {
-            active_model.insert(&txn).await?
-        };
-
-        results.push(result);
     }
 
     let mut operator_parameter_conditions = Condition::any();
@@ -236,7 +236,7 @@ pub async fn replace_mix_queries(
 
     txn.commit().await?;
 
-    Ok(results)
+    Ok(())
 }
 pub async fn get_mix_queries_by_mix_id(
     db: &DatabaseConnection,

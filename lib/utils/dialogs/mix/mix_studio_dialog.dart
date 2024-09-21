@@ -1,25 +1,29 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/mix.pbserver.dart';
-import 'package:player/utils/dialogs/mix/utils.dart';
+import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
+import 'package:player/utils/api/get_mix_by_id.dart';
 import 'package:provider/provider.dart';
 
-import '../../../utils/query_mix_tracks.dart';
-import '../../../utils/chip_input/search_task.dart';
-import '../../../utils/dialogs/mix/widgets/mix_editor.dart';
-import '../../../utils/dialogs/mix/utils/mix_editor_data.dart';
-import '../../../utils/dialogs/mix/widgets/mix_editor_controller.dart';
 import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/search.dart';
 
+import '../../../messages/mix.pbserver.dart';
 import '../../../messages/media_file.pb.dart';
+
+import '../../api/create_mix.dart';
+import '../../api/update_mix.dart';
+import '../../api/query_mix_tracks.dart';
+import '../../chip_input/search_task.dart';
+import '../../dialogs/mix/widgets/mix_editor.dart';
+import '../../dialogs/mix/utils/mix_editor_data.dart';
+import '../../dialogs/mix/widgets/mix_editor_controller.dart';
 
 class MixStudioDialog extends StatefulWidget {
   final int? mixId;
 
-  const MixStudioDialog({super.key, this.mixId});
+  const MixStudioDialog({super.key, required this.mixId});
 
   @override
   State<MixStudioDialog> createState() => _MixStudioDialogState();
@@ -39,6 +43,11 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
   @override
   void initState() {
     super.initState();
+
+    if (widget.mixId != null) {
+      loadMix(widget.mixId!);
+    }
+
     _controller.addListener(() {
       _layoutManager.resetAnimations();
       _searchManager.search(mixEditorDataToQuery(_controller.getData()));
@@ -51,6 +60,16 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
       });
       _layoutManager.playAnimations();
     });
+  }
+
+  Future<void> loadMix(int mixId) async {
+    final mix = await getMixById(mixId);
+    final queries = await fetchMixQueriesByMixId(mixId);
+
+    final queryData = await queryToMixEditorData(mix.name, mix.group, queries);
+
+    _controller.setData(queryData);
+    setState(() {});
   }
 
   @override
@@ -158,7 +177,8 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                       _controller.groupController.text,
                       false,
                       int.parse(
-                          _controller.modeController.selectedValue ?? '99'),
+                        _controller.modeController.selectedValue ?? '99',
+                      ),
                       mixEditorDataToQuery(_controller.getData()),
                     );
                   } else {
@@ -167,7 +187,8 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                       _controller.groupController.text,
                       false,
                       int.parse(
-                          _controller.modeController.selectedValue ?? '99'),
+                        _controller.modeController.selectedValue ?? '99',
+                      ),
                       mixEditorDataToQuery(_controller.getData()),
                     );
                   }

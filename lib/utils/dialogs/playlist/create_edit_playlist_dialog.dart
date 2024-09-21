@@ -1,5 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/playlist.pb.dart';
+
+import '../../../utils/api/update_playlist.dart';
+import '../../../utils/api/create_playlist.dart';
+import '../../../utils/api/get_playlist_by_id.dart';
+import '../../../utils/api/get_playlist_group_list.dart';
+import '../../../messages/playlist.pb.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
@@ -29,7 +34,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   }
 
   Future<void> fetchGroupList() async {
-    final groups = await getGroupList();
+    final groups = await getPlaylistGroupList();
     setState(() {
       groupList = ['Favorite', ...groups];
     });
@@ -129,61 +134,4 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
       ],
     );
   }
-}
-
-Future<List<String>> getGroupList() async {
-  final fetchGroupsRequest = FetchPlaylistsGroupSummaryRequest();
-  fetchGroupsRequest.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await PlaylistGroupSummaryResponse.rustSignalStream.first;
-  final groups = rustSignal.message.playlistsGroups
-      .map((group) => group.groupTitle)
-      .toList();
-
-  return groups;
-}
-
-Future<PlaylistWithoutCoverIds> getPlaylistById(int playlistId) async {
-  final fetchMediaFiles = GetPlaylistByIdRequest(playlistId: playlistId);
-  fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await GetPlaylistByIdResponse.rustSignalStream.first;
-  final playlist = rustSignal.message.playlist;
-
-  return playlist;
-}
-
-Future<PlaylistWithoutCoverIds> createPlaylist(
-  String name,
-  String group,
-) async {
-  final createRequest = CreatePlaylistRequest(name: name, group: group);
-  createRequest.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await CreatePlaylistResponse.rustSignalStream.first;
-  final response = rustSignal.message;
-
-  return response.playlist;
-}
-
-Future<PlaylistWithoutCoverIds> updatePlaylist(
-  int playlistId,
-  String name,
-  String group,
-) async {
-  final updateRequest = UpdatePlaylistRequest(
-    playlistId: playlistId,
-    name: name,
-    group: group,
-  );
-  updateRequest.sendSignalToRust(); // GENERATED
-
-  // Listen for the response from Rust
-  final rustSignal = await UpdatePlaylistResponse.rustSignalStream.first;
-  final response = rustSignal.message;
-
-  return response.playlist;
 }

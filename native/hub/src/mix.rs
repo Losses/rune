@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, error, info};
 use rinf::DartSignal;
 
@@ -182,10 +182,11 @@ pub async fn create_mix_request(
                     .collect(),
                 None,
             )
-            .await;
+            .await
+            .with_context(|| "Failed to update replace mix queries while creating");
 
             if let Err(e) = replace_result {
-                error!("Failed to update replace mix queries: {}", e);
+                error!("{:?}", e);
             }
         }
         Err(e) => {
@@ -231,9 +232,10 @@ pub async fn update_mix_request(
                     None,
                 )
                 .await
+                .with_context(|| "Failed to update replace mix queries while updating")
                 {
                     Ok(_) => {
-                        info!("Mix queries created");
+                        info!("Mix queries updated");
                         UpdateMixResponse {
                             mix: Some(MixWithoutCoverIds {
                                 id: mix.id,
@@ -243,7 +245,7 @@ pub async fn update_mix_request(
                         }
                         .send_signal_to_dart();
                     }
-                    Err(e) => error!("Failed to update replace mix queries: {}", e),
+                    Err(e) => error!("{:?}", e),
                 };
             }
         }
@@ -258,7 +260,7 @@ pub async fn add_item_to_mix_request(
     let request = dart_signal.message;
 
     debug!(
-        "Adding item to mix: mix_id={}, operator={}, parameter={:#?}",
+        "Adding item to mix: mix_id={}, operator={}, parameter={}",
         request.mix_id, request.operator, request.parameter
     );
 
@@ -269,12 +271,13 @@ pub async fn add_item_to_mix_request(
         request.parameter,
     )
     .await
+    .with_context(|| "Failed to add item to mix")
     {
         Ok(_) => {
             AddItemToMixResponse { success: true }.send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to add item to mix: {}", e);
+            error!("{:?}", e);
             AddItemToMixResponse { success: false }.send_signal_to_dart();
         }
     };
@@ -286,12 +289,15 @@ pub async fn get_unique_mix_groups_request(
 ) {
     debug!("Requesting unique mix groups");
 
-    match get_unique_mix_groups(&main_db).await {
+    match get_unique_mix_groups(&main_db)
+        .await
+        .with_context(|| "Failed to get unique mix groups")
+    {
         Ok(groups) => {
             GetUniqueMixGroupsResponse { groups }.send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to get unique mix groups: {}", e);
+            error!("{:?}", e);
         }
     }
 }
@@ -304,7 +310,10 @@ pub async fn get_mix_by_id_request(
 
     debug!("Requesting mix by id: {}", request.mix_id);
 
-    match get_mix_by_id(&main_db, request.mix_id).await {
+    match get_mix_by_id(&main_db, request.mix_id)
+        .await
+        .with_context(|| "Failed to get mix by id")
+    {
         Ok(mix) => {
             GetMixByIdResponse {
                 mix: Some(MixWithoutCoverIds {
@@ -316,7 +325,7 @@ pub async fn get_mix_by_id_request(
             .send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to get mix by id: {}", e);
+            error!("{:?}", e);
         }
     }
 }
@@ -347,14 +356,17 @@ pub async fn mix_query_request(
         Ok(media_entries) => {
             let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
 
-            match media_summaries.await {
+            match media_summaries
+                .await
+                .with_context(|| "Unable to getting media summaries")
+            {
                 Ok(media_summaries) => {
                     let result = parse_media_files(media_summaries, lib_path).await?;
                     MixQueryResponse { result }.send_signal_to_dart();
                     // GENERATED
                 }
                 Err(e) => {
-                    error!("Error happened while getting media summaries: {:#?}", e)
+                    error!("{:?}", e)
                 }
             }
         }
@@ -370,7 +382,10 @@ pub async fn fetch_mix_queries_request(
 ) {
     let request = dart_signal.message;
 
-    match get_mix_queries_by_mix_id(&main_db, request.mix_id).await {
+    match get_mix_queries_by_mix_id(&main_db, request.mix_id)
+        .await
+        .with_context(|| "Unable to get mix queries files")
+    {
         Ok(queries) => {
             FetchMixQueriesResponse {
                 result: queries
@@ -380,8 +395,9 @@ pub async fn fetch_mix_queries_request(
                         parameter: x.parameter,
                     })
                     .collect(),
-            }.send_signal_to_dart();
+            }
+            .send_signal_to_dart();
         }
-        Err(e) => error!("Unable to get mix queries files: {}", e),
+        Err(e) => error!("{:?}", e),
     }
 }

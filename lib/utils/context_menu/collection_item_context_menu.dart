@@ -5,7 +5,6 @@ import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 
-import '../../messages/mix.pb.dart';
 import '../../messages/playback.pb.dart';
 
 final Map<String, String> typeToOperator = {
