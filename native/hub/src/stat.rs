@@ -31,6 +31,7 @@ pub async fn set_liked_request(
         Ok(_) => {
             SetLikedResponse {
                 file_id: request.file_id,
+                liked: request.liked,
                 success: true,
             }
             .send_signal_to_dart();
@@ -38,6 +39,7 @@ pub async fn set_liked_request(
         Err(e) => {
             SetLikedResponse {
                 file_id: request.file_id,
+                liked: request.liked,
                 success: false,
             }
             .send_signal_to_dart();
