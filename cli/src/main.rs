@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use database::actions::cover_art::scan_cover_arts;
 use database::actions::search::search_for;
 use dunce::canonicalize;
 use log::{error, info};
@@ -162,6 +163,14 @@ async fn main() {
                 &path,
                 true,
                 empty_progress_callback,
+                None,
+            )
+            .await;
+            let _ = scan_cover_arts(
+                &main_db,
+                &path,
+                10,
+                |_now, _total| {},
                 None,
             )
             .await;

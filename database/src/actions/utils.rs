@@ -248,19 +248,127 @@ macro_rules! get_by_id {
 #[macro_export]
 macro_rules! get_first_n {
     ($fn_name:ident, $item_entity:ident) => {
-        
         pub async fn $fn_name(
             db: &DatabaseConnection,
             n: u64,
         ) -> Result<Vec<$item_entity::Model>, sea_orm::DbErr> {
             use sea_orm::QuerySelect;
 
-            let item = $item_entity::Entity::find()
-                .limit(n)
-                .all(db)
-                .await?;
+            let item = $item_entity::Entity::find().limit(n).all(db).await?;
 
             Ok(item)
         }
     };
+}
+
+#[macro_export]
+macro_rules! parallel_media_files_processing {
+    (
+        $main_db:expr,
+        $batch_size:expr,
+        $progress_callback:expr,
+        $cancel_token:expr,
+        $cursor_query:expr,
+        $lib_path:expr,
+        $process_fn:expr,
+        $result_handler:expr
+    ) => {{
+        use async_channel;
+        use tokio::sync::Semaphore;
+        use tokio::task;
+        use log::{debug, error, info};
+
+        let cursor_query_clone = $cursor_query.clone();
+        let (tx, rx) = async_channel::bounded($batch_size);
+        let total_tasks = cursor_query_clone.count($main_db).await? as usize;
+        let mut total_processed = 0;
+
+        let producer_cancel_token = $cancel_token.clone();
+        let producer = {
+            let cursor_query_clone = $cursor_query.clone();
+            async move {
+                let mut cursor = cursor_query_clone.cursor_by(media_files::Column::Id);
+                loop {
+                    if let Some(ref token) = producer_cancel_token {
+                        if token.is_cancelled() {
+                            info!("Cancellation requested. Exiting producer loop.");
+                            break;
+                        }
+                    }
+
+                    let files: Vec<media_files::Model> = cursor
+                        .first($batch_size.try_into().unwrap())
+                        .all($main_db)
+                        .await?;
+
+                    if files.is_empty() {
+                        info!("No more files to process. Exiting loop.");
+                        break;
+                    }
+
+                    for file in &files {
+                        tx.send(file.clone()).await.unwrap();
+                    }
+
+                    if let Some(last_file) = files.last() {
+                        info!("Moving cursor after file ID: {}", last_file.id);
+                        cursor.after(last_file.id);
+                    } else {
+                        break;
+                    }
+                }
+
+                drop(tx);
+                Ok::<(), sea_orm::DbErr>(())
+            }
+        };
+
+        let consumer_cancel_token = $cancel_token.clone();
+        let semaphore = Arc::new(Semaphore::new($batch_size));
+        let consumer = {
+            async move {
+                while let Ok(file) = rx.recv().await {
+                    if let Some(ref token) = consumer_cancel_token {
+                        if token.is_cancelled() {
+                            info!("Cancellation requested. Exiting consumer loop.");
+                            break;
+                        }
+                    }
+
+                    let main_db = $main_db.clone();
+                    let semaphore = semaphore.clone();
+                    let permit = semaphore.acquire_owned().await.unwrap();
+                    let lib_path = Arc::clone(&$lib_path);
+
+                    let file_clone = file.clone();
+
+                    task::spawn(async move {
+                        let analysis_result =
+                            task::spawn_blocking(move || $process_fn(&file_clone, &lib_path)).await;
+
+                        match analysis_result {
+                            Ok(analysis_result) => {
+                                $result_handler(&main_db, file, analysis_result).await;
+                            }
+                            Err(e) => error!("Failed to spawn analysis task: {}", e),
+                        }
+
+                        drop(permit);
+                    });
+
+                    total_processed += 1;
+                    $progress_callback(total_processed, total_tasks);
+                }
+
+                Ok::<(), sea_orm::DbErr>(())
+            }
+        };
+
+        let (producer_result, consumer_result) = futures::join!(producer, consumer);
+
+        producer_result?;
+        consumer_result?;
+
+        Ok(total_tasks)
+    }};
 }

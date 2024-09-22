@@ -171,7 +171,7 @@ async fn player_loop(path: String) {
             AddToQueueCollectionRequest => (main_db, lib_path, player),
             StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
 
-            GetCoverArtByFileIdRequest => (main_db, lib_path),
+            GetCoverArtByFileIdRequest => (main_db),
             GetCoverArtByCoverArtIdRequest => (main_db),
             GetRandomCoverArtIdsRequest => (main_db),
 

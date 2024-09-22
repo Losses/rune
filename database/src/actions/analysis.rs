@@ -3,19 +3,18 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
-use log::{debug, error, info};
+use log::info;
 use paste::paste;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, QueryOrder, QuerySelect};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use seq_macro::seq;
-use tokio::sync::Semaphore;
-use tokio::task;
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
 
 use crate::entities::{media_analysis, media_files};
+use crate::parallel_media_files_processing;
 
 pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 
@@ -41,7 +40,7 @@ pub async fn analysis_audio_library<F>(
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize>
 where
-    F: Fn(usize, usize) + Send + Sync,
+    F: Fn(usize, usize) + Send + Sync + 'static,
 {
     info!(
         "Starting audio library analysis with batch size: {}",
@@ -56,112 +55,31 @@ where
         .all(main_db)
         .await?;
 
-    info!("Already analysed files: {}", existed_ids.len());
+    let cursor_query =
+        media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
 
-    let mut cursor = media_files::Entity::find()
-        .filter(media_files::Column::Id.is_not_in(existed_ids))
-        .cursor_by(media_files::Column::Id);
+    let lib_path = Arc::new(lib_path.to_path_buf());
 
-    let total_tasks = media_files::Entity::find().count(main_db).await? as usize;
-
-    let (tx, rx) = async_channel::bounded(batch_size);
-    let mut total_processed = 0;
-
-    let producer_cancel_token = cancel_token.clone();
-    let producer = {
-        async move {
-            loop {
-                if let Some(ref token) = producer_cancel_token {
-                    if token.is_cancelled() {
-                        info!("Cancellation requested. Exiting producer loop.");
-                        break;
+    parallel_media_files_processing!(
+        main_db,
+        batch_size,
+        progress_callback,
+        cancel_token,
+        cursor_query,
+        lib_path,
+        move |file, lib_path| { analysis_file(file, lib_path) },
+        |db, file: media_files::Model, analysis_result| async move {
+            match analysis_result {
+                Ok(analysis_result) => {
+                    match insert_analysis_result(db, file.id, analysis_result).await {
+                        Ok(_) => debug!("Finished analysis: {}", file.id),
+                        Err(e) => error!("Failed to insert analysis result: {}", e),
                     }
                 }
-
-                let files: Vec<media_files::Model> = cursor
-                    .first(batch_size.try_into().unwrap())
-                    .all(main_db)
-                    .await?;
-
-                if files.is_empty() {
-                    info!("No more files to process. Exiting loop.");
-                    break;
-                }
-
-                for file in &files {
-                    tx.send(file.clone()).await.unwrap();
-                }
-
-                if let Some(last_file) = files.last() {
-                    info!("Moving cursor after file ID: {}", last_file.id);
-                    cursor.after(last_file.id);
-                } else {
-                    break;
-                }
+                Err(e) => error!("Failed to analyse track: {}", e),
             }
-
-            drop(tx);
-            Ok::<(), sea_orm::DbErr>(())
         }
-    };
-
-    let consumer_cancel_token = cancel_token.clone();
-    let semaphore = Arc::new(Semaphore::new(batch_size)); // Limit the concurrent task count
-    let consumer = {
-        async move {
-            while let Ok(file) = rx.recv().await {
-                if let Some(ref token) = consumer_cancel_token {
-                    if token.is_cancelled() {
-                        info!("Cancellation requested. Exiting consumer loop.");
-                        break;
-                    }
-                }
-
-                let lib_path = lib_path.to_path_buf();
-                let file_id = file.id;
-                let main_db = main_db.clone(); // Clone the database connection for the task.
-                let semaphore = semaphore.clone(); // Clone the semaphore for the task.
-
-                let permit = semaphore.acquire_owned().await.unwrap(); // Acquire the permit
-
-                task::spawn(async move {
-                    info!("Processing file with ID: {}", file_id);
-                    let analysis_result =
-                        task::spawn_blocking(move || analysis_file(&file, &lib_path)).await;
-
-                    match analysis_result {
-                        Ok(analysis_result) => match analysis_result {
-                            Ok(analysis_result) => {
-                                match insert_analysis_result(&main_db, file_id, analysis_result)
-                                    .await
-                                {
-                                    Ok(_) => debug!("Finished analysis: {}", file_id),
-                                    Err(e) => error!("Failed to insert analysis result: {}", e),
-                                }
-                            }
-                            Err(e) => error!("Failed to analyse track: {}", e),
-                        },
-                        Err(e) => error!("Failed to spawn analysis task: {}", e),
-                    }
-
-                    drop(permit); // Release the permit
-                });
-
-                total_processed += 1;
-                progress_callback(total_processed, total_tasks);
-            }
-
-            Ok::<(), sea_orm::DbErr>(())
-        }
-    };
-
-    let (producer_result, consumer_result) = futures::join!(producer, consumer);
-
-    producer_result?;
-    consumer_result?;
-
-    info!("Audio library analysis completed.");
-    Ok(total_tasks)
+    )
 }
 
 /// Process a file if it has not been analyzed yet. Perform audio analysis and store the results

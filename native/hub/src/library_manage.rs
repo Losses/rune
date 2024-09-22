@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use database::actions::cover_art::scan_cover_arts;
 use log::{debug, info};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -70,6 +71,17 @@ pub async fn scan_audio_library_request(
     )
     .await
     .unwrap();
+
+    let batch_size = determine_batch_size();
+
+    let _ = scan_cover_arts(
+        &main_db,
+        Path::new(&request.path),
+        batch_size,
+        |now, total| info!("Scanning cover art: {}/{}", now, total),
+        None,
+    )
+    .await;
 
     ScanAudioLibraryResponse {
         path: request.path.clone(),
