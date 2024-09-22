@@ -75,12 +75,14 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
             label: 'Group',
             child: AutoSuggestBox<String>(
               controller: groupController,
-              items: groupList.map<AutoSuggestBoxItem<String>>((e) {
-                return AutoSuggestBoxItem<String>(
-                  value: e,
-                  label: e,
-                );
-              }).toList(),
+              items: groupList.map<AutoSuggestBoxItem<String>>(
+                (e) {
+                  return AutoSuggestBoxItem<String>(
+                    value: e,
+                    label: e,
+                  );
+                },
+              ).toList(),
               placeholder: "Select a group",
             ),
           ),

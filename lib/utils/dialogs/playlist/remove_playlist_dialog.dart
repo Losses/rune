@@ -2,13 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../api/remove_playlist.dart';
 
-void showRemovePlaylistDialog(BuildContext context, int playlistId) async {
+Future<bool?> showRemovePlaylistDialog(BuildContext context, int playlistId) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (context) => RemovePlaylistDialog(playlistId: playlistId),
   );
 
-  if (result ?? false) {}
+  return result;
 }
 
 class RemovePlaylistDialog extends StatefulWidget {

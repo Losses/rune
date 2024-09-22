@@ -19,12 +19,26 @@ final Map<String, String> typeToOperator = {
   "track": "lib::track",
 };
 
-final Map<String, void Function(BuildContext context, int id)> typeToEdit = {
-  "playlist": (context, id) async {
-    showCreateEditPlaylistDialog(context, playlistId: id);
+final Map<
+    String,
+    void Function(
+      BuildContext context,
+      void Function()? refreshList,
+      int id,
+    )> typeToEdit = {
+  "playlist": (context, refreshList, id) async {
+    final result = await showCreateEditPlaylistDialog(context, playlistId: id);
+
+    if (result != null && refreshList != null) {
+      refreshList();
+    }
   },
-  "mix": (context, id) {
-    showMixStudioDialog(context, mixId: id);
+  "mix": (context, refreshList, id) async {
+    final result = await showMixStudioDialog(context, mixId: id);
+
+    if (result != null && refreshList != null) {
+      refreshList();
+    }
   },
 };
 
@@ -33,12 +47,26 @@ final Map<String, String> typeToEditLabel = {
   "mix": "Edit Mix",
 };
 
-final Map<String, void Function(BuildContext context, int id)> typeToRemove = {
-  "playlist": (context, id) {
-    showRemovePlaylistDialog(context, id);
+final Map<
+    String,
+    void Function(
+      BuildContext context,
+      void Function()? refreshList,
+      int id,
+    )> typeToRemove = {
+  "playlist": (context, refreshList, id) async {
+    final result = await showRemovePlaylistDialog(context, id);
+
+    if (result == true && refreshList != null) {
+      refreshList();
+    }
   },
-  "mix": (context, id) {
-    showRemoveMixDialog(context, id);
+  "mix": (context, refreshList, id) async {
+    final result = await showRemoveMixDialog(context, id);
+
+    if (result == true && refreshList != null) {
+      refreshList();
+    }
   },
 };
 
@@ -53,8 +81,9 @@ void openCollectionItemContextMenu(
   GlobalKey contextAttachKey,
   FlyoutController contextController,
   String type,
-  int id,
-) async {
+  int id, [
+  void Function()? refreshList,
+]) async {
   final targetContext = contextAttachKey.currentContext;
 
   if (targetContext == null) return;
@@ -68,8 +97,13 @@ void openCollectionItemContextMenu(
 
   contextController.showFlyout(
     position: position,
-    builder: (context) =>
-        buildCollectionItemContextMenu(context, type, id, mixes),
+    builder: (context) => buildCollectionItemContextMenu(
+      context,
+      type,
+      id,
+      mixes,
+      refreshList,
+    ),
   );
 }
 
@@ -77,8 +111,9 @@ Widget buildCollectionItemContextMenu(
   BuildContext context,
   String type,
   int id,
-  List<MixWithoutCoverIds> mixes,
-) {
+  List<MixWithoutCoverIds> mixes, [
+  void Function()? refreshList,
+]) {
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
   final remove = typeToRemove[type];
@@ -129,7 +164,7 @@ Widget buildCollectionItemContextMenu(
         leading: const Icon(Symbols.edit),
         text: Text(typeToEditLabel[type] ?? 'Edit'),
         onPressed: () {
-          edit(context, id);
+          edit(context, refreshList, id);
         },
       ),
     );
@@ -140,7 +175,7 @@ Widget buildCollectionItemContextMenu(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
         text: Text(typeToRemoveLabel[type] ?? 'Remove'),
-        onPressed: () => {remove(context, id)},
+        onPressed: () => {remove(context, refreshList, id)},
       ),
     );
   }

@@ -56,16 +56,21 @@ class PlaylistsListViewState
 
   @override
   Widget itemBuilder(BuildContext context, Playlist item) {
-    return PlaylistItem(playlist: item);
+    return PlaylistItem(
+      playlist: item,
+      refresh: pagingController.refresh,
+    );
   }
 }
 
 class PlaylistItem extends StatelessWidget {
   final Playlist playlist;
+  final void Function() refresh;
 
   PlaylistItem({
     super.key,
     required this.playlist,
+    required this.refresh,
   });
 
   final contextController = FlyoutController();
@@ -77,8 +82,15 @@ class PlaylistItem extends StatelessWidget {
       contextAttachKey: contextAttachKey,
       contextController: contextController,
       onContextMenu: (position) {
-        openCollectionItemContextMenu(position, context, contextAttachKey,
-            contextController, 'playlist', playlist.id);
+        openCollectionItemContextMenu(
+          position,
+          context,
+          contextAttachKey,
+          contextController,
+          'playlist',
+          playlist.id,
+          refresh,
+        );
       },
       child: FlipTile(
         name: playlist.name,

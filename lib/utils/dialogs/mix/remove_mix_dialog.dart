@@ -2,13 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../api/remove_mix.dart';
 
-void showRemoveMixDialog(BuildContext context, int mixId) async {
+Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (context) => RemoveMixDialog(mixId: mixId),
   );
 
-  if (result ?? false) {}
+  return result;
 }
 
 class RemoveMixDialog extends StatefulWidget {

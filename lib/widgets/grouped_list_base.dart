@@ -13,7 +13,7 @@ abstract class GroupedListBase<T, S> extends StatefulWidget {
 abstract class GroupedListBaseState<T, S> extends State<GroupedListBase<T, S>> {
   static const _pageSize = 3;
 
-  final PagingController<int, Group<T>> _pagingController =
+  final PagingController<int, Group<T>> pagingController =
       PagingController(firstPageKey: 0);
 
   late Future<List<Group<S>>> summary;
@@ -66,12 +66,13 @@ abstract class GroupedListBaseState<T, S> extends State<GroupedListBase<T, S>> {
       fetchSummary: fetchSummary,
       fetchPage: fetchPage,
       itemBuilder: itemBuilder,
+      pagingController: pagingController,
     );
   }
 
   @override
   void dispose() {
-    _pagingController.dispose();
+    pagingController.dispose();
     super.dispose();
   }
 }

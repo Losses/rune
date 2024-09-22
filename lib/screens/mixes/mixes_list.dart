@@ -1,14 +1,16 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/messages/mix.pbserver.dart';
 
-import '../../../utils/router_extra.dart';
-import '../../../utils/context_menu/collection_item_context_menu.dart';
-import '../../../widgets/context_menu_wrapper.dart';
-import '../../../widgets/flip_tile.dart';
-import '../../../widgets/grouped_list_base.dart';
-import '../../../widgets/start_screen/start_screen.dart';
+import '../../utils/router_extra.dart';
+import '../../utils/context_menu/collection_item_context_menu.dart';
+import '../../widgets/flip_tile.dart';
+import '../../widgets/grouped_list_base.dart';
+import '../../widgets/context_menu_wrapper.dart';
+import '../../widgets/start_screen/start_screen.dart';
+import '../../messages/mix.pbserver.dart';
 
 class MixesListView extends GroupedListBase<Mix, MixesGroupSummary> {
   const MixesListView({super.key});
@@ -53,16 +55,21 @@ class MixesListViewState extends GroupedListBaseState<Mix, MixesGroupSummary> {
 
   @override
   Widget itemBuilder(BuildContext context, Mix item) {
-    return MixItem(mix: item);
+    return MixItem(
+      mix: item,
+      refresh: pagingController.refresh,
+    );
   }
 }
 
 class MixItem extends StatelessWidget {
   final Mix mix;
+  final void Function() refresh;
 
   MixItem({
     super.key,
     required this.mix,
+    required this.refresh,
   });
 
   final contextController = FlyoutController();
@@ -81,6 +88,7 @@ class MixItem extends StatelessWidget {
           contextController,
           'mix',
           mix.id,
+          refresh,
         );
       },
       child: FlipTile(
