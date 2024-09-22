@@ -1,9 +1,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Context;
 use anyhow::Result;
+use database::actions::stats::increase_skipped;
 use dunce::canonicalize;
 use log::debug;
+use log::error;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -226,11 +229,41 @@ pub async fn pause_request(player: Arc<Mutex<Player>>, _: DartSignal<PauseReques
     player.lock().await.pause()
 }
 
-pub async fn next_request(player: Arc<Mutex<Player>>, _: DartSignal<NextRequest>) {
+pub async fn next_request(
+    main_db: Arc<MainDbConnection>,
+    player: Arc<Mutex<Player>>,
+    _: DartSignal<NextRequest>,
+) {
+    let file_id = player.lock().await.get_status().id;
+
+    if let Some(file_id) = file_id {
+        match increase_skipped(&main_db, file_id)
+            .await
+            .context("Unable to increase skipped count")
+        {
+            Ok(_) => {}
+            Err(e) => error!("{:?}", e),
+        }
+    }
     player.lock().await.next()
 }
 
-pub async fn previous_request(player: Arc<Mutex<Player>>, _: DartSignal<PreviousRequest>) {
+pub async fn previous_request(
+    main_db: Arc<MainDbConnection>,
+    player: Arc<Mutex<Player>>,
+    _: DartSignal<PreviousRequest>,
+) {
+    let file_id = player.lock().await.get_status().id;
+
+    if let Some(file_id) = file_id {
+        match increase_skipped(&main_db, file_id)
+            .await
+            .context("Unable to increase skipped count")
+        {
+            Ok(_) => {}
+            Err(e) => error!("{:?}", e),
+        }
+    }
     player.lock().await.previous()
 }
 
@@ -246,7 +279,22 @@ pub async fn set_playback_mode_request(
         .set_playback_mode(mode.try_into().unwrap())
 }
 
-pub async fn switch_request(player: Arc<Mutex<Player>>, dart_signal: DartSignal<SwitchRequest>) {
+pub async fn switch_request(
+    main_db: Arc<MainDbConnection>,
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<SwitchRequest>,
+) {
+    let file_id = player.lock().await.get_status().id;
+
+    if let Some(file_id) = file_id {
+        match increase_skipped(&main_db, file_id)
+            .await
+            .context("Unable to increase skipped count")
+        {
+            Ok(_) => {}
+            Err(e) => error!("{:?}", e),
+        }
+    }
     player
         .lock()
         .await

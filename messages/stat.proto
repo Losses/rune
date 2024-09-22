@@ -24,25 +24,3 @@ message GetLikedResponse {
   int32 file_id = 1;
   bool liked = 2;
 }
-
-// [RINF:DART-SIGNAL]
-message IncreaseSkippedRequest {
-  int32 file_id = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message IncreaseSkippedResponse {
-  int32 file_id = 1;
-  bool success = 2;
-}
-
-// [RINF:DART-SIGNAL]
-message IncreasePlayedThroughRequest {
-  int32 file_id = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message IncreasePlayedThroughResponse {
-  int32 file_id = 1;
-  bool success = 2;
-}

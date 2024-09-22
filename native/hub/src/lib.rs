@@ -150,9 +150,9 @@ async fn player_loop(path: String) {
             PlayFileRequest => (main_db, lib_path, player),
             PlayRequest => (player),
             PauseRequest => (player),
-            NextRequest => (player),
-            PreviousRequest => (player),
-            SwitchRequest => (player),
+            NextRequest => (main_db, player),
+            PreviousRequest => (main_db, player),
+            SwitchRequest => (main_db, player),
             SeekRequest => (player),
             RemoveRequest => (player),
             SetPlaybackModeRequest => (player),
@@ -211,8 +211,6 @@ async fn player_loop(path: String) {
 
             SetLikedRequest => (main_db),
             GetLikedRequest => (main_db),
-            IncreaseSkippedRequest => (main_db),
-            IncreasePlayedThroughRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -10,6 +10,7 @@ use tokio::task;
 use database::actions::metadata::get_metadata_summary_by_file_id;
 use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::metadata::MetadataSummary;
+use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
 use playback::player::Player;
 use playback::player::PlaylistStatus;
@@ -21,36 +22,38 @@ pub async fn initialize_player(
     player: Arc<Mutex<Player>>,
 ) -> Result<()> {
     let mut status_receiver = player.lock().await.subscribe_status();
+    let mut played_through_receiver = player.lock().await.subscribe_played_through();
     let mut playlist_receiver = player.lock().await.subscribe_playlist();
     let mut realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
+    let main_db_for_played_throudh = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
 
     info!("Initializing event listeners");
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_status);
         let mut cached_meta: Option<MetadataSummary> = None;
-        let mut last_id: Option<i32> = None;
+        let mut last_status_id: Option<i32> = None;
 
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {:?}", status);
 
             let meta = match status.id {
                 Some(id) => {
-                    if last_id != Some(id) {
+                    if last_status_id != Some(id) {
                         // Update the cached metadata if the index has changed
                         match get_metadata_summary_by_file_id(&main_db, id).await {
                             Ok(metadata) => {
                                 cached_meta = Some(metadata);
-                                last_id = Some(id);
+                                last_status_id = Some(id);
                             }
                             Err(e) => {
                                 // Print the error if get_metadata_summary_by_file_id returns an error
                                 error!("Error fetching metadata: {:?}", e);
                                 cached_meta = None;
-                                last_id = Some(id);
+                                last_status_id = Some(id);
                             }
                         }
                     }
@@ -58,7 +61,7 @@ pub async fn initialize_player(
                 }
                 none => {
                     // If the index is None, send empty metadata
-                    last_id = none;
+                    last_status_id = none;
                     MetadataSummary::default()
                 }
             };
@@ -93,6 +96,19 @@ pub async fn initialize_player(
 
         while let Ok(playlist) = playlist_receiver.recv().await {
             send_playlist_update(&main_db, &playlist).await;
+        }
+    });
+
+    task::spawn(async move {
+        let main_db = Arc::clone(&main_db_for_played_throudh);
+
+        while let Ok(index) = played_through_receiver.recv().await {
+            if let Err(e) = increase_played_through(&main_db, index)
+                .await
+                .with_context(|| "Unable to update played through count")
+            {
+                error!("{:?}", e);
+            };
         }
     });
 

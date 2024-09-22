@@ -31,7 +31,9 @@ class FFTVisualizeState extends State<FFTVisualize>
         _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
         if (!_hasData) {
           _hasData = true;
-          _ticker?.start();
+          if (_ticker?.isTicking == false) {
+            _ticker?.start();
+          }
         }
       });
     });

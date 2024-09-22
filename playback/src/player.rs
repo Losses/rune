@@ -49,6 +49,7 @@ pub struct Player {
     current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: broadcast::Sender<PlayerStatus>,
     playlist_sender: broadcast::Sender<PlaylistStatus>,
+    played_through_sender: broadcast::Sender<i32>,
     realtime_fft_sender: broadcast::Sender<Vec<f32>>,
     cancellation_token: CancellationToken,
 }
@@ -68,10 +69,12 @@ impl Player {
         let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
         // Create a broadcast channel for status updates
         let (status_sender, _) = broadcast::channel(16);
+        // Create a broadcast channel for played through update
+        let (played_through_sender, _) = broadcast::channel(16);
         // Create a broadcast channel for playlist updates
         let (playlist_sender, _) = broadcast::channel(16);
         // Create a broadcast channel for realtime FFT updates
-        let (realtime_fft_sender, _) = broadcast::channel(16);
+        let (realtime_fft_sender, _) = broadcast::channel(32);
         // Create a cancellation token
         let cancellation_token = match cancellation_token {
             Some(cancellation_token) => cancellation_token,
@@ -97,6 +100,7 @@ impl Player {
             current_status: current_status.clone(),
             status_sender: status_sender.clone(),
             playlist_sender: playlist_sender.clone(),
+            played_through_sender: played_through_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
             cancellation_token: cancellation_token.clone(),
         };
@@ -179,12 +183,16 @@ impl Player {
                         status.state = PlaybackState::Stopped;
                     }
                     PlayerEvent::EndOfTrack {
-                        id: _,
-                        index: _,
-                        path: _,
+                        id,
+                        index,
+                        path,
                         playback_mode,
                     } => {
+                        status.id = Some(id);
+                        status.index = Some(index);
+                        status.path = Some(path);
                         status.playback_mode = playback_mode;
+                        played_through_sender.send(id).unwrap();
                     }
                     PlayerEvent::Error {
                         id,
@@ -234,6 +242,10 @@ impl Player {
 
     pub fn subscribe_status(&self) -> broadcast::Receiver<PlayerStatus> {
         self.status_sender.subscribe()
+    }
+
+    pub fn subscribe_played_through(&self) -> broadcast::Receiver<i32> {
+        self.played_through_sender.subscribe()
     }
 
     pub fn subscribe_playlist(&self) -> broadcast::Receiver<PlaylistStatus> {
