@@ -5,8 +5,6 @@ use anyhow::Result;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
-use sea_orm::QuerySelect;
-
 use chrono::Utc;
 
 use crate::actions::search::CollectionType;
@@ -290,26 +288,4 @@ pub async fn reorder_playlist_item_position(
     } else {
         bail!("Media file not found in playlist")
     }
-}
-
-/// Get all unique playlist groups.
-///
-/// # Arguments
-/// * `main_db` - A reference to the database connection.
-///
-/// # Returns
-/// * `Result<Vec<String>>` - A vector of unique playlist group values or an error.
-pub async fn get_unique_playlist_groups(main_db: &DatabaseConnection) -> Result<Vec<String>> {
-    use playlists::Entity as PlaylistEntity;
-
-    // Query distinct group values from the playlists table
-    let unique_groups: Vec<String> = PlaylistEntity::find()
-        .select_only()
-        .column(playlists::Column::Group)
-        .distinct()
-        .into_tuple::<String>()
-        .all(main_db)
-        .await?;
-
-    Ok(unique_groups)
 }

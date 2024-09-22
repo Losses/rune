@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/utils/api/get_mix_group_list.dart';
 
 import 'package:provider/provider.dart';
 
@@ -14,7 +15,6 @@ import '../../../api/fetch_album_summary.dart';
 import '../../../api/fetch_albums_by_ids.dart';
 import '../../../api/fetch_artists_by_ids.dart';
 import '../../../api/fetch_artist_summary.dart';
-import '../../../api/get_unique_mix_groups.dart';
 import '../../../api/fetch_playlist_summary.dart';
 import '../../../api/fetch_playlists_by_ids.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';
@@ -68,7 +68,7 @@ class _MixEditorState extends State<MixEditor> {
           EditableComboBoxSection(
             controller: _controller.groupController,
             title: 'Group',
-            getItems: getUniqueMixGroups,
+            getItems: getMixGroupList,
           ),
           SearchChipInputSection(
             controller: _controller.artistsController,

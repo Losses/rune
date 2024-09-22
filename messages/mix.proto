@@ -124,15 +124,6 @@ message AddItemToMixResponse {
 }
 
 // [RINF:DART-SIGNAL]
-message GetUniqueMixGroupsRequest {
-}
-
-// [RINF:RUST-SIGNAL]
-message GetUniqueMixGroupsResponse {
-  repeated string groups = 1;
-}
-
-// [RINF:DART-SIGNAL]
 message GetMixByIdRequest {
   int32 mix_id = 1;
 }

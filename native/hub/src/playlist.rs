@@ -14,7 +14,6 @@ use database::actions::playlists::get_all_playlists;
 use database::actions::playlists::get_playlist_by_id;
 use database::actions::playlists::get_playlists_by_ids;
 use database::actions::playlists::get_playlists_groups;
-use database::actions::playlists::get_unique_playlist_groups;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
 use database::actions::utils::create_count_by_first_letter;
@@ -31,8 +30,7 @@ use crate::{
     AddItemToPlaylistRequest, AddItemToPlaylistResponse, CreatePlaylistRequest,
     CreatePlaylistResponse, FetchAllPlaylistsRequest, FetchAllPlaylistsResponse,
     FetchPlaylistsByIdsRequest, FetchPlaylistsByIdsResponse, FetchPlaylistsGroupSummaryRequest,
-    FetchPlaylistsGroupsRequest, GetPlaylistByIdRequest, GetPlaylistByIdResponse,
-    GetUniquePlaylistGroupsRequest, GetUniquePlaylistGroupsResponse, Playlist,
+    FetchPlaylistsGroupsRequest, GetPlaylistByIdRequest, GetPlaylistByIdResponse, Playlist,
     PlaylistGroupSummaryResponse, PlaylistWithoutCoverIds, PlaylistsGroup, PlaylistsGroupSummary,
     PlaylistsGroups, ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse,
     UpdatePlaylistRequest, UpdatePlaylistResponse,
@@ -319,22 +317,6 @@ pub async fn reorder_playlist_item_position_request(
         Err(e) => {
             error!("Failed to reorder playlist item: {}", e);
             ReorderPlaylistItemPositionResponse { success: false }.send_signal_to_dart();
-        }
-    }
-}
-
-pub async fn get_unique_playlist_groups_request(
-    main_db: Arc<MainDbConnection>,
-    _dart_signal: DartSignal<GetUniquePlaylistGroupsRequest>,
-) {
-    debug!("Requesting unique playlist groups");
-
-    match get_unique_playlist_groups(&main_db).await {
-        Ok(groups) => {
-            GetUniquePlaylistGroupsResponse { groups }.send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to get unique playlist groups: {}", e);
         }
     }
 }

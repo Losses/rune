@@ -262,20 +262,6 @@ pub async fn remove_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
     }
 }
 
-pub async fn get_unique_mix_groups(db: &DatabaseConnection) -> Result<Vec<String>> {
-    use mixes::Entity as PlaylistEntity;
-
-    let unique_groups: Vec<String> = PlaylistEntity::find()
-        .select_only()
-        .column(mixes::Column::Group)
-        .distinct()
-        .into_tuple::<String>()
-        .all(db)
-        .await?;
-
-    Ok(unique_groups)
-}
-
 #[derive(Debug)]
 enum QueryOperator {
     LibArtist(i32),

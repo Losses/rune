@@ -7,7 +7,7 @@ use rinf::DartSignal;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
     add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
-    get_mixes_by_ids, get_mixes_groups, get_unique_mix_groups, query_mix_media_files, remove_mix,
+    get_mixes_by_ids, get_mixes_groups, query_mix_media_files, remove_mix,
     replace_mix_queries, update_mix,
 };
 use database::actions::utils::create_count_by_first_letter;
@@ -19,9 +19,9 @@ use crate::{
     CreateMixResponse, FetchAllMixesRequest, FetchAllMixesResponse, FetchMixQueriesRequest,
     FetchMixQueriesResponse, FetchMixesByIdsRequest, FetchMixesByIdsResponse,
     FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest, GetMixByIdRequest, GetMixByIdResponse,
-    GetUniqueMixGroupsRequest, GetUniqueMixGroupsResponse, Mix, MixGroupSummaryResponse, MixQuery,
-    MixQueryRequest, MixQueryResponse, MixWithoutCoverIds, MixesGroup, MixesGroupSummary,
-    MixesGroups, RemoveMixRequest, RemoveMixResponse, UpdateMixRequest, UpdateMixResponse,
+    Mix, MixGroupSummaryResponse, MixQuery, MixQueryRequest, MixQueryResponse, MixWithoutCoverIds,
+    MixesGroup, MixesGroupSummary, MixesGroups, RemoveMixRequest, RemoveMixResponse,
+    UpdateMixRequest, UpdateMixResponse,
 };
 
 pub async fn fetch_mixes_group_summary_request(
@@ -321,25 +321,6 @@ pub async fn add_item_to_mix_request(
             AddItemToMixResponse { success: false }.send_signal_to_dart();
         }
     };
-}
-
-pub async fn get_unique_mix_groups_request(
-    main_db: Arc<MainDbConnection>,
-    _dart_signal: DartSignal<GetUniqueMixGroupsRequest>,
-) {
-    debug!("Requesting unique mix groups");
-
-    match get_unique_mix_groups(&main_db)
-        .await
-        .with_context(|| "Failed to get unique mix groups")
-    {
-        Ok(groups) => {
-            GetUniqueMixGroupsResponse { groups }.send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("{:?}", e);
-        }
-    }
 }
 
 pub async fn get_mix_by_id_request(
