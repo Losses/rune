@@ -74,43 +74,57 @@ class _MixEditorState extends State<MixEditor> {
             controller: _controller.artistsController,
             title: 'Artists',
             getInitResult: () => getInitResult(fetchArtistSummary),
-            searchForItems: (query) =>
-                _searchItems(query, 'artists', (x) async {
-              return (await fetchArtistsByIds(x))
-                  .map((x) => (x.id, x.name))
-                  .toList();
-            }),
+            searchForItems: (query) => _searchItems(
+              query,
+              'artists',
+              (x) async {
+                return (await fetchArtistsByIds(x))
+                    .map((x) => (x.id, x.name))
+                    .toList();
+              },
+            ),
           ),
           SearchChipInputSection(
             controller: _controller.albumsController,
             title: 'Albums',
             getInitResult: () => getInitResult(fetchAlbumSummary),
-            searchForItems: (query) => _searchItems(query, 'albums', (x) async {
-              return (await fetchAlbumsByIds(x))
-                  .map((x) => (x.id, x.name))
-                  .toList();
-            }),
+            searchForItems: (query) => _searchItems(
+              query,
+              'albums',
+              (x) async {
+                return (await fetchAlbumsByIds(x))
+                    .map((x) => (x.id, x.name))
+                    .toList();
+              },
+            ),
           ),
           SearchChipInputSection(
             controller: _controller.playlistsController,
             title: 'Playlists',
             getInitResult: () => getInitResult(fetchPlaylistSummary),
-            searchForItems: (query) =>
-                _searchItems(query, 'playlists', (x) async {
-              return (await fetchPlaylistsByIds(x))
-                  .map((x) => (x.id, x.name))
-                  .toList();
-            }),
+            searchForItems: (query) => _searchItems(
+              query,
+              'playlists',
+              (x) async {
+                return (await fetchPlaylistsByIds(x))
+                    .map((x) => (x.id, x.name))
+                    .toList();
+              },
+            ),
           ),
           SearchChipInputSection(
             controller: _controller.tracksController,
             title: 'Tracks',
             getInitResult: () => getInitResult(fetchTrackSummary),
-            searchForItems: (query) => _searchItems(query, 'tracks', (x) async {
-              return (await fetchTrackByIds(x))
-                  .map((x) => (x.id, x.title))
-                  .toList();
-            }),
+            searchForItems: (query) => _searchItems(
+              query,
+              'tracks',
+              (x) async {
+                return (await fetchTrackByIds(x))
+                    .map((x) => (x.id, x.title))
+                    .toList();
+              },
+            ),
           ),
           DirectorySection(controller: _controller.directoryController),
           SliderSection(

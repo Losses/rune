@@ -154,20 +154,26 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
       sorter: (text, items) => items,
       leadingIcon: Padding(
         padding: EdgeInsets.fromLTRB(
-            4.0, _controller.selectedItems.isEmpty ? 0.0 : 4.0, 4.0, 0.0),
+          4.0,
+          _controller.selectedItems.isEmpty ? 0.0 : 4.0,
+          4.0,
+          0.0,
+        ),
         child: Wrap(
           spacing: 4.0,
           runSpacing: 4.0,
-          children: _controller.selectedItems.map((item) {
-            return InteractiveTag(
-              child: Text(item.label),
-              onPressed: () {
-                setState(() {
-                  _controller.removeItem(item);
-                });
-              },
-            );
-          }).toList(),
+          children: _controller.selectedItems.map(
+            (item) {
+              return InteractiveTag(
+                child: Text(item.label),
+                onPressed: () {
+                  setState(() {
+                    _controller.removeItem(item);
+                  });
+                },
+              );
+            },
+          ).toList(),
         ),
       ),
       decorationBuilder: (context, body, prefix, suffix) {

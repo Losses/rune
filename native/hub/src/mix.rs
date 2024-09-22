@@ -32,7 +32,10 @@ pub async fn fetch_mixes_group_summary_request(
 
     let count_mixes = create_count_by_first_letter::<mixes::Entity>();
 
-    match count_mixes(&main_db).await {
+    match count_mixes(&main_db)
+        .await
+        .with_context(|| "Failed to fetch mixes groups summary")
+    {
         Ok(entry) => {
             let mixes_groups = entry
                 .into_iter()
@@ -45,7 +48,7 @@ pub async fn fetch_mixes_group_summary_request(
             // GENERATED
         }
         Err(e) => {
-            error!("Failed to fetch mixes groups summary: {}", e);
+            error!("{:?}", e);
         }
     };
 }
@@ -58,7 +61,10 @@ pub async fn fetch_mixes_groups_request(
 
     debug!("Requesting mixs groups");
 
-    match get_mixes_groups(&main_db, request.group_titles).await {
+    match get_mixes_groups(&main_db, request.group_titles)
+        .await
+        .with_context(|| "Failed to fetch mixs groups")
+    {
         Ok(entry) => {
             MixesGroups {
                 groups: entry
@@ -81,7 +87,7 @@ pub async fn fetch_mixes_groups_request(
             .send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to fetch mixs groups: {}", e);
+            error!("{:?}", e);
         }
     };
 }
@@ -94,7 +100,10 @@ pub async fn fetch_mixes_by_ids_request(
 
     debug!("Requesting mixs: {:#?}", request.ids);
 
-    match get_mixes_by_ids(&main_db, &request.ids).await {
+    match get_mixes_by_ids(&main_db, &request.ids)
+        .await
+        .with_context(|| "Failed to fetch albums groups")
+    {
         Ok(items) => {
             FetchMixesByIdsResponse {
                 result: items
@@ -110,7 +119,7 @@ pub async fn fetch_mixes_by_ids_request(
             .send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to fetch albums groups: {}", e);
+            error!("{:?}", e);
         }
     };
 }
@@ -121,7 +130,10 @@ pub async fn fetch_all_mixes_request(
 ) {
     debug!("Fetching all mixs");
 
-    match get_all_mixes(&main_db).await {
+    match get_all_mixes(&main_db)
+        .await
+        .with_context(|| "Failed to fetch all mixes")
+    {
         Ok(mixes) => {
             FetchAllMixesResponse {
                 mixes: mixes
@@ -136,7 +148,7 @@ pub async fn fetch_all_mixes_request(
             .send_signal_to_dart();
         }
         Err(e) => {
-            error!("Failed to fetch all mixes: {}", e);
+            error!("{:?}", e);
         }
     }
 }
@@ -161,6 +173,7 @@ pub async fn create_mix_request(
         false,
     )
     .await
+    .with_context(|| "Failed to create mix")
     {
         Ok(mix) => {
             CreateMixResponse {
@@ -190,7 +203,7 @@ pub async fn create_mix_request(
             }
         }
         Err(e) => {
-            error!("Failed to create mix: {}", e);
+            error!("{:?}", e);
         }
     };
 

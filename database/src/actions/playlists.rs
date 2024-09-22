@@ -200,7 +200,7 @@ pub async fn remove_playlist(
 /// Add a media file to a playlist.
 ///
 /// # Arguments
-/// * `db` - A reference to the database connection.
+/// * `main_db` - A reference to the database connection.
 /// * `playlist_id` - The ID of the playlist to add the item to.
 /// * `media_file_id` - The ID of the media file to add.
 /// * `position` - The optional position of the media file in the playlist.
@@ -208,7 +208,7 @@ pub async fn remove_playlist(
 /// # Returns
 /// * `Result<Model>` - The created media file playlist model or an error.
 pub async fn add_item_to_playlist(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     playlist_id: i32,
     media_file_id: i32,
     position: Option<i32>,
@@ -224,7 +224,7 @@ pub async fn add_item_to_playlist(
             MediaFilePlaylistEntity::find()
                 .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
                 .order_by_desc(media_file_playlists::Column::Position)
-                .one(db)
+                .one(main_db)
                 .await?
                 .map_or(0, |item| item.position + 1)
         }
@@ -239,15 +239,15 @@ pub async fn add_item_to_playlist(
     };
 
     // Insert the new media file playlist into the database
-    let media_file_playlist = new_media_file_playlist.insert(db).await?;
+    let media_file_playlist = new_media_file_playlist.insert(main_db).await?;
 
     // Find the playlist by ID
-    let playlist = PlaylistEntity::find_by_id(playlist_id).one(db).await?;
+    let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
 
     if let Some(playlist) = playlist {
         let mut active_model: playlists::ActiveModel = playlist.into();
         active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
-        let _ = active_model.update(db).await?;
+        let _ = active_model.update(main_db).await?;
     } else {
         bail!("Playlist not found")
     }
@@ -258,7 +258,7 @@ pub async fn add_item_to_playlist(
 /// Reorder a media file in a playlist.
 ///
 /// # Arguments
-/// * `db` - A reference to the database connection.
+/// * `main_db` - A reference to the database connection.
 /// * `playlist_id` - The ID of the playlist containing the item to reorder.
 /// * `media_file_id` - The ID of the media file to reorder.
 /// * `new_position` - The new position for the media file.
@@ -266,7 +266,7 @@ pub async fn add_item_to_playlist(
 /// # Returns
 /// * `Result<()>` - An empty result or an error.
 pub async fn reorder_playlist_item_position(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     playlist_id: i32,
     media_file_id: i32,
     new_position: i32,
@@ -277,14 +277,14 @@ pub async fn reorder_playlist_item_position(
     let item = MediaFilePlaylistEntity::find()
         .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
         .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))
-        .one(db)
+        .one(main_db)
         .await?;
 
     if let Some(item) = item {
         // Update the position
         let mut active_model: media_file_playlists::ActiveModel = item.into();
         active_model.position = ActiveValue::Set(new_position);
-        let _ = active_model.update(db).await?;
+        let _ = active_model.update(main_db).await?;
 
         Ok(())
     } else {
@@ -295,11 +295,11 @@ pub async fn reorder_playlist_item_position(
 /// Get all unique playlist groups.
 ///
 /// # Arguments
-/// * `db` - A reference to the database connection.
+/// * `main_db` - A reference to the database connection.
 ///
 /// # Returns
 /// * `Result<Vec<String>>` - A vector of unique playlist group values or an error.
-pub async fn get_unique_playlist_groups(db: &DatabaseConnection) -> Result<Vec<String>> {
+pub async fn get_unique_playlist_groups(main_db: &DatabaseConnection) -> Result<Vec<String>> {
     use playlists::Entity as PlaylistEntity;
 
     // Query distinct group values from the playlists table
@@ -308,7 +308,7 @@ pub async fn get_unique_playlist_groups(db: &DatabaseConnection) -> Result<Vec<S
         .column(playlists::Column::Group)
         .distinct()
         .into_tuple::<String>()
-        .all(db)
+        .all(main_db)
         .await?;
 
     Ok(unique_groups)

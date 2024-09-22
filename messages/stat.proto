@@ -1,0 +1,36 @@
+syntax = "proto3";
+package stat;
+
+// [RINF:DART-SIGNAL]
+message SetLikedRequest {
+  int32 file_id = 1;
+  bool liked = 2;
+}
+
+// [RINF:RUST-SIGNAL]
+message SetLikedResponse {
+  int32 file_id = 1;
+  bool success = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message IncreaseSkippedRequest {
+  int32 file_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message IncreaseSkippedResponse {
+  int32 file_id = 1;
+  bool success = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message IncreasePlayedThroughRequest {
+  int32 file_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message IncreasePlayedThroughResponse {
+  int32 file_id = 1;
+  bool success = 2;
+}

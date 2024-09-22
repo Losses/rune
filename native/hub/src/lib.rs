@@ -14,6 +14,7 @@ mod player;
 mod playlist;
 mod recommend;
 mod search;
+mod stat;
 
 use std::sync::Arc;
 
@@ -43,6 +44,7 @@ use crate::player::initialize_player;
 use crate::playlist::*;
 use crate::recommend::*;
 use crate::search::*;
+use crate::stat::*;
 
 use messages::album::*;
 use messages::artist::*;
@@ -56,6 +58,7 @@ use messages::playback::*;
 use messages::playlist::*;
 use messages::recommend::*;
 use messages::search::*;
+use messages::stat::*;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -207,6 +210,10 @@ async fn player_loop(path: String) {
             GetMixByIdRequest => (main_db),
             MixQueryRequest => (main_db, recommend_db, lib_path),
             FetchMixQueriesRequest => (main_db),
+
+            SetLikedRequest => (main_db),
+            IncreaseSkippedRequest => (main_db),
+            IncreasePlayedThroughRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db),
             SearchForRequest => (search_db),
