@@ -1,24 +1,69 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import 'package:player/widgets/tiny_icon_button.dart';
+import '../../utils/api/get_liked.dart';
+import '../../utils/api/set_liked.dart';
+import '../../widgets/tiny_icon_button.dart';
 
-class LikeButton extends StatelessWidget {
-  final bool disabled;
+class LikeButton extends StatefulWidget {
+  final int? fileId;
 
-  final bool liked;
+  const LikeButton({required this.fileId, super.key});
 
-  const LikeButton({required this.disabled, required this.liked, super.key});
+  @override
+  State<LikeButton> createState() => _LikeButtonState();
+}
+
+class _LikeButtonState extends State<LikeButton> {
+  bool liked = false;
+  late int? fileId;
+
+  @override
+  void initState() {
+    super.initState();
+    fileId = widget.fileId;
+    _fetchLikedStatus();
+  }
+
+  @override
+  void didUpdateWidget(covariant LikeButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.fileId != widget.fileId) {
+      fileId = widget.fileId;
+      _fetchLikedStatus();
+    }
+  }
+
+  Future<void> _fetchLikedStatus() async {
+    if (fileId == null) return;
+
+    final isLiked = await getLiked(fileId!);
+    if (mounted) {
+      setState(() {
+        liked = isLiked;
+      });
+    }
+  }
+
+  Future<void> _toggleLikedStatus() async {
+    if (fileId == null) return;
+
+    final newLikedStatus = !liked;
+    final success = await setLiked(fileId!, newLikedStatus);
+    if (success != null && mounted) {
+      setState(() {
+        liked = newLikedStatus;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return TinyIconButton(
-      onPressed: disabled
+      onPressed: fileId == null
           ? null
           : () {
-              if (liked) {
-                //
-              } else {}
+              _toggleLikedStatus();
             },
       icon: Icon(
         Symbols.favorite,

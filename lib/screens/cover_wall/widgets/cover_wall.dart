@@ -1,9 +1,10 @@
 import 'dart:math';
+
 import 'package:hashlib/hashlib.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../widgets/cover_art.dart';
@@ -67,10 +68,7 @@ class PlayingTrack extends StatelessWidget {
                     Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
                     const SizedBox(height: 12),
                     Text(p.$2 ?? "Unknown Artist"),
-                    const SizedBox(height: 4),
-                    IconButton(
-                        icon: const Icon(Symbols.favorite),
-                        onPressed: () => {}),
+                    const SizedBox(height: 28),
                   ],
                 ),
               ],
@@ -139,8 +137,11 @@ class RandomGridState extends State<RandomGrid> {
                               crossAxisCount: crossAxisCount,
                               mainAxisSpacing: 2,
                               crossAxisSpacing: 2,
-                              children: _generateTiles(crossAxisCount,
-                                  mainAxisCount, gridSize.toDouble()),
+                              children: _generateTiles(
+                                crossAxisCount,
+                                mainAxisCount,
+                                gridSize.toDouble(),
+                              ),
                             )))));
 
         return Stack(

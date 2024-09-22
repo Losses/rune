@@ -1,7 +1,7 @@
 use anyhow::Result;
+use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
-use chrono::Utc;
 
 use crate::entities::media_file_stats;
 
@@ -51,6 +51,29 @@ pub async fn set_liked(
     };
 
     Ok(updated_stats)
+}
+
+/// Get the liked status of a media file.
+///
+/// # Arguments
+/// * `main_db` - A reference to the database connection.
+/// * `media_file_id` - The ID of the media file to update.
+///
+/// # Returns
+/// * `Result<Model>` - The updated media file stats model or an error.
+pub async fn get_liked(main_db: &DatabaseConnection, media_file_id: i32) -> Result<bool> {
+    use media_file_stats::Entity as MediaFileStatsEntity;
+
+    // Find the media file stats by media file ID
+    let stats = MediaFileStatsEntity::find()
+        .filter(media_file_stats::Column::MediaFileId.eq(media_file_id))
+        .one(main_db)
+        .await?;
+
+    match stats {
+        Some(stats) => Ok(stats.liked),
+        None => Ok(false),
+    }
 }
 
 /// Increase the skipped count of a media file.

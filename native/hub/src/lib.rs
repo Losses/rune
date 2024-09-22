@@ -163,12 +163,12 @@ async fn player_loop(path: String) {
             IfAnalysisExistsRequest => (main_db),
 
             FetchMediaFilesRequest => (main_db, lib_path),
+            FetchMediaFileByIdsRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
 
             StartPlayingCollectionRequest => (main_db, lib_path, player),
             AddToQueueCollectionRequest => (main_db, lib_path, player),
-            FetchMediaFileByIdsRequest => (main_db, lib_path),
             StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
 
             GetCoverArtByFileIdRequest => (main_db, lib_path),
@@ -210,6 +210,7 @@ async fn player_loop(path: String) {
             FetchMixQueriesRequest => (main_db),
 
             SetLikedRequest => (main_db),
+            GetLikedRequest => (main_db),
             IncreaseSkippedRequest => (main_db),
             IncreasePlayedThroughRequest => (main_db),
 

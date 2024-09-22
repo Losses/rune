@@ -75,7 +75,7 @@ class PlaybackControllerState extends State<PlaybackController> {
                                 overflow: TextOverflow.ellipsis,
                                 style: typography.caption,
                               ),
-                              LikeButton(disabled: notReady, liked: false),
+                              LikeButton(fileId: s?.id),
                             ],
                           ),
                         ),
