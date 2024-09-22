@@ -128,6 +128,15 @@ pub async fn sync_file_descriptions(
                                         description.file_name.clone(),
                                     )
                                 })?;
+
+                            unlink_cover_art(&txn, &existing_file)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to unlink cover art modified: {}",
+                                        description.file_name.clone(),
+                                    )
+                                })?;
                         } else {
                             // If the hash is different, update the metadata
                             debug!(
@@ -266,7 +275,22 @@ pub async fn process_files(
                                 "File hash is the same, updating last modified date: {}",
                                 description.file_name.clone()
                             );
-                            update_last_modified(&txn, &existing_file, description).await?;
+                            update_last_modified(&txn, &existing_file, description)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to update last modified: {}",
+                                        description.file_name.clone(),
+                                    )
+                                })?;
+                            unlink_cover_art(&txn, &existing_file)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to unlink cover art modified: {}",
+                                        description.file_name.clone(),
+                                    )
+                                })?;
                         } else {
                             // If the hash is different, update the metadata
                             debug!(
@@ -334,6 +358,16 @@ pub async fn process_files(
 
     info!("Finished processing multiple files");
 
+    Ok(())
+}
+
+pub async fn unlink_cover_art<E>(db: &E, existing_file: &media_files::Model) -> Result<()>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    let mut active_model: media_files::ActiveModel = existing_file.clone().into();
+    active_model.cover_art_id = ActiveValue::Set(None);
+    active_model.update(db).await?;
     Ok(())
 }
 
