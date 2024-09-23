@@ -7,8 +7,8 @@ use rinf::DartSignal;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
     add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
-    get_mixes_by_ids, get_mixes_groups, query_mix_media_files, remove_mix,
-    replace_mix_queries, update_mix,
+    get_mixes_by_ids, get_mixes_groups, query_mix_media_files, remove_mix, replace_mix_queries,
+    update_mix,
 };
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
@@ -377,6 +377,7 @@ pub async fn mix_query_request(
         request.page_size as usize,
     )
     .await
+    .with_context(|| "Unable to query mix media files")
     {
         Ok(media_entries) => {
             let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
@@ -395,7 +396,7 @@ pub async fn mix_query_request(
                 }
             }
         }
-        Err(e) => error!("Unable to query mix media files: {}", e),
+        Err(e) => error!("{:?}", e),
     }
 
     Ok(())

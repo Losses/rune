@@ -50,6 +50,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
         _pageSize,
       );
 
+      if (!mounted) return;
+
       final isLastPage = newItems.length < _pageSize;
       if (isLastPage) {
         _pagingController.appendLastPage(newItems);

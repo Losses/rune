@@ -335,6 +335,57 @@ pub async fn add_item_to_mix(
     }
 }
 
+pub async fn initialize_mix_queries(db: &DatabaseConnection) -> Result<()> {
+    let all_mixes: Vec<mixes::Model> = mixes::Entity::find()
+        .filter(
+            Condition::all()
+                .add(mixes::Column::Name.starts_with("\u{200B}"))
+                .add(mixes::Column::Group.eq("\u{200B}Rune"))
+                .add(mixes::Column::Locked.eq(true))
+                .add(mixes::Column::ScriptletMode.eq(false)),
+        )
+        .all(db)
+        .await?;
+
+    for mix in all_mixes {
+        let mix_id = mix.id;
+
+        let n = mix_queries::Entity::find()
+            .filter(mix_queries::Column::MixId.eq(mix_id))
+            .count(db)
+            .await?;
+
+        if n == 0 {
+            let mut new_queries = vec![("lib::all", "true")];
+
+            if mix.name == "\u{200B}Liked" {
+                new_queries.push(("filter::liked", "true"));
+            } else if mix.name.starts_with("\u{200B}Mix ") {
+                if let Some(n) = mix.name.split_whitespace().last() {
+                    new_queries.push(("pipe::limit", "50"));
+                    new_queries.push(("pipe::recommend", n));
+                }
+            }
+
+            for (operator, parameter) in new_queries {
+                let new_mix_query = mix_queries::ActiveModel {
+                    mix_id: ActiveValue::Set(mix_id),
+                    operator: ActiveValue::Set(operator.to_string()),
+                    parameter: ActiveValue::Set(parameter.to_string()),
+                    group: ActiveValue::Set(0),
+                    created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    ..Default::default()
+                };
+
+                new_mix_query.insert(db).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn parse_query(query: &(String, String)) -> QueryOperator {
     let (operator, parameter) = query;
     match operator.as_str() {

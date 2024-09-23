@@ -1,15 +1,14 @@
+use anyhow::{Context, Result};
 use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
-use std::result::Result;
 
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvOpenOptions};
 use log::{info, LevelFilter};
-use sea_orm::DbErr;
 use sea_orm::{ConnectOptions, Database};
 use tantivy::{schema::*, IndexReader, TantivyError};
 use tantivy::{Index, IndexWriter, ReloadPolicy};
@@ -17,51 +16,16 @@ use tantivy::{Index, IndexWriter, ReloadPolicy};
 use migration::Migrator;
 use migration::MigratorTrait;
 
-#[derive(Debug)]
-pub enum ConnectMainDbError {
-    InvalidPath(OsString),
-    IoError(std::io::Error),
-    DbError(DbErr),
-}
-
-impl fmt::Display for ConnectMainDbError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ConnectMainDbError::InvalidPath(path) => {
-                write!(f, "Invalid path: {:?}", path)
-            }
-            ConnectMainDbError::IoError(e) => {
-                write!(f, "IO error: {}", e)
-            }
-            ConnectMainDbError::DbError(e) => {
-                write!(f, "Database error: {}", e)
-            }
-        }
-    }
-}
-
-impl Error for ConnectMainDbError {}
-
-impl From<std::io::Error> for ConnectMainDbError {
-    fn from(error: std::io::Error) -> Self {
-        ConnectMainDbError::IoError(error)
-    }
-}
-
-impl From<DbErr> for ConnectMainDbError {
-    fn from(error: DbErr) -> Self {
-        ConnectMainDbError::DbError(error)
-    }
-}
+use crate::actions::mixes::initialize_mix_queries;
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
-pub async fn connect_main_db(lib_path: &str) -> Result<MainDbConnection, ConnectMainDbError> {
+pub async fn connect_main_db(lib_path: &str) -> Result<MainDbConnection> {
     let path: PathBuf = [lib_path, ".rune", ".0.db"].iter().collect();
 
-    let dir_path = path.parent().ok_or_else(|| {
-        ConnectMainDbError::InvalidPath("Invalid path: parent directory not found".into())
-    })?;
+    let dir_path = path
+        .parent()
+        .with_context(|| "Invalid path: parent directory not found")?;
 
     if !dir_path.exists() {
         std::fs::create_dir_all(dir_path)?;
@@ -82,8 +46,12 @@ pub async fn connect_main_db(lib_path: &str) -> Result<MainDbConnection, Connect
     Ok(db)
 }
 
-pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<(), DbErr> {
-    Migrator::up(conn, None).await
+pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
+    Migrator::up(conn, None).await?;
+
+    initialize_mix_queries(conn).await?;
+
+    Ok(())
 }
 
 #[derive(Debug)]
