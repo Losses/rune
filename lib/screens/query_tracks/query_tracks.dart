@@ -10,11 +10,13 @@ import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class QueryTracksPage extends StatefulWidget {
   final QueryList queries;
+  final int mode;
   final String? title;
 
   const QueryTracksPage({
     super.key,
     required this.queries,
+    required this.mode,
     required this.title,
   });
 
@@ -48,6 +50,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
             child: QueryTrackListView(
               layoutManager: _layoutManager,
               queries: widget.queries,
+              mode: widget.mode,
             ),
           ),
           const PlaybackPlaceholder(),

@@ -64,7 +64,11 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return TrackList(pagingController: _pagingController);
+    return TrackList(
+      pagingController: _pagingController,
+      queries: const [("lib::all", "true")],
+      mode: 99,
+    );
   }
 
   @override

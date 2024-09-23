@@ -9,8 +9,15 @@ import './track_list_item.dart';
 
 class TrackList extends StatelessWidget {
   final PagingController<int, MediaFile> pagingController;
+  final List<(String, String)> queries;
+  final int mode;
 
-  const TrackList({super.key, required this.pagingController});
+  const TrackList({
+    super.key,
+    required this.pagingController,
+    required this.queries,
+    required this.mode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -45,15 +52,18 @@ class TrackList extends StatelessWidget {
                           final int column = index ~/ rows;
 
                           return ManagedStartScreenItem(
-                              groupId: 0,
-                              row: row,
-                              column: column,
-                              width: cellSize / ratio,
-                              height: cellSize,
-                              child: TrackListItem(
-                                index: index,
-                                item: item,
-                              ));
+                            groupId: 0,
+                            row: row,
+                            column: column,
+                            width: cellSize / ratio,
+                            height: cellSize,
+                            child: TrackListItem(
+                              index: index,
+                              item: item,
+                              queries: queries,
+                              mode: mode,
+                            ),
+                          );
                         },
                       ),
                     ),

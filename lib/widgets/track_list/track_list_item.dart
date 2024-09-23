@@ -4,12 +4,15 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/cover_art.dart';
 import '../../widgets/context_menu_wrapper.dart';
+import '../../messages/mix.pb.dart';
 import '../../messages/playback.pb.dart';
 import '../../messages/media_file.pb.dart';
 
 class TrackListItem extends StatelessWidget {
   final MediaFile item;
   final int index;
+  final List<(String, String)> queries;
+  final int mode;
 
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
@@ -18,6 +21,8 @@ class TrackListItem extends StatelessWidget {
     super.key,
     required this.index,
     required this.item,
+    required this.queries,
+    required this.mode,
   });
 
   @override
@@ -36,7 +41,16 @@ class TrackListItem extends StatelessWidget {
           padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
         ),
         onPressed: () {
-          PlayFileRequest(fileId: item.id).sendSignalToRust();
+          OperatePlaybackWithMixQueryRequest(
+            queries: queries
+                .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
+                .toList(),
+            playbackMode: mode,
+            hintPosition: index,
+            initialPlaybackId: item.id,
+            replacePlaylist: true,
+            instantlyPlay: true,
+          ).sendSignalToRust();
         },
         child: ClipRRect(
           borderRadius: BorderRadius.circular(3),

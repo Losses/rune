@@ -264,6 +264,7 @@ pub async fn remove_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
 
 #[derive(Debug)]
 enum QueryOperator {
+    LibAll(bool),
     LibArtist(i32),
     LibAlbum(i32),
     LibPlaylist(i32),
@@ -337,6 +338,9 @@ pub async fn add_item_to_mix(
 fn parse_query(query: &(String, String)) -> QueryOperator {
     let (operator, parameter) = query;
     match operator.as_str() {
+        "lib::all" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::LibAll)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::artist" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibArtist)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
@@ -437,6 +441,8 @@ pub async fn query_mix_media_files(
     cursor: usize,
     page_size: usize,
 ) -> Result<Vec<media_files::Model>> {
+    let mut all: bool = false;
+
     let mut artist_ids: Vec<i32> = vec![];
     let mut album_ids: Vec<i32> = vec![];
     let mut playlist_ids: Vec<i32> = vec![];
@@ -455,6 +461,7 @@ pub async fn query_mix_media_files(
 
     for query in queries {
         match parse_query(&query) {
+            QueryOperator::LibAll(is_all) => all = is_all,
             QueryOperator::LibArtist(id) => artist_ids.push(id),
             QueryOperator::LibAlbum(id) => album_ids.push(id),
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
@@ -540,14 +547,16 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(dir_conditions);
     }
 
-    if let Some(liked) = filter_liked {
-        query = query.filter(
-            Condition::all()
-                .add(or_condition)
-                .add(media_file_stats::Column::Liked.eq(liked)),
-        );
-    } else {
-        query = query.filter(or_condition);
+    if !all {
+        if let Some(liked) = filter_liked {
+            query = query.filter(
+                Condition::all()
+                    .add(or_condition)
+                    .add(media_file_stats::Column::Liked.eq(liked)),
+            );
+        } else {
+            query = query.filter(or_condition);
+        }
     }
 
     // Join with media_file_stats table for sorting by playedthrough and skipped, and filtering by liked

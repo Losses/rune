@@ -16,6 +16,7 @@ import '../../widgets/cover_art.dart';
 import '../../widgets/slide_fade_transition.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../messages/mix.pb.dart';
 import '../../messages/album.pb.dart';
 import '../../messages/artist.pb.dart';
 import '../../messages/search.pb.dart';
@@ -392,7 +393,16 @@ class TrackItem extends SearchCard {
 
   @override
   void onPressed(BuildContext context) {
-    PlayFileRequest(fileId: item.id).sendSignalToRust();
+    OperatePlaybackWithMixQueryRequest(
+      queries: [
+        MixQuery(operator: "lib::track", parameter: item.id.toString())
+      ],
+      playbackMode: 99,
+      hintPosition: 0,
+      initialPlaybackId: item.id,
+      replacePlaylist: true,
+      instantlyPlay: true,
+    ).sendSignalToRust();
   }
 
   @override

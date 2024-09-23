@@ -142,6 +142,7 @@ pub async fn fetch_all_mixes_request(
                         id: mix.id,
                         name: mix.name,
                         group: mix.group,
+                        mode: mix.mode,
                     })
                     .collect(),
             }
@@ -181,6 +182,7 @@ pub async fn create_mix_request(
                     id: mix.id,
                     name: mix.name,
                     group: mix.group,
+                    mode: mix.mode,
                 }),
             }
             .send_signal_to_dart();
@@ -254,6 +256,7 @@ pub async fn update_mix_request(
                                 id: mix.id,
                                 name: mix.name,
                                 group: mix.group,
+                                mode: mix.mode,
                             }),
                         }
                         .send_signal_to_dart();
@@ -341,6 +344,7 @@ pub async fn get_mix_by_id_request(
                     id: mix.id,
                     name: mix.name,
                     group: mix.group,
+                    mode: mix.mode,
                 }),
             }
             .send_signal_to_dart();

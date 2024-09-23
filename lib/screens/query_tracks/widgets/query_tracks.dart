@@ -2,8 +2,8 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/utils/api/query_mix_tracks.dart';
 
+import '../../../utils/api/query_mix_tracks.dart';
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -12,11 +12,13 @@ import '../../../messages/media_file.pb.dart';
 class QueryTrackListView extends StatefulWidget {
   final List<(String, String)> queries;
   final StartScreenLayoutManager layoutManager;
+  final int mode;
 
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
-    this.queries = const [],
+    required this.queries,
+    required this.mode,
   });
 
   @override
@@ -62,7 +64,11 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return TrackList(pagingController: _pagingController);
+    return TrackList(
+      pagingController: _pagingController,
+      queries: widget.queries,
+      mode: widget.mode,
+    );
   }
 
   @override

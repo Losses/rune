@@ -3,11 +3,6 @@ package playback;
 
 import "mix.proto";
 
-// [RINF:DART-SIGNAL]
-message PlayFileRequest {
-  int32 file_id = 1;
-}
-
 // [RINF:RUST-SIGNAL]
 message PlaybackStatus {
   string state = 1;

@@ -45,6 +45,7 @@ final routes = <GoRoute>[
       title: state.extra is QueryTracksExtra
           ? (state.extra as QueryTracksExtra).title
           : null,
+      mode: 99,
     ),
   ),
   GoRoute(
@@ -60,6 +61,7 @@ final routes = <GoRoute>[
       title: state.extra is QueryTracksExtra
           ? (state.extra as QueryTracksExtra).title
           : null,
+      mode: 99,
     ),
   ),
   GoRoute(
@@ -75,6 +77,7 @@ final routes = <GoRoute>[
       title: state.extra is QueryTracksExtra
           ? (state.extra as QueryTracksExtra).title
           : null,
+      mode: 99,
     ),
   ),
   GoRoute(

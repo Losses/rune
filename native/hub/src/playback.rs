@@ -1,15 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-use database::actions::mixes::query_mix_media_files;
+use anyhow::Context;
 use dunce::canonicalize;
 use log::{debug, error, info};
 use rinf::DartSignal;
-use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
-use database::actions::file::get_file_by_id;
+use database::actions::mixes::query_mix_media_files;
 use database::actions::stats::increase_skipped;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
@@ -17,39 +15,9 @@ use playback::player::Player;
 
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::{
-    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayFileRequest, PlayRequest,
-    PreviousRequest, RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
+    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PreviousRequest,
+    RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
 };
-
-async fn play_file_by_id(
-    db: Arc<DatabaseConnection>,
-    player: Arc<Mutex<Player>>,
-    lib_path: Arc<String>,
-    file_id: i32,
-) {
-    match get_file_by_id(&db, file_id).await {
-        Ok(Some(file)) => {
-            let player_guard = player.lock().await;
-            player_guard.pause();
-            player_guard.clear_playlist();
-
-            let file_path = canonicalize(
-                Path::new(&*lib_path)
-                    .join(file.directory)
-                    .join(file.file_name),
-            )
-            .unwrap();
-            player_guard.add_to_playlist([(file_id, file_path)].to_vec());
-            player_guard.play();
-        }
-        Ok(_none) => {
-            eprintln!("File with ID {} not found", file_id);
-        }
-        Err(e) => {
-            eprintln!("Error retrieving file with ID {}: {}", file_id, e);
-        }
-    }
-}
 
 pub fn files_to_playback_request(
     lib_path: &String,
@@ -68,20 +36,6 @@ pub fn files_to_playback_request(
             (file.id, file_path)
         })
         .collect::<Vec<_>>()
-}
-
-pub async fn play_file_request(
-    main_db: Arc<DatabaseConnection>,
-    lib_path: Arc<String>,
-    player: Arc<Mutex<Player>>,
-    dart_signal: DartSignal<PlayFileRequest>,
-) -> Result<()> {
-    let play_file_request = dart_signal.message;
-    let file_id = play_file_request.file_id;
-
-    play_file_by_id(main_db, player, lib_path, file_id).await;
-
-    Ok(())
 }
 
 pub async fn play_request(player: Arc<Mutex<Player>>, _: DartSignal<PlayRequest>) {
@@ -244,7 +198,7 @@ pub async fn operate_playback_with_mix_query_request(
             .map(|x| (x.operator, x.parameter))
             .collect(),
         0,
-        20480,
+        4096,
     )
     .await
     .with_context(|| "Failed to query tracks");
