@@ -1,8 +1,6 @@
+import 'package:player/utils/query_list.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
-
-import '../../utils/router_extra.dart';
 
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
@@ -11,11 +9,13 @@ import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class QueryTracksPage extends StatefulWidget {
-  final List<(String, String)> queries;
+  final QueryList queries;
+  final String? title;
 
   const QueryTracksPage({
     super.key,
-    this.queries = const [],
+    required this.queries,
+    required this.title,
   });
 
   @override
@@ -28,17 +28,21 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
   @override
   Widget build(BuildContext context) {
     final FluentThemeData theme = FluentTheme.of(context);
-    final extra = GoRouterState.of(context).extra;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: _layoutManager,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      value: _layoutManager,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
             child: Scaled(
-                scale: 1.2,
-                child: Text(extra is QueryTracksExtra ? extra.title : 'Tracks',
-                    style: TextStyle(color: theme.inactiveColor))),
+              scale: 1.2,
+              child: Text(
+                widget.title ?? 'Tracks',
+                style: TextStyle(color: theme.inactiveColor),
+              ),
+            ),
           ),
           Expanded(
             child: QueryTrackListView(
@@ -47,6 +51,8 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
             ),
           ),
           const PlaybackPlaceholder(),
-        ]));
+        ],
+      ),
+    );
   }
 }

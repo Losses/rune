@@ -1,4 +1,6 @@
 import 'package:go_router/go_router.dart';
+import 'package:player/utils/query_list.dart';
+import 'package:player/utils/router_extra.dart';
 
 import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;
@@ -37,7 +39,12 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/artists/:artistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      queries: [("lib::artist", state.pathParameters['artistId'] ?? "0")],
+      queries: QueryList(
+        [("lib::artist", state.pathParameters['artistId'] ?? "0")],
+      ),
+      title: state.extra is QueryTracksExtra
+          ? (state.extra as QueryTracksExtra).title
+          : null,
     ),
   ),
   GoRoute(
@@ -47,7 +54,12 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/albums/:albumId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      queries: [("lib::album", state.pathParameters['albumId'] ?? "0")],
+      queries: QueryList(
+        [("lib::album", state.pathParameters['albumId'] ?? "0")],
+      ),
+      title: state.extra is QueryTracksExtra
+          ? (state.extra as QueryTracksExtra).title
+          : null,
     ),
   ),
   GoRoute(
@@ -57,7 +69,12 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/playlists/:playlistId',
     builder: (context, state) => query_tracks.QueryTracksPage(
-      queries: [("lib::playlist", state.pathParameters['playlistId'] ?? "0")],
+      queries: QueryList(
+        [("lib::playlist", state.pathParameters['playlistId'] ?? "0")],
+      ),
+      title: state.extra is QueryTracksExtra
+          ? (state.extra as QueryTracksExtra).title
+          : null,
     ),
   ),
   GoRoute(
@@ -68,6 +85,9 @@ final routes = <GoRoute>[
     path: '/mixes/:mixId',
     builder: (context, state) => mixes.MixTrackesPage(
       mixId: int.parse(state.pathParameters['mixId'] ?? "0"),
+      title: state.extra is QueryTracksExtra
+          ? (state.extra as QueryTracksExtra).title
+          : null,
     ),
   ),
   GoRoute(

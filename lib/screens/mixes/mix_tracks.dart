@@ -1,13 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/query_list.dart';
 import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
 import '../../screens/query_tracks/query_tracks.dart';
 
-
 class MixTrackesPage extends StatefulWidget {
   final int mixId;
+  final String? title;
 
-  const MixTrackesPage({super.key, required this.mixId});
+  const MixTrackesPage({super.key, required this.mixId, required this.title});
 
   @override
   State<MixTrackesPage> createState() => _MixTrackesPageState();
@@ -33,7 +34,10 @@ class _MixTrackesPageState extends State<MixTrackesPage> {
         } else if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         } else {
-          return QueryTracksPage(queries: snapshot.data!);
+          return QueryTracksPage(
+            queries: QueryList(snapshot.data!),
+            title: widget.title,
+          );
         }
       },
     );
