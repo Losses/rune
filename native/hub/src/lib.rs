@@ -158,18 +158,12 @@ async fn player_loop(path: String) {
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
 
-            RecommendAndPlayRequest => (main_db, recommend_db, lib_path, player),
-            RecommendAndPlayMixRequest => (main_db, recommend_db, lib_path, player),
             IfAnalysisExistsRequest => (main_db),
 
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchMediaFileByIdsRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
-
-            StartPlayingCollectionRequest => (main_db, lib_path, player),
-            AddToQueueCollectionRequest => (main_db, lib_path, player),
-            StartRoamingCollectionRequest => (main_db, recommend_db, lib_path, player),
 
             GetCoverArtByFileIdRequest => (main_db),
             GetCoverArtByCoverArtIdRequest => (main_db),
@@ -208,6 +202,7 @@ async fn player_loop(path: String) {
             GetMixByIdRequest => (main_db),
             MixQueryRequest => (main_db, recommend_db, lib_path),
             FetchMixQueriesRequest => (main_db),
+            OperatePlaybackWithMixQueryRequest => (main_db, recommend_db, lib_path, player),
 
             SetLikedRequest => (main_db),
             GetLikedRequest => (main_db),

@@ -20,12 +20,18 @@ pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) 
         }
     };
 
-    for file in files {
-        let file_path =
-            canonicalize(canonicalized_path.join(file.directory).join(file.file_name)).unwrap();
-
-        player.lock().unwrap().add_to_playlist(file.id, file_path);
-    }
+    player.lock().unwrap().add_to_playlist(
+        files
+            .into_iter()
+            .map(|file| {
+                (
+                    file.id,
+                    canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
+                        .unwrap(),
+                )
+            })
+            .collect(),
+    );
 
     player.lock().unwrap().play();
 

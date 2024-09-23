@@ -22,16 +22,14 @@ pub enum PlaybackMode {
     Shuffle,
 }
 
-impl TryFrom<u32> for PlaybackMode {
-    type Error = &'static str;
-
-    fn try_from(value: u32) -> Result<Self, Self::Error> {
+impl From<u32> for PlaybackMode {
+    fn from(value: u32) -> Self {
         match value {
-            0 => Ok(PlaybackMode::Sequential),
-            1 => Ok(PlaybackMode::RepeatOne),
-            2 => Ok(PlaybackMode::RepeatAll),
-            3 => Ok(PlaybackMode::Shuffle),
-            _ => Err("Invalid value for PlaybackMode"),
+            0 => PlaybackMode::Sequential,
+            1 => PlaybackMode::RepeatOne,
+            2 => PlaybackMode::RepeatAll,
+            3 => PlaybackMode::Shuffle,
+            _ => PlaybackMode::Sequential,
         }
     }
 }
@@ -49,7 +47,9 @@ impl From<PlaybackMode> for u32 {
 
 #[derive(Debug)]
 pub enum PlayerCommand {
-    Load { index: usize },
+    Load {
+        index: usize,
+    },
     Play,
     Pause,
     Stop,
@@ -57,10 +57,17 @@ pub enum PlayerCommand {
     Previous,
     Switch(usize),
     Seek(f64),
-    AddToPlaylist { id: i32, path: PathBuf },
-    RemoveFromPlaylist { index: usize },
+    AddToPlaylist {
+        tracks: Vec<(i32, std::path::PathBuf)>,
+    },
+    RemoveFromPlaylist {
+        index: usize,
+    },
     ClearPlaylist,
-    MovePlayListItem { old_index: usize, new_index: usize },
+    MovePlayListItem {
+        old_index: usize,
+        new_index: usize,
+    },
     SetPlaybackMode(PlaybackMode),
 }
 
@@ -208,7 +215,7 @@ impl PlayerInternal {
                         PlayerCommand::Previous => self.previous(),
                         PlayerCommand::Switch(index) => self.switch(index),
                         PlayerCommand::Seek(position) => self.seek(position),
-                        PlayerCommand::AddToPlaylist { id, path } => self.add_to_playlist(id, path).await,
+                        PlayerCommand::AddToPlaylist{ tracks } => self.add_to_playlist(tracks).await,
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                         PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await,
@@ -480,9 +487,14 @@ impl PlayerInternal {
         }
     }
 
-    async fn add_to_playlist(&mut self, id: i32, path: PathBuf) {
-        debug!("Adding to playlist: {:?}", path);
-        self.playlist.push(PlaylistItem { id, path });
+    async fn add_to_playlist(&mut self, tracks: Vec<(i32, std::path::PathBuf)>) {
+        debug!("Adding tracks to playlist");
+        for track in tracks {
+            self.playlist.push(PlaylistItem {
+                id: track.0,
+                path: track.1,
+            });
+        }
         self.update_random_map();
         self.schedule_playlist_update();
     }

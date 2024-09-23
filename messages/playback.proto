@@ -1,6 +1,8 @@
 syntax = "proto3";
 package playback;
 
+import "mix.proto";
+
 // [RINF:DART-SIGNAL]
 message PlayFileRequest {
   int32 file_id = 1;
@@ -78,18 +80,11 @@ message RealtimeFFT {
 }
 
 // [RINF:DART-SIGNAL]
-message StartPlayingCollectionRequest {
-    string type = 1;
-    int32 id = 2;
-}
-
-// [RINF:DART-SIGNAL]
-message AddToQueueCollectionRequest {
-    string type = 1;
-    int32 id = 2;
-}
-// [RINF:DART-SIGNAL]
-message StartRoamingCollectionRequest {
-    string type = 1;
-    int32 id = 2;
+message OperatePlaybackWithMixQueryRequest {
+    repeated mix.MixQuery queries = 1;
+    uint32 playback_mode = 2;
+    int32 hint_position = 3;
+    int32 initial_playback_id = 4;
+    bool instantly_play = 5;
+    bool replace_playlist = 6;
 }

@@ -1,32 +1,24 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Context;
-use anyhow::Result;
-use database::actions::stats::increase_skipped;
+use anyhow::{Context, Result};
+use database::actions::mixes::query_mix_media_files;
 use dunce::canonicalize;
-use log::debug;
-use log::error;
+use log::{debug, error, info};
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 
-use database::actions::albums::get_media_file_ids_of_album;
-use database::actions::analysis::get_centralized_analysis_result;
-use database::actions::artists::get_media_file_ids_of_artist;
 use database::actions::file::get_file_by_id;
-use database::actions::file::get_files_by_ids;
-use database::actions::playlists::get_media_file_ids_of_playlist;
-use database::actions::recommendation::get_recommendation_by_parameter;
+use database::actions::stats::increase_skipped;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
+use crate::OperatePlaybackWithMixQueryRequest;
 use crate::{
-    AddToQueueCollectionRequest, MovePlaylistItemRequest, NextRequest, PauseRequest,
-    PlayFileRequest, PlayRequest, PreviousRequest, RemoveRequest, SeekRequest,
-    SetPlaybackModeRequest, StartPlayingCollectionRequest, StartRoamingCollectionRequest,
-    SwitchRequest,
+    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayFileRequest, PlayRequest,
+    PreviousRequest, RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
 };
 
 async fn play_file_by_id(
@@ -47,7 +39,7 @@ async fn play_file_by_id(
                     .join(file.file_name),
             )
             .unwrap();
-            player_guard.add_to_playlist(file_id, file_path);
+            player_guard.add_to_playlist([(file_id, file_path)].to_vec());
             player_guard.play();
         }
         Ok(_none) => {
@@ -78,31 +70,6 @@ pub fn files_to_playback_request(
         .collect::<Vec<_>>()
 }
 
-pub async fn update_playlist(
-    player: &Arc<Mutex<Player>>,
-    requests: Vec<(i32, std::path::PathBuf)>,
-) {
-    let player_guard = player.lock().await;
-    for request in requests {
-        player_guard.add_to_playlist(request.0, request.1);
-    }
-    player_guard.play();
-}
-
-macro_rules! handle_add_collection_to_playlist_request {
-    ($main_db:expr, $lib_path:expr, $player:expr, $dart_signal:expr, $get_media_file_ids_fn:expr) => {{
-        let request = $dart_signal.message;
-        let media_file_ids = $get_media_file_ids_fn(&$main_db, request.id)
-            .await
-            .unwrap_or_default();
-
-        let files = get_files_by_ids(&$main_db, &media_file_ids).await?;
-        let requests = files_to_playback_request(&$lib_path, files);
-
-        update_playlist(&$player, requests).await;
-    }};
-}
-
 pub async fn play_file_request(
     main_db: Arc<DatabaseConnection>,
     lib_path: Arc<String>,
@@ -113,110 +80,6 @@ pub async fn play_file_request(
     let file_id = play_file_request.file_id;
 
     play_file_by_id(main_db, player, lib_path, file_id).await;
-
-    Ok(())
-}
-
-pub async fn start_playing_collection_request(
-    main_db: Arc<MainDbConnection>,
-    lib_path: Arc<String>,
-    player: Arc<Mutex<Player>>,
-    dart_signal: DartSignal<StartPlayingCollectionRequest>,
-) -> Result<()> {
-    player.lock().await.pause();
-    player.lock().await.clear_playlist();
-
-    match dart_signal.message.r#type.as_str() {
-        "artist" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_artist
-        ),
-        "album" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_album
-        ),
-        "playlist" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_playlist
-        ),
-        _ => {}
-    }
-
-    Ok(())
-}
-
-pub async fn add_to_queue_collection_request(
-    main_db: Arc<MainDbConnection>,
-    lib_path: Arc<String>,
-    player: Arc<Mutex<Player>>,
-    dart_signal: DartSignal<AddToQueueCollectionRequest>,
-) -> Result<()> {
-    match dart_signal.message.r#type.as_str() {
-        "artist" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_artist
-        ),
-        "album" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_album
-        ),
-        "playlist" => handle_add_collection_to_playlist_request!(
-            main_db,
-            lib_path,
-            player,
-            dart_signal,
-            get_media_file_ids_of_playlist
-        ),
-        _ => {}
-    }
-
-    Ok(())
-}
-
-pub async fn start_roaming_collection_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    lib_path: Arc<String>,
-    player: Arc<Mutex<Player>>,
-    dart_signal: DartSignal<StartRoamingCollectionRequest>,
-) -> Result<()> {
-    let request = dart_signal.message;
-    let media_file_ids = match request.r#type.as_str() {
-        "artist" => get_media_file_ids_of_artist(&main_db, request.id).await,
-        "album" => get_media_file_ids_of_album(&main_db, request.id).await,
-        "playlist" => get_media_file_ids_of_playlist(&main_db, request.id).await,
-        _ => Ok(vec![]),
-    };
-
-    let aggregated = get_centralized_analysis_result(&main_db, media_file_ids.unwrap()).await?;
-    let recommendations = get_recommendation_by_parameter(&recommend_db, aggregated.into(), 30)?;
-
-    let files = get_files_by_ids(
-        &main_db,
-        &recommendations
-            .into_iter()
-            .map(|x| x.0 as i32)
-            .collect::<Vec<i32>>(),
-    )
-    .await?;
-
-    let requests = files_to_playback_request(&lib_path, files);
-    update_playlist(&player, requests).await;
 
     Ok(())
 }
@@ -273,10 +136,7 @@ pub async fn set_playback_mode_request(
 ) {
     let mode = dart_signal.message.mode;
     debug!("Setting playback mode to: {}", mode);
-    player
-        .lock()
-        .await
-        .set_playback_mode(mode.try_into().unwrap())
+    player.lock().await.set_playback_mode(mode.into())
 }
 
 pub async fn switch_request(
@@ -327,4 +187,111 @@ pub async fn move_playlist_item_request(
         .lock()
         .await
         .move_playlist_item(old_index.try_into().unwrap(), new_index.try_into().unwrap());
+}
+
+fn find_nearest_index<T, F>(vec: &[T], hint_position: usize, predicate: F) -> Option<usize>
+where
+    F: Fn(&T) -> bool,
+{
+    if vec.is_empty() {
+        return None;
+    }
+
+    let len = vec.len();
+    let mut left = hint_position;
+    let mut right = hint_position;
+
+    loop {
+        if left < len && predicate(&vec[left]) {
+            return Some(left);
+        }
+
+        if right < len && predicate(&vec[right]) {
+            return Some(right);
+        }
+
+        if left == 0 && right >= len - 1 {
+            break;
+        }
+
+        left = left.saturating_sub(1);
+
+        if right < len - 1 {
+            right += 1;
+        }
+    }
+
+    None
+}
+
+pub async fn operate_playback_with_mix_query_request(
+    main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
+    lib_path: Arc<String>,
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<OperatePlaybackWithMixQueryRequest>,
+) {
+    let request = dart_signal.message;
+
+    info!("Handling mix operators: {:?}", request.queries);
+
+    let tracks = query_mix_media_files(
+        &main_db,
+        &recommend_db,
+        request
+            .queries
+            .into_iter()
+            .map(|x| (x.operator, x.parameter))
+            .collect(),
+        0,
+        20480,
+    )
+    .await
+    .with_context(|| "Failed to query tracks");
+
+    match tracks {
+        Ok(files) => {
+            if request.replace_playlist {
+                player.lock().await.clear_playlist();
+            }
+
+            let playlist_len = if request.replace_playlist {
+                0
+            } else {
+                player.lock().await.get_playlist().len()
+            };
+
+            player
+                .lock()
+                .await
+                .add_to_playlist(files_to_playback_request(&lib_path, files.clone()));
+
+            let file_ids: Vec<i32> = files.into_iter().map(|x| x.id).collect();
+
+            if request.instantly_play {
+                let nearest_index: Option<usize> = if request.hint_position < 0 {
+                    Some(0)
+                } else {
+                    find_nearest_index(&file_ids, request.hint_position.try_into().unwrap(), |x| {
+                        *x == request.initial_playback_id
+                    })
+                };
+
+                if let Some(nearest_id) = nearest_index {
+                    if request.playback_mode != 99 {
+                        player
+                            .lock()
+                            .await
+                            .set_playback_mode(request.playback_mode.into());
+                    }
+
+                    player.lock().await.switch(nearest_id + playlist_len);
+                    player.lock().await.play();
+                } else {
+                    error!("Failed to find the neareat playback item based on the hint");
+                }
+            }
+        }
+        Err(e) => error!("{:?}", e),
+    }
 }

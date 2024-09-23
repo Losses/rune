@@ -1,4 +1,5 @@
 import 'package:player/messages/mix.pbserver.dart';
+import 'package:player/messages/playback.pb.dart';
 import 'package:player/utils/api/add_item_to_mix.dart';
 import 'package:player/utils/api/add_item_to_playlist.dart';
 import 'package:player/utils/api/get_all_mixes.dart';
@@ -15,7 +16,6 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../screens/settings_library/widgets/progress_button.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';
-import '../../messages/recommend.pbserver.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 
@@ -199,9 +199,20 @@ Widget buildTrackItemContextMenu(
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
         text: const Text('Start Roaming'),
-        onPressed: () => {
-          RecommendAndPlayRequest(fileId: item.file.id)
-              .sendSignalToRust() // GENERATED
+        onPressed: () {
+          OperatePlaybackWithMixQueryRequest(
+            queries: [
+              MixQuery(
+                  operator: "lib::track", parameter: item.file.id.toString()),
+              MixQuery(operator: "pipe::limit", parameter: "50"),
+              MixQuery(operator: "pipe::recommend", parameter: "-1")
+            ],
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: true,
+            replacePlaylist: true,
+          ).sendSignalToRust();
         },
       ),
       MenuFlyoutItem(

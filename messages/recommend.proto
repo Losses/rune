@@ -2,26 +2,6 @@ syntax = "proto3";
 package recommend;
 
 // [RINF:DART-SIGNAL]
-message RecommendAndPlayRequest {
-  int32 file_id = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message PlaybackRecommendation {
-  repeated int32 recommended_ids = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message RecommendAndPlayMixRequest {
-  int32 mix_id = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message RecommendAndPlayMixResponse {
-  repeated int32 recommended_ids = 1;
-}
-
-// [RINF:DART-SIGNAL]
 message IfAnalysisExistsRequest {
   int32 file_id = 1;
 }

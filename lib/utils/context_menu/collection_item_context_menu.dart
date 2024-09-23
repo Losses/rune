@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
 
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
@@ -134,25 +135,62 @@ Widget buildCollectionItemContextMenu(
     );
   }).toList();
 
+  Future<List<MixQuery>> mixOrQuery(String type, int id) async {
+    final List<(String, String)> queries = type == 'mix'
+        ? await fetchMixQueriesByMixId(id)
+        : [(typeToOperator[type]!, id.toString())];
+
+    return queries
+        .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
+        .toList();
+  }
+
   List<MenuFlyoutItemBase> items = [
     MenuFlyoutItem(
       leading: const Icon(Symbols.play_circle),
       text: const Text('Start Playing'),
-      onPressed: () => {
-        StartPlayingCollectionRequest(type: type, id: id).sendSignalToRust()
+      onPressed: () async {
+        OperatePlaybackWithMixQueryRequest(
+          queries: await mixOrQuery(type, id),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: true,
+          replacePlaylist: true,
+        ).sendSignalToRust();
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
       text: const Text('Add to Queue'),
-      onPressed: () =>
-          {AddToQueueCollectionRequest(type: type, id: id).sendSignalToRust()},
+      onPressed: () async {
+        OperatePlaybackWithMixQueryRequest(
+          queries: await mixOrQuery(type, id),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+        ).sendSignalToRust();
+      },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.rocket),
       text: const Text('Start Roaming'),
-      onPressed: () => {
-        StartRoamingCollectionRequest(type: type, id: id).sendSignalToRust()
+      onPressed: () async {
+        final queries = await mixOrQuery(type, id);
+
+        queries.add(MixQuery(operator: "pipe::limit", parameter: "50"));
+        queries.add(MixQuery(operator: "pipe::recommend", parameter: "-1"));
+
+        OperatePlaybackWithMixQueryRequest(
+          queries: queries,
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: true,
+          replacePlaylist: true,
+        ).sendSignalToRust();
       },
     ),
   ];

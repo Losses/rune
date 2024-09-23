@@ -302,8 +302,8 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, id: i32, path: PathBuf) {
-        self.command(PlayerCommand::AddToPlaylist { id, path });
+    pub fn add_to_playlist(&self, tracks: Vec<(i32, std::path::PathBuf)>) {
+        self.command(PlayerCommand::AddToPlaylist { tracks });
     }
 
     pub fn remove_from_playlist(&self, index: usize) {
