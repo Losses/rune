@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use database::actions::playlists::list_playlists;
-use database::actions::playlists::remove_playlist;
-use log::{debug, error};
+use anyhow::{anyhow, Context, Result};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 
@@ -14,6 +12,8 @@ use database::actions::playlists::get_all_playlists;
 use database::actions::playlists::get_playlist_by_id;
 use database::actions::playlists::get_playlists_by_ids;
 use database::actions::playlists::get_playlists_groups;
+use database::actions::playlists::list_playlists;
+use database::actions::playlists::remove_playlist;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
 use database::actions::utils::create_count_by_first_letter;
@@ -39,339 +39,301 @@ use crate::{
 pub async fn fetch_playlists_group_summary_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchPlaylistsGroupSummaryRequest>,
-) {
-    debug!("Requesting summary group");
-
+) -> Result<()> {
     let count_playlists = create_count_by_first_letter::<playlists::Entity>();
 
-    match count_playlists(&main_db).await {
-        Ok(entry) => {
-            let playlists_groups = entry
-                .into_iter()
-                .map(|x| PlaylistsGroupSummary {
-                    group_title: x.0,
-                    count: x.1,
-                })
-                .collect();
-            PlaylistGroupSummaryResponse { playlists_groups }.send_signal_to_dart();
-            // GENERATED
-        }
-        Err(e) => {
-            error!("Failed to fetch playlists groups summary: {}", e);
-        }
-    };
+    let entry = count_playlists(&main_db)
+        .await
+        .with_context(|| "Failed to fetch playlists groups summary")?;
+
+    let playlists_groups = entry
+        .into_iter()
+        .map(|x| PlaylistsGroupSummary {
+            group_title: x.0,
+            count: x.1,
+        })
+        .collect();
+    PlaylistGroupSummaryResponse { playlists_groups }.send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn fetch_playlists_groups_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<FetchPlaylistsGroupsRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!("Requesting playlists groups");
+    let entry = get_playlists_groups(&main_db, request.group_titles)
+        .await
+        .with_context(|| "Failed to fetch playlists groups")?;
 
-    match get_playlists_groups(&main_db, request.group_titles).await {
-        Ok(entry) => {
-            PlaylistsGroups {
-                groups: entry
+    PlaylistsGroups {
+        groups: entry
+            .into_iter()
+            .map(|x| PlaylistsGroup {
+                group_title: x.0,
+                playlists: x
+                    .1
                     .into_iter()
-                    .map(|x| PlaylistsGroup {
-                        group_title: x.0,
-                        playlists: x
-                            .1
-                            .into_iter()
-                            .map(|x| Playlist {
-                                id: x.0.id,
-                                name: x.0.name,
-                                group: x.0.group,
-                                cover_ids: x.1.into_iter().collect(),
-                            })
-                            .collect(),
+                    .map(|x| Playlist {
+                        id: x.0.id,
+                        name: x.0.name,
+                        group: x.0.group,
+                        cover_ids: x.1.into_iter().collect(),
                     })
                     .collect(),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to fetch playlists groups: {}", e);
-        }
-    };
+            })
+            .collect(),
+    }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn fetch_playlists_by_ids_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<FetchPlaylistsByIdsRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!("Requesting playlists: {:#?}", request.ids);
+    let items = get_playlists_by_ids(&main_db, &request.ids)
+        .await
+        .with_context(|| format!("Failed to playlists: {:#?}", request.ids))?;
+    let magic_cover_id = get_magic_cover_art_id(&main_db).await.unwrap_or(-1);
+    let covers = get_playlist_cover_ids(&main_db, &items).await.unwrap();
 
-    match get_playlists_by_ids(&main_db, &request.ids).await {
-        Ok(items) => {
-            let magic_cover_id = get_magic_cover_art_id(&main_db).await.unwrap_or(-1);
-            let covers = get_playlist_cover_ids(&main_db, &items).await.unwrap();
-
-            FetchPlaylistsByIdsResponse {
-                result: items
+    FetchPlaylistsByIdsResponse {
+        result: items
+            .into_iter()
+            .map(|x| Playlist {
+                id: x.id,
+                name: x.name,
+                group: x.group,
+                cover_ids: covers
+                    .get(&x.id)
+                    .cloned()
+                    .unwrap_or_default()
                     .into_iter()
-                    .map(|x| Playlist {
-                        id: x.id,
-                        name: x.name,
-                        group: x.group,
-                        cover_ids: covers
-                            .get(&x.id)
-                            .cloned()
-                            .unwrap_or_default()
-                            .into_iter()
-                            .filter(|x| *x != magic_cover_id)
-                            .collect(),
-                    })
+                    .filter(|x| *x != magic_cover_id)
                     .collect(),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to fetch albums groups: {}", e);
-        }
-    };
+            })
+            .collect(),
+    }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn fetch_all_playlists_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchAllPlaylistsRequest>,
-) {
-    debug!("Fetching all playlists");
+) -> Result<()> {
+    let playlists = get_all_playlists(&main_db)
+        .await
+        .with_context(|| "Failed to fetch all playlists")?;
 
-    match get_all_playlists(&main_db).await {
-        Ok(playlists) => {
-            FetchAllPlaylistsResponse {
-                playlists: playlists
-                    .into_iter()
-                    .map(|playlist| PlaylistWithoutCoverIds {
-                        id: playlist.id,
-                        name: playlist.name,
-                        group: playlist.group,
-                    })
-                    .collect(),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to fetch all playlists: {}", e);
-        }
+    FetchAllPlaylistsResponse {
+        playlists: playlists
+            .into_iter()
+            .map(|playlist| PlaylistWithoutCoverIds {
+                id: playlist.id,
+                name: playlist.name,
+                group: playlist.group,
+            })
+            .collect(),
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn create_playlist_request(
     main_db: Arc<MainDbConnection>,
     search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<CreatePlaylistRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!(
-        "Creating playlist: name={}, group={}",
-        request.name, request.group
-    );
+    let name = request.name;
+    let group = request.group;
 
     // Lock the mutex to get mutable access to the search_db
     let mut search_db = search_db.lock().await;
 
-    match create_playlist(&main_db, &mut search_db, request.name, request.group).await {
-        Ok(playlist) => {
-            CreatePlaylistResponse {
-                playlist: Some(PlaylistWithoutCoverIds {
-                    id: playlist.id,
-                    name: playlist.name,
-                    group: playlist.group,
-                }),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to create playlist: {}", e);
-        }
+    let playlist = create_playlist(&main_db, &mut search_db, name.clone(), group.clone())
+        .await
+        .with_context(|| format!("Failed to create playlist: name={}, group={}", name, group))?;
+
+    CreatePlaylistResponse {
+        playlist: Some(PlaylistWithoutCoverIds {
+            id: playlist.id,
+            name: playlist.name,
+            group: playlist.group,
+        }),
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn update_playlist_request(
     main_db: Arc<MainDbConnection>,
     search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<UpdatePlaylistRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!(
-        "Updating playlist: id={}, name={:?}, group={:?}",
-        request.playlist_id, request.name, request.group
-    );
+    let name = request.name;
+    let group = request.group;
 
     let mut search_db = search_db.lock().await;
 
-    match update_playlist(
+    let playlist = update_playlist(
         &main_db,
         &mut search_db,
         request.playlist_id,
-        Some(request.name),
-        Some(request.group),
+        Some(name.clone()),
+        Some(group.clone()),
     )
     .await
-    {
-        Ok(playlist) => {
-            UpdatePlaylistResponse {
-                playlist: Some(PlaylistWithoutCoverIds {
-                    id: playlist.id,
-                    name: playlist.name,
-                    group: playlist.group,
-                }),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to update playlist: {}", e);
-        }
+    .with_context(|| {
+        format!(
+            "Failed to update playlist: id={}, name={:?}, group={:?}",
+            request.playlist_id, name, group
+        )
+    })?;
+
+    UpdatePlaylistResponse {
+        playlist: Some(PlaylistWithoutCoverIds {
+            id: playlist.id,
+            name: playlist.name,
+            group: playlist.group,
+        }),
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn remove_playlist_request(
     main_db: Arc<MainDbConnection>,
     search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<RemovePlaylistRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
-
-    debug!("Removing playlist: id={}", request.playlist_id);
 
     let mut search_db = search_db.lock().await;
 
-    match remove_playlist(&main_db, &mut search_db, request.playlist_id).await {
-        Ok(_) => {
-            RemovePlaylistResponse {
-                playlist_id: request.playlist_id,
-                success: true,
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            RemovePlaylistResponse {
-                playlist_id: request.playlist_id,
-                success: false,
-            }
-            .send_signal_to_dart();
-            error!("Failed to remove playlist: {}", e);
-        }
+    remove_playlist(&main_db, &mut search_db, request.playlist_id)
+        .await
+        .with_context(|| format!("Removing playlist: id={}", request.playlist_id))?;
+
+    RemovePlaylistResponse {
+        playlist_id: request.playlist_id,
+        success: true,
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn add_item_to_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<AddItemToPlaylistRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!(
-        "Adding item to playlist: playlist_id={}, media_file_id={}, position={:#?}",
-        request.playlist_id, request.media_file_id, request.position
-    );
-
-    match add_item_to_playlist(
+    add_item_to_playlist(
         &main_db,
         request.playlist_id,
         request.media_file_id,
         request.position,
     )
     .await
-    {
-        Ok(_) => {
-            AddItemToPlaylistResponse { success: true }.send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to add item to playlist: {}", e);
-            AddItemToPlaylistResponse { success: false }.send_signal_to_dart();
-        }
-    }
+    .with_context(|| {
+        format!(
+            "Failed to add item to playlist: playlist_id={}, media_file_id={}, position={:#?}",
+            request.playlist_id, request.media_file_id, request.position
+        )
+    })?;
+
+    AddItemToPlaylistResponse { success: true }.send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn reorder_playlist_item_position_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<ReorderPlaylistItemPositionRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!(
-        "Reordering playlist item: playlist_id={}, media_file_id={}, new_position={}",
-        request.playlist_id, request.media_file_id, request.new_position
-    );
-
-    match reorder_playlist_item_position(
+    reorder_playlist_item_position(
         &main_db,
         request.playlist_id,
         request.media_file_id,
         request.new_position,
     )
     .await
-    {
-        Ok(_) => {
-            ReorderPlaylistItemPositionResponse { success: true }.send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to reorder playlist item: {}", e);
-            ReorderPlaylistItemPositionResponse { success: false }.send_signal_to_dart();
-        }
-    }
+    .with_context(|| {
+        format!(
+            "Failed to reorder playlist item: playlist_id={}, media_file_id={}, new_position={}",
+            request.playlist_id, request.media_file_id, request.new_position
+        )
+    })?;
+
+    ReorderPlaylistItemPositionResponse { success: true }.send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn get_playlist_by_id_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetPlaylistByIdRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!("Requesting playlist by id: {}", request.playlist_id);
+    let playlist = get_playlist_by_id(&main_db, request.playlist_id)
+        .await
+        .with_context(|| format!("Failed to get playlist by id: {}", request.playlist_id))?
+        .ok_or(anyhow!(
+            "Playlist not found with id: {}",
+            request.playlist_id
+        ))?;
 
-    match get_playlist_by_id(&main_db, request.playlist_id).await {
-        Ok(playlist) => match playlist {
-            Some(playlist) => {
-                GetPlaylistByIdResponse {
-                    playlist: Some(PlaylistWithoutCoverIds {
-                        id: playlist.id,
-                        name: playlist.name,
-                        group: playlist.group,
-                    }),
-                }
-                .send_signal_to_dart();
-            }
-            _none => {
-                error!("Playlist not found: {}", request.playlist_id);
-            }
-        },
-        Err(e) => {
-            error!("Failed to get playlist by id: {}", e);
-        }
+    GetPlaylistByIdResponse {
+        playlist: Some(PlaylistWithoutCoverIds {
+            id: playlist.id,
+            name: playlist.name,
+            group: playlist.group,
+        }),
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn search_playlist_summary_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SearchPlaylistSummaryRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    match list_playlists(&main_db, request.n.try_into().unwrap()).await {
-        Ok(items) => {
-            SearchPlaylistSummaryResponse {
-                result: items
-                    .into_iter()
-                    .map(|x| PlaylistSummary {
-                        id: x.id,
-                        name: x.name,
-                    })
-                    .collect(),
-            }
-            .send_signal_to_dart();
-        }
-        Err(e) => {
-            error!("Failed to search album summary: {}", e);
-        }
-    };
+    let items = list_playlists(&main_db, request.n.try_into().unwrap())
+        .await
+        .with_context(|| "Failed to search album summary")?;
+
+    SearchPlaylistSummaryResponse {
+        result: items
+            .into_iter()
+            .map(|x| PlaylistSummary {
+                id: x.id,
+                name: x.name,
+            })
+            .collect(),
+    }
+    .send_signal_to_dart();
+
+    Ok(())
 }

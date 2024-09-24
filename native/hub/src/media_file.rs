@@ -1,10 +1,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
 use dunce::canonicalize;
-use log::debug;
-use log::{error, info};
 use rinf::DartSignal;
 
 use database::actions::file::get_files_by_ids;
@@ -59,8 +57,6 @@ pub async fn fetch_media_files_request(
     let cursor = fetch_media_files.cursor;
     let page_size = fetch_media_files.page_size;
 
-    info!("Fetching media list, page: {}, size: {}", cursor, page_size);
-
     let media_entries = get_media_files(
         &db,
         cursor.try_into().unwrap(),
@@ -68,17 +64,17 @@ pub async fn fetch_media_files_request(
     )
     .await?;
 
-    let media_summaries = get_metadata_summary_by_files(&db, media_entries);
+    let media_summaries = get_metadata_summary_by_files(&db, media_entries)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to fetch media list, page: {}, size: {}",
+                cursor, page_size
+            )
+        })?;
 
-    match media_summaries.await {
-        Ok(media_summaries) => {
-            let media_files = parse_media_files(media_summaries, lib_path).await?;
-            MediaFileList { media_files }.send_signal_to_dart(); // GENERATED
-        }
-        Err(e) => {
-            error!("Error happened while getting media summaries: {:#?}", e)
-        }
-    }
+    let media_files = parse_media_files(media_summaries, lib_path).await?;
+    MediaFileList { media_files }.send_signal_to_dart(); // GENERATED
 
     Ok(())
 }
@@ -87,37 +83,24 @@ pub async fn fetch_media_file_by_ids_request(
     main_db: Arc<MainDbConnection>,
     lib_path: Arc<String>,
     dart_signal: DartSignal<FetchMediaFileByIdsRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    debug!("Requesting media files: {:#?}", request.ids);
+    let media_entries = get_files_by_ids(&main_db, &request.ids)
+        .await
+        .with_context(|| format!("Failed to get media summaries for id: {:?}", request.ids))?;
 
-    match get_files_by_ids(&main_db, &request.ids).await {
-        Ok(media_entries) => {
-            let media_summaries = get_metadata_summary_by_files(&main_db, media_entries);
+    let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
+        .await
+        .with_context(|| "Unable to get media summaries")?;
 
-            match media_summaries.await {
-                Ok(media_summaries) => {
-                    let items = parse_media_files(media_summaries, lib_path).await;
+    let items = parse_media_files(media_summaries, lib_path)
+        .await
+        .with_context(|| "Failed to parse media summaries")?;
 
-                    match items {
-                        Ok(items) => {
-                            FetchMediaFileByIdsResponse { result: items }.send_signal_to_dart();
-                        }
-                        Err(e) => {
-                            error!("Error happened while parsing media summaries: {:#?}", e)
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Error happened while getting media summaries: {:#?}", e)
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to fetch albums groups: {}", e);
-        }
-    };
+    FetchMediaFileByIdsResponse { result: items }.send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn fetch_parsed_media_file_request(
@@ -127,80 +110,68 @@ pub async fn fetch_parsed_media_file_request(
 ) -> Result<()> {
     let file_id = dart_signal.message.id;
 
-    match get_parsed_file_by_id(&db, file_id).await {
-        Ok((media_file, artists, album)) => {
-            let parsed_media_file = parse_media_files(vec![media_file], lib_path.clone());
+    let (media_file, artists, album) = get_parsed_file_by_id(&db, file_id)
+        .await
+        .with_context(|| "Failed to get media summaries")?;
 
-            match parsed_media_file.await {
-                Ok(parsed_files) => {
-                    if let Some(media_file) = parsed_files.first() {
-                        if let Some(album) = album {
-                            FetchParsedMediaFileResponse {
-                                file: Some(media_file.clone()),
-                                artists: artists
-                                    .into_iter()
-                                    .map(|x| Artist {
-                                        id: x.id,
-                                        name: x.name,
-                                        cover_ids: [].to_vec(),
-                                    })
-                                    .collect(),
-                                album: Some(Album {
-                                    id: album.id,
-                                    name: album.name,
-                                    cover_ids: [].to_vec(),
-                                }),
-                            }
-                            .send_signal_to_dart(); // GENERATED
-                        } else {
-                            error!("Album not found for file_id: {}", file_id);
-                        }
-                    } else {
-                        error!("Parsed media file not found for file_id: {}", file_id);
-                    }
-                }
-                Err(e) => {
-                    error!("Error happened while parsing media files: {:#?}", e);
-                }
-            }
-        }
-        Err(e) => {
-            error!("Error happened while getting media summaries: {:#?}", e);
-        }
-    };
+    let parsed_files = parse_media_files(vec![media_file], lib_path.clone())
+        .await
+        .with_context(|| "Failed to parse media files")?;
+
+    let media_file = parsed_files
+        .first()
+        .ok_or_else(|| anyhow!("Parsed Files not found for file_id: {}", file_id))
+        .with_context(|| "Failed to get media file")?;
+
+    let album = album
+        .ok_or(anyhow!("Parsed album not found for file_id: {}", file_id))
+        .with_context(|| "Failed to query album")?;
+
+    FetchParsedMediaFileResponse {
+        file: Some(media_file.clone()),
+        artists: artists
+            .into_iter()
+            .map(|x| Artist {
+                id: x.id,
+                name: x.name,
+                cover_ids: [].to_vec(),
+            })
+            .collect(),
+        album: Some(Album {
+            id: album.id,
+            name: album.name,
+            cover_ids: [].to_vec(),
+        }),
+    }
+    .send_signal_to_dart();
+
     Ok(())
 }
 
 pub async fn search_media_file_summary_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SearchMediaFileSummaryRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    match list_files(&main_db, request.n.try_into().unwrap()).await {
-        Ok(items) => {
-            let media_summaries = get_metadata_summary_by_files(&main_db, items);
+    let items = list_files(&main_db, request.n.try_into().unwrap())
+        .await
+        .with_context(|| "Failed to search media file summary")?;
 
-            match media_summaries.await {
-                Ok(media_summaries) => {
-                    SearchMediaFileSummaryResponse {
-                        result: media_summaries
-                            .into_iter()
-                            .map(|x| MediaFileSummary {
-                                id: x.id,
-                                name: x.title,
-                            })
-                            .collect(),
-                    }
-                    .send_signal_to_dart();
-                }
-                Err(e) => {
-                    error!("Error happened while getting media summaries: {:#?}", e)
-                }
-            }
-        }
-        Err(e) => {
-            error!("Failed to search media file summary: {}", e);
-        }
-    };
+    let media_summaries = get_metadata_summary_by_files(&main_db, items)
+        .await
+        .with_context(|| "Failed to get media summaries")?;
+
+    SearchMediaFileSummaryResponse {
+        result: media_summaries
+            .into_iter()
+            .map(|x| MediaFileSummary {
+                id: x.id,
+                name: x.title,
+            })
+            .collect(),
+    }
+    .send_signal_to_dart();
+
+    Ok(())
 }

@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
-use log::error;
+use anyhow::{Context, Result};
 use rinf::DartSignal;
 
 use crate::{IfAnalysisExistsRequest, IfAnalysisExistsResponse};
@@ -14,12 +13,10 @@ pub async fn if_analysis_exists_request(
 ) -> Result<()> {
     let file_id = dart_signal.message.file_id;
 
-    match if_analysis_exists(&main_db, file_id).await {
-        Ok(exists) => IfAnalysisExistsResponse { file_id, exists }.send_signal_to_dart(),
-        Err(_) => {
-            error!("Failed to test if analysis exists: {}", file_id)
-        }
-    };
+    let exists = if_analysis_exists(&main_db, file_id)
+        .await
+        .with_context(|| format!("Failed to test if analysis exists: {}", file_id))?;
+    IfAnalysisExistsResponse { file_id, exists }.send_signal_to_dart();
 
     Ok(())
 }

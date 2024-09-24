@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{debug, error};
+use anyhow::{Context, Result};
 use rinf::DartSignal;
 
 use crate::DirectoryTreeResponse;
@@ -26,18 +26,15 @@ fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
 pub async fn fetch_directory_tree_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchDirectoryTreeRequest>,
-) {
-    debug!("Fetching directory tree");
+) -> Result<()> {
+    let root = get_directory_tree(&main_db)
+        .await
+        .with_context(|| "Failed to fetch directory tree")?;
 
-    match get_directory_tree(&main_db).await {
-        Ok(root) => {
-            FetchDirectoryTreeResponse {
-                root: Some(convert_directory_tree(root)),
-            }
-            .send_signal_to_dart();
-        }
-        Err(_) => {
-            error!("Failed to fetch directory tree")
-        }
+    FetchDirectoryTreeResponse {
+        root: Some(convert_directory_tree(root)),
     }
+    .send_signal_to_dart();
+
+    Ok(())
 }

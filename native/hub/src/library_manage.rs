@@ -1,13 +1,14 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use database::actions::cover_art::scan_cover_arts;
+use anyhow::{Context, Result};
 use log::{debug, info};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use database::actions::analysis::analysis_audio_library;
+use database::actions::cover_art::scan_cover_arts;
 use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::sync_recommendation;
 use database::connection::MainDbConnection;
@@ -26,13 +27,11 @@ pub async fn close_library_request(
     lib_path: Arc<String>,
     cancel_token: Arc<CancellationToken>,
     dart_signal: DartSignal<CloseLibraryRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
-    info!("Closing library");
-
     if request.path != *lib_path {
-        return;
+        return Ok(());
     }
 
     cancel_token.cancel();
@@ -40,7 +39,9 @@ pub async fn close_library_request(
     CloseLibraryResponse {
         path: request.path.clone(),
     }
-    .send_signal_to_dart()
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub async fn scan_audio_library_request(
@@ -48,10 +49,8 @@ pub async fn scan_audio_library_request(
     search_db: Arc<Mutex<SearchDbConnection>>,
     cancel_token: Arc<CancellationToken>,
     dart_signal: DartSignal<ScanAudioLibraryRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
-
-    debug!("Scanning library summary: {:#?}", request);
 
     let mut search_db = search_db.lock().await;
 
@@ -74,20 +73,22 @@ pub async fn scan_audio_library_request(
 
     let batch_size = determine_batch_size();
 
-    let _ = scan_cover_arts(
+    scan_cover_arts(
         &main_db,
         Path::new(&request.path),
         batch_size,
         |now, total| info!("Scanning cover art: {}/{}", now, total),
         None,
     )
-    .await;
+    .await?;
 
     ScanAudioLibraryResponse {
         path: request.path.clone(),
         progress: file_processed as i32,
     }
-    .send_signal_to_dart()
+    .send_signal_to_dart();
+
+    Ok(())
 }
 
 pub fn determine_batch_size() -> usize {
@@ -104,7 +105,7 @@ pub async fn analyse_audio_library_request(
     recommend_db: Arc<RecommendationDbConnection>,
     cancel_token: Arc<CancellationToken>,
     dart_signal: DartSignal<AnalyseAudioLibraryRequest>,
-) {
+) -> Result<()> {
     let request = dart_signal.message;
 
     debug!("Analysing media files: {:#?}", request);
@@ -128,15 +129,17 @@ pub async fn analyse_audio_library_request(
         Some((*cancel_token).clone()),
     )
     .await
-    .expect("Audio analysis failed");
+    .with_context(|| "Audio analysis failed")?;
 
     sync_recommendation(&main_db, &recommend_db)
         .await
-        .expect("Recommendation synchronization failed");
+        .with_context(|| "Recommendation synchronization failed")?;
 
     AnalyseAudioLibraryResponse {
         path: request_path.clone(), // Use the original cloned path here
         total: total_files as i32,
     }
     .send_signal_to_dart();
+
+    Ok(())
 }

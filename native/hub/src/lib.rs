@@ -1,6 +1,5 @@
 mod album;
 mod artist;
-mod common;
 mod connection;
 mod cover_art;
 mod directory;
@@ -85,7 +84,10 @@ macro_rules! select_signal {
                             $(let $arg = Arc::clone(&$arg);)*
                             if let Some(dart_signal) = dart_signal {
                                 debug!("Processing signal: {}", stringify!($type));
-                                let _ = [<$type:snake>]($($arg),*, dart_signal).await;
+
+                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await {
+                                    error!("{:?}", e)
+                                };
                             }
                         }
                     )*

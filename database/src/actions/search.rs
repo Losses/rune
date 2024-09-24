@@ -1,8 +1,8 @@
 use core::fmt;
 use std::collections::HashMap;
-use std::error::Error;
 use std::str::FromStr;
 
+use anyhow::Result;
 use deunicode::deunicode;
 use log::warn;
 use tantivy::collector::{FilterCollector, TopDocs};
@@ -50,7 +50,8 @@ impl FromStr for CollectionType {
 }
 
 pub fn convert_to_collection_types(input: Vec<String>) -> Vec<CollectionType> {
-    input.into_iter()
+    input
+        .into_iter()
         .filter_map(|s| s.parse::<CollectionType>().ok())
         .collect()
 }
@@ -122,7 +123,7 @@ pub fn search_for(
     query_str: &str,
     search_fields: Option<Vec<CollectionType>>,
     n: usize,
-) -> Result<HashMap<CollectionType, Vec<i64>>, Box<dyn Error>> {
+) -> Result<HashMap<CollectionType, Vec<i64>>> {
     let schema = &search_db.schema;
     let term_name = schema.get_field("name").unwrap();
     let term_latinization = schema.get_field("latinization").unwrap();
