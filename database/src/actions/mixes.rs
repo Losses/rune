@@ -13,6 +13,7 @@ use sea_orm::JoinType;
 use sea_orm::TransactionTrait;
 use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
+use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
@@ -536,6 +537,10 @@ pub async fn query_mix_media_files(
         return Ok([].to_vec());
     }
 
+    if pipe_recommend.is_some() && get_analyse_count(main_db).await? < 1 {
+        return Ok([].to_vec());
+    }
+
     // Base query for media_files
     let mut query = media_files::Entity::find();
 
@@ -656,6 +661,10 @@ pub async fn query_mix_media_files(
             .all(main_db)
             .await
             .with_context(|| "Failed to query file ids for recommendation")?;
+
+        if file_ids.is_empty() {
+            return Ok([].to_vec());
+        }
 
         let virtual_point: [f32; 61] = if recommend_group >= 0 {
             get_percentile_analysis_result(

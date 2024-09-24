@@ -83,3 +83,8 @@ message OperatePlaybackWithMixQueryRequest {
     bool instantly_play = 5;
     bool replace_playlist = 6;
 }
+
+// [RINF:RUST-SIGNAL]
+message OperatePlaybackWithMixQueryResponse {
+    repeated int32 file_ids = 1;
+}

@@ -1,16 +1,17 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
 
+import '../../utils/query_list.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
+import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
+import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/mix/remove_mix_dialog.dart';
-import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
+import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 
-import '../../messages/playback.pb.dart';
 import '../../messages/mix.pbserver.dart';
 
 final Map<String, String> typeToOperator = {
@@ -139,14 +140,10 @@ Widget buildCollectionItemContextMenu(
     );
   }).toList();
 
-  Future<List<MixQuery>> mixOrQuery(String type, int id) async {
-    final List<(String, String)> queries = type == 'mix'
+  Future<List<(String, String)>> mixOrQuery(String type, int id) async {
+    return type == 'mix'
         ? await fetchMixQueriesByMixId(id)
         : [(typeToOperator[type]!, id.toString())];
-
-    return queries
-        .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
-        .toList();
   }
 
   List<MenuFlyoutItemBase> items = [
@@ -154,47 +151,51 @@ Widget buildCollectionItemContextMenu(
       leading: const Icon(Symbols.play_circle),
       text: const Text('Start Playing'),
       onPressed: () async {
-        OperatePlaybackWithMixQueryRequest(
-          queries: await mixOrQuery(type, id),
+        operatePlaybackWithMixQuery(
+          queries: QueryList(await mixOrQuery(type, id)),
           playbackMode: 99,
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: true,
           replacePlaylist: true,
-        ).sendSignalToRust();
+        );
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
       text: const Text('Add to Queue'),
       onPressed: () async {
-        OperatePlaybackWithMixQueryRequest(
-          queries: await mixOrQuery(type, id),
+        operatePlaybackWithMixQuery(
+          queries: QueryList(await mixOrQuery(type, id)),
           playbackMode: 99,
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: false,
           replacePlaylist: false,
-        ).sendSignalToRust();
+        );
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.rocket),
       text: const Text('Start Roaming'),
       onPressed: () async {
-        final queries = await mixOrQuery(type, id);
+        final queries = QueryList([
+          ...await mixOrQuery(type, id),
+          ("pipe::limit", "50"),
+          ("pipe::recommend", "-1"),
+        ]);
 
-        queries.add(MixQuery(operator: "pipe::limit", parameter: "50"));
-        queries.add(MixQuery(operator: "pipe::recommend", parameter: "-1"));
-
-        OperatePlaybackWithMixQueryRequest(
-          queries: queries,
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: true,
-          replacePlaylist: true,
-        ).sendSignalToRust();
+        if (context.mounted) {
+          await safeOperatePlaybackWithMixQuery(
+            context: context,
+            queries: queries,
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: true,
+            replacePlaylist: true,
+          );
+        }
       },
     ),
   ];

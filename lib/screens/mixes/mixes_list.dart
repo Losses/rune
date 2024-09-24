@@ -37,6 +37,11 @@ class MixesListViewState extends GroupedListBaseState<Mix, MixesGroupSummary> {
   }
 
   @override
+  bool userGenerated() {
+    return true;
+  }
+
+  @override
   Future<List<Group<Mix>>> fetchGroups(List<String> groupTitles) async {
     final fetchArtistsGroupsRequest = FetchMixesGroupsRequest()
       ..groupTitles.addAll(groupTitles);

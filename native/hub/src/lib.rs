@@ -1,4 +1,5 @@
 mod album;
+mod analyse;
 mod artist;
 mod connection;
 mod cover_art;
@@ -11,7 +12,6 @@ mod mix;
 mod playback;
 mod player;
 mod playlist;
-mod recommend;
 mod search;
 mod stat;
 
@@ -30,6 +30,7 @@ use ::database::connection::connect_search_db;
 use ::playback::player::Player;
 
 use crate::album::*;
+use crate::analyse::*;
 use crate::artist::*;
 use crate::connection::*;
 use crate::cover_art::*;
@@ -41,11 +42,11 @@ use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
-use crate::recommend::*;
 use crate::search::*;
 use crate::stat::*;
 
 use messages::album::*;
+use messages::analyse::*;
 use messages::artist::*;
 use messages::cover_art::*;
 use messages::directory::*;
@@ -55,7 +56,6 @@ use messages::media_file::*;
 use messages::mix::*;
 use messages::playback::*;
 use messages::playlist::*;
-use messages::recommend::*;
 use messages::search::*;
 use messages::stat::*;
 
@@ -158,7 +158,8 @@ async fn player_loop(path: String) {
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
 
-            IfAnalysisExistsRequest => (main_db),
+            IfAnalyseExistsRequest => (main_db),
+            GetAnalyseCountRequest => (main_db),
 
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchMediaFileByIdsRequest => (main_db, lib_path),

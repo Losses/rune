@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/foundation.dart';
 
 import './start_group_item.dart';
 
@@ -69,12 +70,22 @@ class StartGroupItems<T> extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final Dimensions dimensions = dimensionCalculator(
-            constraints.maxHeight, cellSize, gapSize, items);
+          constraints.maxHeight,
+          cellSize,
+          gapSize,
+          items,
+        );
 
-        final double finalHeight =
-            dimensions.rows * (cellSize + gapSize) - gapSize;
-        final double finalWidth =
-            dimensions.columns * (cellSize + gapSize) - gapSize;
+        final double finalHeight = clampDouble(
+          dimensions.rows * (cellSize + gapSize) - gapSize,
+          0,
+          double.infinity,
+        );
+        final double finalWidth = clampDouble(
+          dimensions.columns * (cellSize + gapSize) - gapSize,
+          0,
+          double.infinity,
+        );
 
         return SizedBox(
           width: finalWidth,

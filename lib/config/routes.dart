@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
-import 'package:player/utils/query_list.dart';
-import 'package:player/utils/router_extra.dart';
+
+import '../utils/query_list.dart';
+import '../utils/router_extra.dart';
 
 import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;

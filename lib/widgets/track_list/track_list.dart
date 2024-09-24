@@ -1,15 +1,19 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../../utils/query_list.dart';
+import '../../utils/queries_has_recommendation.dart';
+import '../../widgets/library_task_button.dart';
+import '../../widgets/no_items.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../messages/media_file.pb.dart';
 
 import './track_list_item.dart';
 
 class TrackList extends StatelessWidget {
   final PagingController<int, MediaFile> pagingController;
-  final List<(String, String)> queries;
+  final QueryList queries;
   final int mode;
 
   const TrackList({
@@ -33,6 +37,8 @@ class TrackList extends StatelessWidget {
 
           const ratio = 1 / 4;
 
+          final hasRecommendation = queriesHasRecommendation(queries);
+
           return SmoothHorizontalScroll(
               builder: (context, scrollController) => SizedBox(
                     height: finalHeight,
@@ -47,6 +53,13 @@ class TrackList extends StatelessWidget {
                         childAspectRatio: ratio,
                       ),
                       builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+                        noItemsFoundIndicatorBuilder: (context) {
+                          return NoItems(
+                            title: "No tracks found",
+                            hasRecommendation: hasRecommendation,
+                            pagingController: pagingController,
+                          );
+                        },
                         itemBuilder: (context, item, index) {
                           final int row = index % rows;
                           final int column = index ~/ rows;
@@ -69,5 +82,37 @@ class TrackList extends StatelessWidget {
                     ),
                   ));
         }));
+  }
+}
+
+class ActionButtons extends StatelessWidget {
+  const ActionButtons({
+    super.key,
+    required this.pagingController,
+    required this.hasRecommendation,
+  });
+
+  final PagingController pagingController;
+  final bool hasRecommendation;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        ScanLibraryButton(
+          title: "Scan Library",
+          onFinished: pagingController.refresh,
+        ),
+        if (hasRecommendation) ...[
+          const SizedBox(width: 12),
+          AnalyseLibraryButton(
+            title: "Analyse Tracks",
+            onFinished: pagingController.refresh,
+          ),
+        ]
+      ],
+    );
   }
 }

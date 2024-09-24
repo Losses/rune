@@ -6,21 +6,21 @@ import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
+import '../../utils/query_list.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_albums_by_ids.dart';
 import '../../utils/api/fetch_artists_by_ids.dart';
 import '../../utils/api/fetch_playlists_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
-import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../widgets/cover_art.dart';
 import '../../widgets/slide_fade_transition.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../messages/mix.pb.dart';
 import '../../messages/album.pb.dart';
 import '../../messages/artist.pb.dart';
 import '../../messages/search.pb.dart';
-import '../../messages/playback.pb.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';
 
@@ -393,16 +393,14 @@ class TrackItem extends SearchCard {
 
   @override
   void onPressed(BuildContext context) {
-    OperatePlaybackWithMixQueryRequest(
-      queries: [
-        MixQuery(operator: "lib::track", parameter: item.id.toString())
-      ],
+    operatePlaybackWithMixQuery(
+      queries: QueryList([("lib::track", item.id.toString())]),
       playbackMode: 99,
       hintPosition: 0,
       initialPlaybackId: item.id,
       replacePlaylist: true,
       instantlyPlay: true,
-    ).sendSignalToRust();
+    );
   }
 
   @override

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../../utils/query_list.dart';
 import '../../../utils/api/query_mix_tracks.dart';
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
@@ -10,7 +11,7 @@ import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart
 import '../../../messages/media_file.pb.dart';
 
 class QueryTrackListView extends StatefulWidget {
-  final List<(String, String)> queries;
+  final QueryList queries;
   final StartScreenLayoutManager layoutManager;
   final int mode;
 

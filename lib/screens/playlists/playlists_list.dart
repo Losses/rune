@@ -38,6 +38,11 @@ class PlaylistsListViewState
   }
 
   @override
+  bool userGenerated() {
+    return true;
+  }
+
+  @override
   Future<List<Group<Playlist>>> fetchGroups(List<String> groupTitles) async {
     final fetchPlaylistsGroupsRequest = FetchPlaylistsGroupsRequest()
       ..groupTitles.addAll(groupTitles);

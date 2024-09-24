@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:player/widgets/no_items.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
@@ -26,6 +27,7 @@ class StartScreen<T> extends StatefulWidget {
   final Future<void> Function(PagingController<int, Group<T>>, int) fetchPage;
   final Widget Function(BuildContext, T) itemBuilder;
   final PagingController<int, Group<T>> pagingController;
+  final bool userGenerated;
 
   const StartScreen({
     super.key,
@@ -33,6 +35,7 @@ class StartScreen<T> extends StatefulWidget {
     required this.fetchPage,
     required this.itemBuilder,
     required this.pagingController,
+    required this.userGenerated,
   });
 
   @override
@@ -85,6 +88,14 @@ class StartScreenState<T> extends State<StartScreen<T>> {
                   scrollDirection: Axis.horizontal,
                   scrollController: scrollController,
                   builderDelegate: PagedChildBuilderDelegate<Group<T>>(
+                    noItemsFoundIndicatorBuilder: (context) {
+                      return NoItems(
+                        title: "No collection found",
+                        hasRecommendation: false,
+                        pagingController: widget.pagingController,
+                        userGenerated: widget.userGenerated,
+                      );
+                    },
                     itemBuilder: (context, item, index) => StartGroup<T>(
                       key: ValueKey(item.groupTitle),
                       groupIndex: index,

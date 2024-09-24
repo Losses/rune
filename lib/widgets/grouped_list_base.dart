@@ -20,6 +20,8 @@ abstract class GroupedListBaseState<T, S> extends State<GroupedListBase<T, S>> {
 
   Future<List<Group<T>>> fetchSummary();
 
+  bool userGenerated();
+
   Future<void> fetchPage(
     PagingController<int, Group<T>> controller,
     int cursor,
@@ -67,6 +69,7 @@ abstract class GroupedListBaseState<T, S> extends State<GroupedListBase<T, S>> {
       fetchPage: fetchPage,
       itemBuilder: itemBuilder,
       pagingController: pagingController,
+      userGenerated: userGenerated(),
     );
   }
 

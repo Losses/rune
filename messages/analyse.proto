@@ -1,0 +1,22 @@
+syntax = "proto3";
+package analyse;
+
+// [RINF:DART-SIGNAL]
+message IfAnalyseExistsRequest {
+  int32 file_id = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message IfAnalyseExistsResponse {
+  int32 file_id = 1;
+  bool exists = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message GetAnalyseCountRequest {
+}
+
+// [RINF:RUST-SIGNAL]
+message GetAnalyseCountResponse {
+  uint64 count = 1;
+}

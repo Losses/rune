@@ -54,6 +54,9 @@ class LibraryManagerProvider with ChangeNotifier {
   StreamSubscription? _analyseProgressSubscription;
   StreamSubscription? _analyseResultSubscription;
 
+  final Map<String, Completer<void>> _scanCompleters = {};
+  final Map<String, Completer<void>> _analyseCompleters = {};
+
   LibraryManagerProvider() {
     initListeners();
   }
@@ -80,6 +83,10 @@ class LibraryManagerProvider with ChangeNotifier {
       if (initialize) {
         analyseLibrary(scanResult.path);
       }
+
+      // Complete the scan task
+      _scanCompleters[scanResult.path]?.complete();
+      _scanCompleters.remove(scanResult.path);
     });
 
     _analyseProgressSubscription =
@@ -102,6 +109,10 @@ class LibraryManagerProvider with ChangeNotifier {
           analyseResult.total,
           TaskStatus.finished,
           getAnalyseTaskProgress(analyseResult.path)?.initialize ?? false);
+
+      // Complete the analyse task
+      _analyseCompleters[analyseResult.path]?.complete();
+      _analyseCompleters.remove(analyseResult.path);
     });
   }
 
@@ -159,6 +170,32 @@ class LibraryManagerProvider with ChangeNotifier {
 
   AnalyseTaskProgress? getAnalyseTaskProgress(String path) {
     return _analyseTasks[path];
+  }
+
+  Future<void> waitForScanToComplete(String path) {
+    final taskProgress = getScanTaskProgress(path);
+    if (taskProgress == null || taskProgress.status == TaskStatus.finished) {
+      return Future.value();
+    }
+
+    final existed = _scanCompleters[path];
+    if (existed != null) return existed.future;
+
+    _scanCompleters[path] = Completer<void>();
+    return _scanCompleters[path]!.future;
+  }
+
+  Future<void> waitForAnalyseToComplete(String path) {
+    final taskProgress = getAnalyseTaskProgress(path);
+    if (taskProgress == null || taskProgress.status == TaskStatus.finished) {
+      return Future.value();
+    }
+
+    final existed = _analyseCompleters[path];
+    if (existed != null) return existed.future;
+
+    _analyseCompleters[path] = Completer<void>();
+    return _analyseCompleters[path]!.future;
   }
 
   @override

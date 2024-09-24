@@ -13,6 +13,7 @@ use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
 use crate::OperatePlaybackWithMixQueryRequest;
+use crate::OperatePlaybackWithMixQueryResponse;
 use crate::{
     MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PreviousRequest,
     RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
@@ -228,6 +229,11 @@ pub async fn operate_playback_with_mix_query_request(
         .add_to_playlist(files_to_playback_request(&lib_path, tracks.clone()));
 
     let file_ids: Vec<i32> = tracks.into_iter().map(|x| x.id).collect();
+
+    OperatePlaybackWithMixQueryResponse {
+        file_ids: file_ids.clone(),
+    }
+    .send_signal_to_dart();
 
     if !request.instantly_play {
         return Ok(());

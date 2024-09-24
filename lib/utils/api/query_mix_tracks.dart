@@ -1,14 +1,14 @@
-import 'package:player/messages/mix.pb.dart';
-import 'package:player/messages/media_file.pb.dart';
+import '../../utils/query_list.dart';
+import '../../messages/mix.pb.dart';
+import '../../messages/media_file.pb.dart';
 
 Future<List<MediaFile>> queryMixTracks(
-  List<(String, String)> queries, [
+  QueryList queries, [
   int? cursor,
   int? pageSize,
 ]) async {
   final request = MixQueryRequest(
-    queries:
-        queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)).toList(),
+    queries: queries.toQueryList(),
     pageSize: pageSize ?? 30,
     cursor: cursor,
   );

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:player/widgets/library_task_button.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -12,7 +13,6 @@ import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 
 import 'widgets/settings_button.dart';
-import 'widgets/progress_button.dart';
 import 'widgets/settings_tile_title.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
@@ -92,6 +92,13 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                   String fileName = File(itemPath).uri.pathSegments.last;
 
+                  void Function()? whileWorking(void Function() x) {
+                    return isCurrentLibrary ||
+                            (initializing && (scanWorking || analyseWorking))
+                        ? null
+                        : x;
+                  }
+
                   return ListTile.selectable(
                     title: SettingsTileTitle(
                       icon: Symbols.folder,
@@ -101,65 +108,28 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                       actionsBuilder: (context) => Row(
                         children: [
                           Button(
-                            onPressed: isCurrentLibrary ||
-                                    (initializing &&
-                                        (scanWorking || analyseWorking))
-                                ? null
-                                : () async {
-                                    await closeLibrary(context);
-                                    libraryPath
-                                        .setLibraryPath(allOpenedFiles[index]);
+                            onPressed: whileWorking(() async {
+                              await closeLibrary(context);
+                              libraryPath.setLibraryPath(allOpenedFiles[index]);
 
-                                    if (!context.mounted) return;
-                                    context.go('/library');
-                                  },
+                              if (!context.mounted) return;
+                              context.go('/library');
+                            }),
                             child: const Text("Switch to"),
                           ),
-                          const SizedBox(
-                            width: 12,
-                          ),
+                          const SizedBox(width: 12),
                           Button(
-                            onPressed: isCurrentLibrary ||
-                                    (initializing &&
-                                        (scanWorking || analyseWorking))
-                                ? null
-                                : () async {
-                                    libraryPath.removeOpenedFile(
-                                        allOpenedFiles[index]);
-                                  },
+                            onPressed: whileWorking(() async {
+                              libraryPath
+                                  .removeOpenedFile(allOpenedFiles[index]);
+                            }),
                             child: const Text("Remove"),
                           ),
                           if (isCurrentLibrary) ...[
-                            const SizedBox(
-                              width: 12,
-                            ),
-                            scanWorking
-                                ? const ProgressButton(
-                                    title: "Scanning",
-                                    onPressed: null,
-                                  )
-                                : Button(
-                                    onPressed: analyseWorking
-                                        ? null
-                                        : () => libraryManager.scanLibrary(
-                                            itemPath, false),
-                                    child: const Text("Scan"),
-                                  ),
-                            const SizedBox(
-                              width: 12,
-                            ),
-                            analyseWorking
-                                ? const ProgressButton(
-                                    title: "Analysing",
-                                    onPressed: null,
-                                  )
-                                : Button(
-                                    onPressed: scanWorking
-                                        ? null
-                                        : () => libraryManager.analyseLibrary(
-                                            itemPath, false),
-                                    child: const Text("Analyse"),
-                                  )
+                            const SizedBox(width: 12),
+                            const ScanLibraryButton(),
+                            const SizedBox(width: 12),
+                            const AnalyseLibraryButton(),
                           ]
                         ],
                       ),

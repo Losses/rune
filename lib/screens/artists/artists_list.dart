@@ -36,6 +36,11 @@ class ArtistsListViewState
   }
 
   @override
+  bool userGenerated() {
+    return false;
+  }
+
+  @override
   Future<List<Group<Artist>>> fetchGroups(List<String> groupTitles) async {
     final fetchArtistsGroupsRequest = FetchArtistsGroupsRequest()
       ..groupTitles.addAll(groupTitles);

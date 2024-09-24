@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../../utils/query_list.dart';
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -66,7 +67,7 @@ class TrackListViewState extends State<TrackListView> {
   Widget build(BuildContext context) {
     return TrackList(
       pagingController: _pagingController,
-      queries: const [("lib::all", "true")],
+      queries: const QueryList([("lib::all", "true")]),
       mode: 99,
     );
   }
