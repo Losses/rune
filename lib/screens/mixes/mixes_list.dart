@@ -89,6 +89,7 @@ class MixItem extends StatelessWidget {
           'mix',
           mix.id,
           refresh,
+          mix.locked,
         );
       },
       child: FlipTile(

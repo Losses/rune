@@ -67,6 +67,7 @@ pub async fn fetch_mixes_groups_request(
                         id: x.id,
                         name: x.name,
                         group: x.group,
+                        locked: x.locked,
                         cover_ids: [].to_vec(),
                     })
                     .collect(),
@@ -95,6 +96,7 @@ pub async fn fetch_mixes_by_ids_request(
                 id: x.id,
                 name: x.name,
                 group: x.group,
+                locked: x.locked,
                 cover_ids: [].to_vec(),
             })
             .collect(),
@@ -119,6 +121,7 @@ pub async fn fetch_all_mixes_request(
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
+                locked: mix.locked,
                 mode: mix.mode,
             })
             .collect(),
@@ -149,6 +152,7 @@ pub async fn create_mix_request(
             id: mix.id,
             name: mix.name,
             group: mix.group,
+            locked: mix.locked,
             mode: mix.mode,
         }),
     }
@@ -207,6 +211,7 @@ pub async fn update_mix_request(
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
+                locked: mix.locked,
                 mode: mix.mode,
             }),
         }
@@ -274,6 +279,7 @@ pub async fn get_mix_by_id_request(
             id: mix.id,
             name: mix.name,
             group: mix.group,
+            locked: mix.locked,
             mode: mix.mode,
         }),
     }

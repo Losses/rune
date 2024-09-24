@@ -43,14 +43,16 @@ message Mix {
   int32 id = 1;
   string name = 2;
   string group = 3;
-  repeated int32 cover_ids = 4;
+  bool locked = 4;
+  repeated int32 cover_ids = 5;
 }
 
 message MixWithoutCoverIds {
   int32 id = 1;
   string name = 2;
   string group = 3;
-  int32 mode = 4;
+  bool locked = 4;
+  int32 mode = 5;
 }
 
 message MixesGroup {

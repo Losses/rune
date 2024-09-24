@@ -84,6 +84,7 @@ void openCollectionItemContextMenu(
   String type,
   int id, [
   void Function()? refreshList,
+  bool? readonly,
 ]) async {
   final targetContext = contextAttachKey.currentContext;
 
@@ -104,6 +105,7 @@ void openCollectionItemContextMenu(
       id,
       mixes,
       refreshList,
+      readonly,
     ),
   );
 }
@@ -114,12 +116,14 @@ Widget buildCollectionItemContextMenu(
   int id,
   List<MixWithoutCoverIds> mixes, [
   void Function()? refreshList,
+  bool? readonly,
 ]) {
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
   final remove = typeToRemove[type];
 
-  final List<MenuFlyoutItem> mixItems = mixes.map((mix) {
+  final List<MenuFlyoutItem> mixItems =
+      mixes.where((x) => !x.locked).map((mix) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.magic_button),
       text: Text(mix.name),
@@ -201,9 +205,11 @@ Widget buildCollectionItemContextMenu(
       MenuFlyoutItem(
         leading: const Icon(Symbols.edit),
         text: Text(typeToEditLabel[type] ?? 'Edit'),
-        onPressed: () {
-          edit(context, refreshList, id);
-        },
+        onPressed: readonly == true
+            ? null
+            : () {
+                edit(context, refreshList, id);
+              },
       ),
     );
   }
@@ -213,7 +219,11 @@ Widget buildCollectionItemContextMenu(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
         text: Text(typeToRemoveLabel[type] ?? 'Remove'),
-        onPressed: () => {remove(context, refreshList, id)},
+        onPressed: readonly == true
+            ? null
+            : () {
+                remove(context, refreshList, id);
+              },
       ),
     );
   }

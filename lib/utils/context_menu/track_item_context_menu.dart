@@ -178,7 +178,8 @@ Widget buildTrackItemContextMenu(
     );
   }).toList();
 
-  final List<MenuFlyoutItem> mixItems = mixes.map((mixes) {
+  final List<MenuFlyoutItem> mixItems =
+      mixes.where((x) => !x.locked).map((mixes) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.magic_button),
       text: Text(mixes.name),
