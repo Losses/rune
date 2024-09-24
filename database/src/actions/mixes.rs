@@ -9,6 +9,7 @@ use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Expr;
 use sea_orm::ActiveValue;
+use sea_orm::JoinType;
 use sea_orm::TransactionTrait;
 use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
@@ -438,13 +439,14 @@ fn apply_join_filter(
     sort_skipped_asc: Option<bool>,
 ) -> Select<media_files::Entity> {
     if filter_liked.is_some() || sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() {
-        query.join(
-            sea_orm::JoinType::LeftJoin,
-            media_file_stats::Entity::belongs_to(media_files::Entity)
-                .from(media_file_stats::Column::MediaFileId)
-                .to(media_files::Column::Id)
-                .into(),
-        )
+        query
+            .join(
+                JoinType::LeftJoin,
+                media_file_stats::Relation::MediaFiles.def().rev(),
+            )
+            .column(media_file_stats::Column::Liked)
+            .column(media_file_stats::Column::PlayedThrough)
+            .column(media_file_stats::Column::Skipped)
     } else {
         query
     }
@@ -598,16 +600,18 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(dir_conditions);
     }
 
-    if !all {
-        if let Some(liked) = filter_liked {
+    if let Some(liked) = filter_liked {
+        if all {
+            query = query.filter(media_file_stats::Column::Liked.eq(liked));
+        } else {
             query = query.filter(
                 Condition::all()
                     .add(or_condition)
                     .add(media_file_stats::Column::Liked.eq(liked)),
             );
-        } else {
-            query = query.filter(or_condition);
         }
+    } else if !all {
+        query = query.filter(or_condition);
     }
 
     // Join with media_file_stats table for sorting by playedthrough and skipped, and filtering by liked
