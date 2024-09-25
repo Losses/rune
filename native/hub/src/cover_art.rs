@@ -1,13 +1,19 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use futures::future::join_all;
 use rinf::DartSignal;
 
 use database::actions::cover_art::get_cover_art_by_file_id;
 use database::actions::cover_art::get_cover_art_by_id;
 use database::actions::cover_art::get_random_cover_art_ids;
+use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
+use database::connection::RecommendationDbConnection;
 
+use crate::GetCoverArtIdsByMixQueriesRequest;
+use crate::GetCoverArtIdsByMixQueriesResponse;
+use crate::GetCoverArtIdsByMixQueriesResponseUnit;
 use crate::{
     CoverArtByCoverArtIdResponse, CoverArtByFileIdResponse, GetCoverArtByCoverArtIdRequest,
     GetCoverArtByFileIdRequest, GetRandomCoverArtIdsRequest, GetRandomCoverArtIdsResponse,
@@ -94,6 +100,62 @@ pub async fn get_random_cover_art_ids_request(
 
     GetRandomCoverArtIdsResponse {
         cover_art_ids: items.into_iter().map(|x| x.id).collect(),
+    }
+    .send_signal_to_dart();
+
+    Ok(())
+}
+
+pub async fn get_cover_art_ids_by_mix_queries_request(
+    main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
+    dart_signal: DartSignal<GetCoverArtIdsByMixQueriesRequest>,
+) -> Result<()> {
+    let requests = dart_signal.message.requests;
+
+    let files_futures = requests.into_iter().map(|x| {
+        let main_db = Arc::clone(&main_db);
+        let recommend_db = Arc::clone(&recommend_db);
+        async move {
+            let result = query_mix_media_files(
+                &main_db,
+                &recommend_db,
+                x.queries
+                    .into_iter()
+                    .map(|q| (q.operator, q.parameter))
+                    .chain([("filter::with_cover_art".to_string(), "true".to_string())])
+                    .collect(),
+                0,
+                18,
+            )
+            .await;
+
+            (x.id, result)
+        }
+    });
+
+    let files_results = join_all(files_futures).await;
+
+    let mut response_units = Vec::new();
+
+    for (id, result) in files_results {
+        match result {
+            Ok(files) => {
+                let cover_art_ids: Vec<i32> =
+                    files.iter().filter_map(|file| file.cover_art_id).collect();
+                response_units.push(GetCoverArtIdsByMixQueriesResponseUnit { id, cover_art_ids });
+            }
+            Err(_) => {
+                response_units.push(GetCoverArtIdsByMixQueriesResponseUnit {
+                    id,
+                    cover_art_ids: Vec::new(),
+                });
+            }
+        }
+    }
+
+    GetCoverArtIdsByMixQueriesResponse {
+        result: response_units,
     }
     .send_signal_to_dart();
 

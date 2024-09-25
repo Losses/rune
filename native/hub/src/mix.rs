@@ -64,10 +64,10 @@ pub async fn fetch_mixes_groups_request(
                     .1
                     .into_iter()
                     .map(|x| Mix {
-                        id: x.id,
-                        name: x.name,
-                        group: x.group,
-                        locked: x.locked,
+                        id: x.0.id,
+                        name: x.0.name,
+                        group: x.0.group,
+                        locked: x.0.locked,
                         cover_ids: [].to_vec(),
                     })
                     .collect(),

@@ -2,6 +2,7 @@ mod album;
 mod analyse;
 mod artist;
 mod connection;
+mod collection;
 mod cover_art;
 mod directory;
 mod library_home;
@@ -169,6 +170,7 @@ async fn player_loop(path: String) {
             GetCoverArtByFileIdRequest => (main_db),
             GetCoverArtByCoverArtIdRequest => (main_db),
             GetRandomCoverArtIdsRequest => (main_db),
+            GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
 
             FetchArtistsGroupSummaryRequest => (main_db),
             FetchArtistsGroupsRequest => (main_db),
