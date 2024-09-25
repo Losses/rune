@@ -2,46 +2,26 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use futures::future::join_all;
 use rinf::DartSignal;
 
-use database::actions::albums::get_albums_by_ids;
-use database::actions::albums::get_albums_groups;
-use database::actions::albums::list_albums;
-use database::actions::artists::get_artists_by_ids;
-use database::actions::artists::get_artists_groups;
-use database::actions::artists::list_artists;
-use database::actions::mixes::get_mix_queries_by_mix_id;
-use database::actions::mixes::get_mixes_by_ids;
-use database::actions::mixes::get_mixes_groups;
-use database::actions::mixes::list_mixes;
-use database::actions::playlists::get_playlists_by_ids;
-use database::actions::playlists::get_playlists_groups;
-use database::actions::playlists::list_playlists;
 use database::actions::utils::create_count_by_first_letter;
 use database::connection::MainDbConnection;
-use database::entities::albums;
-use database::entities::artists;
-use database::entities::mixes;
-use database::entities::playlists;
+use database::entities::{albums, artists, mixes, playlists};
 
-use crate::messages::collection::Collection;
-use crate::messages::collection::CollectionGroup;
-use crate::messages::collection::CollectionGroupSummary;
-use crate::messages::collection::CollectionGroupSummaryResponse;
-use crate::messages::collection::CollectionGroups;
-use crate::messages::collection::FetchCollectionByIdsRequest;
-use crate::messages::collection::FetchCollectionByIdsResponse;
-use crate::messages::collection::FetchCollectionGroupSummaryRequest;
-use crate::messages::collection::FetchCollectionGroupsRequest;
-use crate::messages::collection::SearchCollectionSummaryRequest;
-use crate::messages::collection::SearchCollectionSummaryResponse;
+use crate::messages::collection::{
+    Collection, CollectionGroup, CollectionGroupSummary, CollectionGroupSummaryResponse,
+    CollectionGroups, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
+    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
+    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse,
+};
 
 use crate::MixQuery;
 
+#[async_trait]
 trait CollectionType: Send + Sync + 'static {
     fn collection_type() -> i32;
-    fn type_name() -> &'static str;
     fn query_operator() -> &'static str;
     async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>>;
     async fn get_groups(
@@ -61,177 +41,93 @@ trait CollectionType: Send + Sync + 'static {
     fn name(&self) -> &str;
 }
 
-impl CollectionType for albums::Model {
-    fn collection_type() -> i32 {
-        0
-    }
-    fn type_name() -> &'static str {
-        "album"
-    }
-    fn query_operator() -> &'static str {
-        "lib::album"
-    }
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>> {
-        create_count_by_first_letter::<albums::Entity>()(main_db)
-            .await
-            .with_context(|| "Failed to count collection by first letter")
-    }
-    async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
-        group_titles: Vec<String>,
-    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-        get_albums_groups(main_db, group_titles)
-            .await
-            .with_context(|| "Failed to get collection groups")
-    }
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-        get_albums_by_ids(main_db, ids)
-            .await
-            .with_context(|| "Failed to get collection item by ids")
-    }
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-        list_albums(main_db, limit)
-            .await
-            .with_context(|| "Failed to get collection list")
-    }
+macro_rules! impl_collection_type {
+    ($model:ty, $entity:ty, $collection_type:expr, $type_name:expr, $query_operator:expr, $get_groups:path, $get_by_ids:path, $list:path) => {
+        #[async_trait]
+        impl CollectionType for $model {
+            fn collection_type() -> i32 {
+                $collection_type
+            }
+            fn query_operator() -> &'static str {
+                $query_operator
+            }
+            async fn count_by_first_letter(
+                main_db: &Arc<MainDbConnection>,
+            ) -> Result<Vec<(String, i32)>> {
+                create_count_by_first_letter::<$entity>()(main_db)
+                    .await
+                    .with_context(|| "Failed to count collection by first letter")
+            }
+            async fn get_groups(
+                main_db: &Arc<MainDbConnection>,
+                group_titles: Vec<String>,
+            ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
+                $get_groups(main_db, group_titles)
+                    .await
+                    .with_context(|| "Failed to get collection groups")
+            }
+            async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
+                $get_by_ids(main_db, ids)
+                    .await
+                    .with_context(|| "Failed to get collection item by ids")
+            }
+            async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
+                $list(main_db, limit)
+                    .await
+                    .with_context(|| "Failed to get collection list")
+            }
 
-    fn id(&self) -> i32 {
-        self.id
-    }
+            fn id(&self) -> i32 {
+                self.id
+            }
 
-    fn name(&self) -> &str {
-        &self.name
-    }
+            fn name(&self) -> &str {
+                &self.name
+            }
+        }
+    };
 }
 
-impl CollectionType for artists::Model {
-    fn collection_type() -> i32 {
-        1
-    }
-    fn type_name() -> &'static str {
-        "artist"
-    }
-    fn query_operator() -> &'static str {
-        "lib::artist"
-    }
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>> {
-        create_count_by_first_letter::<artists::Entity>()(main_db)
-            .await
-            .with_context(|| "Failed to count collection by first letter")
-    }
-    async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
-        group_titles: Vec<String>,
-    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-        get_artists_groups(main_db, group_titles)
-            .await
-            .with_context(|| "Failed to get collection groups")
-    }
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-        get_artists_by_ids(main_db, ids)
-            .await
-            .with_context(|| "Failed to get collection item by ids")
-    }
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-        list_artists(main_db, limit)
-            .await
-            .with_context(|| "Failed to get collection list")
-    }
-
-    fn id(&self) -> i32 {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl CollectionType for playlists::Model {
-    fn collection_type() -> i32 {
-        2
-    }
-    fn type_name() -> &'static str {
-        "playlist"
-    }
-    fn query_operator() -> &'static str {
-        "lib::playlist"
-    }
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>> {
-        create_count_by_first_letter::<playlists::Entity>()(main_db)
-            .await
-            .with_context(|| "Failed to count collection by first letter")
-    }
-    async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
-        group_titles: Vec<String>,
-    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-        get_playlists_groups(main_db, group_titles)
-            .await
-            .with_context(|| "Failed to get collection groups")
-    }
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-        get_playlists_by_ids(main_db, ids)
-            .await
-            .with_context(|| "Failed to get collection item by ids")
-    }
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-        list_playlists(main_db, limit)
-            .await
-            .with_context(|| "Failed to get collection list")
-    }
-
-    fn id(&self) -> i32 {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
-
-impl CollectionType for mixes::Model {
-    fn collection_type() -> i32 {
-        3
-    }
-    fn type_name() -> &'static str {
-        "mix"
-    }
-    fn query_operator() -> &'static str {
-        "lib::mix"
-    }
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>> {
-        create_count_by_first_letter::<mixes::Entity>()(main_db)
-            .await
-            .with_context(|| "Failed to count collection by first letter")
-    }
-    async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
-        group_titles: Vec<String>,
-    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-        get_mixes_groups(main_db, group_titles)
-            .await
-            .with_context(|| "Failed to get collection groups")
-    }
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-        get_mixes_by_ids(main_db, ids)
-            .await
-            .with_context(|| "Failed to get collection item by ids")
-    }
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-        list_mixes(main_db, limit)
-            .await
-            .with_context(|| "Failed to get collection list")
-    }
-
-    fn id(&self) -> i32 {
-        self.id
-    }
-
-    fn name(&self) -> &str {
-        &self.name
-    }
-}
+impl_collection_type!(
+    albums::Model,
+    database::entities::prelude::Albums,
+    0,
+    "album",
+    "lib::album",
+    database::actions::albums::get_albums_groups,
+    database::actions::albums::get_albums_by_ids,
+    database::actions::albums::list_albums
+);
+impl_collection_type!(
+    artists::Model,
+    database::entities::prelude::Artists,
+    1,
+    "artist",
+    "lib::artist",
+    database::actions::artists::get_artists_groups,
+    database::actions::artists::get_artists_by_ids,
+    database::actions::artists::list_artists
+);
+impl_collection_type!(
+    playlists::Model,
+    database::entities::prelude::Playlists,
+    2,
+    "playlist",
+    "lib::playlist",
+    database::actions::playlists::get_playlists_groups,
+    database::actions::playlists::get_playlists_by_ids,
+    database::actions::playlists::list_playlists
+);
+impl_collection_type!(
+    mixes::Model,
+    database::entities::prelude::Mixes,
+    3,
+    "mix",
+    "lib::mix",
+    database::actions::mixes::get_mixes_groups,
+    database::actions::mixes::get_mixes_by_ids,
+    database::actions::mixes::list_mixes
+);
 
 pub enum CollectionAction {
     FetchGroupSummary,
@@ -254,10 +150,7 @@ async fn handle_collection_type<T: CollectionType>(
 ) -> Result<()> {
     match action {
         CollectionAction::FetchGroupSummary => {
-            let entry = T::count_by_first_letter(main_db)
-                .await
-                .with_context(|| format!("Failed to fetch {} groups summary", T::type_name()))?;
-
+            let entry = T::count_by_first_letter(main_db).await?;
             let collection_groups = entry
                 .into_iter()
                 .map(|x| CollectionGroupSummary {
@@ -273,10 +166,7 @@ async fn handle_collection_type<T: CollectionType>(
             .send_signal_to_dart();
         }
         CollectionAction::FetchGroups => {
-            let entry = T::get_groups(main_db, params.group_titles.unwrap())
-                .await
-                .with_context(|| format!("Failed to fetch {} groups", T::type_name()))?;
-
+            let entry = T::get_groups(main_db, params.group_titles.unwrap()).await?;
             CollectionGroups {
                 groups: entry
                     .into_iter()
@@ -285,14 +175,12 @@ async fn handle_collection_type<T: CollectionType>(
                         collections: x
                             .1
                             .into_iter()
-                            .map(|x| Collection {
-                                id: x.0.id(),
-                                name: x.0.name().to_owned(),
-                                queries: vec![MixQuery {
-                                    operator: T::query_operator().to_string(),
-                                    parameter: x.0.id().to_string(),
-                                }],
-                                collection_type: T::collection_type(),
+                            .map(|x| {
+                                Collection::from_model(
+                                    &x.0,
+                                    T::collection_type(),
+                                    T::query_operator(),
+                                )
                             })
                             .collect(),
                     })
@@ -301,45 +189,23 @@ async fn handle_collection_type<T: CollectionType>(
             .send_signal_to_dart();
         }
         CollectionAction::FetchById => {
-            let items = T::get_by_ids(main_db, &params.ids.unwrap())
-                .await
-                .with_context(|| format!("Failed to fetch {} by id", T::type_name()))?;
-
+            let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
             FetchCollectionByIdsResponse {
                 collection_type: T::collection_type(),
                 result: items
                     .into_iter()
-                    .map(|x| Collection {
-                        id: x.id(),
-                        name: x.name().to_owned(),
-                        queries: vec![MixQuery {
-                            operator: T::query_operator().to_string(),
-                            parameter: x.id().to_string(),
-                        }],
-                        collection_type: T::collection_type(),
-                    })
+                    .map(|x| Collection::from_model(&x, T::collection_type(), T::query_operator()))
                     .collect(),
             }
             .send_signal_to_dart();
         }
         CollectionAction::Search => {
-            let items = T::list(main_db, params.n.unwrap().into())
-                .await
-                .with_context(|| format!("Failed to search {} summary", T::type_name()))?;
-
+            let items = T::list(main_db, params.n.unwrap().into()).await?;
             SearchCollectionSummaryResponse {
                 collection_type: T::collection_type(),
                 result: items
                     .into_iter()
-                    .map(|x| Collection {
-                        id: x.id(),
-                        name: x.name().to_owned(),
-                        queries: vec![MixQuery {
-                            operator: T::query_operator().to_string(),
-                            parameter: x.id().to_string(),
-                        }],
-                        collection_type: T::collection_type(),
-                    })
+                    .map(|x| Collection::from_model(&x, T::collection_type(), T::query_operator()))
                     .collect(),
             }
             .send_signal_to_dart();
@@ -356,151 +222,32 @@ async fn handle_mixes(
 ) -> Result<()> {
     match action {
         CollectionAction::FetchGroups => {
-            let entry = get_mixes_groups(main_db, params.group_titles.unwrap())
-                .await
-                .with_context(|| "Failed to fetch mix groups")?;
-
-            let futures: Vec<_> = entry
-                .iter()
-                .flat_map(|(group_title, mixes)| {
-                    mixes.iter().map({
-                        let main_db = Arc::clone(main_db);
-                        move |mix| {
-                            let main_db = Arc::clone(&main_db);
-                            let group_title = group_title.clone();
-                            async move {
-                                let queries = get_mix_queries_by_mix_id(&main_db, mix.0.id).await?;
-                                Ok::<_, anyhow::Error>((group_title, mix.clone(), queries))
-                            }
-                        }
-                    })
-                })
-                .collect();
-
-            let results = join_all(futures)
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let groups = entry
-                .into_iter()
-                .map(|(group_title, _)| {
-                    let collections = results
-                        .iter()
-                        .filter_map(|(gt, mix, queries)| {
-                            if gt == &group_title {
-                                Some(Collection {
-                                    id: mix.0.id,
-                                    name: mix.0.name.clone(),
-                                    queries: queries
-                                        .iter()
-                                        .map(|x| MixQuery {
-                                            operator: x.operator.clone(),
-                                            parameter: x.parameter.clone(),
-                                        })
-                                        .collect(),
-                                    collection_type: 3,
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    CollectionGroup {
-                        group_title,
-                        collections,
-                    }
-                })
-                .collect();
-
-            CollectionGroups { groups }.send_signal_to_dart();
+            let entry =
+                database::actions::mixes::get_mixes_groups(main_db, params.group_titles.unwrap())
+                    .await?;
+            let results = fetch_mix_queries(main_db, &entry).await?;
+            CollectionGroups {
+                groups: create_collection_groups(entry, results),
+            }
+            .send_signal_to_dart();
         }
         CollectionAction::FetchById => {
-            let items = get_mixes_by_ids(main_db, &params.ids.unwrap())
-                .await
-                .with_context(|| "Failed to fetch mixes by id")?;
-
-            let futures: Vec<_> = items
-                .iter()
-                .map({
-                    let main_db = Arc::clone(main_db);
-                    move |mix| {
-                        let main_db = Arc::clone(&main_db);
-                        async move {
-                            let queries = get_mix_queries_by_mix_id(&main_db, mix.id).await?;
-                            Ok::<_, anyhow::Error>((mix.clone(), queries))
-                        }
-                    }
-                })
-                .collect();
-
-            let results = join_all(futures)
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()?;
-
+            let items =
+                database::actions::mixes::get_mixes_by_ids(main_db, &params.ids.unwrap()).await?;
+            let results = fetch_mix_queries_for_items(main_db, &items).await?;
             FetchCollectionByIdsResponse {
                 collection_type: 3,
-                result: results
-                    .into_iter()
-                    .map(|(mix, queries)| Collection {
-                        id: mix.id,
-                        name: mix.name,
-                        queries: queries
-                            .into_iter()
-                            .map(|x| MixQuery {
-                                operator: x.operator,
-                                parameter: x.parameter,
-                            })
-                            .collect(),
-                        collection_type: 3,
-                    })
-                    .collect(),
+                result: create_collections(results),
             }
             .send_signal_to_dart();
         }
         CollectionAction::Search => {
-            let items = list_mixes(main_db, params.n.unwrap().into())
-                .await
-                .with_context(|| "Failed to fetch all mixes")?;
-
-            let futures: Vec<_> = items
-                .iter()
-                .map({
-                    let main_db = Arc::clone(main_db);
-                    move |mix| {
-                        let main_db = Arc::clone(&main_db);
-                        async move {
-                            let queries = get_mix_queries_by_mix_id(&main_db, mix.id).await?;
-                            Ok::<_, anyhow::Error>((mix.clone(), queries))
-                        }
-                    }
-                })
-                .collect();
-
-            let results = join_all(futures)
-                .await
-                .into_iter()
-                .collect::<Result<Vec<_>, _>>()?;
-
+            let items =
+                database::actions::mixes::list_mixes(main_db, params.n.unwrap().into()).await?;
+            let results = fetch_mix_queries_for_items(main_db, &items).await?;
             SearchCollectionSummaryResponse {
                 collection_type: 3,
-                result: results
-                    .into_iter()
-                    .map(|(mix, queries)| Collection {
-                        id: mix.id,
-                        name: mix.name,
-                        queries: queries
-                            .into_iter()
-                            .map(|x| MixQuery {
-                                operator: x.operator,
-                                parameter: x.parameter,
-                            })
-                            .collect(),
-                        collection_type: 3,
-                    })
-                    .collect(),
+                result: create_collections(results),
             }
             .send_signal_to_dart();
         }
@@ -508,6 +255,141 @@ async fn handle_mixes(
     }
 
     Ok(())
+}
+
+impl From<database::entities::mix_queries::Model> for MixQuery {
+    fn from(model: database::entities::mix_queries::Model) -> Self {
+        MixQuery {
+            operator: model.operator,
+            parameter: model.parameter,
+        }
+    }
+}
+
+type GroupEntry = Vec<(String, Vec<(mixes::Model, HashSet<i32>)>)>;
+
+async fn fetch_mix_queries(
+    main_db: &Arc<MainDbConnection>,
+    entry: &GroupEntry,
+) -> Result<Vec<(String, mixes::Model, Vec<MixQuery>)>> {
+    let futures: Vec<_> = entry
+        .iter()
+        .flat_map(|(group_title, mixes)| {
+            mixes.iter().map({
+                let main_db = Arc::clone(main_db);
+                move |mix| {
+                    let main_db = Arc::clone(&main_db);
+                    let group_title = group_title.clone();
+                    async move {
+                        let queries: Vec<MixQuery> =
+                            database::actions::mixes::get_mix_queries_by_mix_id(&main_db, mix.0.id)
+                                .await?
+                                .into_iter()
+                                .map(|x| x.into())
+                                .collect();
+
+                        Ok::<_, anyhow::Error>((group_title, mix.0.clone(), queries))
+                    }
+                }
+            })
+        })
+        .collect();
+
+    join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+}
+
+async fn fetch_mix_queries_for_items(
+    main_db: &Arc<MainDbConnection>,
+    items: &[mixes::Model],
+) -> Result<Vec<(mixes::Model, Vec<MixQuery>)>> {
+    let futures: Vec<_> = items
+        .iter()
+        .map({
+            let main_db = Arc::clone(main_db);
+            move |mix| {
+                let main_db = Arc::clone(&main_db);
+                async move {
+                    let queries =
+                        database::actions::mixes::get_mix_queries_by_mix_id(&main_db, mix.id)
+                            .await?
+                            .into_iter()
+                            .map(|x| x.into())
+                            .collect();
+                    Ok::<_, anyhow::Error>((mix.clone(), queries))
+                }
+            }
+        })
+        .collect();
+
+    join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+}
+
+type CollectionGroupsEntry = Vec<(String, Vec<(mixes::Model, HashSet<i32>)>)>;
+
+fn create_collection_groups(
+    entry: CollectionGroupsEntry,
+    results: Vec<(String, mixes::Model, Vec<MixQuery>)>,
+) -> Vec<CollectionGroup> {
+    entry
+        .into_iter()
+        .map(|(group_title, _)| {
+            let collections = results
+                .iter()
+                .filter_map(|(gt, mix, queries)| {
+                    if gt == &group_title {
+                        Some(Collection::from_mix(mix, queries))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            CollectionGroup {
+                group_title,
+                collections,
+            }
+        })
+        .collect()
+}
+
+fn create_collections(results: Vec<(mixes::Model, Vec<MixQuery>)>) -> Vec<Collection> {
+    results
+        .into_iter()
+        .map(|(mix, queries)| Collection::from_mix(&mix, &queries))
+        .collect()
+}
+
+impl Collection {
+    fn from_model<T: CollectionType>(
+        model: &T,
+        collection_type: i32,
+        query_operator: &str,
+    ) -> Self {
+        Collection {
+            id: model.id(),
+            name: model.name().to_owned(),
+            queries: vec![MixQuery {
+                operator: query_operator.to_string(),
+                parameter: model.id().to_string(),
+            }],
+            collection_type,
+        }
+    }
+
+    fn from_mix(mix: &mixes::Model, queries: &[MixQuery]) -> Self {
+        Collection {
+            id: mix.id,
+            name: mix.name.clone(),
+            queries: queries.to_vec(),
+            collection_type: 3,
+        }
+    }
 }
 
 pub async fn handle_collection_request(
