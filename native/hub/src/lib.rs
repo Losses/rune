@@ -1,8 +1,8 @@
 mod album;
 mod analyse;
 mod artist;
-mod connection;
 mod collection;
+mod connection;
 mod cover_art;
 mod directory;
 mod library_home;
@@ -30,9 +30,8 @@ use ::database::connection::connect_recommendation_db;
 use ::database::connection::connect_search_db;
 use ::playback::player::Player;
 
-use crate::album::*;
 use crate::analyse::*;
-use crate::artist::*;
+use crate::collection::*;
 use crate::connection::*;
 use crate::cover_art::*;
 use crate::directory::*;
@@ -46,9 +45,8 @@ use crate::playlist::*;
 use crate::search::*;
 use crate::stat::*;
 
-use messages::album::*;
 use messages::analyse::*;
-use messages::artist::*;
+use messages::collection::*;
 use messages::cover_art::*;
 use messages::directory::*;
 use messages::library_home::*;
@@ -167,24 +165,16 @@ async fn player_loop(path: String) {
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
 
+            FetchCollectionGroupSummaryRequest => (main_db),
+            FetchCollectionGroupsRequest => (main_db),
+            FetchCollectionByIdsRequest => (main_db),
+            SearchCollectionSummaryRequest => (main_db),
+
             GetCoverArtByFileIdRequest => (main_db),
             GetCoverArtByCoverArtIdRequest => (main_db),
             GetRandomCoverArtIdsRequest => (main_db),
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
 
-            FetchArtistsGroupSummaryRequest => (main_db),
-            FetchArtistsGroupsRequest => (main_db),
-            FetchArtistsByIdsRequest => (main_db),
-            SearchArtistSummaryRequest => (main_db),
-
-            FetchAlbumsGroupSummaryRequest => (main_db),
-            FetchAlbumsGroupsRequest => (main_db),
-            FetchAlbumsByIdsRequest => (main_db),
-            SearchAlbumSummaryRequest => (main_db),
-
-            FetchPlaylistsGroupSummaryRequest => (main_db),
-            FetchPlaylistsGroupsRequest => (main_db),
-            FetchPlaylistsByIdsRequest => (main_db),
             FetchAllPlaylistsRequest => (main_db),
             CreatePlaylistRequest => (main_db, search_db),
             UpdatePlaylistRequest => (main_db, search_db),
@@ -192,11 +182,7 @@ async fn player_loop(path: String) {
             AddItemToPlaylistRequest => (main_db),
             ReorderPlaylistItemPositionRequest => (main_db),
             GetPlaylistByIdRequest => (main_db),
-            SearchPlaylistSummaryRequest => (main_db),
 
-            FetchMixesGroupSummaryRequest => (main_db),
-            FetchMixesGroupsRequest => (main_db),
-            FetchMixesByIdsRequest => (main_db),
             FetchAllMixesRequest => (main_db),
             CreateMixRequest => (main_db),
             UpdateMixRequest => (main_db),

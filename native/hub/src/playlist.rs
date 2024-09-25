@@ -36,95 +36,6 @@ use crate::{
     UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 
-pub async fn fetch_playlists_group_summary_request(
-    main_db: Arc<MainDbConnection>,
-    _dart_signal: DartSignal<FetchPlaylistsGroupSummaryRequest>,
-) -> Result<()> {
-    let count_playlists = create_count_by_first_letter::<playlists::Entity>();
-
-    let entry = count_playlists(&main_db)
-        .await
-        .with_context(|| "Failed to fetch playlists groups summary")?;
-
-    let playlists_groups = entry
-        .into_iter()
-        .map(|x| PlaylistsGroupSummary {
-            group_title: x.0,
-            count: x.1,
-        })
-        .collect();
-    PlaylistGroupSummaryResponse { playlists_groups }.send_signal_to_dart();
-
-    Ok(())
-}
-
-pub async fn fetch_playlists_groups_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<FetchPlaylistsGroupsRequest>,
-) -> Result<()> {
-    let request = dart_signal.message;
-
-    let entry = get_playlists_groups(&main_db, request.group_titles)
-        .await
-        .with_context(|| "Failed to fetch playlists groups")?;
-
-    PlaylistsGroups {
-        groups: entry
-            .into_iter()
-            .map(|x| PlaylistsGroup {
-                group_title: x.0,
-                playlists: x
-                    .1
-                    .into_iter()
-                    .map(|x| Playlist {
-                        id: x.0.id,
-                        name: x.0.name,
-                        group: x.0.group,
-                        cover_ids: x.1.into_iter().collect(),
-                    })
-                    .collect(),
-            })
-            .collect(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
-}
-
-pub async fn fetch_playlists_by_ids_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<FetchPlaylistsByIdsRequest>,
-) -> Result<()> {
-    let request = dart_signal.message;
-
-    let items = get_playlists_by_ids(&main_db, &request.ids)
-        .await
-        .with_context(|| format!("Failed to playlists: {:#?}", request.ids))?;
-    let magic_cover_id = get_magic_cover_art_id(&main_db).await.unwrap_or(-1);
-    let covers = get_playlist_cover_ids(&main_db, &items).await.unwrap();
-
-    FetchPlaylistsByIdsResponse {
-        result: items
-            .into_iter()
-            .map(|x| Playlist {
-                id: x.id,
-                name: x.name,
-                group: x.group,
-                cover_ids: covers
-                    .get(&x.id)
-                    .cloned()
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|x| *x != magic_cover_id)
-                    .collect(),
-            })
-            .collect(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
-}
-
 pub async fn fetch_all_playlists_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchAllPlaylistsRequest>,
@@ -308,30 +219,6 @@ pub async fn get_playlist_by_id_request(
             name: playlist.name,
             group: playlist.group,
         }),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
-}
-
-pub async fn search_playlist_summary_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<SearchPlaylistSummaryRequest>,
-) -> Result<()> {
-    let request = dart_signal.message;
-
-    let items = list_playlists(&main_db, request.n.try_into().unwrap())
-        .await
-        .with_context(|| "Failed to search album summary")?;
-
-    SearchPlaylistSummaryResponse {
-        result: items
-            .into_iter()
-            .map(|x| PlaylistSummary {
-                id: x.id,
-                name: x.name,
-            })
-            .collect(),
     }
     .send_signal_to_dart();
 
