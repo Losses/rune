@@ -123,6 +123,9 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                       final int rows =
                           (constraints.maxWidth / (cellSize + gapSize)).floor();
 
+                      final trackIds =
+                          _searchManager.searchResults.map((x) => x.id).toList();
+
                       return GridView(
                         key: Key(_query),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -132,7 +135,11 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                           childAspectRatio: ratio,
                         ),
                         children: _searchManager.searchResults
-                            .map((a) => TrackItem(index: 0, item: a))
+                            .map((a) => TrackItem(
+                                  index: 0,
+                                  item: a,
+                                  fallbackFileIds: trackIds,
+                                ))
                             .toList()
                             .asMap()
                             .entries

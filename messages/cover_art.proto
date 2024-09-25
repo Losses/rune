@@ -1,19 +1,11 @@
 syntax = "proto3";
 package cover_art;
 
+import "mix.proto";
+
 // [RINF:DART-SIGNAL]
 message GetCoverArtByFileIdRequest {
   int32 file_id = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message GetCoverArtByCoverArtIdRequest {
-  int32 cover_art_id = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message GetRandomCoverArtIdsRequest {
-  int32 count = 1;
 }
 
 // [RINF:RUST-SIGNAL]
@@ -23,13 +15,43 @@ message CoverArtByFileIdResponse {
   optional bytes cover_art = 3;
 }
 
+// [RINF:DART-SIGNAL]
+message GetCoverArtByCoverArtIdRequest {
+  int32 cover_art_id = 1;
+}
+
 // [RINF:RUST-SIGNAL]
 message CoverArtByCoverArtIdResponse {
   int32 cover_art_id = 1;
   optional bytes cover_art = 2;
 }
 
+// [RINF:DART-SIGNAL]
+message GetRandomCoverArtIdsRequest {
+  int32 count = 1;
+}
+
 // [RINF:RUST-SIGNAL]
 message GetRandomCoverArtIdsResponse {
   repeated int32 cover_art_ids = 1;
+}
+
+message GetCoverArtIdsByMixQueriesRequestUnit {
+  int32 id = 1;
+  repeated mix.MixQuery queries = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message GetCoverArtIdsByMixQueriesRequest {
+    repeated GetCoverArtIdsByMixQueriesRequestUnit requests = 1;
+}
+
+message GetCoverArtIdsByMixQueriesResponseUnit {
+  int32 id = 1;
+  repeated int32 cover_art_ids = 2;
+}
+
+// [RINF:DART-SIGNAL]
+message GetCoverArtIdsByMixQueriesResponse {
+    repeated GetCoverArtIdsByMixQueriesResponseUnit result = 1;
 }

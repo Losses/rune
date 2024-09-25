@@ -118,6 +118,7 @@ Widget buildCollectionItemContextMenu(
   List<MixWithoutCoverIds> mixes, [
   void Function()? refreshList,
   bool? readonly,
+  List<int> fallbackFileIds = const [],
 ]) {
   final operator = typeToOperator[type];
   final edit = typeToEdit[type];
@@ -158,6 +159,7 @@ Widget buildCollectionItemContextMenu(
           initialPlaybackId: 0,
           instantlyPlay: true,
           replacePlaylist: true,
+          fallbackFileIds: fallbackFileIds,
         );
       },
     ),
@@ -172,6 +174,7 @@ Widget buildCollectionItemContextMenu(
           initialPlaybackId: 0,
           instantlyPlay: false,
           replacePlaylist: false,
+          fallbackFileIds: [],
         );
       },
     ),
@@ -194,6 +197,7 @@ Widget buildCollectionItemContextMenu(
             initialPlaybackId: 0,
             instantlyPlay: true,
             replacePlaylist: true,
+            fallbackFileIds: [],
           );
         }
       },

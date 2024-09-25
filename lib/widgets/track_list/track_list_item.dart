@@ -12,6 +12,7 @@ class TrackListItem extends StatelessWidget {
   final MediaFile item;
   final int index;
   final QueryList queries;
+  final List<int> fallbackFileIds;
   final int mode;
 
   final contextController = FlyoutController();
@@ -23,6 +24,7 @@ class TrackListItem extends StatelessWidget {
     required this.item,
     required this.queries,
     required this.mode,
+    required this.fallbackFileIds,
   });
 
   @override
@@ -50,6 +52,7 @@ class TrackListItem extends StatelessWidget {
               initialPlaybackId: item.id,
               replacePlaylist: true,
               instantlyPlay: true,
+              fallbackFileIds: fallbackFileIds,
             );
           }
         },

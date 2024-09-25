@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use database::actions::file::get_files_by_ids;
 use dunce::canonicalize;
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -198,67 +199,78 @@ pub async fn operate_playback_with_mix_query_request(
 ) -> Result<()> {
     let request = dart_signal.message;
 
-    let tracks = query_mix_media_files(
-        &main_db,
-        &recommend_db,
-        request
-            .queries
-            .clone()
-            .into_iter()
-            .map(|x| (x.operator, x.parameter))
-            .collect(),
-        0,
-        4096,
-    )
-    .await
-    .with_context(|| format!("Failed to query tracks: {:?}", request.queries))?;
+    // Retrieve tracks
+    let tracks = if request.queries.is_empty() {
+        get_files_by_ids(&main_db, &request.fallback_media_file_ids).await?
+    } else {
+        query_mix_media_files(
+            &main_db,
+            &recommend_db,
+            request
+                .queries
+                .iter()
+                .map(|x| (x.operator.clone(), x.parameter.clone()))
+                .collect(),
+            0,
+            4096,
+        )
+        .await
+        .with_context(|| format!("Failed to query tracks: {:?}", request.queries))?
+    };
 
+    let mut player = player.lock().await;
+
+    // Clear the playlist if requested
     if request.replace_playlist {
-        player.lock().await.clear_playlist();
+        player.clear_playlist();
     }
 
     let playlist_len = if request.replace_playlist {
         0
     } else {
-        player.lock().await.get_playlist().len()
+        player.get_playlist().len()
     };
 
-    player
-        .lock()
-        .await
-        .add_to_playlist(files_to_playback_request(&lib_path, tracks.clone()));
+    let mut file_ids: Vec<i32> = tracks.iter().map(|x| x.id).collect();
 
-    let file_ids: Vec<i32> = tracks.into_iter().map(|x| x.id).collect();
-
-    OperatePlaybackWithMixQueryResponse {
-        file_ids: file_ids.clone(),
-    }
-    .send_signal_to_dart();
-
+    // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
+        player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+        OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
         return Ok(());
-    };
+    }
 
-    let nearest_index: usize = (if request.hint_position < 0 {
+    // Find the nearest index
+    let nearest_index: Option<usize> = if request.hint_position < 0 {
         Some(0)
     } else {
         find_nearest_index(&file_ids, request.hint_position.try_into().unwrap(), |x| {
             *x == request.initial_playback_id
         })
-    })
-    .ok_or(anyhow!(
-        "Failed to find the neareat playback item based on the hint"
-    ))?;
+    };
 
-    if request.playback_mode != 99 {
-        player
-            .lock()
-            .await
-            .set_playback_mode(request.playback_mode.into());
+    // If no suitable index found, use fallback_media_file_ids
+    if nearest_index.is_none() {
+        file_ids = request.fallback_media_file_ids.clone();
     }
 
-    player.lock().await.switch(nearest_index + playlist_len);
-    player.lock().await.play();
+    let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap());
+
+    // Add to playlist
+    player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+    OperatePlaybackWithMixQueryResponse {
+        file_ids: file_ids.clone(),
+    }
+    .send_signal_to_dart();
+
+    // Set playback mode
+    if request.playback_mode != 99 {
+        player.set_playback_mode(request.playback_mode.into());
+    }
+
+    // Switch to the nearest index and play
+    player.switch(nearest_index + playlist_len);
+    player.play();
 
     Ok(())
 }

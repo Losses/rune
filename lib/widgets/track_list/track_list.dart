@@ -26,8 +26,9 @@ class TrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-        padding: const EdgeInsets.all(12),
-        child: LayoutBuilder(builder: (context, constraints) {
+      padding: const EdgeInsets.all(12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
           const double gapSize = 8;
           const double cellSize = 64;
 
@@ -38,50 +39,56 @@ class TrackList extends StatelessWidget {
           const ratio = 1 / 4;
 
           final hasRecommendation = queriesHasRecommendation(queries);
+          final fallbackFileIds =
+              pagingController.itemList?.map((x) => x.id).toList() ?? [];
 
           return SmoothHorizontalScroll(
-              builder: (context, scrollController) => SizedBox(
-                    height: finalHeight,
-                    child: PagedGridView<int, MediaFile>(
+            builder: (context, scrollController) => SizedBox(
+              height: finalHeight,
+              child: PagedGridView<int, MediaFile>(
+                pagingController: pagingController,
+                scrollDirection: Axis.horizontal,
+                scrollController: scrollController,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: rows,
+                  mainAxisSpacing: gapSize,
+                  crossAxisSpacing: gapSize,
+                  childAspectRatio: ratio,
+                ),
+                builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+                  noItemsFoundIndicatorBuilder: (context) {
+                    return NoItems(
+                      title: "No tracks found",
+                      hasRecommendation: hasRecommendation,
                       pagingController: pagingController,
-                      scrollDirection: Axis.horizontal,
-                      scrollController: scrollController,
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: rows,
-                        mainAxisSpacing: gapSize,
-                        crossAxisSpacing: gapSize,
-                        childAspectRatio: ratio,
-                      ),
-                      builderDelegate: PagedChildBuilderDelegate<MediaFile>(
-                        noItemsFoundIndicatorBuilder: (context) {
-                          return NoItems(
-                            title: "No tracks found",
-                            hasRecommendation: hasRecommendation,
-                            pagingController: pagingController,
-                          );
-                        },
-                        itemBuilder: (context, item, index) {
-                          final int row = index % rows;
-                          final int column = index ~/ rows;
+                    );
+                  },
+                  itemBuilder: (context, item, index) {
+                    final int row = index % rows;
+                    final int column = index ~/ rows;
 
-                          return ManagedStartScreenItem(
-                            groupId: 0,
-                            row: row,
-                            column: column,
-                            width: cellSize / ratio,
-                            height: cellSize,
-                            child: TrackListItem(
-                              index: index,
-                              item: item,
-                              queries: queries,
-                              mode: mode,
-                            ),
-                          );
-                        },
+                    return ManagedStartScreenItem(
+                      groupId: 0,
+                      row: row,
+                      column: column,
+                      width: cellSize / ratio,
+                      height: cellSize,
+                      child: TrackListItem(
+                        index: index,
+                        item: item,
+                        queries: queries,
+                        fallbackFileIds: fallbackFileIds,
+                        mode: mode,
                       ),
-                    ),
-                  ));
-        }));
+                    );
+                  },
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 }
 

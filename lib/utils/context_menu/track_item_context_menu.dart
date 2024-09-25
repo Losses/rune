@@ -111,6 +111,7 @@ Widget buildTrackItemContextMenu(
               initialPlaybackId: 0,
               instantlyPlay: true,
               replacePlaylist: true,
+              fallbackFileIds: [],
             );
           }
         },

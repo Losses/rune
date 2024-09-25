@@ -219,6 +219,8 @@ class _SearchPageState extends State<SearchPage> {
                     final int rows =
                         (constraints.maxWidth / (cellSize + gapSize)).floor();
 
+                    final trackIds = tracks.map((x) => x.id).toList();
+
                     return GridView(
                         key: Key(selectedItem),
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -237,7 +239,11 @@ class _SearchPageState extends State<SearchPage> {
                             ...playlists
                                 .map((a) => PlaylistItem(index: 0, item: a)),
                           if (selectedItem == "Tracks")
-                            ...tracks.map((a) => TrackItem(index: 0, item: a)),
+                            ...tracks.map((a) => TrackItem(
+                                  index: 0,
+                                  item: a,
+                                  fallbackFileIds: trackIds,
+                                )),
                         ].asMap().entries.map((x) {
                           final index = x.key;
                           final int row = index % rows;
@@ -370,11 +376,13 @@ class _SearchPageState extends State<SearchPage> {
 
 class TrackItem extends SearchCard {
   final MediaFile item;
+  final List<int> fallbackFileIds;
 
   TrackItem({
     super.key,
     required super.index,
     required this.item,
+    required this.fallbackFileIds,
   });
 
   @override
@@ -394,12 +402,13 @@ class TrackItem extends SearchCard {
   @override
   void onPressed(BuildContext context) {
     operatePlaybackWithMixQuery(
-      queries: QueryList([("lib::track", item.id.toString())]),
+      queries: const QueryList([]),
       playbackMode: 99,
       hintPosition: 0,
       initialPlaybackId: item.id,
       replacePlaylist: true,
       instantlyPlay: true,
+      fallbackFileIds: fallbackFileIds,
     );
   }
 

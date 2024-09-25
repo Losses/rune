@@ -82,6 +82,7 @@ message OperatePlaybackWithMixQueryRequest {
     int32 initial_playback_id = 4;
     bool instantly_play = 5;
     bool replace_playlist = 6;
+    repeated int32 fallback_media_file_ids = 7;
 }
 
 // [RINF:RUST-SIGNAL]
