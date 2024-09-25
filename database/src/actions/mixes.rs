@@ -15,6 +15,7 @@ use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySel
 
 use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
+use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
@@ -278,6 +279,7 @@ enum QueryOperator {
     SortPlayedthrough(bool),
     SortSkipped(bool),
     FilterLiked(bool),
+    FilterWithCoverArt(bool),
     PipeLimit(u64),
     PipeRecommend(i32),
     Unknown(String),
@@ -423,6 +425,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
         "filter::liked" => parse_parameter::<bool>(parameter, operator)
             .map(QueryOperator::FilterLiked)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "filter::with_cover_art" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::FilterWithCoverArt)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "pipe::limit" => parse_parameter::<u64>(parameter, operator)
             .map(QueryOperator::PipeLimit)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
@@ -510,6 +515,7 @@ pub async fn query_mix_media_files(
     let mut sort_skipped_asc: Option<bool> = None;
 
     let mut filter_liked: Option<bool> = None;
+    let mut filter_cover_art: Option<bool> = None;
     let mut pipe_limit: Option<u64> = None;
     let mut pipe_recommend: Option<i32> = None;
 
@@ -527,6 +533,7 @@ pub async fn query_mix_media_files(
             QueryOperator::SortPlayedthrough(asc) => sort_playedthrough_asc = Some(asc),
             QueryOperator::SortSkipped(asc) => sort_skipped_asc = Some(asc),
             QueryOperator::FilterLiked(liked) => filter_liked = Some(liked),
+            QueryOperator::FilterWithCoverArt(cover_art) => filter_cover_art = Some(cover_art),
             QueryOperator::PipeLimit(limit) => pipe_limit = Some(limit),
             QueryOperator::PipeRecommend(recommend) => pipe_recommend = Some(recommend),
             QueryOperator::Unknown(op) => warn!("Unknown operator: {}", op),
@@ -605,16 +612,46 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(dir_conditions);
     }
 
-    if let Some(liked) = filter_liked {
-        if all {
-            query = query.filter(media_file_stats::Column::Liked.eq(liked));
-        } else {
-            query = query.filter(
-                Condition::all()
-                    .add(or_condition)
-                    .add(media_file_stats::Column::Liked.eq(liked)),
-            );
+    let has_liked = filter_liked.is_some();
+    let has_cover_art = filter_cover_art.is_some();
+
+    // if let Some(liked) = filter_liked {
+    if has_liked || has_cover_art {
+        let mut filter = Condition::all();
+
+        if !all {
+            filter = filter.add(or_condition);
         }
+
+        if let Some(liked) = filter_liked {
+            filter = filter.add(media_file_stats::Column::Liked.eq(liked));
+        }
+
+        if let Some(cover_art) = filter_cover_art {
+            let magic_cover_art_id = get_magic_cover_art_id(main_db).await;
+
+            if cover_art {
+                let mut condition = Condition::all();
+                condition = condition.add(media_files::Column::CoverArtId.is_not_null());
+
+                if let Some(magic_cover_art_id) = magic_cover_art_id {
+                    condition =
+                        condition.add(media_files::Column::CoverArtId.ne(magic_cover_art_id));
+                }
+                filter = filter.add(condition);
+            } else {
+                let mut condition = Condition::any();
+                condition = condition.add(media_files::Column::CoverArtId.is_null());
+
+                if let Some(magic_cover_art_id) = magic_cover_art_id {
+                    condition =
+                        condition.add(media_files::Column::CoverArtId.eq(magic_cover_art_id));
+                }
+                filter = filter.add(condition);
+            }
+        }
+
+        query = query.filter(filter);
     } else if !all {
         query = query.filter(or_condition);
     }

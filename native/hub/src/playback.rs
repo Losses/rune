@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use database::actions::file::get_files_by_ids;
 use dunce::canonicalize;
 use rinf::DartSignal;
