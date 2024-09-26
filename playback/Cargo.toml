@@ -11,7 +11,7 @@ path = "src/lib.rs"
 [dependencies]
 log = { version = "0.4.22" }
 futures = "0.3.30"
-tokio = { version = "1.38.0", features = ["sync", "time", "macros"] }
+tokio = { version = "1.40.0", features = ["sync", "time", "macros", "rt-multi-thread", "rt"] }
 rodio = { version = "0.19.0", features = [] }
 rustfft = "6.2.0"
 tokio-util = "0.7.11"
