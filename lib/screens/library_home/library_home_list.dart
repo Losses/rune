@@ -41,8 +41,6 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
   @override
   dispose() {
     super.dispose();
-
-    coverArtManager.dispose();
   }
 
   Future<List<Group<InternalCollection>>> fetchSummary() async {
@@ -65,9 +63,11 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
 
     for (final group in groups) {
       for (final collection in group.items) {
-        await coverArtManager.queryCoverArts(collection.queries);
+        coverArtManager.queryCoverArts(collection.queries);
       }
     }
+
+    await coverArtManager.commit();
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),

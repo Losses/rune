@@ -18,7 +18,6 @@ class LibraryHomePage extends StatefulWidget {
 
 class _LibraryHomePageState extends State<LibraryHomePage> {
   final _layoutManager = StartScreenLayoutManager();
-  final _coverArtManager = CoverArtManager();
 
   @override
   void initState() {
@@ -29,7 +28,6 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
   void dispose() {
     super.dispose();
     _layoutManager.dispose();
-    _coverArtManager.dispose();
   }
 
   @override
@@ -40,21 +38,18 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
       return Container();
     }
 
-    return ChangeNotifierProvider<CoverArtManager>.value(
-      value: _coverArtManager,
-      child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: _layoutManager,
-        child: Column(
-          children: [
-            const NavigationBarPlaceholder(),
-            Expanded(
-                child: LibraryHomeListView(
-              libraryPath: libraryPath,
-              layoutManager: _layoutManager,
-            )),
-            const PlaybackPlaceholder()
-          ],
-        ),
+    return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+      value: _layoutManager,
+      child: Column(
+        children: [
+          const NavigationBarPlaceholder(),
+          Expanded(
+              child: LibraryHomeListView(
+            libraryPath: libraryPath,
+            layoutManager: _layoutManager,
+          )),
+          const PlaybackPlaceholder()
+        ],
       ),
     );
   }

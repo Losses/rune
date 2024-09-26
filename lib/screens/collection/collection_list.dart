@@ -1,4 +1,3 @@
-import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
@@ -70,9 +69,11 @@ class CollectionListViewState extends State<CollectionListView> {
       for (final group in groups) {
         for (final collection in group.items) {
           // [1] We batch cache data here, find [2] for where to use
-          await coverArtManager.queryCoverArts(collection.queries);
+          coverArtManager.queryCoverArts(collection.queries);
         }
       }
+
+      await coverArtManager.commit();
 
       final isLastPage = endIndex >= summaries.length;
       if (isLastPage) {
@@ -116,15 +117,12 @@ class CollectionListViewState extends State<CollectionListView> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<CoverArtManager>.value(
-      value: coverArtManager,
-      child: StartScreen(
-        fetchSummary: fetchSummary,
-        fetchPage: fetchPage,
-        itemBuilder: itemBuilder,
-        pagingController: pagingController,
-        userGenerated: userGenerated(),
-      ),
+    return StartScreen(
+      fetchSummary: fetchSummary,
+      fetchPage: fetchPage,
+      itemBuilder: itemBuilder,
+      pagingController: pagingController,
+      userGenerated: userGenerated(),
     );
   }
 
@@ -132,7 +130,6 @@ class CollectionListViewState extends State<CollectionListView> {
   void dispose() {
     super.dispose();
     pagingController.dispose();
-    coverArtManager.dispose();
   }
 }
 

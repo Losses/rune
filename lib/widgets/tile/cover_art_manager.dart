@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
@@ -30,41 +31,18 @@ class CoverArtCache {
   }
 }
 
-class CoverArtManager with ChangeNotifier {
+class CoverArtRequestTransaction {
+  final CoverArtCache cache;
+
+  CoverArtRequestTransaction({required this.cache});
+}
+
+class CoverArtManager {
   final CoverArtCache _cache = CoverArtCache();
-  final List<QueryList> _pendingQueries = [];
-  bool disposed = false;
-  Timer? _debounceTimer;
 
-  Future<List<int>> queryCoverArts(QueryList query) async {
-    if (disposed) {
-      throw "Already disposed";
-    }
+  final Set _pendingQueries = {};
 
-    // Check cache first
-    final cachedResult = _cache.getCompleter(query);
-    if (cachedResult != null) {
-      return cachedResult.future;
-    }
-
-    // Debounce mechanism to batch requests
-    _debounceTimer?.cancel();
-    _debounceTimer = Timer(const Duration(milliseconds: 5), _processQueries);
-
-    // Wait until the query is processed
-    final completer = Completer<List<int>>();
-    _pendingQueries.add(query);
-
-    _cache.registerCompleter(query, completer);
-
-    return completer.future;
-  }
-
-  List<int>? getResult(QueryList query) {
-    return _cache.getCache(query);
-  }
-
-  void _processQueries() async {
+  Future<void> commit() async {
     final queriesToProcess = List<QueryList>.from(_pendingQueries);
     _pendingQueries.clear();
 
@@ -96,16 +74,25 @@ class CoverArtManager with ChangeNotifier {
 
       task.complete(coverArtIds);
     }
-
-    notifyListeners();
   }
 
-  @override
-  void dispose() {
-    disposed = true;
-    _debounceTimer?.cancel();
-    _pendingQueries.clear();
-    _cache.clear();
-    super.dispose();
+  Future<List<int>> queryCoverArts(QueryList query) async {
+    // Check cache first
+    final cachedResult = _cache.getCompleter(query);
+    if (cachedResult != null) {
+      return cachedResult.future;
+    }
+
+    // Wait until the query is processed
+    final completer = Completer<List<int>>();
+
+    _cache.registerCompleter(query, completer);
+    _pendingQueries.add(query);
+
+    return completer.future;
+  }
+
+  List<int>? getResult(QueryList query) {
+    return _cache.getCache(query);
   }
 }

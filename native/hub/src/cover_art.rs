@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use futures::future::join_all;
+use log::info;
 use rinf::DartSignal;
 
 use database::actions::cover_art::get_cover_art_by_file_id;
@@ -117,7 +118,7 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
         async move {
-            let result = query_mix_media_files(
+            let query = query_mix_media_files(
                 &main_db,
                 &recommend_db,
                 x.queries
@@ -130,34 +131,28 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
             )
             .await;
 
-            (x.id, result)
+            match query {
+                Ok(files) => {
+                    let mut cover_art_ids: Vec<i32> =
+                        files.iter().filter_map(|file| file.cover_art_id).collect();
+
+                    cover_art_ids.dedup();
+
+                    GetCoverArtIdsByMixQueriesResponseUnit {
+                        id: x.id,
+                        cover_art_ids,
+                    }
+                }
+                Err(_) => GetCoverArtIdsByMixQueriesResponseUnit {
+                    id: x.id,
+                    cover_art_ids: Vec::new(),
+                },
+            }
         }
     });
 
-    let files_results = join_all(files_futures).await;
-
-    let mut response_units = Vec::new();
-
-    for (id, result) in files_results {
-        match result {
-            Ok(files) => {
-                let mut cover_art_ids: Vec<i32> =
-                    files.iter().filter_map(|file| file.cover_art_id).collect();
-
-                cover_art_ids.dedup();
-                response_units.push(GetCoverArtIdsByMixQueriesResponseUnit { id, cover_art_ids });
-            }
-            Err(_) => {
-                response_units.push(GetCoverArtIdsByMixQueriesResponseUnit {
-                    id,
-                    cover_art_ids: Vec::new(),
-                });
-            }
-        }
-    }
-
     GetCoverArtIdsByMixQueriesResponse {
-        result: response_units,
+        result: join_all(files_futures).await,
     }
     .send_signal_to_dart();
 
