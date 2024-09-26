@@ -17,7 +17,7 @@ migration = { path = "../migration" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
 futures = "0.3.30"
-tokio = "1.38.0"
+tokio = "1.40.0"
 arroy = "0.4.0"
 heed = "0.20.3"
 rand = "0.8.5"

@@ -14,7 +14,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 [dependencies]
 rinf = "6.15.0"
 prost = "0.12.6"
-tokio = { version = "1", features = ["sync", "time", "rt-multi-thread"] }
+tokio = { version = "1.40.0", features = ["sync", "time", "rt-multi-thread"] }
 sea-orm = "0.12.15"
 database = { path = "../../database" }
 playback = { path = "../../playback" }

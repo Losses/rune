@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::{bail, Error};
 use anyhow::{Context, Result};
 use log::{debug, error, info};
 use playback::controller::handle_media_control_event;
@@ -219,10 +220,10 @@ async fn update_media_controls_metadata(
         duration: Some(std::time::Duration::from_secs_f64(status.duration)),
     };
 
-    manager
-        .controls
-        .set_metadata(metadata)
-        .context("Failed to set media metadata")?;
+    match manager.controls.set_metadata(metadata) {
+        Ok(x) => x,
+        Err(e) => bail!(Error::msg(format!("Failed to set media metadata: {:?}", e))),
+    };
 
     Ok(())
 }
@@ -247,10 +248,13 @@ async fn update_media_controls_progress(
         _ => MediaPlayback::Stopped,
     };
 
-    manager
-        .controls
-        .set_playback(playback)
-        .context("Failed to set media playback status")?;
+    match manager.controls.set_playback(playback) {
+        Ok(x) => x,
+        Err(e) => bail!(Error::msg(format!(
+            "Failed to set media playback status: {:?}",
+            e
+        ))),
+    };
 
     Ok(())
 }
