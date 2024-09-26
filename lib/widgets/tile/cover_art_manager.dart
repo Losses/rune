@@ -5,53 +5,66 @@ import '../../utils/query_list.dart';
 import '../../messages/cover_art.pb.dart';
 
 class CoverArtCache {
-  final Map<QueryList, Completer<List<int>>> _cache = {};
+  final Map<QueryList, List<int>> _caches = {};
+  final Map<QueryList, Completer<List<int>>> _completers = {};
 
-  Completer<List<int>>? get(QueryList query) {
-    return _cache[query];
+  List<int>? getCache(QueryList query) {
+    return _caches[query];
   }
 
-  void set(QueryList query, Completer<List<int>> result) {
-    _cache[query] = result;
+  Completer<List<int>>? getCompleter(QueryList query) {
+    return _completers[query];
+  }
+
+  void registerCompleter(QueryList query, Completer<List<int>> result) {
+    _completers[query] = result;
+  }
+
+  void registerCache(QueryList query, List<int> result) {
+    _caches[query] = result;
   }
 
   void clear() {
-    _cache.clear();
+    _completers.clear();
+    _caches.clear();
   }
 }
 
 class CoverArtManager with ChangeNotifier {
   final CoverArtCache _cache = CoverArtCache();
   final List<QueryList> _pendingQueries = [];
+  bool disposed = false;
   Timer? _debounceTimer;
 
   Future<List<int>> queryCoverArts(QueryList query) async {
+    if (disposed) {
+      throw "Already disposed";
+    }
+
     // Check cache first
-    final cachedResult = _cache.get(query);
+    final cachedResult = _cache.getCompleter(query);
     if (cachedResult != null) {
       return cachedResult.future;
     }
 
-    // Add to pending queries
-    _pendingQueries.add(query);
-
     // Debounce mechanism to batch requests
     _debounceTimer?.cancel();
+    _debounceTimer = Timer(const Duration(milliseconds: 5), _processQueries);
 
     // Wait until the query is processed
     final completer = Completer<List<int>>();
     _pendingQueries.add(query);
-    _debounceTimer = Timer(const Duration(milliseconds: 100), () async {
-      final results = await _processQueries();
-      completer.complete(results[query]);
-    });
 
-    _cache.set(query, completer);
+    _cache.registerCompleter(query, completer);
 
     return completer.future;
   }
 
-  _processQueries() async {
+  List<int>? getResult(QueryList query) {
+    return _cache.getCache(query);
+  }
+
+  void _processQueries() async {
     final queriesToProcess = List<QueryList>.from(_pendingQueries);
     _pendingQueries.clear();
 
@@ -74,7 +87,14 @@ class CoverArtManager with ChangeNotifier {
     for (final unit in response.message.result) {
       final query = queriesToProcess.firstWhere((q) => q.hashCode == unit.id);
       final coverArtIds = unit.coverArtIds;
-      _cache.get(query)?.complete(coverArtIds);
+
+      _cache.registerCache(query, coverArtIds);
+      final task = _cache.getCompleter(query);
+
+      if (task == null) return;
+      if (task.isCompleted) return;
+
+      task.complete(coverArtIds);
     }
 
     notifyListeners();
@@ -82,6 +102,7 @@ class CoverArtManager with ChangeNotifier {
 
   @override
   void dispose() {
+    disposed = true;
     _debounceTimer?.cancel();
     _pendingQueries.clear();
     _cache.clear();

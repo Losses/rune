@@ -1,11 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../../screens/search/search.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
-import '../../../screens/search/search.dart';
 
 import '../../../messages/mix.pbserver.dart';
 import '../../../messages/media_file.pb.dart';

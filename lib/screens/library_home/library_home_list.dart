@@ -1,19 +1,18 @@
 import 'dart:async';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/messages/collection.pb.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
-
-import '../collection/collection_list.dart';
-
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../messages/collection.pb.dart';
 
-import '../../messages/library_home.pb.dart';
+import '../collection/collection_list.dart';
 
 class LibraryHomeListView extends StatefulWidget {
   final String libraryPath;
@@ -28,6 +27,7 @@ class LibraryHomeListView extends StatefulWidget {
 
 class LibraryHomeListState extends State<LibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
+  final coverArtManager = CoverArtManager();
 
   @override
   void initState() {
@@ -38,20 +38,43 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
     super.initState();
   }
 
-  Future<List<Group<dynamic>>> fetchSummary() async {
-    final fetchLibrarySummary = FetchLibrarySummaryRequest();
-    fetchLibrarySummary.sendSignalToRust(); // GENERATED
+  @override
+  dispose() {
+    super.dispose();
 
-    final rustSignal = await LibrarySummaryResponse.rustSignalStream.first;
-    final librarySummary = rustSignal.message;
+    coverArtManager.dispose();
+  }
 
-    Timer(Duration(milliseconds: gridAnimationDelay),
-        () => widget.layoutManager.playAnimations());
+  Future<List<Group<InternalCollection>>> fetchSummary() async {
+    final librarySummary = await fetchLibrarySummary();
 
-    return [
-      Group<Collection>(groupTitle: "Albums", items: librarySummary.albums),
-      Group<Collection>(groupTitle: "Artists", items: librarySummary.artists)
+    final groups = [
+      Group<InternalCollection>(
+        groupTitle: "Albums",
+        items: librarySummary.albums
+            .map(InternalCollection.fromRawCollection)
+            .toList(),
+      ),
+      Group<InternalCollection>(
+        groupTitle: "Artists",
+        items: librarySummary.artists
+            .map(InternalCollection.fromRawCollection)
+            .toList(),
+      )
     ];
+
+    for (final group in groups) {
+      for (final collection in group.items) {
+        await coverArtManager.queryCoverArts(collection.queries);
+      }
+    }
+
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => widget.layoutManager.playAnimations(),
+    );
+
+    return groups;
   }
 
   @override
@@ -75,8 +98,8 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: snapshot.data!.map((item) {
-                    if (item is Group<Collection>) {
-                      return StartGroup<Collection>(
+                    if (item is Group<InternalCollection>) {
+                      return StartGroup<InternalCollection>(
                         groupIndex: 0,
                         groupTitle: item.groupTitle,
                         items: item.items,
@@ -86,28 +109,14 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                             StartGroupGridLayoutVariation.square,
                         gapSize: 12,
                         onTitleTap: () => {context.push('/albums')},
-                        itemBuilder: (BuildContext context, Collection item) =>
-                            CollectionItem(
-                          collectionType: CollectionType.Album,
-                          collection: item,
-                        ),
-                      );
-                    } else if (item is Group<Collection>) {
-                      return StartGroup<Collection>(
-                        groupIndex: 1,
-                        groupTitle: item.groupTitle,
-                        items: item.items,
-                        groupLayoutVariation:
-                            StartGroupGroupLayoutVariation.stacked,
-                        gridLayoutVariation:
-                            StartGroupGridLayoutVariation.square,
-                        gapSize: 12,
-                        onTitleTap: () => {context.push('/artists')},
-                        itemBuilder: (BuildContext context, Collection item) =>
-                            CollectionItem(
-                          collectionType: CollectionType.Artist,
-                          collection: item,
-                        ),
+                        itemBuilder: (context, item) {
+                          return CollectionItem(
+                            collectionType: CollectionType.Album,
+                            collection: item,
+                            coverArtIds:
+                                coverArtManager.getResult(item.queries),
+                          );
+                        },
                       );
                     } else {
                       return Container();

@@ -113,7 +113,7 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
 ) -> Result<()> {
     let requests = dart_signal.message.requests;
 
-    let files_futures = requests.into_iter().map(|x| {
+    let files_futures = requests.clone().into_iter().map(|x| {
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
         async move {
@@ -126,7 +126,7 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
                     .chain([("filter::with_cover_art".to_string(), "true".to_string())])
                     .collect(),
                 0,
-                18,
+                36,
             )
             .await;
 
@@ -141,8 +141,10 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
     for (id, result) in files_results {
         match result {
             Ok(files) => {
-                let cover_art_ids: Vec<i32> =
+                let mut cover_art_ids: Vec<i32> =
                     files.iter().filter_map(|file| file.cover_art_id).collect();
+
+                cover_art_ids.dedup();
                 response_units.push(GetCoverArtIdsByMixQueriesResponseUnit { id, cover_art_ids });
             }
             Err(_) => {

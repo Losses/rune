@@ -1,9 +1,8 @@
 import 'dart:math';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/foundation.dart';
-
-import './start_group_item.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/widgets/start_screen/providers/managed_start_screen_item.dart';
 
 class Dimensions<T> {
   final int rows;
@@ -97,13 +96,13 @@ class StartGroupItems<T> extends StatelessWidget {
               final int row = index ~/ dimensions.columns;
               final int column = index % dimensions.columns;
               final T item = items[index];
-              return StartGroupItem(
-                cellSize: cellSize,
-                itemBuilder: itemBuilder,
-                item: item,
+              return ManagedStartScreenItem(
                 groupId: groupIndex,
                 row: row,
                 column: column,
+                width: cellSize,
+                height: cellSize,
+                child: itemBuilder(context, item),
               );
             }),
           ),

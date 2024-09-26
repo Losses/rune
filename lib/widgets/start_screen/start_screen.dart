@@ -1,12 +1,13 @@
 import 'dart:async';
 
+import 'package:player/messages/collection.pbserver.dart';
+import 'package:player/utils/query_list.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
-import '../tile/cover_art_manager.dart';
 
 import './start_group.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -23,11 +24,35 @@ class Group<T> {
   });
 }
 
-class StartScreen<T> extends StatefulWidget {
-  final Future<List<Group<T>>> Function() fetchSummary;
-  final Future<void> Function(PagingController<int, Group<T>>, int) fetchPage;
-  final Widget Function(BuildContext, T) itemBuilder;
-  final PagingController<int, Group<T>> pagingController;
+class InternalCollection {
+  final int id;
+  final String name;
+  final QueryList queries;
+  final CollectionType collectionType;
+
+  InternalCollection({
+    required this.id,
+    required this.name,
+    required this.queries,
+    required this.collectionType,
+  });
+
+  static InternalCollection fromRawCollection(Collection x) {
+    return InternalCollection(
+      id: x.id,
+      name: x.name,
+      queries: QueryList.fromMixQuery(x.queries),
+      collectionType: x.collectionType,
+    );
+  }
+}
+
+class StartScreen extends StatefulWidget {
+  final Future<List<Group<InternalCollection>>> Function() fetchSummary;
+  final Future<void> Function(
+      PagingController<int, Group<InternalCollection>>, int) fetchPage;
+  final Widget Function(BuildContext, InternalCollection) itemBuilder;
+  final PagingController<int, Group<InternalCollection>> pagingController;
   final bool userGenerated;
 
   const StartScreen({
@@ -40,14 +65,13 @@ class StartScreen<T> extends StatefulWidget {
   });
 
   @override
-  StartScreenState<T> createState() => StartScreenState<T>();
+  StartScreenState createState() => StartScreenState();
 }
 
-class StartScreenState<T> extends State<StartScreen<T>> {
-  late Future<List<Group<T>>> summary;
+class StartScreenState extends State<StartScreen> {
+  late Future<List<Group<InternalCollection>>> summary;
 
-  final _layoutManager = StartScreenLayoutManager();
-  final _coverArtManager = CoverArtManager();
+  final layoutManager = StartScreenLayoutManager();
 
   @override
   void initState() {
@@ -58,7 +82,7 @@ class StartScreenState<T> extends State<StartScreen<T>> {
 
       Timer(
         Duration(milliseconds: gridAnimationDelay),
-        () => _layoutManager.playAnimations(),
+        () => layoutManager.playAnimations(),
       );
     });
   }
@@ -66,54 +90,53 @@ class StartScreenState<T> extends State<StartScreen<T>> {
   @override
   void dispose() {
     super.dispose();
-    _layoutManager.dispose();
+    layoutManager.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<CoverArtManager>.value(
-      value: _coverArtManager,
-      child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: _layoutManager,
-        child: FutureBuilder<List<Group<T>>>(
-          future: summary,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return Container();
-            } else if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            } else {
-              return SizedBox(
-                width: MediaQuery.of(context).size.width,
-                child: SmoothHorizontalScroll(
-                  builder: (context, scrollController) =>
-                      PagedListView<int, Group<T>>(
-                    pagingController: widget.pagingController,
-                    scrollDirection: Axis.horizontal,
-                    scrollController: scrollController,
-                    builderDelegate: PagedChildBuilderDelegate<Group<T>>(
-                      noItemsFoundIndicatorBuilder: (context) {
-                        return NoItems(
-                          title: "No collection found",
-                          hasRecommendation: false,
-                          pagingController: widget.pagingController,
-                          userGenerated: widget.userGenerated,
-                        );
-                      },
-                      itemBuilder: (context, item, index) => StartGroup<T>(
-                        key: ValueKey(item.groupTitle),
-                        groupIndex: index,
-                        groupTitle: item.groupTitle,
-                        items: item.items,
-                        itemBuilder: widget.itemBuilder,
-                      ),
+    return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+      value: layoutManager,
+      child: FutureBuilder<List<Group<InternalCollection>>>(
+        future: summary,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container();
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else {
+            return SizedBox(
+              width: MediaQuery.of(context).size.width,
+              child: SmoothHorizontalScroll(
+                builder: (context, scrollController) =>
+                    PagedListView<int, Group<InternalCollection>>(
+                  pagingController: widget.pagingController,
+                  scrollDirection: Axis.horizontal,
+                  scrollController: scrollController,
+                  builderDelegate:
+                      PagedChildBuilderDelegate<Group<InternalCollection>>(
+                    noItemsFoundIndicatorBuilder: (context) {
+                      return NoItems(
+                        title: "No collection found",
+                        hasRecommendation: false,
+                        pagingController: widget.pagingController,
+                        userGenerated: widget.userGenerated,
+                      );
+                    },
+                    itemBuilder: (context, item, index) =>
+                        StartGroup<InternalCollection>(
+                      key: ValueKey(item.groupTitle),
+                      groupIndex: index,
+                      groupTitle: item.groupTitle,
+                      items: item.items,
+                      itemBuilder: widget.itemBuilder,
                     ),
                   ),
                 ),
-              );
-            }
-          },
-        ),
+              ),
+            );
+          }
+        },
       ),
     );
   }

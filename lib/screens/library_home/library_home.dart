@@ -1,9 +1,10 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/playback_controller/playback_placeholder.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../providers/library_path.dart';
 
 import 'library_home_list.dart';
@@ -17,6 +18,7 @@ class LibraryHomePage extends StatefulWidget {
 
 class _LibraryHomePageState extends State<LibraryHomePage> {
   final _layoutManager = StartScreenLayoutManager();
+  final _coverArtManager = CoverArtManager();
 
   @override
   void initState() {
@@ -27,6 +29,7 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
   void dispose() {
     super.dispose();
     _layoutManager.dispose();
+    _coverArtManager.dispose();
   }
 
   @override
@@ -37,16 +40,22 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
       return Container();
     }
 
-    return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+    return ChangeNotifierProvider<CoverArtManager>.value(
+      value: _coverArtManager,
+      child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
         value: _layoutManager,
-        child: Column(children: [
-          const NavigationBarPlaceholder(),
-          Expanded(
-              child: LibraryHomeListView(
-            libraryPath: libraryPath,
-            layoutManager: _layoutManager,
-          )),
-          const PlaybackPlaceholder()
-        ]));
+        child: Column(
+          children: [
+            const NavigationBarPlaceholder(),
+            Expanded(
+                child: LibraryHomeListView(
+              libraryPath: libraryPath,
+              layoutManager: _layoutManager,
+            )),
+            const PlaybackPlaceholder()
+          ],
+        ),
+      ),
+    );
   }
 }

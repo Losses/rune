@@ -7,7 +7,6 @@ import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
-
 import '../../widgets/tile/flip_grid.dart';
 import '../../screens/collection/collection_list.dart';
 
@@ -461,15 +460,24 @@ class CollectionSearchItem extends StatefulWidget {
 }
 
 class CollectionSearchItemState extends State<CollectionSearchItem> {
-  late Future<List<int>> queryTask;
+  late Future<List<int>>? queryTask;
 
   @override
   void initState() {
-    final coverArtManager = Provider.of<CoverArtManager>(context);
-    queryTask = coverArtManager
-        .queryCoverArts(QueryList.fromMixQuery(widget.item.queries));
-
     super.initState();
+
+    queryTask = null;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (queryTask == null) {
+      final coverArtManager = Provider.of<CoverArtManager>(context);
+      queryTask = coverArtManager
+          .queryCoverArts(QueryList.fromMixQuery(widget.item.queries));
+    }
   }
 
   @override
