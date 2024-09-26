@@ -4,7 +4,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../utils/cover_art_cache.dart';
+import '../../utils/cover_art_cache.dart';
 
 final coverArtCache = CoverArtCache();
 

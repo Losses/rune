@@ -1,6 +1,4 @@
-mod album;
 mod analyse;
-mod artist;
 mod collection;
 mod connection;
 mod cover_art;

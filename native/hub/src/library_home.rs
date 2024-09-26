@@ -6,10 +6,11 @@ use rinf::DartSignal;
 use database::actions::library::get_latest_albums_and_artists;
 use database::connection::MainDbConnection;
 
-use crate::messages::album::Album;
-use crate::messages::artist::Artist;
 use crate::messages::library_home::FetchLibrarySummaryRequest;
 use crate::messages::library_home::LibrarySummaryResponse;
+
+use crate::Collection;
+use crate::MixQuery;
 
 pub async fn fetch_library_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -21,20 +22,30 @@ pub async fn fetch_library_summary_request(
     let albums = library
         .0
         .into_iter()
-        .map(|x| Album {
+        .map(|x| Collection {
             id: x.0.id,
             name: x.0.name,
-            cover_ids: x.1.into_iter().collect(),
+            queries: [MixQuery {
+                operator: "lib::album".to_owned(),
+                parameter: x.0.id.to_string(),
+            }]
+            .to_vec(),
+            collection_type: 0,
         })
         .collect();
 
     let artists = library
         .1
         .into_iter()
-        .map(|x| Artist {
+        .map(|x| Collection {
             id: x.0.id,
             name: x.0.name,
-            cover_ids: x.1.into_iter().collect(),
+            queries: [MixQuery {
+                operator: "lib::album".to_owned(),
+                parameter: x.0.id.to_string(),
+            }]
+            .to_vec(),
+            collection_type: 1,
         })
         .collect();
 

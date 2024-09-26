@@ -2,19 +2,17 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:player/messages/collection.pb.dart';
 
 import '../../config/animation.dart';
 
-import '../../screens/albums/albums_list.dart';
-import '../../screens/artists/artists_list.dart';
+import '../collection/collection_list.dart';
 
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
-import '../../messages/album.pb.dart';
-import '../../messages/artist.pb.dart';
 import '../../messages/library_home.pb.dart';
 
 class LibraryHomeListView extends StatefulWidget {
@@ -51,8 +49,8 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
         () => widget.layoutManager.playAnimations());
 
     return [
-      Group<Album>(groupTitle: "Albums", items: librarySummary.albums),
-      Group<Artist>(groupTitle: "Artists", items: librarySummary.artists)
+      Group<Collection>(groupTitle: "Albums", items: librarySummary.albums),
+      Group<Collection>(groupTitle: "Artists", items: librarySummary.artists)
     ];
   }
 
@@ -77,8 +75,8 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: snapshot.data!.map((item) {
-                    if (item is Group<Album>) {
-                      return StartGroup<Album>(
+                    if (item is Group<Collection>) {
+                      return StartGroup<Collection>(
                         groupIndex: 0,
                         groupTitle: item.groupTitle,
                         items: item.items,
@@ -88,11 +86,14 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                             StartGroupGridLayoutVariation.square,
                         gapSize: 12,
                         onTitleTap: () => {context.push('/albums')},
-                        itemBuilder: (BuildContext context, Album item) =>
-                            AlbumItem(album: item),
+                        itemBuilder: (BuildContext context, Collection item) =>
+                            CollectionItem(
+                          collectionType: CollectionType.Album,
+                          collection: item,
+                        ),
                       );
-                    } else if (item is Group<Artist>) {
-                      return StartGroup<Artist>(
+                    } else if (item is Group<Collection>) {
+                      return StartGroup<Collection>(
                         groupIndex: 1,
                         groupTitle: item.groupTitle,
                         items: item.items,
@@ -102,8 +103,11 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                             StartGroupGridLayoutVariation.square,
                         gapSize: 12,
                         onTitleTap: () => {context.push('/artists')},
-                        itemBuilder: (BuildContext context, Artist item) =>
-                            ArtistItem(artist: item),
+                        itemBuilder: (BuildContext context, Collection item) =>
+                            CollectionItem(
+                          collectionType: CollectionType.Artist,
+                          collection: item,
+                        ),
                       );
                     } else {
                       return Container();

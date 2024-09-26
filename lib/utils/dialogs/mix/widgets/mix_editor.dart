@@ -1,5 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/utils/api/get_mix_group_list.dart';
+import 'package:player/messages/collection.pb.dart';
+import 'package:player/utils/api/fetch_collection_by_ids.dart';
+import 'package:player/utils/api/fetch_collection_group_summary_title.dart';
+import 'package:player/utils/api/search_collection_summary.dart';
 
 import 'package:provider/provider.dart';
 
@@ -11,12 +14,6 @@ import '../../../../messages/search.pb.dart';
 
 import '../../../api/fetch_track_by_ids.dart';
 import '../../../api/fetch_track_summary.dart';
-import '../../../api/fetch_album_summary.dart';
-import '../../../api/fetch_albums_by_ids.dart';
-import '../../../api/fetch_artists_by_ids.dart';
-import '../../../api/fetch_artist_summary.dart';
-import '../../../api/fetch_playlist_summary.dart';
-import '../../../api/fetch_playlists_by_ids.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';
 import '../../../dialogs/mix/widgets/editable_combo_box_section.dart';
 
@@ -68,17 +65,18 @@ class _MixEditorState extends State<MixEditor> {
           EditableComboBoxSection(
             controller: _controller.groupController,
             title: 'Group',
-            getItems: getMixGroupList,
+            getItems: () =>
+                fetchCollectionGroupSummaryTitle(CollectionType.Mix),
           ),
           SearchChipInputSection(
             controller: _controller.artistsController,
             title: 'Artists',
-            getInitResult: () => getInitResult(fetchArtistSummary),
+            getInitResult: () => getInitResult(CollectionType.Artist),
             searchForItems: (query) => _searchItems(
               query,
               'artists',
               (x) async {
-                return (await fetchArtistsByIds(x))
+                return (await fetchCollectionByIds(CollectionType.Artist, x))
                     .map((x) => (x.id, x.name))
                     .toList();
               },
@@ -87,12 +85,12 @@ class _MixEditorState extends State<MixEditor> {
           SearchChipInputSection(
             controller: _controller.albumsController,
             title: 'Albums',
-            getInitResult: () => getInitResult(fetchAlbumSummary),
+            getInitResult: () => getInitResult(CollectionType.Album),
             searchForItems: (query) => _searchItems(
               query,
               'albums',
               (x) async {
-                return (await fetchAlbumsByIds(x))
+                return (await fetchCollectionByIds(CollectionType.Album, x))
                     .map((x) => (x.id, x.name))
                     .toList();
               },
@@ -101,12 +99,12 @@ class _MixEditorState extends State<MixEditor> {
           SearchChipInputSection(
             controller: _controller.playlistsController,
             title: 'Playlists',
-            getInitResult: () => getInitResult(fetchPlaylistSummary),
+            getInitResult: () => getInitResult(CollectionType.Playlist),
             searchForItems: (query) => _searchItems(
               query,
               'playlists',
               (x) async {
-                return (await fetchPlaylistsByIds(x))
+                return (await fetchCollectionByIds(CollectionType.Playlist, x))
                     .map((x) => (x.id, x.name))
                     .toList();
               },
@@ -115,7 +113,11 @@ class _MixEditorState extends State<MixEditor> {
           SearchChipInputSection(
             controller: _controller.tracksController,
             title: 'Tracks',
-            getInitResult: () => getInitResult(fetchTrackSummary),
+            getInitResult: () async {
+              return (await fetchTrackSummary())
+                  .map((x) => AutoSuggestBoxItem<int>(value: x.$1, label: x.$2))
+                  .toList();
+            },
             searchForItems: (query) => _searchItems(
               query,
               'tracks',
@@ -177,8 +179,9 @@ Future<Map<String, List<int>>> searchFor(String query, String field) async {
 }
 
 Future<List<AutoSuggestBoxItem<int>>> getInitResult(
-    Future<List<(int, String)>> Function() fetchSummary) async {
-  final summary = await fetchSummary();
+  CollectionType collectionType,
+) async {
+  final summary = await fetchCollectionSummary(collectionType);
   return summary
       .map((x) => AutoSuggestBoxItem<int>(value: x.$1, label: x.$2))
       .toList();

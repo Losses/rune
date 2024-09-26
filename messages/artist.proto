@@ -1,62 +1,8 @@
 syntax = "proto3";
 package artist;
 
-// [RINF:DART-SIGNAL]
-message FetchArtistsGroupSummaryRequest {
-}
-
-message ArtistsGroupSummary {
-  string group_title = 1;
-  int32 count = 2;
-}
-
-// [RINF:RUST-SIGNAL]
-message ArtistGroupSummaryResponse {
-  repeated ArtistsGroupSummary artists_groups = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message FetchArtistsGroupsRequest {
-  repeated string group_titles = 1;
-}
-
 message Artist {
     int32 id = 1;
     string name = 2;
     repeated int32 cover_ids = 3;
-}
-
-message ArtistsGroup {
-  string group_title = 1;
-  repeated Artist artists = 2;
-}
-
-// [RINF:RUST-SIGNAL]
-message ArtistsGroups {
-  repeated ArtistsGroup groups = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message FetchArtistsByIdsRequest {
-  repeated int32 ids = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message FetchArtistsByIdsResponse {
-  repeated Artist result = 1;
-}
-
-message ArtistSummary {
-  int32 id = 1;
-  string name = 2;
-}
-
-// [RINF:DART-SIGNAL]
-message SearchArtistSummaryRequest {
-  int32 n = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message SearchArtistSummaryResponse {
-  repeated ArtistSummary result = 1;
 }

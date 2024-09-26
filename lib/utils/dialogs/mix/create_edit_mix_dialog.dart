@@ -1,11 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../messages/mix.pb.dart';
+import '../../../messages/collection.pb.dart';
 
 import '../../api/create_mix.dart';
 import '../../api/update_mix.dart';
 import '../../api/get_mix_by_id.dart';
-import '../../api/get_mix_group_list.dart';
+import '../../api/fetch_collection_group_summary_title.dart';
 
 class CreateEditMixDialog extends StatefulWidget {
   final int? mixId;
@@ -35,7 +36,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   }
 
   Future<void> fetchGroupList() async {
-    final groups = await getMixGroupList();
+    final groups = await fetchCollectionGroupSummaryTitle(CollectionType.Mix);
     setState(() {
       groupList = ['Favorite', ...groups];
     });

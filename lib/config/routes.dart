@@ -6,15 +6,15 @@ import '../utils/router_extra.dart';
 import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;
 import '../routes/tracks.dart' as tracks;
-import '../routes/albums.dart' as albums;
 import '../routes/search.dart' as search;
 import '../routes/welcome.dart' as welcome;
-import '../routes/artists.dart' as artists;
 import '../routes/settings.dart' as settings;
-import '../routes/playlists.dart' as playlists;
 import '../routes/cover_wall.dart' as cover_wall;
+import '../routes/collections.dart' as collections;
 import '../routes/query_tracks.dart' as query_tracks;
 import '../routes/library_home.dart' as library_home;
+
+import '../messages/collection.pb.dart';
 
 final routes = <GoRoute>[
   GoRoute(
@@ -35,7 +35,9 @@ final routes = <GoRoute>[
   ),
   GoRoute(
     path: '/artists',
-    builder: (context, state) => const artists.ArtistsPage(),
+    builder: (context, state) => const collections.CollectionPage(
+      collectionType: CollectionType.Artist,
+    ),
   ),
   GoRoute(
     path: '/artists/:artistId',
@@ -51,7 +53,9 @@ final routes = <GoRoute>[
   ),
   GoRoute(
     path: '/albums',
-    builder: (context, state) => const albums.AlbumsPage(),
+    builder: (context, state) => const collections.CollectionPage(
+      collectionType: CollectionType.Album,
+    ),
   ),
   GoRoute(
     path: '/albums/:albumId',
@@ -67,7 +71,9 @@ final routes = <GoRoute>[
   ),
   GoRoute(
     path: '/playlists',
-    builder: (context, state) => const playlists.PlaylistsPage(),
+    builder: (context, state) => const collections.CollectionPage(
+      collectionType: CollectionType.Playlist,
+    ),
   ),
   GoRoute(
     path: '/playlists/:playlistId',
@@ -83,7 +89,9 @@ final routes = <GoRoute>[
   ),
   GoRoute(
     path: '/mixes',
-    builder: (context, state) => const mixes.MixesPage(),
+    builder: (context, state) => const collections.CollectionPage(
+      collectionType: CollectionType.Mix,
+    ),
   ),
   GoRoute(
     path: '/mixes/:mixId',

@@ -6,10 +6,10 @@ import 'package:flip_card/flip_card.dart';
 import 'package:flip_card/flip_card_controller.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
-import '../../widgets/cover_art.dart';
+import './cover_art.dart';
 
 class FlipCoverGrid extends StatefulWidget {
-  final List<int> numbers;
+  final List<int> coverArtIds;
   final String id;
   final int speed;
   final BoringAvatarType emptyTileType;
@@ -17,9 +17,9 @@ class FlipCoverGrid extends StatefulWidget {
   const FlipCoverGrid(
       {super.key,
       required this.id,
-      required this.numbers,
+      required this.coverArtIds,
       this.speed = 500,
-      this.emptyTileType = BoringAvatarType.bauhaus});
+      this.emptyTileType = BoringAvatarType.bauhaus,});
 
   @override
   FlipCoverGridState createState() => FlipCoverGridState();
@@ -34,7 +34,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   late int _gridSize;
 
   bool _needFlip() {
-    final n = widget.numbers.length;
+    final n = widget.coverArtIds.length;
     return n != 0 && n != 1 && n != 4 && n != 9;
   }
 
@@ -42,9 +42,9 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   void initState() {
     super.initState();
     _initializeNumbers();
-    _gridSize = _determineGridSize(widget.numbers.length);
+    _gridSize = _determineGridSize(widget.coverArtIds.length);
 
-    if (widget.numbers.isNotEmpty) {
+    if (widget.coverArtIds.isNotEmpty) {
       _controllers =
           List.generate(_gridSize * _gridSize, (_) => FlipCardController());
     }
@@ -55,8 +55,8 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   }
 
   void _initializeNumbers() {
-    _frontNumbers = List.from(widget.numbers);
-    _backNumbers = List.from(widget.numbers);
+    _frontNumbers = List.from(widget.coverArtIds);
+    _backNumbers = List.from(widget.coverArtIds);
 
     _frontNumbers.shuffle();
     _backNumbers.shuffle();
@@ -64,7 +64,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      if (widget.numbers.length > 1) {
+      if (widget.coverArtIds.length > 1) {
         for (int i = 0; i < _controllers.length; i++) {
           if (_random.nextDouble() > 0.64) {
             _controllers[i].toggleCard();
@@ -80,7 +80,8 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     int newNumber;
 
     do {
-      newNumber = widget.numbers[_random.nextInt(widget.numbers.length)];
+      newNumber =
+          widget.coverArtIds[_random.nextInt(widget.coverArtIds.length)];
       attempts++;
     } while ((_frontNumbers.contains(newNumber) ||
             _backNumbers.contains(newNumber) ||
@@ -120,7 +121,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
       theme.accentColor.darkest,
     ];
 
-    if (widget.numbers.isEmpty) {
+    if (widget.coverArtIds.isEmpty) {
       return BoringAvatar(
         name: widget.id,
         palette: BoringAvatarPalette(colors),

@@ -6,8 +6,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/ax_shadow.dart';
-import '../../../widgets/cover_art.dart';
 import '../../../widgets/gradient_container.dart';
+import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../messages/cover_art.pb.dart';
 import '../../../providers/status.dart';

@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/messages/collection.pb.dart';
 
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
 import '../../../utils/api/get_playlist_by_id.dart';
-import '../../../utils/api/get_playlist_group_list.dart';
+import '../../api/fetch_collection_group_summary_title.dart';
 import '../../../messages/playlist.pb.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
@@ -34,7 +35,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   }
 
   Future<void> fetchGroupList() async {
-    final groups = await getPlaylistGroupList();
+    final groups =
+        await fetchCollectionGroupSummaryTitle(CollectionType.Playlist);
     setState(() {
       groupList = ['Favorite', ...groups];
     });

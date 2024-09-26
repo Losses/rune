@@ -1,8 +1,7 @@
 syntax = "proto3";
 package library_home;
 
-import "album.proto";
-import "artist.proto";
+import "collection.proto";
 
 // [RINF:DART-SIGNAL]
 message FetchLibrarySummaryRequest {
@@ -10,6 +9,6 @@ message FetchLibrarySummaryRequest {
 
 // [RINF:RUST-SIGNAL]
 message LibrarySummaryResponse {
-  repeated album.Album albums = 1;
-  repeated artist.Artist artists = 2;
+  repeated collection.Collection albums = 1;
+  repeated collection.Collection artists = 2;
 }

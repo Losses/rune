@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use anyhow::bail;
 use anyhow::Context;
@@ -49,7 +50,7 @@ get_first_n!(list_mixes, mixes);
 pub async fn get_mixes_groups(
     db: &DatabaseConnection,
     groups: Vec<String>,
-) -> Result<Vec<(String, Vec<mixes::Model>)>> {
+) -> Result<Vec<(String, Vec<(mixes::Model, HashSet<i32>)>)>> {
     let entities: Vec<mixes::Model> = mixes::Entity::find()
         .filter(mixes::Column::Group.is_in(groups.clone()))
         .all(db)
@@ -66,7 +67,12 @@ pub async fn get_mixes_groups(
     let result = groups
         .into_iter()
         .map(|group| {
-            let entities_in_group = grouped_entities.remove(&group).unwrap_or_default();
+            let entities_in_group = grouped_entities
+                .remove(&group)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|x| (x, HashSet::new()))
+                .collect();
             (group, entities_in_group)
         })
         .collect();

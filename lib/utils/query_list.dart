@@ -45,4 +45,8 @@ class QueryList extends ListBase<(String, String)> {
         .map((x) => MixQuery(operator: x.$1, parameter: x.$2))
         .toList();
   }
+
+  static fromMixQuery(List<MixQuery> queries) {
+    return QueryList(queries.map((x) => (x.operator, x.parameter)).toList());
+  }
 }

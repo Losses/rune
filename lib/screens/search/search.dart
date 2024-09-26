@@ -1,28 +1,32 @@
 import 'dart:async';
 
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
+
+import '../../widgets/tile/flip_grid.dart';
+import '../../screens/collection/collection_list.dart';
+
 import '../../utils/query_list.dart';
-import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/router_extra.dart';
 import '../../utils/api/search_for.dart';
-import '../../utils/api/fetch_albums_by_ids.dart';
-import '../../utils/api/fetch_artists_by_ids.dart';
-import '../../utils/api/fetch_playlists_by_ids.dart';
+import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
-import '../../widgets/cover_art.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/context_menu/collection_item_context_menu.dart';
+import '../../widgets/tile/cover_art.dart';
+import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/slide_fade_transition.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../messages/album.pb.dart';
-import '../../messages/artist.pb.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/media_file.pb.dart';
-import '../../messages/playlist.pbserver.dart';
+import '../../messages/collection.pb.dart';
 
 import './widgets/search_card.dart';
 
@@ -61,9 +65,9 @@ class _SearchPageState extends State<SearchPage> {
   List<String> suggestions = [];
 
   List<MediaFile> tracks = [];
-  List<Artist> artists = [];
-  List<Album> albums = [];
-  List<Playlist> playlists = [];
+  List<Collection> artists = [];
+  List<Collection> albums = [];
+  List<Collection> playlists = [];
 
   String _lastSearched = '';
 
@@ -131,13 +135,22 @@ class _SearchPageState extends State<SearchPage> {
         tracks = await fetchMediaFileByIds(response.tracks);
       }
       if (response.artists.isNotEmpty) {
-        artists = await fetchArtistsByIds(response.artists);
+        artists = await fetchCollectionByIds(
+          CollectionType.Artist,
+          response.artists,
+        );
       }
       if (response.albums.isNotEmpty) {
-        albums = await fetchAlbumsByIds(response.albums);
+        albums = await fetchCollectionByIds(
+          CollectionType.Album,
+          response.albums,
+        );
       }
       if (response.playlists.isNotEmpty) {
-        playlists = await fetchPlaylistsByIds(response.playlists);
+        playlists = await fetchCollectionByIds(
+          CollectionType.Playlist,
+          response.playlists,
+        );
       }
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -231,15 +244,28 @@ class _SearchPageState extends State<SearchPage> {
                         ),
                         children: [
                           if (selectedItem == "Artists")
-                            ...artists
-                                .map((a) => ArtistItem(index: 0, item: a)),
+                            ...artists.map(
+                              (a) => CollectionSearchItem(
+                                item: a,
+                                collectionType: CollectionType.Artist,
+                              ),
+                            ),
                           if (selectedItem == "Albums")
-                            ...albums.map((a) => AlbumItem(index: 0, item: a)),
+                            ...albums.map(
+                              (a) => CollectionSearchItem(
+                                item: a,
+                                collectionType: CollectionType.Album,
+                              ),
+                            ),
                           if (selectedItem == "Playlists")
-                            ...playlists
-                                .map((a) => PlaylistItem(index: 0, item: a)),
+                            ...playlists.map(
+                              (a) => CollectionSearchItem(
+                                item: a,
+                                collectionType: CollectionType.Playlist,
+                              ),
+                            ),
                           if (selectedItem == "Tracks")
-                            ...tracks.map((a) => TrackItem(
+                            ...tracks.map((a) => TrackSearchItem(
                                   index: 0,
                                   item: a,
                                   fallbackFileIds: trackIds,
@@ -374,11 +400,11 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-class TrackItem extends SearchCard {
+class TrackSearchItem extends SearchCard {
   final MediaFile item;
   final List<int> fallbackFileIds;
 
-  TrackItem({
+  TrackSearchItem({
     super.key,
     required super.index,
     required this.item,
@@ -419,46 +445,82 @@ class TrackItem extends SearchCard {
   }
 }
 
-class ArtistItem extends CollectionSearchCard<Artist> {
-  ArtistItem({
+class CollectionSearchItem extends StatefulWidget {
+  final Collection item;
+  final CollectionType collectionType;
+  final BoringAvatarType emptyTileType = BoringAvatarType.marble;
+
+  const CollectionSearchItem({
     super.key,
-    required super.index,
-    required super.item,
-  }) : super(routePrefix: 'artists', emptyTileType: BoringAvatarType.marble);
+    required this.item,
+    required this.collectionType,
+  });
 
   @override
-  int getItemId() => item.id;
-
-  @override
-  String getItemTitle() => item.name;
-
-  @override
-  List<int> getCoverIds() => item.coverIds;
+  CollectionSearchItemState createState() => CollectionSearchItemState();
 }
 
-class AlbumItem extends CollectionSearchCard<Album> {
-  AlbumItem({
-    super.key,
-    required super.index,
-    required super.item,
-  }) : super(routePrefix: 'albums', emptyTileType: BoringAvatarType.bauhaus);
+class CollectionSearchItemState extends State<CollectionSearchItem> {
+  late Future<List<int>> queryTask;
 
   @override
-  int getItemId() => item.id;
+  void initState() {
+    final coverArtManager = Provider.of<CoverArtManager>(context);
+    queryTask = coverArtManager
+        .queryCoverArts(QueryList.fromMixQuery(widget.item.queries));
+
+    super.initState();
+  }
 
   @override
-  String getItemTitle() => item.name;
-
-  @override
-  List<int> getCoverIds() => item.coverIds;
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<int>>(
+      future: queryTask,
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          return CollectionItem(
+            item: widget.item,
+            collectionType: widget.collectionType,
+            coverArtIds: snapshot.data!,
+          );
+        }
+        return Container();
+      },
+    );
+  }
 }
 
-class PlaylistItem extends CollectionSearchCard<Playlist> {
-  PlaylistItem({
+class CollectionItem extends SearchCard {
+  final Collection item;
+  final CollectionType collectionType;
+  final List<int> coverArtIds;
+  final BoringAvatarType emptyTileType = BoringAvatarType.marble;
+
+  CollectionItem({
     super.key,
-    required super.index,
-    required super.item,
-  }) : super(routePrefix: 'playlists', emptyTileType: BoringAvatarType.bauhaus);
+    super.index = 0,
+    required this.item,
+    required this.coverArtIds,
+    required this.collectionType,
+  });
+
+  @override
+  void onPressed(BuildContext context) {
+    context.replace('/${routerName[collectionType]}/${getItemId()}',
+        extra: QueryTracksExtra(getItemTitle()));
+  }
+
+  @override
+  void onContextMenu(BuildContext context, Offset position) {
+    openCollectionItemContextMenu(
+      position,
+      context,
+      contextAttachKey,
+      contextController,
+      collectionType,
+      getItemId(),
+    );
+  }
 
   @override
   int getItemId() => item.id;
@@ -467,5 +529,15 @@ class PlaylistItem extends CollectionSearchCard<Playlist> {
   String getItemTitle() => item.name;
 
   @override
-  List<int> getCoverIds() => item.coverIds;
+  Widget buildLeadingWidget(double size) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: FlipCoverGrid(
+        id: getItemTitle(),
+        coverArtIds: coverArtIds,
+        emptyTileType: BoringAvatarType.bauhaus,
+      ),
+    );
+  }
 }

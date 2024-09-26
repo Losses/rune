@@ -135,7 +135,7 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                           childAspectRatio: ratio,
                         ),
                         children: _searchManager.searchResults
-                            .map((a) => TrackItem(
+                            .map((a) => TrackSearchItem(
                                   index: 0,
                                   item: a,
                                   fallbackFileIds: trackIds,

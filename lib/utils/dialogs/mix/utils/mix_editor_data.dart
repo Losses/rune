@@ -1,6 +1,5 @@
-import 'package:player/utils/api/fetch_albums_by_ids.dart';
-import 'package:player/utils/api/fetch_artists_by_ids.dart';
-import 'package:player/utils/api/fetch_playlists_by_ids.dart';
+import 'package:player/messages/collection.pb.dart';
+import 'package:player/utils/api/fetch_collection_by_ids.dart';
 import 'package:player/utils/api/fetch_track_by_ids.dart';
 
 class MixEditorData {
@@ -134,12 +133,17 @@ Future<MixEditorData> queryToMixEditorData(
   }
 
   final List<(int, String)> artists =
-      (await fetchArtistsByIds(artistsId)).map((x) => (x.id, x.name)).toList();
+      (await fetchCollectionByIds(CollectionType.Artist, artistsId))
+          .map((x) => (x.id, x.name))
+          .toList();
   List<(int, String)> albums =
-      (await fetchAlbumsByIds(albumsId)).map((x) => (x.id, x.name)).toList();
-  List<(int, String)> playlists = (await fetchPlaylistsByIds(playlistsId))
-      .map((x) => (x.id, x.name))
-      .toList();
+      (await fetchCollectionByIds(CollectionType.Album, albumsId))
+          .map((x) => (x.id, x.name))
+          .toList();
+  List<(int, String)> playlists =
+      (await fetchCollectionByIds(CollectionType.Playlist, playlistsId))
+          .map((x) => (x.id, x.name))
+          .toList();
   List<(int, String)> tracks =
       (await fetchTrackByIds(tracksId)).map((x) => (x.id, x.title)).toList();
 

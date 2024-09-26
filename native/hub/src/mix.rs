@@ -6,21 +6,16 @@ use rinf::DartSignal;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
     add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
-    get_mixes_by_ids, get_mixes_groups, query_mix_media_files, remove_mix, replace_mix_queries,
-    update_mix,
+    query_mix_media_files, remove_mix, replace_mix_queries, update_mix,
 };
-use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
-use database::entities::mixes;
 
 use crate::{
     parse_media_files, AddItemToMixRequest, AddItemToMixResponse, CreateMixRequest,
     CreateMixResponse, FetchAllMixesRequest, FetchAllMixesResponse, FetchMixQueriesRequest,
-    FetchMixQueriesResponse, FetchMixesByIdsRequest, FetchMixesByIdsResponse,
-    FetchMixesGroupSummaryRequest, FetchMixesGroupsRequest, GetMixByIdRequest, GetMixByIdResponse,
-    Mix, MixGroupSummaryResponse, MixQuery, MixQueryRequest, MixQueryResponse, MixWithoutCoverIds,
-    MixesGroup, MixesGroupSummary, MixesGroups, RemoveMixRequest, RemoveMixResponse,
-    UpdateMixRequest, UpdateMixResponse,
+    FetchMixQueriesResponse, GetMixByIdRequest, GetMixByIdResponse, MixQuery, MixQueryRequest,
+    MixQueryResponse, MixWithoutCoverIds, RemoveMixRequest, RemoveMixResponse, UpdateMixRequest,
+    UpdateMixResponse,
 };
 
 pub async fn fetch_all_mixes_request(

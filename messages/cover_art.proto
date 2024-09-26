@@ -51,7 +51,7 @@ message GetCoverArtIdsByMixQueriesResponseUnit {
   repeated int32 cover_art_ids = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [RINF:RUST-SIGNAL]
 message GetCoverArtIdsByMixQueriesResponse {
     repeated GetCoverArtIdsByMixQueriesResponseUnit result = 1;
 }

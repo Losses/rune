@@ -1,10 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/messages/collection.pb.dart';
+import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
+import 'package:player/utils/build_collection_query.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
-import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
@@ -14,28 +16,28 @@ import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 
 import '../../messages/mix.pbserver.dart';
 
-final Map<String, String> typeToOperator = {
-  "album": "lib::album",
-  "artist": "lib::artist",
-  "playlist": "lib::playlist",
-  "track": "lib::track",
+final Map<CollectionType, String> typeToOperator = {
+  CollectionType.Album: "lib::album",
+  CollectionType.Artist: "lib::artist",
+  CollectionType.Playlist: "lib::playlist",
+  CollectionType.Track: "lib::track",
 };
 
 final Map<
-    String,
+    CollectionType,
     void Function(
       BuildContext context,
       void Function()? refreshList,
       int id,
     )> typeToEdit = {
-  "playlist": (context, refreshList, id) async {
+  CollectionType.Playlist: (context, refreshList, id) async {
     final result = await showCreateEditPlaylistDialog(context, playlistId: id);
 
     if (result != null && refreshList != null) {
       refreshList();
     }
   },
-  "mix": (context, refreshList, id) async {
+  CollectionType.Mix: (context, refreshList, id) async {
     final result = await showMixStudioDialog(context, mixId: id);
 
     if (result != null && refreshList != null) {
@@ -44,26 +46,26 @@ final Map<
   },
 };
 
-final Map<String, String> typeToEditLabel = {
-  "playlist": "Edit Playlist",
-  "mix": "Edit Mix",
+final Map<CollectionType, String> typeToEditLabel = {
+  CollectionType.Playlist: "Edit Playlist",
+  CollectionType.Mix: "Edit Mix",
 };
 
 final Map<
-    String,
+    CollectionType,
     void Function(
       BuildContext context,
       void Function()? refreshList,
       int id,
     )> typeToRemove = {
-  "playlist": (context, refreshList, id) async {
+  CollectionType.Playlist: (context, refreshList, id) async {
     final result = await showRemovePlaylistDialog(context, id);
 
     if (result == true && refreshList != null) {
       refreshList();
     }
   },
-  "mix": (context, refreshList, id) async {
+  CollectionType.Mix: (context, refreshList, id) async {
     final result = await showRemoveMixDialog(context, id);
 
     if (result == true && refreshList != null) {
@@ -72,9 +74,9 @@ final Map<
   },
 };
 
-final Map<String, String> typeToRemoveLabel = {
-  "playlist": "Remove Playlist",
-  "mix": "Remove Mix",
+final Map<CollectionType, String> typeToRemoveLabel = {
+  CollectionType.Playlist: "Remove Playlist",
+  CollectionType.Mix: "Remove Mix",
 };
 
 void openCollectionItemContextMenu(
@@ -82,7 +84,7 @@ void openCollectionItemContextMenu(
   BuildContext context,
   GlobalKey contextAttachKey,
   FlyoutController contextController,
-  String type,
+  CollectionType type,
   int id, [
   void Function()? refreshList,
   bool? readonly,
@@ -97,6 +99,9 @@ void openCollectionItemContextMenu(
   );
 
   final mixes = await getAllMixes();
+  final queries = type == CollectionType.Mix
+      ? await fetchMixQueriesByMixId(id)
+      : buildCollectionQuery(type, id);
 
   contextController.showFlyout(
     position: position,
@@ -105,6 +110,7 @@ void openCollectionItemContextMenu(
       type,
       id,
       mixes,
+      queries,
       refreshList,
       readonly,
     ),
@@ -113,9 +119,10 @@ void openCollectionItemContextMenu(
 
 Widget buildCollectionItemContextMenu(
   BuildContext context,
-  String type,
+  CollectionType type,
   int id,
-  List<MixWithoutCoverIds> mixes, [
+  List<MixWithoutCoverIds> mixes,
+  List<(String, String)> queries, [
   void Function()? refreshList,
   bool? readonly,
   List<int> fallbackFileIds = const [],
@@ -141,19 +148,13 @@ Widget buildCollectionItemContextMenu(
     );
   }).toList();
 
-  Future<List<(String, String)>> mixOrQuery(String type, int id) async {
-    return type == 'mix'
-        ? await fetchMixQueriesByMixId(id)
-        : [(typeToOperator[type]!, id.toString())];
-  }
-
   List<MenuFlyoutItemBase> items = [
     MenuFlyoutItem(
       leading: const Icon(Symbols.play_circle),
       text: const Text('Start Playing'),
       onPressed: () async {
         operatePlaybackWithMixQuery(
-          queries: QueryList(await mixOrQuery(type, id)),
+          queries: QueryList(queries),
           playbackMode: 99,
           hintPosition: -1,
           initialPlaybackId: 0,
@@ -168,7 +169,7 @@ Widget buildCollectionItemContextMenu(
       text: const Text('Add to Queue'),
       onPressed: () async {
         operatePlaybackWithMixQuery(
-          queries: QueryList(await mixOrQuery(type, id)),
+          queries: QueryList(queries),
           playbackMode: 99,
           hintPosition: -1,
           initialPlaybackId: 0,
@@ -182,8 +183,8 @@ Widget buildCollectionItemContextMenu(
       leading: const Icon(Symbols.rocket),
       text: const Text('Start Roaming'),
       onPressed: () async {
-        final queries = QueryList([
-          ...await mixOrQuery(type, id),
+        final q = QueryList([
+          ...queries,
           ("pipe::limit", "50"),
           ("pipe::recommend", "-1"),
         ]);
@@ -191,7 +192,7 @@ Widget buildCollectionItemContextMenu(
         if (context.mounted) {
           await safeOperatePlaybackWithMixQuery(
             context: context,
-            queries: queries,
+            queries: q,
             playbackMode: 99,
             hintPosition: -1,
             initialPlaybackId: 0,

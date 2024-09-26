@@ -20,25 +20,6 @@ message MixQueryResponse {
   repeated media_file.MediaFile result = 1;
 }
 
-// [RINF:DART-SIGNAL]
-message FetchMixesGroupSummaryRequest {
-}
-
-message MixesGroupSummary {
-  string group_title = 1;
-  int32 count = 2;
-}
-
-// [RINF:RUST-SIGNAL]
-message MixGroupSummaryResponse {
-  repeated MixesGroupSummary mixes_groups = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message FetchMixesGroupsRequest {
-  repeated string group_titles = 1;
-}
-
 message Mix {
   int32 id = 1;
   string name = 2;
@@ -53,16 +34,6 @@ message MixWithoutCoverIds {
   string group = 3;
   bool locked = 4;
   int32 mode = 5;
-}
-
-message MixesGroup {
-  string group_title = 1;
-  repeated Mix mixes = 2;
-}
-
-// [RINF:RUST-SIGNAL]
-message MixesGroups {
-  repeated MixesGroup groups = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -134,16 +105,6 @@ message GetMixByIdRequest {
 // [RINF:RUST-SIGNAL]
 message GetMixByIdResponse {
   MixWithoutCoverIds mix = 1;
-}
-
-// [RINF:DART-SIGNAL]
-message FetchMixesByIdsRequest {
-  repeated int32 ids = 1;
-}
-
-// [RINF:RUST-SIGNAL]
-message FetchMixesByIdsResponse {
-  repeated Mix result = 1;
 }
 
 // [RINF:DART-SIGNAL]

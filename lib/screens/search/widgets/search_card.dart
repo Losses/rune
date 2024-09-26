@@ -1,12 +1,7 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../utils/router_extra.dart';
-import '../../../utils/context_menu/collection_item_context_menu.dart';
-import '../../../widgets/flip_grid.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 
 abstract class SearchCard extends StatelessWidget {
@@ -63,52 +58,5 @@ abstract class SearchCard extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-abstract class CollectionSearchCard<T> extends SearchCard {
-  final T item;
-  final String routePrefix;
-  final BoringAvatarType emptyTileType;
-
-  CollectionSearchCard({
-    super.key,
-    required super.index,
-    required this.item,
-    required this.routePrefix,
-    required this.emptyTileType,
-  });
-
-  @override
-  int getItemId();
-
-  @override
-  String getItemTitle();
-
-  @override
-  Widget buildLeadingWidget(double size) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: FlipCoverGrid(
-        numbers: getCoverIds(),
-        id: getItemTitle(),
-        emptyTileType: BoringAvatarType.bauhaus,
-      ),
-    );
-  }
-
-  List<int> getCoverIds();
-
-  @override
-  void onPressed(BuildContext context) {
-    context.replace('/$routePrefix/${getItemId()}',
-        extra: QueryTracksExtra(getItemTitle()));
-  }
-
-  @override
-  void onContextMenu(BuildContext context, Offset position) {
-    openCollectionItemContextMenu(position, context, contextAttachKey,
-        contextController, routePrefix, getItemId());
   }
 }
