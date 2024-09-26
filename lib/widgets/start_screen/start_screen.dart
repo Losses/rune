@@ -108,31 +108,33 @@ class StartScreenState extends State<StartScreen> {
             return SizedBox(
               width: MediaQuery.of(context).size.width,
               child: SmoothHorizontalScroll(
-                builder: (context, scrollController) =>
-                    PagedListView<int, Group<InternalCollection>>(
-                  pagingController: widget.pagingController,
-                  scrollDirection: Axis.horizontal,
-                  scrollController: scrollController,
-                  builderDelegate:
-                      PagedChildBuilderDelegate<Group<InternalCollection>>(
-                    noItemsFoundIndicatorBuilder: (context) {
-                      return NoItems(
-                        title: "No collection found",
-                        hasRecommendation: false,
-                        pagingController: widget.pagingController,
-                        userGenerated: widget.userGenerated,
-                      );
-                    },
-                    itemBuilder: (context, item, index) =>
-                        StartGroup<InternalCollection>(
-                      key: ValueKey(item.groupTitle),
-                      groupIndex: index,
-                      groupTitle: item.groupTitle,
-                      items: item.items,
-                      itemBuilder: widget.itemBuilder,
+                builder: (context, scrollController) {
+                  return PagedListView<int, Group<InternalCollection>>(
+                    pagingController: widget.pagingController,
+                    scrollDirection: Axis.horizontal,
+                    scrollController: scrollController,
+                    builderDelegate:
+                        PagedChildBuilderDelegate<Group<InternalCollection>>(
+                      noItemsFoundIndicatorBuilder: (context) {
+                        return NoItems(
+                          title: "No collection found",
+                          hasRecommendation: false,
+                          pagingController: widget.pagingController,
+                          userGenerated: widget.userGenerated,
+                        );
+                      },
+                      itemBuilder: (context, item, index) {
+                        return StartGroup<InternalCollection>(
+                          key: ValueKey(item.groupTitle),
+                          groupIndex: index,
+                          groupTitle: item.groupTitle,
+                          items: item.items,
+                          itemBuilder: widget.itemBuilder,
+                        );
+                      },
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             );
           }

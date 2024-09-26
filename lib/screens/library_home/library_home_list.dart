@@ -100,7 +100,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                   children: snapshot.data!.map((item) {
                     if (item is Group<InternalCollection>) {
                       return StartGroup<InternalCollection>(
-                        groupIndex: 0,
+                        groupIndex: item.groupTitle.hashCode,
                         groupTitle: item.groupTitle,
                         items: item.items,
                         groupLayoutVariation:
