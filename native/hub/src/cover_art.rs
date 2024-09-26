@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use futures::future::join_all;
-use log::info;
 use rinf::DartSignal;
 
 use database::actions::cover_art::get_cover_art_by_file_id;

@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:collection';
-import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
 import '../../messages/cover_art.pb.dart';
@@ -29,12 +27,6 @@ class CoverArtCache {
     _completers.clear();
     _caches.clear();
   }
-}
-
-class CoverArtRequestTransaction {
-  final CoverArtCache cache;
-
-  CoverArtRequestTransaction({required this.cache});
 }
 
 class CoverArtManager {

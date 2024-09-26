@@ -1,3 +1,4 @@
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 
 import '../utils/query_list.dart';
@@ -36,6 +37,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/artists',
     builder: (context, state) => const collections.CollectionPage(
+      key: ValueKey("Artists"),
       collectionType: CollectionType.Artist,
     ),
   ),
@@ -54,6 +56,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/albums',
     builder: (context, state) => const collections.CollectionPage(
+      key: ValueKey("Albums"),
       collectionType: CollectionType.Album,
     ),
   ),
@@ -72,6 +75,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/playlists',
     builder: (context, state) => const collections.CollectionPage(
+      key: ValueKey("Playlists"),
       collectionType: CollectionType.Playlist,
     ),
   ),
@@ -90,6 +94,7 @@ final routes = <GoRoute>[
   GoRoute(
     path: '/mixes',
     builder: (context, state) => const collections.CollectionPage(
+      key: ValueKey("Mixes"),
       collectionType: CollectionType.Mix,
     ),
   ),

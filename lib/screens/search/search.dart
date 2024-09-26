@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:player/widgets/start_screen/start_screen.dart';
+import 'package:player/widgets/tile/cover_art_manager.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -19,7 +21,6 @@ import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/tile/cover_art.dart';
-import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/slide_fade_transition.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -54,6 +55,8 @@ class _SearchPageState extends State<SearchPage> {
   final searchFocusNode = FocusNode();
   final searchController = TextEditingController();
 
+  final coverArtManager = CoverArtManager();
+
   String selectedItem = 'Tracks';
   Timer? _debounce;
   Timer? _saveDebounce;
@@ -64,9 +67,9 @@ class _SearchPageState extends State<SearchPage> {
   List<String> suggestions = [];
 
   List<MediaFile> tracks = [];
-  List<Collection> artists = [];
-  List<Collection> albums = [];
-  List<Collection> playlists = [];
+  List<InternalCollection> artists = [];
+  List<InternalCollection> albums = [];
+  List<InternalCollection> playlists = [];
 
   String _lastSearched = '';
 
@@ -134,23 +137,43 @@ class _SearchPageState extends State<SearchPage> {
         tracks = await fetchMediaFileByIds(response.tracks);
       }
       if (response.artists.isNotEmpty) {
-        artists = await fetchCollectionByIds(
+        artists = (await fetchCollectionByIds(
           CollectionType.Artist,
           response.artists,
-        );
+        ))
+            .map(InternalCollection.fromRawCollection)
+            .toList();
+
+        for (final artist in artists) {
+          coverArtManager.queryCoverArts(artist.queries);
+        }
       }
       if (response.albums.isNotEmpty) {
-        albums = await fetchCollectionByIds(
+        albums = (await fetchCollectionByIds(
           CollectionType.Album,
           response.albums,
-        );
+        ))
+            .map(InternalCollection.fromRawCollection)
+            .toList();
+
+        for (final album in albums) {
+          coverArtManager.queryCoverArts(album.queries);
+        }
       }
       if (response.playlists.isNotEmpty) {
-        playlists = await fetchCollectionByIds(
+        playlists = (await fetchCollectionByIds(
           CollectionType.Playlist,
           response.playlists,
-        );
+        ))
+            .map(InternalCollection.fromRawCollection)
+            .toList();
+
+        for (final playlist in playlists) {
+          coverArtManager.queryCoverArts(playlist.queries);
+        }
       }
+
+      await coverArtManager.commit();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _layoutManager.playAnimations();
@@ -244,23 +267,29 @@ class _SearchPageState extends State<SearchPage> {
                         children: [
                           if (selectedItem == "Artists")
                             ...artists.map(
-                              (a) => CollectionSearchItem(
+                              (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Artist,
+                                coverArtIds:
+                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Albums")
                             ...albums.map(
-                              (a) => CollectionSearchItem(
+                              (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Album,
+                                coverArtIds:
+                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Playlists")
                             ...playlists.map(
-                              (a) => CollectionSearchItem(
+                              (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Playlist,
+                                coverArtIds:
+                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Tracks")
@@ -444,62 +473,8 @@ class TrackSearchItem extends SearchCard {
   }
 }
 
-class CollectionSearchItem extends StatefulWidget {
-  final Collection item;
-  final CollectionType collectionType;
-  final BoringAvatarType emptyTileType = BoringAvatarType.marble;
-
-  const CollectionSearchItem({
-    super.key,
-    required this.item,
-    required this.collectionType,
-  });
-
-  @override
-  CollectionSearchItemState createState() => CollectionSearchItemState();
-}
-
-class CollectionSearchItemState extends State<CollectionSearchItem> {
-  late Future<List<int>>? queryTask;
-
-  @override
-  void initState() {
-    super.initState();
-
-    queryTask = null;
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    if (queryTask == null) {
-      final coverArtManager = Provider.of<CoverArtManager>(context);
-      queryTask = coverArtManager
-          .queryCoverArts(QueryList.fromMixQuery(widget.item.queries));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<int>>(
-      future: queryTask,
-      builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          return CollectionItem(
-            item: widget.item,
-            collectionType: widget.collectionType,
-            coverArtIds: snapshot.data!,
-          );
-        }
-        return Container();
-      },
-    );
-  }
-}
-
 class CollectionItem extends SearchCard {
-  final Collection item;
+  final InternalCollection item;
   final CollectionType collectionType;
   final List<int> coverArtIds;
   final BoringAvatarType emptyTileType = BoringAvatarType.marble;
