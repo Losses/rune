@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::{debug, error, info};
+use playback::controller::handle_media_control_event;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -35,9 +36,11 @@ pub async fn initialize_player(
     let main_db_for_played_throudh = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
 
-    let manager = Arc::new(Mutex::new(MediaControlManager::new(player)?));
+    let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
-    manager.lock().await.initialize().await?;
+    let mut os_controller_receiver = manager.lock().await.subscribe_controller_events();
+
+    manager.lock().await.initialize()?;
 
     info!("Initializing event listeners");
     task::spawn(async move {
@@ -61,7 +64,10 @@ pub async fn initialize_player(
                                 match update_media_controls_metadata(manager, &metadata).await {
                                     Ok(_) => {}
                                     Err(e) => {
-                                        error!("Error updating OS media controller metadata: {:?}", e);
+                                        error!(
+                                            "Error updating OS media controller metadata: {:?}",
+                                            e
+                                        );
                                     }
                                 };
                             }
@@ -106,9 +112,14 @@ pub async fn initialize_player(
             };
 
             if let Err(e) =
-                update_media_controls_progress(Arc::clone(&manager), &formated_status.clone()).await
+                update_media_controls_progress(Arc::clone(&manager), &formated_status.clone())
+                    .await
+                    .with_context(|| "Failed to update media controls")
             {
-                error!("Error updating media controls: {:?}", e);
+                error!("{}", e);
+                e.chain()
+                    .skip(1)
+                    .for_each(|cause| eprintln!("because: {}", cause));
             }
 
             formated_status.send_signal_to_dart();
@@ -139,6 +150,21 @@ pub async fn initialize_player(
     task::spawn(async move {
         while let Ok(value) = realtime_fft_receiver.recv().await {
             send_realtime_fft(value).await;
+        }
+    });
+
+    task::spawn(async move {
+        let player = Arc::clone(&player);
+
+        while let Ok(value) = os_controller_receiver.recv().await {
+            if let Err(e) = handle_media_control_event(&player, value)
+                .await
+                .with_context(|| "Unable to handle control event")
+            {
+                e.chain()
+                    .skip(1)
+                    .for_each(|cause| eprintln!("because: {}", cause));
+            };
         }
     });
 

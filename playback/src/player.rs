@@ -25,7 +25,7 @@ pub struct PlaylistStatus {
     pub items: Vec<i32>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PlaybackState {
     Playing,
     Paused,
