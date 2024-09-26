@@ -10,6 +10,8 @@ use crate::player::{PlaybackState, Player};
 pub struct MediaControlManager {
     pub controls: MediaControls,
     event_sender: broadcast::Sender<MediaControlEvent>,
+    #[cfg(target_os = "windows")]
+    dummy_window: windows::DummyWindow,
 }
 
 impl MediaControlManager {
@@ -18,7 +20,7 @@ impl MediaControlManager {
         let hwnd = None;
 
         #[cfg(target_os = "windows")]
-        let (hwnd, _dummy_window) = {
+        let (hwnd, dummy_window) = {
             let dummy_window = windows::DummyWindow::new()?;
             let handle = dummy_window.handle.0 as *mut c_void;
             (Some(handle), dummy_window)
@@ -40,6 +42,8 @@ impl MediaControlManager {
         Ok(Self {
             controls,
             event_sender,
+            #[cfg(target_os = "windows")]
+            dummy_window,
         })
     }
 
