@@ -46,7 +46,7 @@ impl std::fmt::Display for PlaybackState {
 // Define the Player struct, which includes a channel sender for sending commands
 pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
-    current_status: Arc<Mutex<PlayerStatus>>,
+    pub current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: broadcast::Sender<PlayerStatus>,
     playlist_sender: broadcast::Sender<PlaylistStatus>,
     played_through_sender: broadcast::Sender<i32>,

@@ -12,8 +12,12 @@ use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::metadata::MetadataSummary;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
+use playback::controller::MediaControlManager;
 use playback::player::Player;
 use playback::player::PlaylistStatus;
+use playback::MediaMetadata;
+use playback::MediaPlayback;
+use playback::MediaPosition;
 
 use crate::{PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
 
@@ -31,6 +35,10 @@ pub async fn initialize_player(
     let main_db_for_played_throudh = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
 
+    let manager = Arc::new(Mutex::new(MediaControlManager::new(player)?));
+
+    manager.lock().await.initialize().await?;
+
     info!("Initializing event listeners");
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_status);
@@ -46,8 +54,16 @@ pub async fn initialize_player(
                         // Update the cached metadata if the index has changed
                         match get_metadata_summary_by_file_id(&main_db, id).await {
                             Ok(metadata) => {
-                                cached_meta = Some(metadata);
+                                cached_meta = Some(metadata.clone());
                                 last_status_id = Some(id);
+
+                                let manager = Arc::clone(&manager);
+                                match update_media_controls_metadata(manager, &metadata).await {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        error!("Error updating OS media controller metadata: {:?}", e);
+                                    }
+                                };
                             }
                             Err(e) => {
                                 // Print the error if get_metadata_summary_by_file_id returns an error
@@ -57,6 +73,7 @@ pub async fn initialize_player(
                             }
                         }
                     }
+
                     cached_meta.clone().unwrap_or_default()
                 }
                 none => {
@@ -74,7 +91,7 @@ pub async fn initialize_player(
                 position.as_secs_f32() / (duration as f32)
             };
 
-            PlaybackStatus {
+            let formated_status = PlaybackStatus {
                 state: status.state.to_string(),
                 progress_seconds: position.as_secs_f32(),
                 progress_percentage,
@@ -86,8 +103,15 @@ pub async fn initialize_player(
                 index: status.index.map(|i| i as i32),
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
+            };
+
+            if let Err(e) =
+                update_media_controls_progress(Arc::clone(&manager), &formated_status.clone()).await
+            {
+                error!("Error updating media controls: {:?}", e);
             }
-            .send_signal_to_dart();
+
+            formated_status.send_signal_to_dart();
         }
     });
 
@@ -153,4 +177,54 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
 
 pub async fn send_realtime_fft(value: Vec<f32>) {
     RealtimeFft { value }.send_signal_to_dart(); // GENERATED
+}
+
+async fn update_media_controls_metadata(
+    manager: Arc<Mutex<MediaControlManager>>,
+    status: &MetadataSummary,
+) -> Result<()> {
+    let mut manager = manager.lock().await;
+
+    let metadata = MediaMetadata {
+        title: Some(&status.title),
+        album: Some(&status.album),
+        artist: Some(&status.artist),
+        cover_url: None,
+        duration: Some(std::time::Duration::from_secs_f64(status.duration)),
+    };
+
+    manager
+        .controls
+        .set_metadata(metadata)
+        .context("Failed to set media metadata")?;
+
+    Ok(())
+}
+
+async fn update_media_controls_progress(
+    manager: Arc<Mutex<MediaControlManager>>,
+    status: &PlaybackStatus,
+) -> Result<()> {
+    let mut manager = manager.lock().await;
+
+    let playback = match status.state.as_str() {
+        "Playing" => MediaPlayback::Playing {
+            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+                status.progress_seconds,
+            ))),
+        },
+        "Paused" => MediaPlayback::Paused {
+            progress: Some(MediaPosition(std::time::Duration::from_secs_f32(
+                status.progress_seconds,
+            ))),
+        },
+        _ => MediaPlayback::Stopped,
+    };
+
+    manager
+        .controls
+        .set_playback(playback)
+        .context("Failed to set media playback status")?;
+
+    Ok(())
 }
