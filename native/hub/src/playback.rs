@@ -254,7 +254,7 @@ pub async fn operate_playback_with_mix_query_request(
         file_ids = request.fallback_media_file_ids.clone();
     }
 
-    let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap());
+    let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
 
     // Add to playlist
     player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
