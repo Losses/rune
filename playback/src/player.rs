@@ -18,6 +18,7 @@ pub struct PlayerStatus {
     pub playlist: Vec<i32>,
     pub playback_mode: PlaybackMode,
     pub ready: bool,
+    pub volume: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +92,7 @@ impl Player {
             playback_mode: PlaybackMode::Sequential,
             playlist: Vec::new(),
             ready: false,
+            volume: 1.0,
         }));
 
         let commands = Arc::new(Mutex::new(cmd_tx));
@@ -222,6 +224,9 @@ impl Player {
                             }
                         };
                     }
+                    PlayerEvent::VolumeUpdate(value) => {
+                        status.volume = value;
+                    }
                 }
                 // Send the updated status to all subscribers
                 status_sender_clone.send(status.clone()).unwrap();
@@ -323,5 +328,9 @@ impl Player {
 
     pub fn set_playback_mode(&mut self, mode: PlaybackMode) {
         self.command(PlayerCommand::SetPlaybackMode(mode))
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        self.command(PlayerCommand::SetVolume(volume))
     }
 }

@@ -69,6 +69,7 @@ pub enum PlayerCommand {
         new_index: usize,
     },
     SetPlaybackMode(PlaybackMode),
+    SetVolume(f32),
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +110,7 @@ pub enum PlayerEvent {
         playback_mode: PlaybackMode,
         ready: bool,
     },
+    VolumeUpdate(f32),
     PlaylistUpdated(Vec<i32>),
     RealtimeFFT(Vec<f32>),
 }
@@ -220,6 +222,7 @@ impl PlayerInternal {
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                         PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await,
                         PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
+                        PlayerCommand::SetVolume(volume) => self.set_volume(volume),
                     }
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -648,5 +651,11 @@ impl PlayerInternal {
                 self.playlist.clone().into_iter().map(|x| x.id).collect(),
             ))
             .unwrap();
+    }
+
+    fn set_volume(&self, volume: f32) {
+        if let Some(sink) = &self.sink {
+            sink.set_volume(volume);
+        }
     }
 }
