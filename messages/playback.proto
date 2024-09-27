@@ -75,6 +75,16 @@ message RealtimeFFT {
 }
 
 // [RINF:DART-SIGNAL]
+message VolumeRequest {
+  float volume = 1;
+}
+
+// [RINF:RUST-SIGNAL]
+message VolumeResponse {
+  float volume = 1;
+}
+
+// [RINF:DART-SIGNAL]
 message OperatePlaybackWithMixQueryRequest {
     repeated mix.MixQuery queries = 1;
     uint32 playback_mode = 2;

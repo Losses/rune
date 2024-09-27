@@ -1,5 +1,7 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:provider/provider.dart';
+import 'package:rinf/rinf.dart';
 
 import '../messages/playback.pb.dart';
 
@@ -8,20 +10,21 @@ class PlaybackStatusProvider with ChangeNotifier {
 
   PlaybackStatus? get playbackStatus => _playbackStatus;
 
-  void updatePlaybackStatus(PlaybackStatus newStatus) {
-    _playbackStatus = newStatus;
-    notifyListeners();
+  late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
+
+  PlaybackStatusProvider() {
+    subscription =
+        PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
   }
-}
 
-class PlaybackStatusUpdateHandler {
-  static void init(BuildContext context) {
-    PlaybackStatus.rustSignalStream.listen((event) {
-      final playbackStatusUpdate = event.message;
+  @override
+  void dispose() {
+    super.dispose();
+    subscription.cancel();
+  }
 
-      if (!context.mounted) return;
-      Provider.of<PlaybackStatusProvider>(context, listen: false)
-          .updatePlaybackStatus(playbackStatusUpdate);
-    });
+  void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
+    _playbackStatus = signal.message;
+    notifyListeners();
   }
 }

@@ -1,4 +1,6 @@
-use std::{ffi::c_void, sync::Arc, thread};
+#[cfg(target_os = "windows")]
+use std::ffi::c_void;
+use std::{sync::Arc, thread};
 
 use anyhow::{bail, Error, Result};
 use log::{debug, error, info};
@@ -51,14 +53,16 @@ impl MediaControlManager {
         info!("Initializing media controls");
 
         let event_sender = self.event_sender.clone();
-        match self.controls.attach(move |event: MediaControlEvent| {
+        let request = self.controls.attach(move |event: MediaControlEvent| {
             let event_sender = event_sender.clone();
             thread::spawn(move || {
                 if let Err(e) = event_sender.send(event) {
                     error!("Error sending media control event: {:?}", e);
                 }
             });
-        }) {
+        });
+
+        match request {
             Ok(x) => x,
             Err(e) => bail!(Error::msg(format!("{:?}", e))),
         };

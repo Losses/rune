@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:player/providers/volume.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -51,6 +52,7 @@ void main() async {
             lazy: false, create: (_) => LibraryPathProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
+        ChangeNotifierProvider(create: (_) => VolumeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(
             create: (_) =>
@@ -66,9 +68,6 @@ class Rune extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    PlaylistUpdateHandler.init(context);
-    PlaybackStatusUpdateHandler.init(context);
-
     return ChangeNotifierProvider.value(
       value: appTheme,
       builder: (context, child) {

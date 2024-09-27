@@ -152,6 +152,7 @@ async fn player_loop(path: String) {
             SwitchRequest => (main_db, player),
             SeekRequest => (player),
             RemoveRequest => (player),
+            VolumeRequest => (player),
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
 

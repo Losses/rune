@@ -15,6 +15,8 @@ use playback::player::Player;
 
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::OperatePlaybackWithMixQueryResponse;
+use crate::VolumeRequest;
+use crate::VolumeResponse;
 use crate::{
     MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PreviousRequest,
     RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
@@ -135,6 +137,18 @@ pub async fn remove_request(
         .lock()
         .await
         .remove_from_playlist(dart_signal.message.index as usize);
+
+    Ok(())
+}
+
+pub async fn volume_request(
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<VolumeRequest>,
+) -> Result<()> {
+    let volume = dart_signal.message.volume;
+    player.lock().await.set_volume(volume);
+
+    VolumeResponse { volume }.send_signal_to_dart();
 
     Ok(())
 }

@@ -1,5 +1,7 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:provider/provider.dart';
+import 'package:rinf/rinf.dart';
 
 import '../messages/playback.pb.dart';
 
@@ -20,7 +22,21 @@ class PlaylistProvider with ChangeNotifier {
 
   List<PlaylistEntry> get items => _items;
 
-  void updatePlaylist(List<PlaylistItem> newItems) {
+  late StreamSubscription<RustSignal<PlaylistUpdate>> subscription;
+
+  PlaylistProvider() {
+    subscription = PlaylistUpdate.rustSignalStream.listen(_updatePlaylist);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    subscription.cancel();
+  }
+
+  void _updatePlaylist(RustSignal<PlaylistUpdate> event) {
+    final playlistUpdate = event.message;
+    final newItems = playlistUpdate.items;
     _items = newItems
         .asMap()
         .entries
@@ -39,18 +55,5 @@ class PlaylistProvider with ChangeNotifier {
 
     MovePlaylistItemRequest(oldIndex: oldIndex, newIndex: newIndex)
         .sendSignalToRust();
-  }
-}
-
-class PlaylistUpdateHandler {
-  static void init(BuildContext context) {
-    PlaylistUpdate.rustSignalStream.listen((event) {
-      final playlistUpdate = event.message;
-      final items = playlistUpdate.items;
-
-      if (!context.mounted) return;
-      Provider.of<PlaylistProvider>(context, listen: false)
-          .updatePlaylist(items);
-    });
   }
 }

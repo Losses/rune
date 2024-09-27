@@ -1,4 +1,5 @@
 import 'package:player/widgets/playback_controller/like_button.dart';
+import 'package:player/widgets/playback_controller/volume_button.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -120,6 +121,7 @@ class PlaybackControllerState extends State<PlaybackController> {
                   NextButton(
                     disabled: notReady,
                   ),
+                  const VolumeButton(),
                   const PlaybackModeButton(),
                   PlaylistButton(),
                   const CoverWallButton(),
