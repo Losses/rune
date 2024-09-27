@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/directory/directory_tree.dart';
+import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
@@ -18,10 +18,17 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      const NavigationBarPlaceholder(),
-      Expanded(child: DirectoryTree(onSelectionChanged: onSelectionChanged)),
-      const PlaybackPlaceholder()
+    return const Column(children: [
+      NavigationBarPlaceholder(),
+      FancyCover(
+        size: 256,
+        texts: (
+          "Default Title Name",
+          "Artist Name",
+          "Total Time 12:35",
+        ),
+      ),
+      PlaybackPlaceholder()
     ]);
   }
 }
