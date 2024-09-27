@@ -24,8 +24,12 @@ class FancyCoverPainter extends CustomPainter {
   }
 
   void _drawText(
-      Canvas canvas, Size size, String text, FancyCoverConfig config) {
-    final scaledFontSize = config.fontSize * size.width / canvasSize.width;
+    Canvas canvas,
+    Size size,
+    String text,
+    FancyCoverConfig config,
+  ) {
+    final scaledFontSize = (canvasSize.width / 256) * config.fontSize;
     final scaledTextBoxWidth = config.textBoxWidth * canvasSize.width;
 
     final textStyle = TextStyle(
@@ -78,5 +82,5 @@ class FancyCoverPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(FancyCoverPainter oldDelegate) =>
-      texts != oldDelegate.texts || configs != oldDelegate.configs;
+      texts != oldDelegate.texts;
 }

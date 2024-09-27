@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
+import '../../utils/format_time.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/context_menu_wrapper.dart';
@@ -67,6 +68,7 @@ class TrackListItem extends StatelessWidget {
                   CoverArt(
                     fileId: item.id,
                     size: size,
+                    hint: (item.title, item.artist, 'Total Time $formatTime(item.duration)'),
                   ),
                   Expanded(
                     child: Padding(
