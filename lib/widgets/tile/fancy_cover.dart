@@ -5,11 +5,13 @@ import 'package:player/widgets/tile/fancy_cover_implementation.dart';
 class FancyCover extends StatelessWidget {
   final double size;
   final (String, String, String) texts;
+  final int? configIndex;
 
   const FancyCover({
     super.key,
     required this.size,
     required this.texts,
+    this.configIndex,
   });
 
   @override
@@ -29,7 +31,9 @@ class FancyCover extends StatelessWidget {
       child: FancyCoverImplementation(
         size: size,
         texts: [texts.$1, texts.$2, texts.$3],
-        configs: configs[texts.hashCode % configs.length],
+        configs: configs[configIndex == null
+            ? texts.hashCode % configs.length
+            : configIndex!],
         background: background[i],
         foreground: foreground[i],
       ),

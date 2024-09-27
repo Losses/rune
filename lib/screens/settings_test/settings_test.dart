@@ -27,6 +27,7 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
           "Artist Name",
           "Total Time 12:35",
         ),
+        configIndex: 8,
       ),
       PlaybackPlaceholder()
     ]);

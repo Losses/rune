@@ -68,7 +68,7 @@ class TrackListItem extends StatelessWidget {
                   CoverArt(
                     fileId: item.id,
                     size: size,
-                    hint: (item.title, item.artist, 'Total Time $formatTime(item.duration)'),
+                    hint: (item.title, item.artist, 'Total Time ${formatTime(item.duration)}'),
                   ),
                   Expanded(
                     child: Padding(
