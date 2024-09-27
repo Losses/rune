@@ -167,6 +167,7 @@ pub(crate) struct PlayerInternal {
     cancellation_token: CancellationToken,
     playback_mode: PlaybackMode,
     random_map: Vec<usize>,
+    volume: f32,
 }
 
 impl PlayerInternal {
@@ -190,6 +191,7 @@ impl PlayerInternal {
             cancellation_token,
             playback_mode: PlaybackMode::Sequential,
             random_map: [].to_vec(),
+            volume: 1.0,
         }
     }
 
@@ -287,6 +289,7 @@ impl PlayerInternal {
                                 },
                             ));
 
+                            sink.set_volume(self.volume);
                             self.sink = Some(sink);
                             self._stream = Some(stream);
                             self.current_track_index = Some(index);
@@ -653,9 +656,10 @@ impl PlayerInternal {
             .unwrap();
     }
 
-    fn set_volume(&self, volume: f32) {
+    fn set_volume(&mut self, volume: f32) {
         if let Some(sink) = &self.sink {
             sink.set_volume(volume);
+            self.volume = volume;
         }
     }
 }
