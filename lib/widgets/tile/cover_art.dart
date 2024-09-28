@@ -1,25 +1,39 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
 
 class EmptyCoverArt extends StatelessWidget {
   final double? size;
+  final int index;
 
-  const EmptyCoverArt({super.key, this.size});
+  const EmptyCoverArt({
+    super.key,
+    this.size,
+    required this.index,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = FluentTheme.of(context).accentColor;
+
+    final colors = [
+      accentColor.dark,
+      accentColor.darker,
+      accentColor.darkest,
+      accentColor.normal,
+      accentColor.light,
+      accentColor.lighter,
+      accentColor.lightest
+    ];
+
+    final colorIndex = index % colors.length;
+
     return Container(
       width: size,
       height: size,
-      color: Colors.green,
-      child: Icon(
-        Symbols.album,
-        size: size == null ? null : size! * 0.8,
-      ),
+      color: colors[colorIndex],
     );
   }
 }
@@ -28,12 +42,14 @@ class CoverArt extends StatelessWidget {
   final String? path;
   final (String, String, String)? hint;
   final double? size;
+  final int index;
 
   const CoverArt({
     super.key,
     required this.path,
     this.size,
     this.hint,
+    this.index = 0,
   });
 
   @override
@@ -42,6 +58,7 @@ class CoverArt extends StatelessWidget {
         ? hint == null
             ? EmptyCoverArt(
                 size: size ?? double.infinity,
+                index: index,
               )
             : FancyCover(
                 size: size ?? double.infinity,

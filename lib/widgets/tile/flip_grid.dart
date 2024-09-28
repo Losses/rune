@@ -154,8 +154,8 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
                 onFlipDone: (isFront) {
                   _replaceNumber(index);
                 },
-                front: _buildCard(_frontPaths[index]),
-                back: _buildCard(_backPaths[index]),
+                front: _buildCard(_frontPaths[index], index),
+                back: _buildCard(_backPaths[index], index),
               ),
             );
           }),
@@ -170,13 +170,14 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     return 3;
   }
 
-  Widget _buildCard(String? path) {
+  Widget _buildCard(String? path, int index) {
     return RepaintBoundary(
       child: SizedBox(
         width: double.infinity,
         height: double.infinity,
         child: Center(
           child: CoverArt(
+            index: index,
             path: path,
           ),
         ),

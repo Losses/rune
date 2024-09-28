@@ -259,10 +259,46 @@ async fn handle_mixes(
                 database::actions::mixes::get_mixes_groups(main_db, params.group_titles.unwrap())
                     .await?;
             let results = fetch_mix_queries(main_db, &entry).await?;
-            CollectionGroups {
-                groups: create_collection_groups(entry, results),
-            }
-            .send_signal_to_dart();
+
+            let groups = entry
+                .into_iter()
+                .map(|(group_title, _)| {
+                    let collections_futures = results
+                        .iter()
+                        .filter_map(|(gt, mix, queries)| {
+                            if gt == &group_title {
+                                Some(Collection::from_mix_bakeable::<
+                                    database::entities::mixes::Model,
+                                >(
+                                    Arc::clone(main_db),
+                                    Arc::clone(recommend_db),
+                                    mix.clone(),
+                                    queries.to_vec(),
+                                    params.bake_cover_arts,
+                                ))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    async move {
+                        let collections = join_all(collections_futures)
+                            .await
+                            .into_iter()
+                            .filter_map(Result::ok)
+                            .collect();
+                        CollectionGroup {
+                            group_title,
+                            collections,
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let groups = join_all(groups).await;
+
+            CollectionGroups { groups }.send_signal_to_dart();
         }
         CollectionAction::FetchById => {
             let items =
@@ -272,7 +308,7 @@ async fn handle_mixes(
                 let queries = queries.clone();
                 let mix = mix.clone();
 
-                Collection::from_mix_bakeable::<mixes::Model>(
+                Collection::from_mix_bakeable::<database::entities::mixes::Model>(
                     Arc::clone(main_db),
                     Arc::clone(recommend_db),
                     mix,
@@ -301,7 +337,13 @@ async fn handle_mixes(
             .send_signal_to_dart();
         }
         _ => {
-            handle_collection_action::<mixes::Model>(main_db, recommend_db, action, params).await?
+            handle_collection_action::<database::entities::mixes::Model>(
+                main_db,
+                recommend_db,
+                action,
+                params,
+            )
+            .await?
         }
     }
 
@@ -379,34 +421,6 @@ async fn fetch_mix_queries_for_items(
         .await
         .into_iter()
         .collect::<Result<Vec<_>, _>>()
-}
-
-type CollectionGroupsEntry = Vec<(String, Vec<(mixes::Model, HashSet<i32>)>)>;
-
-fn create_collection_groups(
-    entry: CollectionGroupsEntry,
-    results: Vec<(String, mixes::Model, Vec<MixQuery>)>,
-) -> Vec<CollectionGroup> {
-    entry
-        .into_iter()
-        .map(|(group_title, _)| {
-            let collections = results
-                .iter()
-                .filter_map(|(gt, mix, queries)| {
-                    if gt == &group_title {
-                        Some(Collection::from_mix(mix, queries))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-
-            CollectionGroup {
-                group_title,
-                collections,
-            }
-        })
-        .collect()
 }
 
 fn create_collections(results: Vec<(mixes::Model, Vec<MixQuery>)>) -> Vec<Collection> {
