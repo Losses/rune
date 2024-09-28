@@ -736,7 +736,19 @@ pub async fn query_mix_media_files(
                 .map(|x| x.0 as i32)
                 .collect::<Vec<i32>>();
 
-        return Ok(get_files_by_ids(main_db, &file_ids).await?);
+        let files = get_files_by_ids(main_db, &file_ids).await?;
+
+        // Create a hash map to store files by their ID
+        let file_map: std::collections::HashMap<i32, _> =
+            files.into_iter().map(|file| (file.id, file)).collect();
+
+        // Reorder files according to the order of file_ids
+        let ordered_files = file_ids
+            .into_iter()
+            .filter_map(|id| file_map.get(&id).cloned())
+            .collect::<Vec<_>>();
+
+        return Ok(ordered_files);
     }
 
     // Use cursor pagination
