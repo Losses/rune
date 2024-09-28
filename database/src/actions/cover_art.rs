@@ -83,11 +83,13 @@ fn bake_cover_art_by_cover_arts(
 ) -> Result<HashMap<i32, String>> {
     let mut cover_art_id_to_path: HashMap<i32, String> = HashMap::new();
 
+    fs::create_dir_all(COVER_TEMP_DIR.clone())?;
+
     for cover_art in cover_arts.iter() {
         let id: i32 = cover_art.id;
         let hash: String = cover_art.file_hash.clone();
 
-        let path = COVER_TEMP_DIR.clone().join(hash);
+        let path: PathBuf = COVER_TEMP_DIR.clone().join(hash);
 
         if !path.exists() {
             fs::write(path.clone(), cover_art.binary.clone())?;

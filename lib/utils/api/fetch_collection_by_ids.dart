@@ -8,6 +8,7 @@ Future<List<Collection>> fetchCollectionByIds(
   final request = FetchCollectionByIdsRequest(
     ids: ids,
     collectionType: collectionType,
+    bakeCoverArts: true,
   );
   request.sendSignalToRust(); // GENERATED
 

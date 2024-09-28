@@ -5,6 +5,7 @@ import "collection.proto";
 
 // [RINF:DART-SIGNAL]
 message FetchLibrarySummaryRequest {
+  bool bake_cover_arts = 1;
 }
 
 // [RINF:RUST-SIGNAL]

@@ -4,7 +4,10 @@ import 'package:player/widgets/track_list/track_list.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFileByIds(
     List<int> ids, bool bakeCoverArts) async {
-  final request = FetchMediaFileByIdsRequest(ids: ids);
+  final request = FetchMediaFileByIdsRequest(
+    ids: ids,
+    bakeCoverArts: true,
+  );
   request.sendSignalToRust(); // GENERATED
 
   final response =

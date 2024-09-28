@@ -170,24 +170,40 @@ async fn handle_collection_action<T: CollectionType + std::clone::Clone>(
         }
         CollectionAction::FetchGroups => {
             let entry = T::get_groups(main_db, params.group_titles.unwrap()).await?;
-            CollectionGroups {
-                groups: entry
-                    .into_iter()
-                    .map(|x| CollectionGroup {
-                        group_title: x.0,
-                        collections: x
-                            .1
-                            .into_iter()
-                            .map(|x| {
-                                Collection::from_model(
-                                    &x.0,
+            let collection_groups: Vec<CollectionGroup> =
+                join_all(entry.into_iter().map(|x| async {
+                    let collections_result: Result<Vec<Collection>> =
+                        join_all(x.1.into_iter().map(|x| {
+                            let main_db = Arc::clone(main_db);
+                            let recommend_db = Arc::clone(recommend_db);
+
+                            async move {
+                                Collection::from_model_bakeable(
+                                    main_db,
+                                    recommend_db,
+                                    x.0,
                                     T::collection_type(),
                                     T::query_operator(),
+                                    params.bake_cover_arts,
                                 )
-                            })
-                            .collect(),
+                                .await
+                            }
+                        }))
+                        .await
+                        .into_iter()
+                        .collect();
+
+                    collections_result.map(|collections| CollectionGroup {
+                        group_title: x.0,
+                        collections,
                     })
-                    .collect(),
+                }))
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?;
+
+            CollectionGroups {
+                groups: collection_groups,
             }
             .send_signal_to_dart();
         }
@@ -516,6 +532,7 @@ pub async fn fetch_collection_groups_request(
         CollectionAction::FetchGroups,
         CollectionActionParams {
             group_titles: Some(dart_signal.message.group_titles),
+            bake_cover_arts: dart_signal.message.bake_cover_arts,
             ..Default::default()
         },
     )

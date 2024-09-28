@@ -1,7 +1,7 @@
 import 'package:player/messages/library_home.pbserver.dart';
 
 Future<LibrarySummaryResponse> fetchLibrarySummary() async {
-  final fetchLibrarySummary = FetchLibrarySummaryRequest();
+  final fetchLibrarySummary = FetchLibrarySummaryRequest(bakeCoverArts: true);
   fetchLibrarySummary.sendSignalToRust(); // GENERATED
 
   final rustSignal = await LibrarySummaryResponse.rustSignalStream.first;
