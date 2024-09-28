@@ -1,6 +1,6 @@
 import 'package:player/messages/playlist.pbserver.dart';
 
-Future<List<PlaylistWithoutCoverIds>> getAllPlaylists() async {
+Future<List<Playlist>> getAllPlaylists() async {
   final fetchRequest = FetchAllPlaylistsRequest();
   fetchRequest.sendSignalToRust(); // GENERATED
 

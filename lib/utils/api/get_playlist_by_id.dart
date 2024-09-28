@@ -1,6 +1,6 @@
 import 'package:player/messages/playlist.pb.dart';
 
-Future<PlaylistWithoutCoverIds> getPlaylistById(int playlistId) async {
+Future<Playlist> getPlaylistById(int playlistId) async {
   final fetchMediaFiles = GetPlaylistByIdRequest(playlistId: playlistId);
   fetchMediaFiles.sendSignalToRust(); // GENERATED
 

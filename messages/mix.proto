@@ -13,22 +13,16 @@ message MixQueryRequest {
   repeated MixQuery queries = 1;
   int32 cursor = 2;
   int32 page_size = 3;
+  bool bake_cover_arts = 4;
 }
 
 // [RINF:RUST-SIGNAL]
 message MixQueryResponse {
-  repeated media_file.MediaFile result = 1;
+  repeated media_file.MediaFile files = 1;
+  map<int32, string> cover_art_map = 2; 
 }
 
 message Mix {
-  int32 id = 1;
-  string name = 2;
-  string group = 3;
-  bool locked = 4;
-  repeated int32 cover_ids = 5;
-}
-
-message MixWithoutCoverIds {
   int32 id = 1;
   string name = 2;
   string group = 3;
@@ -42,7 +36,7 @@ message FetchAllMixesRequest {
 
 // [RINF:RUST-SIGNAL]
 message FetchAllMixesResponse {
-  repeated MixWithoutCoverIds mixes = 1;
+  repeated Mix mixes = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -56,7 +50,7 @@ message CreateMixRequest {
 
 // [RINF:RUST-SIGNAL]
 message CreateMixResponse {
-  MixWithoutCoverIds mix = 1;
+  Mix mix = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -71,7 +65,7 @@ message UpdateMixRequest {
 
 // [RINF:RUST-SIGNAL]
 message UpdateMixResponse {
-  MixWithoutCoverIds mix = 1;
+  Mix mix = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -104,7 +98,7 @@ message GetMixByIdRequest {
 
 // [RINF:RUST-SIGNAL]
 message GetMixByIdResponse {
-  MixWithoutCoverIds mix = 1;
+  Mix mix = 1;
 }
 
 // [RINF:DART-SIGNAL]

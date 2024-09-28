@@ -19,9 +19,8 @@ use crate::RemovePlaylistResponse;
 use crate::{
     AddItemToPlaylistRequest, AddItemToPlaylistResponse, CreatePlaylistRequest,
     CreatePlaylistResponse, FetchAllPlaylistsRequest, FetchAllPlaylistsResponse,
-    GetPlaylistByIdRequest, GetPlaylistByIdResponse, PlaylistWithoutCoverIds,
-    ReorderPlaylistItemPositionRequest, ReorderPlaylistItemPositionResponse, UpdatePlaylistRequest,
-    UpdatePlaylistResponse,
+    GetPlaylistByIdRequest, GetPlaylistByIdResponse, Playlist, ReorderPlaylistItemPositionRequest,
+    ReorderPlaylistItemPositionResponse, UpdatePlaylistRequest, UpdatePlaylistResponse,
 };
 
 pub async fn fetch_all_playlists_request(
@@ -35,7 +34,7 @@ pub async fn fetch_all_playlists_request(
     FetchAllPlaylistsResponse {
         playlists: playlists
             .into_iter()
-            .map(|playlist| PlaylistWithoutCoverIds {
+            .map(|playlist| Playlist {
                 id: playlist.id,
                 name: playlist.name,
                 group: playlist.group,
@@ -65,7 +64,7 @@ pub async fn create_playlist_request(
         .with_context(|| format!("Failed to create playlist: name={}, group={}", name, group))?;
 
     CreatePlaylistResponse {
-        playlist: Some(PlaylistWithoutCoverIds {
+        playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,
@@ -104,7 +103,7 @@ pub async fn update_playlist_request(
     })?;
 
     UpdatePlaylistResponse {
-        playlist: Some(PlaylistWithoutCoverIds {
+        playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,
@@ -202,7 +201,7 @@ pub async fn get_playlist_by_id_request(
         ))?;
 
     GetPlaylistByIdResponse {
-        playlist: Some(PlaylistWithoutCoverIds {
+        playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,

@@ -13,6 +13,7 @@ mod player;
 mod playlist;
 mod search;
 mod stat;
+mod utils;
 
 use std::sync::Arc;
 
@@ -164,13 +165,11 @@ async fn player_loop(path: String) {
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
 
-            FetchCollectionGroupSummaryRequest => (main_db),
-            FetchCollectionGroupsRequest => (main_db),
-            FetchCollectionByIdsRequest => (main_db),
-            SearchCollectionSummaryRequest => (main_db),
+            FetchCollectionGroupSummaryRequest => (main_db, recommend_db),
+            FetchCollectionGroupsRequest => (main_db, recommend_db),
+            FetchCollectionByIdsRequest => (main_db, recommend_db),
+            SearchCollectionSummaryRequest => (main_db, recommend_db),
 
-            GetCoverArtByFileIdRequest => (main_db),
-            GetCoverArtByCoverArtIdRequest => (main_db),
             GetRandomCoverArtIdsRequest => (main_db),
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
 

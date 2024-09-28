@@ -1,14 +1,20 @@
-import 'dart:async';
 import 'package:player/messages/media_file.pb.dart';
 import 'package:player/widgets/track_list/track_list.dart';
 
-Future<List<InternalMediaFile>> fetchMediaFileByIds(
-    List<int> ids, bool bakeCoverArts) async {
-  final request = FetchMediaFileByIdsRequest(ids: ids);
-  request.sendSignalToRust(); // GENERATED
+Future<List<InternalMediaFile>> fetchMediaFiles(
+  int cursor,
+  int pageSize,
+) async {
+  final fetchMediaFiles = FetchMediaFilesRequest(
+    cursor: cursor,
+    pageSize: pageSize,
+    bakeCoverArts: true,
+  );
+  fetchMediaFiles.sendSignalToRust(); // GENERATED
 
-  final response =
-      (await FetchMediaFileByIdsResponse.rustSignalStream.first).message;
+  // Listen for the response from Rust
+  final rustSignal = await FetchMediaFilesResponse.rustSignalStream.first;
+  final response = rustSignal.message;
 
   return response.mediaFiles
       .map(

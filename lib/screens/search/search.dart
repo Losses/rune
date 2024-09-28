@@ -1,16 +1,12 @@
 import 'dart:async';
 
-import 'package:player/widgets/start_screen/start_screen.dart';
-import 'package:player/widgets/tile/cover_art_manager.dart';
+import 'package:player/widgets/track_list/track_list.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-
-import '../../widgets/tile/flip_grid.dart';
-import '../../screens/collection/collection_list.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/router_extra.dart';
@@ -20,12 +16,14 @@ import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
+import '../../widgets/tile/flip_grid.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/slide_fade_transition.dart';
+import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../screens/collection/collection_list.dart';
 import '../../messages/search.pb.dart';
-import '../../messages/media_file.pb.dart';
 import '../../messages/collection.pb.dart';
 
 import './widgets/search_card.dart';
@@ -55,8 +53,6 @@ class _SearchPageState extends State<SearchPage> {
   final searchFocusNode = FocusNode();
   final searchController = TextEditingController();
 
-  final coverArtManager = CoverArtManager();
-
   String selectedItem = 'Tracks';
   Timer? _debounce;
   Timer? _saveDebounce;
@@ -66,7 +62,7 @@ class _SearchPageState extends State<SearchPage> {
   final box = GetStorage();
   List<String> suggestions = [];
 
-  List<MediaFile> tracks = [];
+  List<InternalMediaFile> tracks = [];
   List<InternalCollection> artists = [];
   List<InternalCollection> albums = [];
   List<InternalCollection> playlists = [];
@@ -134,7 +130,7 @@ class _SearchPageState extends State<SearchPage> {
       });
 
       if (response.tracks.isNotEmpty) {
-        tracks = await fetchMediaFileByIds(response.tracks);
+        tracks = await fetchMediaFileByIds(response.tracks, true);
       }
       if (response.artists.isNotEmpty) {
         artists = (await fetchCollectionByIds(
@@ -143,10 +139,6 @@ class _SearchPageState extends State<SearchPage> {
         ))
             .map(InternalCollection.fromRawCollection)
             .toList();
-
-        for (final artist in artists) {
-          coverArtManager.queryCoverArts(artist.queries);
-        }
       }
       if (response.albums.isNotEmpty) {
         albums = (await fetchCollectionByIds(
@@ -155,10 +147,6 @@ class _SearchPageState extends State<SearchPage> {
         ))
             .map(InternalCollection.fromRawCollection)
             .toList();
-
-        for (final album in albums) {
-          coverArtManager.queryCoverArts(album.queries);
-        }
       }
       if (response.playlists.isNotEmpty) {
         playlists = (await fetchCollectionByIds(
@@ -167,13 +155,7 @@ class _SearchPageState extends State<SearchPage> {
         ))
             .map(InternalCollection.fromRawCollection)
             .toList();
-
-        for (final playlist in playlists) {
-          coverArtManager.queryCoverArts(playlist.queries);
-        }
       }
-
-      await coverArtManager.commit();
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _layoutManager.playAnimations();
@@ -270,8 +252,6 @@ class _SearchPageState extends State<SearchPage> {
                               (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Artist,
-                                coverArtIds:
-                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Albums")
@@ -279,8 +259,6 @@ class _SearchPageState extends State<SearchPage> {
                               (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Album,
-                                coverArtIds:
-                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Playlists")
@@ -288,8 +266,6 @@ class _SearchPageState extends State<SearchPage> {
                               (a) => CollectionItem(
                                 item: a,
                                 collectionType: CollectionType.Playlist,
-                                coverArtIds:
-                                    coverArtManager.getResult(a.queries)!,
                               ),
                             ),
                           if (selectedItem == "Tracks")
@@ -429,7 +405,7 @@ class _SearchPageState extends State<SearchPage> {
 }
 
 class TrackSearchItem extends SearchCard {
-  final MediaFile item;
+  final InternalMediaFile item;
   final List<int> fallbackFileIds;
 
   TrackSearchItem({
@@ -448,7 +424,7 @@ class TrackSearchItem extends SearchCard {
   @override
   Widget buildLeadingWidget(double size) {
     return CoverArt(
-      fileId: item.id,
+      path: item.coverArtPath,
       size: size,
     );
   }
@@ -476,14 +452,12 @@ class TrackSearchItem extends SearchCard {
 class CollectionItem extends SearchCard {
   final InternalCollection item;
   final CollectionType collectionType;
-  final List<int> coverArtIds;
   final BoringAvatarType emptyTileType = BoringAvatarType.marble;
 
   CollectionItem({
     super.key,
     super.index = 0,
     required this.item,
-    required this.coverArtIds,
     required this.collectionType,
   });
 
@@ -518,7 +492,7 @@ class CollectionItem extends SearchCard {
       height: size,
       child: FlipCoverGrid(
         id: getItemTitle(),
-        coverArtIds: coverArtIds,
+        paths: item.coverArtMap.values.toList(),
         emptyTileType: BoringAvatarType.bauhaus,
       ),
     );

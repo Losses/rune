@@ -4,5 +4,4 @@ package artist;
 message Artist {
     int32 id = 1;
     string name = 2;
-    repeated int32 cover_ids = 3;
 }

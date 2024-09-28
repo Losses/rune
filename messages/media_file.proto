@@ -8,6 +8,7 @@ import "artist.proto";
 message FetchMediaFilesRequest {
   int32 cursor = 1;
   int32 page_size = 2;
+  bool bake_cover_arts = 3;
 }
 
 message MediaFile {
@@ -17,6 +18,7 @@ message MediaFile {
   string album = 4;
   string title = 5;
   double duration = 6;
+  int32 cover_art_id = 7;
 }
 
 // [RINF:DART-SIGNAL]
@@ -32,23 +34,27 @@ message FetchParsedMediaFileResponse {
 }
 
 // [RINF:RUST-SIGNAL]
-message MediaFileList {
+message FetchMediaFilesResponse {
   repeated MediaFile media_files = 1;
+  map<int32, string> cover_art_map = 2;
 }
 
 // [RINF:DART-SIGNAL]
 message FetchMediaFileByIdsRequest {
   repeated int32 ids = 1;
+  bool bake_cover_arts = 2;
 }
 
 // [RINF:RUST-SIGNAL]
 message FetchMediaFileByIdsResponse {
-  repeated MediaFile result = 1;
+  repeated MediaFile media_files = 1;
+  map<int32, string> cover_art_map = 2;
 }
 
 message MediaFileSummary {
   int32 id = 1;
   string name = 2;
+  int32 cover_art_id = 7;
 }
 
 // [RINF:DART-SIGNAL]

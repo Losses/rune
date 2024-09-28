@@ -9,17 +9,18 @@ import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 import './cover_art.dart';
 
 class FlipCoverGrid extends StatefulWidget {
-  final List<int> coverArtIds;
+  final List<String> paths;
   final String id;
   final int speed;
   final BoringAvatarType emptyTileType;
 
-  const FlipCoverGrid(
-      {super.key,
-      required this.id,
-      required this.coverArtIds,
-      this.speed = 500,
-      this.emptyTileType = BoringAvatarType.bauhaus,});
+  const FlipCoverGrid({
+    super.key,
+    required this.id,
+    required this.paths,
+    this.speed = 500,
+    this.emptyTileType = BoringAvatarType.bauhaus,
+  });
 
   @override
   FlipCoverGridState createState() => FlipCoverGridState();
@@ -29,12 +30,12 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   late Timer _timer;
   final Random _random = Random();
   late List<FlipCardController> _controllers;
-  late List<int> _frontNumbers;
-  late List<int> _backNumbers;
+  late List<String> _frontPaths;
+  late List<String> _backPaths;
   late int _gridSize;
 
   bool _needFlip() {
-    final n = widget.coverArtIds.length;
+    final n = widget.paths.length;
     return n != 0 && n != 1 && n != 4 && n != 9;
   }
 
@@ -42,9 +43,9 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   void initState() {
     super.initState();
     _initializeNumbers();
-    _gridSize = _determineGridSize(widget.coverArtIds.length);
+    _gridSize = _determineGridSize(widget.paths.length);
 
-    if (widget.coverArtIds.isNotEmpty) {
+    if (widget.paths.isNotEmpty) {
       _controllers =
           List.generate(_gridSize * _gridSize, (_) => FlipCardController());
     }
@@ -55,16 +56,16 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   }
 
   void _initializeNumbers() {
-    _frontNumbers = List.from(widget.coverArtIds);
-    _backNumbers = List.from(widget.coverArtIds);
+    _frontPaths = List.from(widget.paths);
+    _backPaths = List.from(widget.paths);
 
-    _frontNumbers.shuffle();
-    _backNumbers.shuffle();
+    _frontPaths.shuffle();
+    _backPaths.shuffle();
   }
 
   void _startTimer() {
     _timer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      if (widget.coverArtIds.length > 1) {
+      if (widget.paths.length > 1) {
         for (int i = 0; i < _controllers.length; i++) {
           if (_random.nextDouble() > 0.64) {
             _controllers[i].toggleCard();
@@ -77,24 +78,23 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   void _replaceNumber(int index) {
     const int maxAttempts = 10;
     int attempts = 0;
-    int newNumber;
+    String newPath;
 
     do {
-      newNumber =
-          widget.coverArtIds[_random.nextInt(widget.coverArtIds.length)];
+      newPath = widget.paths[_random.nextInt(widget.paths.length)];
       attempts++;
-    } while ((_frontNumbers.contains(newNumber) ||
-            _backNumbers.contains(newNumber) ||
-            _frontNumbers[index] == newNumber ||
-            _backNumbers[index] == newNumber) &&
+    } while ((_frontPaths.contains(newPath) ||
+            _backPaths.contains(newPath) ||
+            _frontPaths[index] == newPath ||
+            _backPaths[index] == newPath) &&
         attempts < maxAttempts);
 
     if (attempts < maxAttempts) {
       setState(() {
         if (_controllers[index].state?.isFront == true) {
-          _backNumbers[index] = newNumber;
+          _backPaths[index] = newPath;
         } else {
-          _frontNumbers[index] = newNumber;
+          _frontPaths[index] = newPath;
         }
       });
     }
@@ -121,7 +121,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
       theme.accentColor.darkest,
     ];
 
-    if (widget.coverArtIds.isEmpty) {
+    if (widget.paths.isEmpty) {
       return BoringAvatar(
         name: widget.id,
         palette: BoringAvatarPalette(colors),
@@ -154,8 +154,8 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
                 onFlipDone: (isFront) {
                   _replaceNumber(index);
                 },
-                front: _buildCard(_frontNumbers[index]),
-                back: _buildCard(_backNumbers[index]),
+                front: _buildCard(_frontPaths[index]),
+                back: _buildCard(_backPaths[index]),
               ),
             );
           }),
@@ -170,14 +170,14 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     return 3;
   }
 
-  Widget _buildCard(int number) {
+  Widget _buildCard(String? path) {
     return RepaintBoundary(
       child: SizedBox(
         width: double.infinity,
         height: double.infinity,
         child: Center(
           child: CoverArt(
-            coverArtId: number,
+            path: path,
           ),
         ),
       ),

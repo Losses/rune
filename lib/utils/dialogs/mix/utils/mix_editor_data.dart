@@ -1,6 +1,6 @@
 import 'package:player/messages/collection.pb.dart';
 import 'package:player/utils/api/fetch_collection_by_ids.dart';
-import 'package:player/utils/api/fetch_track_by_ids.dart';
+import 'package:player/utils/api/fetch_media_file_by_ids.dart';
 
 class MixEditorData {
   final String title;
@@ -145,7 +145,7 @@ Future<MixEditorData> queryToMixEditorData(
           .map((x) => (x.id, x.name))
           .toList();
   List<(int, String)> tracks =
-      (await fetchTrackByIds(tracksId)).map((x) => (x.id, x.title)).toList();
+      (await fetchMediaFileByIds(tracksId, false)).map((x) => (x.id, x.title)).toList();
 
   return MixEditorData(
     title: title,

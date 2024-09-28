@@ -4,10 +4,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../../utils/query_list.dart';
+import '../../../utils/api/fetch_media_files.dart';
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../../messages/media_file.pb.dart';
 
 class TrackListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
@@ -24,7 +24,7 @@ class TrackListView extends StatefulWidget {
 class TrackListViewState extends State<TrackListView> {
   static const _pageSize = 100;
 
-  final PagingController<int, MediaFile> _pagingController =
+  final PagingController<int, InternalMediaFile> _pagingController =
       PagingController(firstPageKey: 0);
 
   @override
@@ -37,16 +37,7 @@ class TrackListViewState extends State<TrackListView> {
 
   Future<void> _fetchPage(int cursor) async {
     try {
-      final fetchMediaFiles = FetchMediaFilesRequest(
-        cursor: cursor,
-        pageSize: _pageSize,
-      );
-      fetchMediaFiles.sendSignalToRust(); // GENERATED
-
-      // Listen for the response from Rust
-      final rustSignal = await MediaFileList.rustSignalStream.first;
-      final mediaFileList = rustSignal.message;
-      final newItems = mediaFileList.mediaFiles;
+      final newItems = await fetchMediaFiles(cursor, _pageSize);
 
       final isLastPage = newItems.length < _pageSize;
       if (isLastPage) {

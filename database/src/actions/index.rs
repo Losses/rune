@@ -1,6 +1,7 @@
 use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
+use anyhow::Result;
 
 use crate::actions::search::{add_term, CollectionType};
 use crate::actions::utils::generate_group_name;
@@ -13,7 +14,7 @@ pub async fn index_media_files(
     main_db: &DatabaseConnection,
     search_db: &mut SearchDbConnection,
     file_ids: Vec<i32>,
-) -> Result<(), sea_orm::DbErr> {
+) -> Result<()> {
     info!("Indexing media: {:?}", file_ids);
     // Fetch metadata summary for provided file_ids
     let metadata_summaries = get_metadata_summary_by_file_ids(main_db, file_ids.clone()).await?;

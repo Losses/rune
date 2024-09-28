@@ -5,14 +5,14 @@ import 'flip_grid.dart';
 
 class FlipTile extends StatelessWidget {
   final String name;
-  final List<int>? coverArtIds;
+  final List<String>? paths;
   final VoidCallback onPressed;
   final BoringAvatarType emptyTileType;
 
   const FlipTile({
     super.key,
     required this.name,
-    required this.coverArtIds,
+    required this.paths,
     required this.onPressed,
     this.emptyTileType = BoringAvatarType.bauhaus,
   });
@@ -34,9 +34,9 @@ class FlipTile extends StatelessWidget {
           child: Stack(
             alignment: Alignment.bottomLeft,
             children: [
-              if (coverArtIds != null)
+              if (paths != null)
                 FlipCoverGrid(
-                  coverArtIds: coverArtIds!,
+                  paths: paths!,
                   id: name,
                   emptyTileType: emptyTileType,
                 ),

@@ -1,18 +1,20 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use database::actions::cover_art::bake_cover_art_by_media_files;
 use dunce::canonicalize;
 use rinf::DartSignal;
+use sea_orm::DatabaseConnection;
 
+use database::actions::cover_art::bake_cover_art_by_file_ids;
 use database::actions::file::get_files_by_ids;
+use database::actions::file::get_media_files;
 use database::actions::file::list_files;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::metadata::get_parsed_file_by_id;
 use database::actions::metadata::MetadataSummary;
-use sea_orm::DatabaseConnection;
-
-use database::actions::file::get_media_files;
 use database::connection::MainDbConnection;
 
 use crate::messages;
@@ -40,6 +42,7 @@ pub async fn parse_media_files(
             album: file.album,
             title: file.title,
             duration: file.duration,
+            cover_art_id: file.cover_art_id.unwrap_or(-1),
         };
 
         media_files.push(media_file);
@@ -49,22 +52,28 @@ pub async fn parse_media_files(
 }
 
 pub async fn fetch_media_files_request(
-    db: Arc<DatabaseConnection>,
+    main_db: Arc<DatabaseConnection>,
     lib_path: Arc<String>,
     dart_signal: DartSignal<FetchMediaFilesRequest>,
 ) -> Result<()> {
-    let fetch_media_files = dart_signal.message;
-    let cursor = fetch_media_files.cursor;
-    let page_size = fetch_media_files.page_size;
+    let request = dart_signal.message;
+    let cursor = request.cursor;
+    let page_size = request.page_size;
 
     let media_entries = get_media_files(
-        &db,
+        &main_db,
         cursor.try_into().unwrap(),
         page_size.try_into().unwrap(),
     )
     .await?;
 
-    let media_summaries = get_metadata_summary_by_files(&db, media_entries)
+    let cover_art_map = if request.bake_cover_arts {
+        bake_cover_art_by_media_files(&main_db, media_entries.clone()).await?
+    } else {
+        HashMap::new()
+    };
+
+    let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
         .await
         .with_context(|| {
             format!(
@@ -74,7 +83,11 @@ pub async fn fetch_media_files_request(
         })?;
 
     let media_files = parse_media_files(media_summaries, lib_path).await?;
-    MediaFileList { media_files }.send_signal_to_dart(); // GENERATED
+    FetchMediaFilesResponse {
+        media_files,
+        cover_art_map,
+    }
+    .send_signal_to_dart(); // GENERATED
 
     Ok(())
 }
@@ -98,7 +111,17 @@ pub async fn fetch_media_file_by_ids_request(
         .await
         .with_context(|| "Failed to parse media summaries")?;
 
-    FetchMediaFileByIdsResponse { result: items }.send_signal_to_dart();
+    let cover_art_map = if request.bake_cover_arts {
+        bake_cover_art_by_file_ids(&main_db, request.ids).await?
+    } else {
+        HashMap::new()
+    };
+
+    FetchMediaFileByIdsResponse {
+        media_files: items,
+        cover_art_map,
+    }
+    .send_signal_to_dart();
 
     Ok(())
 }
@@ -134,13 +157,11 @@ pub async fn fetch_parsed_media_file_request(
             .map(|x| Artist {
                 id: x.id,
                 name: x.name,
-                cover_ids: [].to_vec(),
             })
             .collect(),
         album: Some(Album {
             id: album.id,
             name: album.name,
-            cover_ids: [].to_vec(),
         }),
     }
     .send_signal_to_dart();
@@ -168,6 +189,7 @@ pub async fn search_media_file_summary_request(
             .map(|x| MediaFileSummary {
                 id: x.id,
                 name: x.title,
+                cover_art_id: x.cover_art_id.unwrap_or(-1),
             })
             .collect(),
     }

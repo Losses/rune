@@ -89,9 +89,7 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
 
     _searcher = SearchTask<AutoSuggestBoxItem<T>, String>(
       notifyWhenStateChange: false,
-      searchDelegate: (query) async {
-        return await widget.searchFor(query);
-      },
+      searchDelegate: widget.searchFor,
     );
 
     _searcher.addListener(() {

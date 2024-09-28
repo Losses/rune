@@ -1,6 +1,6 @@
 import 'package:player/messages/playlist.pb.dart';
 
-Future<PlaylistWithoutCoverIds> updatePlaylist(
+Future<Playlist> updatePlaylist(
   int playlistId,
   String name,
   String group,

@@ -1,8 +1,15 @@
-use std::{path::Path, sync::Arc};
+use std::collections::HashMap;
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::info;
+use once_cell::sync::Lazy;
+use sea_orm::Condition;
 use sea_orm::{
     ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult,
     Order, PaginatorTrait, QueryFilter, QueryTrait,
@@ -68,29 +75,89 @@ pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection) -> Result<i
     Ok(magic_cover_art.id)
 }
 
-pub async fn get_cover_art_by_file_id(
+static COVER_TEMP_DIR: Lazy<PathBuf> =
+    Lazy::new(|| env::temp_dir().join("rune").join("cover_arts"));
+
+fn bake_cover_art_by_cover_arts(
+    cover_arts: Vec<media_cover_art::Model>,
+) -> Result<HashMap<i32, String>> {
+    let mut cover_art_id_to_path: HashMap<i32, String> = HashMap::new();
+
+    for cover_art in cover_arts.iter() {
+        let id: i32 = cover_art.id;
+        let hash: String = cover_art.file_hash.clone();
+
+        let path = COVER_TEMP_DIR.clone().join(hash);
+
+        if !path.exists() {
+            fs::write(path.clone(), cover_art.binary.clone())?;
+        }
+
+        cover_art_id_to_path.insert(id, path.to_str().unwrap_or_default().to_string());
+    }
+
+    Ok(cover_art_id_to_path)
+}
+
+pub async fn bake_cover_art_by_media_files(
     main_db: &DatabaseConnection,
-    file_id: i32,
-) -> Result<Option<(i32, Vec<u8>)>> {
-    // Query file information
-    let file: Option<media_files::Model> = media_files::Entity::find_by_id(file_id)
-        .one(main_db)
+    files: Vec<media_files::Model>,
+) -> Result<HashMap<i32, String>> {
+    let cover_art_ids: Vec<i32> = files
+        .clone()
+        .into_iter()
+        .map(|x| x.cover_art_id.unwrap_or(-1))
+        .collect();
+
+    let cover_arts: Vec<media_cover_art::Model> = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::Id.is_in(cover_art_ids))
+        .all(main_db)
         .await?;
 
-    if let Some(file) = file {
-        if let Some(cover_art_id) = file.cover_art_id {
-            // If cover_art_id already exists, directly retrieve the cover art from the database
-            let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
-                .one(main_db)
-                .await?
-                .unwrap();
-            Ok(Some((cover_art.id, cover_art.binary)))
-        } else {
-            Ok(None)
-        }
-    } else {
-        Ok(None)
+    let mut file_id_to_path: HashMap<i32, String> = HashMap::new();
+    let cover_art_id_to_path = bake_cover_art_by_cover_arts(cover_arts)?;
+
+    for file in files.iter() {
+        let cover_art_path = match file.cover_art_id {
+            Some(x) => cover_art_id_to_path.get(&x),
+            _none => None,
+        };
+
+        let default_path = "".to_string();
+        let cover_art_path = cover_art_path.unwrap_or(&default_path);
+        file_id_to_path.insert(file.id, cover_art_path.clone());
     }
+
+    Ok(file_id_to_path)
+}
+
+pub async fn bake_cover_art_by_file_ids(
+    main_db: &DatabaseConnection,
+    file_ids: Vec<i32>,
+) -> Result<HashMap<i32, String>> {
+    let magic_cover_art_id = get_magic_cover_art_id(main_db).await;
+
+    // Query file information
+    let files: Vec<media_files::Model> = match magic_cover_art_id {
+        Some(id) => {
+            let mut condition = Condition::all();
+            condition = condition.add(media_files::Column::Id.is_in(file_ids));
+            condition = condition.add(media_files::Column::CoverArtId.ne(id));
+
+            media_files::Entity::find()
+                .filter(condition)
+                .all(main_db)
+                .await?
+        }
+        _none => {
+            media_files::Entity::find()
+                .filter(media_files::Column::Id.is_in(file_ids))
+                .all(main_db)
+                .await?
+        }
+    };
+
+    bake_cover_art_by_media_files(main_db, files).await
 }
 
 pub fn extract_cover_art_by_file_id(
@@ -259,7 +326,7 @@ pub async fn get_cover_art_by_id(main_db: &DatabaseConnection, id: i32) -> Resul
 pub async fn get_random_cover_art_ids(
     main_db: &DatabaseConnection,
     n: usize,
-) -> Result<Vec<media_cover_art::Model>> {
+) -> Result<HashMap<i32, String>> {
     let mut query: sea_orm::sea_query::SelectStatement = media_cover_art::Entity::find()
         .filter(media_cover_art::Column::FileHash.ne(String::new()))
         .as_query()
@@ -270,9 +337,9 @@ pub async fn get_random_cover_art_ids(
         .limit(n as u64);
     let statement = main_db.get_database_backend().build(select);
 
-    let files = media_cover_art::Model::find_by_statement(statement)
+    let cover_arts = media_cover_art::Model::find_by_statement(statement)
         .all(main_db)
         .await?;
 
-    Ok(files)
+    bake_cover_art_by_cover_arts(cover_arts)
 }

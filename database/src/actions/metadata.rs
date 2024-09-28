@@ -20,6 +20,7 @@ use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
 
+use super::cover_art::get_magic_cover_art_id;
 use super::utils::DatabaseExecutor;
 
 #[derive(Debug, Clone)]
@@ -630,14 +631,16 @@ pub struct MetadataSummary {
     pub title: String,
     pub track_number: Option<i32>,
     pub duration: f64,
+    pub cover_art_id: Option<i32>,
 }
 
 pub async fn get_metadata_summary_by_files(
     db: &DatabaseConnection,
     files: Vec<media_files::Model>,
-) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
+) -> Result<Vec<MetadataSummary>> {
     // Extract file IDs from the provided file entries
     let file_ids: Vec<i32> = files.iter().map(|file| file.id).collect();
+    let magic_cover_art_id = get_magic_cover_art_id(db).await;
 
     // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
@@ -666,6 +669,8 @@ pub async fn get_metadata_summary_by_files(
         let metadata = metadata_map.get(&file_id).unwrap_or(&_metadata);
         let duration = file.duration;
 
+        let cover_art_id = file.cover_art_id;
+
         let summary = MetadataSummary {
             id: file_id,
             directory: file.directory.clone(),
@@ -678,6 +683,11 @@ pub async fn get_metadata_summary_by_files(
                 .map(|s| s.parse::<i32>().ok())
                 .unwrap_or(None),
             duration,
+            cover_art_id: if cover_art_id == magic_cover_art_id {
+                None
+            } else {
+                cover_art_id
+            },
         };
 
         results.push(summary);
@@ -689,7 +699,7 @@ pub async fn get_metadata_summary_by_files(
 pub async fn get_metadata_summary_by_file_ids(
     db: &DatabaseConnection,
     file_ids: Vec<i32>,
-) -> Result<Vec<MetadataSummary>, sea_orm::DbErr> {
+) -> Result<Vec<MetadataSummary>> {
     // Fetch all file entries for the given file IDs
     let file_entries: Vec<media_files::Model> = media_files::Entity::find()
         .filter(media_files::Column::Id.is_in(file_ids.clone()))

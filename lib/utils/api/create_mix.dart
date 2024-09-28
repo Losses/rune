@@ -1,6 +1,6 @@
 import 'package:player/messages/mix.pbserver.dart';
 
-Future<MixWithoutCoverIds> createMix(
+Future<Mix> createMix(
   String name,
   String group,
   bool scriptletMode,

@@ -1,6 +1,6 @@
 import 'package:player/messages/playlist.pb.dart';
 
-Future<PlaylistWithoutCoverIds> createPlaylist(
+Future<Playlist> createPlaylist(
   String name,
   String group,
 ) async {

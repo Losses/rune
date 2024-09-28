@@ -2,13 +2,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../../screens/search/search.dart';
+import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
-
 import '../../../messages/mix.pbserver.dart';
-import '../../../messages/media_file.pb.dart';
 
 import '../../query_list.dart';
 import '../../chip_input/search_task.dart';
@@ -33,7 +32,7 @@ class MixStudioDialog extends StatefulWidget {
 class _MixStudioDialogState extends State<MixStudioDialog> {
   late final _controller = MixEditorController();
   final _layoutManager = StartScreenLayoutManager();
-  final _searchManager = SearchTask<MediaFile, List<(String, String)>>(
+  final _searchManager = SearchTask<InternalMediaFile, List<(String, String)>>(
     notifyWhenStateChange: false,
     searchDelegate: (x) => queryMixTracks(QueryList(x)),
   );
@@ -177,7 +176,7 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                     isLoading = true;
                   });
 
-                  MixWithoutCoverIds? response;
+                  Mix? response;
                   if (widget.mixId != null) {
                     response = await updateMix(
                       widget.mixId!,

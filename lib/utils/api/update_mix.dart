@@ -1,6 +1,6 @@
 import 'package:player/messages/mix.pbserver.dart';
 
-Future<MixWithoutCoverIds> updateMix(
+Future<Mix> updateMix(
   int mixId,
   String name,
   String group,

@@ -3,10 +3,10 @@ import 'package:player/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 
 import '../../../messages/playlist.pb.dart';
 
-Future<PlaylistWithoutCoverIds?> showCreateEditPlaylistDialog(
+Future<Playlist?> showCreateEditPlaylistDialog(
     BuildContext context,
     {int? playlistId}) async {
-  return await showDialog<PlaylistWithoutCoverIds?>(
+  return await showDialog<Playlist?>(
     context: context,
     builder: (context) => CreateEditPlaylistDialog(playlistId: playlistId),
   );

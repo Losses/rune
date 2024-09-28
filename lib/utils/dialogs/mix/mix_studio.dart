@@ -4,11 +4,11 @@ import '../../../messages/mix.pbserver.dart';
 
 import './mix_studio_dialog.dart';
 
-Future<MixWithoutCoverIds?> showMixStudioDialog(
+Future<Mix?> showMixStudioDialog(
   BuildContext context, {
   int? mixId,
 }) async {
-  return await showDialog<MixWithoutCoverIds?>(
+  return await showDialog<Mix?>(
     context: context,
     builder: (context) => MixStudioDialog(mixId: mixId),
   );

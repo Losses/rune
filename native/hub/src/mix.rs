@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use rinf::DartSignal;
 
+use database::actions::cover_art::bake_cover_art_by_media_files;
 use database::actions::metadata::get_metadata_summary_by_files;
 use database::actions::mixes::{
     add_item_to_mix, create_mix, get_all_mixes, get_mix_by_id, get_mix_queries_by_mix_id,
@@ -13,9 +15,8 @@ use database::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::{
     parse_media_files, AddItemToMixRequest, AddItemToMixResponse, CreateMixRequest,
     CreateMixResponse, FetchAllMixesRequest, FetchAllMixesResponse, FetchMixQueriesRequest,
-    FetchMixQueriesResponse, GetMixByIdRequest, GetMixByIdResponse, MixQuery, MixQueryRequest,
-    MixQueryResponse, MixWithoutCoverIds, RemoveMixRequest, RemoveMixResponse, UpdateMixRequest,
-    UpdateMixResponse,
+    FetchMixQueriesResponse, GetMixByIdRequest, GetMixByIdResponse, Mix, MixQuery, MixQueryRequest,
+    MixQueryResponse, RemoveMixRequest, RemoveMixResponse, UpdateMixRequest, UpdateMixResponse,
 };
 
 pub async fn fetch_all_mixes_request(
@@ -29,7 +30,7 @@ pub async fn fetch_all_mixes_request(
     FetchAllMixesResponse {
         mixes: mixes
             .into_iter()
-            .map(|mix| MixWithoutCoverIds {
+            .map(|mix| Mix {
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
@@ -60,7 +61,7 @@ pub async fn create_mix_request(
     .await
     .with_context(|| "Failed to create mix")?;
     CreateMixResponse {
-        mix: Some(MixWithoutCoverIds {
+        mix: Some(Mix {
             id: mix.id,
             name: mix.name,
             group: mix.group,
@@ -119,7 +120,7 @@ pub async fn update_mix_request(
         .with_context(|| "Failed to update replace mix queries while updating")?;
 
         UpdateMixResponse {
-            mix: Some(MixWithoutCoverIds {
+            mix: Some(Mix {
                 id: mix.id,
                 name: mix.name,
                 group: mix.group,
@@ -187,7 +188,7 @@ pub async fn get_mix_by_id_request(
         .with_context(|| format!("Failed to get mix by id: {}", request.mix_id))?;
 
     GetMixByIdResponse {
-        mix: Some(MixWithoutCoverIds {
+        mix: Some(Mix {
             id: mix.id,
             name: mix.name,
             group: mix.group,
@@ -224,12 +225,22 @@ pub async fn mix_query_request(
     .await
     .with_context(|| "Unable to query mix media files")?;
 
-    let media_summaries = get_metadata_summary_by_files(&main_db, media_entries)
+    let media_summaries = get_metadata_summary_by_files(&main_db, media_entries.clone())
         .await
         .with_context(|| "Failed to get media summaries")?;
 
-    let result = parse_media_files(media_summaries, lib_path).await?;
-    MixQueryResponse { result }.send_signal_to_dart();
+    let files = parse_media_files(media_summaries, lib_path).await?;
+    let cover_art_map = if request.bake_cover_arts {
+        bake_cover_art_by_media_files(&main_db, media_entries).await?
+    } else {
+        HashMap::new()
+    };
+
+    MixQueryResponse {
+        files,
+        cover_art_map,
+    }
+    .send_signal_to_dart();
 
     Ok(())
 }

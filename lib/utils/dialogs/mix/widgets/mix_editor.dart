@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:player/messages/collection.pb.dart';
 import 'package:player/utils/api/fetch_collection_by_ids.dart';
 import 'package:player/utils/api/fetch_collection_group_summary_title.dart';
+import 'package:player/utils/api/fetch_media_file_by_ids.dart';
 import 'package:player/utils/api/search_collection_summary.dart';
 
 import 'package:provider/provider.dart';
@@ -12,7 +13,6 @@ import 'search_chip_input_section.dart';
 
 import '../../../../messages/search.pb.dart';
 
-import '../../../api/fetch_track_by_ids.dart';
 import '../../../api/fetch_track_summary.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';
 import '../../../dialogs/mix/widgets/editable_combo_box_section.dart';
@@ -122,7 +122,7 @@ class _MixEditorState extends State<MixEditor> {
               query,
               'tracks',
               (x) async {
-                return (await fetchTrackByIds(x))
+                return (await fetchMediaFileByIds(x, false))
                     .map((x) => (x.id, x.title))
                     .toList();
               },

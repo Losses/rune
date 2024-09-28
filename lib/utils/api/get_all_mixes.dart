@@ -1,6 +1,6 @@
 import 'package:player/messages/mix.pbserver.dart';
 
-Future<List<MixWithoutCoverIds>> getAllMixes() async {
+Future<List<Mix>> getAllMixes() async {
   final fetchRequest = FetchAllMixesRequest();
   fetchRequest.sendSignalToRust(); // GENERATED
 

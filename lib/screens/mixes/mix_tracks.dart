@@ -18,7 +18,7 @@ class MixTrackesPage extends StatefulWidget {
 
 class _MixTrackesPageState extends State<MixTrackesPage> {
   late Future<List<(String, String)>> queries;
-  late Future<MixWithoutCoverIds> mix;
+  late Future<Mix> mix;
 
   @override
   void initState() {
@@ -30,7 +30,7 @@ class _MixTrackesPageState extends State<MixTrackesPage> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(List<(String, String)>, MixWithoutCoverIds)>(
+    return FutureBuilder<(List<(String, String)>, Mix)>(
       future: (queries, mix).wait,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {

@@ -24,7 +24,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   bool isLoading = false;
   List<String> groupList = ['Favorite'];
 
-  MixWithoutCoverIds? mix;
+  Mix? mix;
 
   @override
   void initState() {
@@ -101,7 +101,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
 
                   final operator = widget.operator;
 
-                  MixWithoutCoverIds? response;
+                  Mix? response;
                   if (widget.mixId != null) {
                     response = await updateMix(
                       widget.mixId!,

@@ -8,7 +8,6 @@ import '../../../utils/api/query_mix_tracks.dart';
 import '../../../config/animation.dart';
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../../messages/media_file.pb.dart';
 
 class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
@@ -29,7 +28,7 @@ class QueryTrackListView extends StatefulWidget {
 class QueryTrackListViewState extends State<QueryTrackListView> {
   static const _pageSize = 20;
 
-  final PagingController<int, MediaFile> _pagingController =
+  final PagingController<int, InternalMediaFile> _pagingController =
       PagingController(firstPageKey: 0);
 
   @override

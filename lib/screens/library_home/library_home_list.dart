@@ -6,7 +6,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
-import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -27,7 +26,6 @@ class LibraryHomeListView extends StatefulWidget {
 
 class LibraryHomeListState extends State<LibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
-  final coverArtManager = CoverArtManager();
 
   @override
   void initState() {
@@ -60,14 +58,6 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
             .toList(),
       )
     ];
-
-    for (final group in groups) {
-      for (final collection in group.items) {
-        coverArtManager.queryCoverArts(collection.queries);
-      }
-    }
-
-    await coverArtManager.commit();
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -113,8 +103,6 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                           return CollectionItem(
                             collectionType: CollectionType.Album,
                             collection: item,
-                            coverArtIds:
-                                coverArtManager.getResult(item.queries),
                           );
                         },
                       );

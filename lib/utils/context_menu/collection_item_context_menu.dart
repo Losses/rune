@@ -121,7 +121,7 @@ Widget buildCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
-  List<MixWithoutCoverIds> mixes,
+  List<Mix> mixes,
   List<(String, String)> queries, [
   void Function()? refreshList,
   bool? readonly,

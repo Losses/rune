@@ -7,12 +7,31 @@ import '../../widgets/library_task_button.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
-import '../../messages/media_file.pb.dart';
 
 import './track_list_item.dart';
 
+class InternalMediaFile {
+  final int id;
+  final String path;
+  final String artist;
+  final String album;
+  final String title;
+  final double duration;
+  final String coverArtPath;
+
+  InternalMediaFile({
+    required this.id,
+    required this.path,
+    required this.artist,
+    required this.album,
+    required this.title,
+    required this.duration,
+    required this.coverArtPath,
+  });
+}
+
 class TrackList extends StatelessWidget {
-  final PagingController<int, MediaFile> pagingController;
+  final PagingController<int, InternalMediaFile> pagingController;
   final QueryList queries;
   final int mode;
 
@@ -45,7 +64,7 @@ class TrackList extends StatelessWidget {
           return SmoothHorizontalScroll(
             builder: (context, scrollController) => SizedBox(
               height: finalHeight,
-              child: PagedGridView<int, MediaFile>(
+              child: PagedGridView<int, InternalMediaFile>(
                 pagingController: pagingController,
                 scrollDirection: Axis.horizontal,
                 scrollController: scrollController,
@@ -55,7 +74,7 @@ class TrackList extends StatelessWidget {
                   crossAxisSpacing: gapSize,
                   childAspectRatio: ratio,
                 ),
-                builderDelegate: PagedChildBuilderDelegate<MediaFile>(
+                builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
                   noItemsFoundIndicatorBuilder: (context) {
                     return NoItems(
                       title: "No tracks found",
@@ -78,6 +97,7 @@ class TrackList extends StatelessWidget {
                         item: item,
                         queries: queries,
                         fallbackFileIds: fallbackFileIds,
+                        coverArtPath: item.coverArtPath,
                         mode: mode,
                       ),
                     );

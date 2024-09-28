@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -7,7 +7,7 @@ use futures::future::join_all;
 use rinf::DartSignal;
 
 use database::actions::utils::create_count_by_first_letter;
-use database::connection::MainDbConnection;
+use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, mixes, playlists};
 
 use crate::messages::collection::{
@@ -17,10 +17,11 @@ use crate::messages::collection::{
     SearchCollectionSummaryRequest, SearchCollectionSummaryResponse,
 };
 
+use crate::utils::inject_cover_art_map;
 use crate::MixQuery;
 
 #[async_trait]
-trait CollectionType: Send + Sync + 'static {
+pub trait CollectionType: Send + Sync + 'static {
     fn collection_type() -> i32;
     fn query_operator() -> &'static str;
     async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>>;
@@ -141,10 +142,12 @@ pub struct CollectionActionParams {
     group_titles: Option<Vec<String>>,
     ids: Option<Vec<i32>>,
     n: Option<u32>,
+    bake_cover_arts: bool,
 }
 
-async fn handle_collection_type<T: CollectionType>(
+async fn handle_collection_action<T: CollectionType + std::clone::Clone>(
     main_db: &Arc<MainDbConnection>,
+    recommend_db: &Arc<RecommendationDbConnection>,
     action: CollectionAction,
     params: CollectionActionParams,
 ) -> Result<()> {
@@ -190,12 +193,25 @@ async fn handle_collection_type<T: CollectionType>(
         }
         CollectionAction::FetchById => {
             let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
+            let collections = join_all(items.into_iter().map(|item| {
+                let item = item.clone();
+
+                Collection::from_model_bakeable(
+                    Arc::clone(main_db),
+                    Arc::clone(recommend_db),
+                    item,
+                    T::collection_type(),
+                    T::query_operator(),
+                    params.bake_cover_arts,
+                )
+            }))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
             FetchCollectionByIdsResponse {
                 collection_type: T::collection_type(),
-                result: items
-                    .into_iter()
-                    .map(|x| Collection::from_model(&x, T::collection_type(), T::query_operator()))
-                    .collect(),
+                result: collections,
             }
             .send_signal_to_dart();
         }
@@ -217,6 +233,7 @@ async fn handle_collection_type<T: CollectionType>(
 
 async fn handle_mixes(
     main_db: &Arc<MainDbConnection>,
+    recommend_db: &Arc<RecommendationDbConnection>,
     action: CollectionAction,
     params: CollectionActionParams,
 ) -> Result<()> {
@@ -235,9 +252,25 @@ async fn handle_mixes(
             let items =
                 database::actions::mixes::get_mixes_by_ids(main_db, &params.ids.unwrap()).await?;
             let results = fetch_mix_queries_for_items(main_db, &items).await?;
+            let collections = join_all(results.into_iter().map(|(mix, queries)| {
+                let queries = queries.clone();
+                let mix = mix.clone();
+
+                Collection::from_mix_bakeable::<mixes::Model>(
+                    Arc::clone(main_db),
+                    Arc::clone(recommend_db),
+                    mix,
+                    queries,
+                    params.bake_cover_arts,
+                )
+            }))
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
             FetchCollectionByIdsResponse {
                 collection_type: 3,
-                result: create_collections(results),
+                result: collections,
             }
             .send_signal_to_dart();
         }
@@ -251,7 +284,9 @@ async fn handle_mixes(
             }
             .send_signal_to_dart();
         }
-        _ => handle_collection_type::<mixes::Model>(main_db, action, params).await?,
+        _ => {
+            handle_collection_action::<mixes::Model>(main_db, recommend_db, action, params).await?
+        }
     }
 
     Ok(())
@@ -366,7 +401,7 @@ fn create_collections(results: Vec<(mixes::Model, Vec<MixQuery>)>) -> Vec<Collec
 }
 
 impl Collection {
-    fn from_model<T: CollectionType>(
+    pub fn from_model<T: CollectionType>(
         model: &T,
         collection_type: i32,
         query_operator: &str,
@@ -379,30 +414,75 @@ impl Collection {
                 parameter: model.id().to_string(),
             }],
             collection_type,
+            cover_art_map: HashMap::new(),
         }
     }
 
-    fn from_mix(mix: &mixes::Model, queries: &[MixQuery]) -> Self {
+    pub async fn from_model_bakeable<T: CollectionType>(
+        main_db: Arc<MainDbConnection>,
+        recommend_db: Arc<RecommendationDbConnection>,
+        model: T,
+        collection_type: i32,
+        query_operator: &str,
+        bake_cover_arts: bool,
+    ) -> Result<Self> {
+        let mut collection = Collection::from_model(&model, collection_type, query_operator);
+
+        if bake_cover_arts {
+            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+        }
+
+        Ok(collection)
+    }
+
+    pub fn from_mix(mix: &mixes::Model, queries: &[MixQuery]) -> Self {
         Collection {
             id: mix.id,
             name: mix.name.clone(),
             queries: queries.to_vec(),
             collection_type: 3,
+            cover_art_map: HashMap::new(),
         }
+    }
+
+    pub async fn from_mix_bakeable<T: CollectionType>(
+        main_db: Arc<MainDbConnection>,
+        recommend_db: Arc<RecommendationDbConnection>,
+        mix: mixes::Model,
+        queries: Vec<MixQuery>,
+        bake_cover_arts: bool,
+    ) -> Result<Self> {
+        let mut collection = Collection::from_mix(&mix, &queries);
+
+        if bake_cover_arts {
+            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+        }
+
+        Ok(collection)
     }
 }
 
 pub async fn handle_collection_request(
     main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
     collection_type: i32,
     action: CollectionAction,
     params: CollectionActionParams,
 ) -> Result<()> {
     match collection_type {
-        0 => handle_collection_type::<albums::Model>(&main_db, action, params).await?,
-        1 => handle_collection_type::<artists::Model>(&main_db, action, params).await?,
-        2 => handle_collection_type::<playlists::Model>(&main_db, action, params).await?,
-        3 => handle_mixes(&main_db, action, params).await?,
+        0 => {
+            handle_collection_action::<albums::Model>(&main_db, &recommend_db, action, params)
+                .await?
+        }
+        1 => {
+            handle_collection_action::<artists::Model>(&main_db, &recommend_db, action, params)
+                .await?
+        }
+        2 => {
+            handle_collection_action::<playlists::Model>(&main_db, &recommend_db, action, params)
+                .await?
+        }
+        3 => handle_mixes(&main_db, &recommend_db, action, params).await?,
         _ => return Err(anyhow::anyhow!("Invalid collection type")),
     }
 
@@ -411,10 +491,12 @@ pub async fn handle_collection_request(
 
 pub async fn fetch_collection_group_summary_request(
     main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<FetchCollectionGroupSummaryRequest>,
 ) -> Result<()> {
     handle_collection_request(
         main_db,
+        recommend_db,
         dart_signal.message.collection_type,
         CollectionAction::FetchGroupSummary,
         CollectionActionParams::default(),
@@ -424,10 +506,12 @@ pub async fn fetch_collection_group_summary_request(
 
 pub async fn fetch_collection_groups_request(
     main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<FetchCollectionGroupsRequest>,
 ) -> Result<()> {
     handle_collection_request(
         main_db,
+        recommend_db,
         dart_signal.message.collection_type,
         CollectionAction::FetchGroups,
         CollectionActionParams {
@@ -440,10 +524,12 @@ pub async fn fetch_collection_groups_request(
 
 pub async fn fetch_collection_by_ids_request(
     main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<FetchCollectionByIdsRequest>,
 ) -> Result<()> {
     handle_collection_request(
         main_db,
+        recommend_db,
         dart_signal.message.collection_type,
         CollectionAction::FetchById,
         CollectionActionParams {
@@ -456,10 +542,12 @@ pub async fn fetch_collection_by_ids_request(
 
 pub async fn search_collection_summary_request(
     main_db: Arc<MainDbConnection>,
+    recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<SearchCollectionSummaryRequest>,
 ) -> Result<()> {
     handle_collection_request(
         main_db,
+        recommend_db,
         dart_signal.message.collection_type,
         CollectionAction::Search,
         CollectionActionParams {

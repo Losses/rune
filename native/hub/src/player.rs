@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
+use database::actions::cover_art::bake_cover_art_by_file_ids;
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -47,6 +48,7 @@ pub async fn initialize_player(
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_status);
         let mut cached_meta: Option<MetadataSummary> = None;
+        let mut cached_cover_art: Option<String> = None;
         let mut last_status_id: Option<i32> = None;
 
         while let Ok(status) = status_receiver.recv().await {
@@ -56,6 +58,18 @@ pub async fn initialize_player(
                 Some(id) => {
                     if last_status_id != Some(id) {
                         // Update the cached metadata if the index has changed
+                        match bake_cover_art_by_file_ids(&main_db, [id].to_vec()).await {
+                            Ok(data) => {
+                                let parsed_data = data.values().collect::<Vec<_>>();
+                                cached_cover_art = if parsed_data.is_empty() {
+                                    None
+                                } else {
+                                    Some(parsed_data[0].to_string())
+                                }
+                            }
+                            Err(_) => todo!(),
+                        };
+
                         match get_metadata_summary_by_file_id(&main_db, id).await {
                             Ok(metadata) => {
                                 cached_meta = Some(metadata.clone());
@@ -110,6 +124,7 @@ pub async fn initialize_player(
                 index: status.index.map(|i| i as i32),
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
+                cover_art_path: cached_cover_art.clone().unwrap_or_default(),
             };
 
             if let Err(e) =

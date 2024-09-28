@@ -8,7 +8,6 @@ import '../../utils/api/fetch_collection_groups.dart';
 import '../../utils/api/fetch_collection_group_summary.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/tile/flip_tile.dart';
-import '../../widgets/tile/cover_art_manager.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/start_screen/start_screen.dart';
 
@@ -28,7 +27,6 @@ class CollectionListViewState extends State<CollectionListView> {
 
   final PagingController<int, Group<InternalCollection>> pagingController =
       PagingController(firstPageKey: 0);
-  final coverArtManager = CoverArtManager();
 
   Future<List<Group<InternalCollection>>> fetchSummary() async {
     final groups = await fetchCollectionGroupSummary(widget.collectionType);
@@ -66,15 +64,6 @@ class CollectionListViewState extends State<CollectionListView> {
 
       final groups = await fetchGroups(groupTitles);
 
-      for (final group in groups) {
-        for (final collection in group.items) {
-          // [1] We batch cache data here, find [2] for where to use
-          coverArtManager.queryCoverArts(collection.queries);
-        }
-      }
-
-      await coverArtManager.commit();
-
       final isLastPage = endIndex >= summaries.length;
       if (isLastPage) {
         controller.appendLastPage(groups);
@@ -110,8 +99,6 @@ class CollectionListViewState extends State<CollectionListView> {
     return CollectionItem(
       collection: item,
       collectionType: widget.collectionType,
-      // [2] We use it here
-      coverArtIds: coverArtManager.getResult(item.queries),
     );
   }
 
@@ -143,13 +130,11 @@ final Map<CollectionType, String> routerName = {
 class CollectionItem extends StatelessWidget {
   final InternalCollection collection;
   final CollectionType collectionType;
-  final List<int>? coverArtIds;
 
   CollectionItem({
     super.key,
     required this.collection,
     required this.collectionType,
-    required this.coverArtIds,
   });
 
   final contextController = FlyoutController();
@@ -172,7 +157,7 @@ class CollectionItem extends StatelessWidget {
       },
       child: FlipTile(
         name: collection.name,
-        coverArtIds: coverArtIds,
+        paths: collection.coverArtMap.values.toList(),
         emptyTileType: BoringAvatarType.bauhaus,
         onPressed: () {
           context.push('/${routerName[collectionType]}/${collection.id}',

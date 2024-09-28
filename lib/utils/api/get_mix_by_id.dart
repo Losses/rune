@@ -1,6 +1,6 @@
 import 'package:player/messages/mix.pbserver.dart';
 
-Future<MixWithoutCoverIds> getMixById(int mixId) async {
+Future<Mix> getMixById(int mixId) async {
   final fetchMediaFiles = GetMixByIdRequest(mixId: mixId);
   fetchMediaFiles.sendSignalToRust(); // GENERATED
 

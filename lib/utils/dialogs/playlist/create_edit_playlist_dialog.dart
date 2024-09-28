@@ -23,7 +23,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   bool isLoading = false;
   List<String> groupList = ['Favorite'];
 
-  PlaylistWithoutCoverIds? playlist;
+  Playlist? playlist;
 
   @override
   void initState() {
@@ -97,7 +97,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                     isLoading = true;
                   });
 
-                  PlaylistWithoutCoverIds? response;
+                  Playlist? response;
                   if (widget.playlistId != null) {
                     response = await updatePlaylist(
                       widget.playlistId!,

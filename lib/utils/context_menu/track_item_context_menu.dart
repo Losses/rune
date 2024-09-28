@@ -54,8 +54,8 @@ void openTrackItemContextMenu(
 Widget buildTrackItemContextMenu(
   BuildContext context,
   FetchParsedMediaFileResponse item,
-  List<PlaylistWithoutCoverIds> playlists,
-  List<MixWithoutCoverIds> mixes,
+  List<Playlist> playlists,
+  List<Mix> mixes,
   bool analysed,
 ) {
   final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {

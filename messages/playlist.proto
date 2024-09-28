@@ -5,13 +5,6 @@ message Playlist {
   int32 id = 1;
   string name = 2;
   string group = 3;
-  repeated int32 cover_ids = 4;
-}
-
-message PlaylistWithoutCoverIds {
-  int32 id = 1;
-  string name = 2;
-  string group = 3;
 }
 
 message PlaylistsGroup {
@@ -25,7 +18,7 @@ message FetchAllPlaylistsRequest {
 
 // [RINF:RUST-SIGNAL]
 message FetchAllPlaylistsResponse {
-  repeated PlaylistWithoutCoverIds playlists = 1;
+  repeated Playlist playlists = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -36,7 +29,7 @@ message CreatePlaylistRequest {
 
 // [RINF:RUST-SIGNAL]
 message CreatePlaylistResponse {
-  PlaylistWithoutCoverIds playlist = 1;
+  Playlist playlist = 1;
 }
 
 // [RINF:DART-SIGNAL]
@@ -48,7 +41,7 @@ message UpdatePlaylistRequest {
 
 // [RINF:RUST-SIGNAL]
 message UpdatePlaylistResponse {
-  PlaylistWithoutCoverIds playlist = 1;
+  Playlist playlist = 1;
 }
 
 
@@ -94,7 +87,7 @@ message GetPlaylistByIdRequest {
 
 // [RINF:RUST-SIGNAL]
 message GetPlaylistByIdResponse {
-  PlaylistWithoutCoverIds playlist = 1;
+  Playlist playlist = 1;
 }
 
 message PlaylistSummary {

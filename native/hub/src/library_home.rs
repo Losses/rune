@@ -10,7 +10,6 @@ use crate::messages::library_home::FetchLibrarySummaryRequest;
 use crate::messages::library_home::LibrarySummaryResponse;
 
 use crate::Collection;
-use crate::MixQuery;
 
 pub async fn fetch_library_summary_request(
     main_db: Arc<MainDbConnection>,
@@ -22,31 +21,13 @@ pub async fn fetch_library_summary_request(
     let albums = library
         .0
         .into_iter()
-        .map(|x| Collection {
-            id: x.0.id,
-            name: x.0.name,
-            queries: [MixQuery {
-                operator: "lib::album".to_owned(),
-                parameter: x.0.id.to_string(),
-            }]
-            .to_vec(),
-            collection_type: 0,
-        })
+        .map(|x| Collection::from_model(&x.0, 0, "lib::album"))
         .collect();
 
     let artists = library
         .1
         .into_iter()
-        .map(|x| Collection {
-            id: x.0.id,
-            name: x.0.name,
-            queries: [MixQuery {
-                operator: "lib::album".to_owned(),
-                parameter: x.0.id.to_string(),
-            }]
-            .to_vec(),
-            collection_type: 1,
-        })
+        .map(|x| Collection::from_model(&x.0, 1, "lib::artist"))
         .collect();
 
     LibrarySummaryResponse { albums, artists }.send_signal_to_dart();

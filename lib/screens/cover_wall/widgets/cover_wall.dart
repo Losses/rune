@@ -29,9 +29,9 @@ class PlayingTrack extends StatelessWidget {
   Widget build(BuildContext context) {
     Typography typography = FluentTheme.of(context).typography;
 
-    return Selector<PlaybackStatusProvider, (int?, String?, String?, String?)>(
+    return Selector<PlaybackStatusProvider, (String?, String?, String?, String?)>(
         selector: (context, playbackStatusProvider) => (
-              playbackStatusProvider.playbackStatus?.id,
+              playbackStatusProvider.playbackStatus?.coverArtPath,
               playbackStatusProvider.playbackStatus?.artist,
               playbackStatusProvider.playbackStatus?.album,
               playbackStatusProvider.playbackStatus?.title,
@@ -52,7 +52,7 @@ class PlayingTrack extends StatelessWidget {
                   ),
                   child: CoverArt(
                     key: p.$1 != null ? Key(p.$1.toString()) : null,
-                    fileId: p.$1,
+                    path: p.$1,
                     size: 120,
                   ),
                 ),
@@ -86,8 +86,8 @@ class RandomGridConfig {
 
 class RandomGrid extends StatefulWidget {
   final int seed;
-  final List<int> coverArtIds;
-  const RandomGrid({super.key, required this.seed, required this.coverArtIds});
+  final List<String> paths;
+  const RandomGrid({super.key, required this.seed, required this.paths});
 
   @override
   RandomGridState createState() => RandomGridState();
@@ -108,7 +108,7 @@ class RandomGridState extends State<RandomGrid> {
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 
-        final coverArtWall = widget.coverArtIds.isEmpty
+        final coverArtWall = widget.paths.isEmpty
             ? Container(
                 color: Colors.black,
               )
@@ -213,8 +213,7 @@ class RandomGridState extends State<RandomGrid> {
 
         double randomValue1 = stringToDouble('$gridKey-${widget.seed}');
         double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
-        int coverIndex =
-            (randomValue2 * (widget.coverArtIds.length - 1)).round();
+        int coverIndex = (randomValue2 * (widget.paths.length - 1)).round();
 
         for (var cfg in config) {
           if (randomValue1 <= cfg.probability) {
@@ -232,9 +231,8 @@ class RandomGridState extends State<RandomGrid> {
                       row: row,
                       col: col,
                       size: size,
-                      coverArtId: widget.coverArtIds[coverIndex],
                       child: CoverArt(
-                        coverArtId: widget.coverArtIds[coverIndex],
+                        path: widget.paths[coverIndex],
                         size: size * gridSize,
                       )),
                 ),
@@ -253,9 +251,8 @@ class RandomGridState extends State<RandomGrid> {
                       row: row,
                       col: col,
                       size: 1,
-                      coverArtId: widget.coverArtIds[coverIndex],
                       child: CoverArt(
-                        coverArtId: widget.coverArtIds[coverIndex],
+                        path: widget.paths[coverIndex],
                         size: 1 * gridSize,
                       )),
                 ),
@@ -276,9 +273,8 @@ class RandomGridState extends State<RandomGrid> {
                   row: row,
                   col: col,
                   size: 1,
-                  coverArtId: widget.coverArtIds[coverIndex],
                   child: CoverArt(
-                    coverArtId: widget.coverArtIds[coverIndex],
+                    path: widget.paths[coverIndex],
                     size: 64.0,
                   )),
             ),
@@ -317,7 +313,6 @@ class GridTile extends StatelessWidget {
   final int row;
   final int col;
   final int size;
-  final int coverArtId;
   final Widget child;
 
   const GridTile(
@@ -326,7 +321,6 @@ class GridTile extends StatelessWidget {
       required this.row,
       required this.col,
       required this.size,
-      required this.coverArtId,
       required this.child});
 
   @override
@@ -348,7 +342,7 @@ class CoverWallView extends StatefulWidget {
 }
 
 class _CoverWallViewState extends State<CoverWallView> {
-  List<int> coverArtIds = [];
+  List<String> paths = [];
   bool _isLoading = true;
 
   @override
@@ -365,7 +359,7 @@ class _CoverWallViewState extends State<CoverWallView> {
 
       if (!mounted) return;
       setState(() {
-        coverArtIds = response.coverArtIds;
+        paths = response.paths;
         _isLoading = false;
       });
     });
@@ -373,8 +367,6 @@ class _CoverWallViewState extends State<CoverWallView> {
 
   @override
   Widget build(BuildContext context) {
-    return _isLoading
-        ? Container()
-        : RandomGrid(seed: 42, coverArtIds: coverArtIds);
+    return _isLoading ? Container() : RandomGrid(seed: 42, paths: paths);
   }
 }
