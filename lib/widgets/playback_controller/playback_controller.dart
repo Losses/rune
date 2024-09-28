@@ -71,12 +71,18 @@ class PlaybackControllerState extends State<PlaybackController> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              Text(
-                                s != null ? s.title : "",
-                                overflow: TextOverflow.ellipsis,
-                                style: typography.caption,
+                              Expanded(
+                                child: Text(
+                                  s != null ? s.title : "",
+                                  overflow: TextOverflow.ellipsis,
+                                  style: typography.caption,
+                                ),
                               ),
-                              LikeButton(fileId: s?.id),
+                              Padding(
+                                padding:
+                                    const EdgeInsetsDirectional.only(start: 16),
+                                child: LikeButton(fileId: s?.id),
+                              )
                             ],
                           ),
                         ),
@@ -84,8 +90,8 @@ class PlaybackControllerState extends State<PlaybackController> {
                           value: s != null ? s.progressPercentage * 100 : 0,
                           onChanged: s != null && !notReady
                               ? (v) => SeekRequest(
-                                      positionSeconds: (v / 100) * s.duration)
-                                  .sendSignalToRust()
+                                    positionSeconds: (v / 100) * s.duration,
+                                  ).sendSignalToRust()
                               : null,
                           style: const SliderThemeData(useThumbBall: false),
                         ),

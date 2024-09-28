@@ -42,14 +42,14 @@ class CoverArt extends StatelessWidget {
   final String? path;
   final (String, String, String)? hint;
   final double? size;
-  final int index;
+  final int hash;
 
   const CoverArt({
     super.key,
     required this.path,
     this.size,
     this.hint,
-    this.index = 0,
+    this.hash = 0,
   });
 
   @override
@@ -58,7 +58,7 @@ class CoverArt extends StatelessWidget {
         ? hint == null
             ? EmptyCoverArt(
                 size: size ?? double.infinity,
-                index: index,
+                index: hash,
               )
             : FancyCover(
                 size: size ?? double.infinity,

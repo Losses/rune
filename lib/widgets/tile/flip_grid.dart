@@ -33,6 +33,7 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
   late List<String> _frontPaths;
   late List<String> _backPaths;
   late int _gridSize;
+  late int hash;
 
   bool _needFlip() {
     final n = widget.paths.length;
@@ -53,6 +54,12 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     if (_needFlip()) {
       _startTimer();
     }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    hash = widget.paths.join(':').hashCode;
   }
 
   void _initializeNumbers() {
@@ -154,8 +161,10 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
                 onFlipDone: (isFront) {
                   _replaceNumber(index);
                 },
-                front: _buildCard(_frontPaths[index], index),
-                back: _buildCard(_backPaths[index], index),
+                front: _buildCard(
+                    _frontPaths[index], index + hash),
+                back:
+                    _buildCard(_backPaths[index], index + hash),
               ),
             );
           }),
@@ -170,14 +179,14 @@ class FlipCoverGridState extends State<FlipCoverGrid> {
     return 3;
   }
 
-  Widget _buildCard(String? path, int index) {
+  Widget _buildCard(String? path, int hash) {
     return RepaintBoundary(
       child: SizedBox(
         width: double.infinity,
         height: double.infinity,
         child: Center(
           child: CoverArt(
-            index: index,
+            hash: hash,
             path: path,
           ),
         ),
