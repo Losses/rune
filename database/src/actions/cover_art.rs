@@ -89,6 +89,10 @@ fn bake_cover_art_by_cover_arts(
         let id: i32 = cover_art.id;
         let hash: String = cover_art.file_hash.clone();
 
+        if hash.is_empty() {
+            continue;
+        }
+
         let path: PathBuf = COVER_TEMP_DIR.clone().join(hash);
 
         if !path.exists() {

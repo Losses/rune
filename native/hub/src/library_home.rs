@@ -32,9 +32,9 @@ pub async fn fetch_library_summary_request(
     }))
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>>>()?;
 
-    let artists = join_all(library.1.into_iter().map(|x| {
+    let artists = join_all(library.1.clone().into_iter().map(|x| {
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
 
@@ -42,7 +42,7 @@ pub async fn fetch_library_summary_request(
     }))
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>()?;
+    .collect::<Result<Vec<_>>>()?;
 
     LibrarySummaryResponse { albums, artists }.send_signal_to_dart();
 
