@@ -105,6 +105,18 @@ fn bake_cover_art_by_cover_arts(
     Ok(cover_art_id_to_path)
 }
 
+pub async fn bake_cover_art_by_cover_art_ids(
+    main_db: &DatabaseConnection,
+    cover_art_ids: Vec<i32>,
+) -> Result<HashMap<i32, String>> {
+    let cover_arts: Vec<media_cover_art::Model> = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::Id.is_in(cover_art_ids))
+        .all(main_db)
+        .await?;
+
+    bake_cover_art_by_cover_arts(cover_arts)
+}
+
 pub async fn bake_cover_art_by_media_files(
     main_db: &DatabaseConnection,
     files: Vec<media_files::Model>,
@@ -115,13 +127,9 @@ pub async fn bake_cover_art_by_media_files(
         .map(|x| x.cover_art_id.unwrap_or(-1))
         .collect();
 
-    let cover_arts: Vec<media_cover_art::Model> = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::Id.is_in(cover_art_ids))
-        .all(main_db)
-        .await?;
+    let cover_art_id_to_path = bake_cover_art_by_cover_art_ids(main_db, cover_art_ids).await?;
 
     let mut file_id_to_path: HashMap<i32, String> = HashMap::new();
-    let cover_art_id_to_path = bake_cover_art_by_cover_arts(cover_arts)?;
 
     for file in files.iter() {
         let cover_art_path = match file.cover_art_id {

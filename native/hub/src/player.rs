@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
-use database::actions::cover_art::bake_cover_art_by_file_ids;
+use database::actions::cover_art::{bake_cover_art_by_cover_art_ids, bake_cover_art_by_file_ids};
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
@@ -75,8 +75,39 @@ pub async fn initialize_player(
                                 cached_meta = Some(metadata.clone());
                                 last_status_id = Some(id);
 
+                                let cover_art: Result<Option<String>> = match metadata.cover_art_id
+                                {
+                                    Some(cover_art_id) => {
+                                        match bake_cover_art_by_cover_art_ids(
+                                            &main_db,
+                                            [cover_art_id].to_vec(),
+                                        )
+                                        .await
+                                        {
+                                            Ok(cover_art_map) => {
+                                                let values: Vec<&String> =
+                                                    cover_art_map.values().collect();
+
+                                                if values.is_empty() {
+                                                    Ok(None)
+                                                } else {
+                                                    Ok(Some(values[0].clone()))
+                                                }
+                                            }
+                                            Err(_) => Ok(None),
+                                        }
+                                    }
+                                    _none => Ok(None),
+                                };
+
                                 let manager = Arc::clone(&manager);
-                                match update_media_controls_metadata(manager, &metadata).await {
+                                match update_media_controls_metadata(
+                                    manager,
+                                    &metadata,
+                                    cover_art.unwrap_or(None).as_deref(),
+                                )
+                                .await
+                                {
                                     Ok(_) => {}
                                     Err(e) => {
                                         error!(
@@ -224,6 +255,7 @@ pub async fn send_realtime_fft(value: Vec<f32>) {
 async fn update_media_controls_metadata(
     manager: Arc<Mutex<MediaControlManager>>,
     status: &MetadataSummary,
+    cover_art_path: Option<&str>,
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
@@ -231,7 +263,7 @@ async fn update_media_controls_metadata(
         title: Some(&status.title),
         album: Some(&status.album),
         artist: Some(&status.artist),
-        cover_url: None,
+        cover_url: cover_art_path,
         duration: Some(std::time::Duration::from_secs_f64(status.duration)),
     };
 
