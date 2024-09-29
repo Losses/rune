@@ -36,7 +36,9 @@ class WelcomePage extends StatelessWidget {
                       SvgPicture.asset(
                         'assets/mono_color_logo.svg',
                         colorFilter: ColorFilter.mode(
-                            theme.inactiveColor, BlendMode.srcIn),
+                          theme.inactiveColor,
+                          BlendMode.srcIn,
+                        ),
                       ),
                       const SizedBox(height: 20),
                       Column(
