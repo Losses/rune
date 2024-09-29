@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 class SettingsTileTitle extends StatelessWidget {
   final IconData icon;
+  final IconData? suffixIcon;
   final String title;
   final String subtitle;
   final bool showActions;
@@ -14,6 +15,7 @@ class SettingsTileTitle extends StatelessWidget {
     required this.subtitle,
     required this.showActions,
     required this.actionsBuilder,
+    this.suffixIcon,
   });
 
   @override
@@ -21,7 +23,8 @@ class SettingsTileTitle extends StatelessWidget {
     final theme = FluentTheme.of(context);
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
@@ -38,34 +41,41 @@ class SettingsTileTitle extends StatelessWidget {
         const SizedBox(
           width: 12,
         ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(
-              height: 8,
-            ),
-            Text(title,
-                style: theme.typography.body?.apply(fontSizeFactor: 1.1)),
-            const SizedBox(
-              height: 2,
-            ),
-            Text(
-              subtitle,
-              style: theme.typography.caption?.apply(
-                color: theme.inactiveColor.withAlpha(160),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.typography.body?.apply(fontSizeFactor: 1.1),
               ),
-            ),
-            if (showActions) ...[
               const SizedBox(
-                height: 12,
+                height: 2,
               ),
-              actionsBuilder(context),
-              const SizedBox(
-                height: 8,
+              Text(
+                subtitle,
+                style: theme.typography.caption?.apply(
+                  color: theme.inactiveColor.withAlpha(160),
+                ),
               ),
+              if (showActions) ...[
+                const SizedBox(
+                  height: 12,
+                ),
+                actionsBuilder(context),
+                const SizedBox(
+                  height: 8,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
+        if (suffixIcon != null)
+          Icon(
+            suffixIcon,
+            color: theme.inactiveColor.withAlpha(160),
+            size: 20,
+          )
       ],
     );
   }

@@ -1,20 +1,15 @@
-import 'package:player/widgets/playback_controller/like_button.dart';
-import 'package:player/widgets/playback_controller/volume_button.dart';
+import 'package:player/providers/playback_controller.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/format_time.dart';
-import '../../widgets/playback_controller/next_button.dart';
-import '../../widgets/playback_controller/playlist_button.dart';
-import '../../widgets/playback_controller/previous_button.dart';
-import '../../widgets/playback_controller/cover_wall_button.dart';
-import '../../widgets/playback_controller/play_pause_button.dart';
-import '../../widgets/playback_controller/playback_mode_button.dart';
-import '../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
 
-import 'fft_visualize.dart';
+import './constants/playback_controller_height.dart';
+
+import './like_button.dart';
+import './fft_visualize.dart';
 
 class PlaybackController extends StatefulWidget {
   const PlaybackController({super.key});
@@ -116,28 +111,36 @@ class PlaybackControllerState extends State<PlaybackController> {
                   ),
                 ),
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  PreviousButton(
-                    disabled: notReady,
-                  ),
-                  PlayPauseButton(
-                      disabled: notReady, state: s?.state ?? "Stopped"),
-                  NextButton(
-                    disabled: notReady,
-                  ),
-                  const VolumeButton(),
-                  const PlaybackModeButton(),
-                  PlaylistButton(),
-                  const CoverWallButton(),
-                  const SizedBox(width: 8),
-                ],
-              )
+              ControllerButtons(notReady: notReady, status: s)
             ],
           ),
         );
       },
+    );
+  }
+}
+
+class ControllerButtons extends StatelessWidget {
+  const ControllerButtons({
+    super.key,
+    required this.notReady,
+    required this.status,
+  });
+
+  final bool notReady;
+  final PlaybackStatus? status;
+
+  @override
+  Widget build(BuildContext context) {
+    final provider = Provider.of<PlaybackControllerProvider>(context);
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: [
+        for (var entry in provider.entries)
+          entry.controllerButtonBuilder(notReady, status),
+        const SizedBox(width: 8),
+      ],
     );
   }
 }

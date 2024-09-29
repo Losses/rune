@@ -9,9 +9,11 @@ class SettingsButton extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onPressed,
+    this.suffixIcon,
   });
 
   final IconData icon;
+  final IconData? suffixIcon;
   final String title;
   final String subtitle;
   final void Function()? onPressed;
@@ -22,11 +24,16 @@ class SettingsButton extends StatelessWidget {
       padding: const EdgeInsets.all(4),
       child: Button(
         style: ButtonStyle(
-            shape: WidgetStateProperty.all(RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4)))),
+          shape: WidgetStateProperty.all(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(4),
+            ),
+          ),
+        ),
         onPressed: onPressed,
         child: SettingsTileTitle(
           icon: icon,
+          suffixIcon: suffixIcon,
           title: title,
           subtitle: subtitle,
           showActions: false,

@@ -128,6 +128,10 @@ final routes = <GoRoute>[
     builder: (context, state) => const settings.SettingsMixPage(),
   ),
   GoRoute(
+    path: '/settings/media_controller',
+    builder: (context, state) => const settings.SettingsMediaControllerPage(),
+  ),
+  GoRoute(
     path: '/search',
     builder: (context, state) => const search.SearchPage(),
   ),

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:player/providers/playback_controller.dart';
 import 'package:player/providers/volume.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
@@ -40,7 +41,6 @@ void main() async {
     SystemTheme.accentColor.load();
   }
 
-
   if (isDesktop && !Platform.isLinux) {
     await flutter_acrylic.Window.initialize();
   }
@@ -49,8 +49,11 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
-            lazy: false, create: (_) => LibraryPathProvider()),
+          lazy: false,
+          create: (_) => LibraryPathProvider(),
+        ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
         ChangeNotifierProvider(create: (_) => VolumeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
