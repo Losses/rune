@@ -1,13 +1,13 @@
-import 'package:player/providers/playback_controller.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/format_time.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
+import '../../providers/playback_controller.dart';
 
 import './constants/playback_controller_height.dart';
-
 import './like_button.dart';
 import './fft_visualize.dart';
 
@@ -120,7 +120,7 @@ class PlaybackControllerState extends State<PlaybackController> {
   }
 }
 
-class ControllerButtons extends StatelessWidget {
+class ControllerButtons extends StatefulWidget {
   const ControllerButtons({
     super.key,
     required this.notReady,
@@ -131,14 +131,53 @@ class ControllerButtons extends StatelessWidget {
   final PlaybackStatus? status;
 
   @override
+  State<ControllerButtons> createState() => _ControllerButtonsState();
+}
+
+class _ControllerButtonsState extends State<ControllerButtons> {
+  final menuController = FlyoutController();
+
+  @override
+  void dispose() {
+    super.dispose();
+    menuController.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final provider = Provider.of<PlaybackControllerProvider>(context);
+    final entries = provider.entries;
+    final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
+    final visibleEntries =
+        hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
+    final hiddenEntries =
+        hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        for (var entry in provider.entries)
-          entry.controllerButtonBuilder(notReady, status),
+        for (var entry in visibleEntries)
+          entry.controllerButtonBuilder(widget.notReady, widget.status),
+        if (hiddenEntries.isNotEmpty)
+          FlyoutTarget(
+            controller: menuController,
+            child: IconButton(
+              icon: const Icon(Symbols.more_vert),
+              onPressed: () {
+                menuController.showFlyout(
+                  builder: (context) {
+                    return MenuFlyout(
+                      items: [
+                        for (var entry in hiddenEntries)
+                          entry.flyoutEntryBuilder(
+                              context, widget.notReady, widget.status),
+                      ],
+                    );
+                  },
+                );
+              },
+            ),
+          ),
         const SizedBox(width: 8),
       ],
     );

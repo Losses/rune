@@ -2,23 +2,31 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../router.dart';
+
+void showCoverArtWall(BuildContext context) {
+  final RouteMatch lastMatch = router.routerDelegate.currentConfiguration.last;
+  final RouteMatchList matchList = lastMatch is ImperativeRouteMatch
+      ? lastMatch.matches
+      : router.routerDelegate.currentConfiguration;
+  final String location = matchList.uri.toString();
+
+  if (location == "/cover_wall") {
+    if (context.canPop()) {
+      context.pop();
+    }
+  } else {
+    context.push("/cover_wall");
+  }
+}
+
 class CoverWallButton extends StatelessWidget {
   const CoverWallButton({super.key});
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: () {
-        final routeState = GoRouterState.of(context);
-
-        if (routeState.fullPath == "/cover_wall") {
-          if (context.canPop()) {
-            context.pop();
-          }
-        } else {
-          context.push("/cover_wall");
-        }
-      },
+      onPressed: () => showCoverArtWall(context),
       icon: const Icon(Symbols.photo_frame),
     );
   }

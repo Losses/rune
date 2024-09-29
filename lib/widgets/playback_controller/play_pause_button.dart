@@ -1,7 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../messages/playback.pb.dart';
+import '../../utils/api/play_play.dart';
+import '../../utils/api/play_pause.dart';
 
 class PlayPauseButton extends StatelessWidget {
   final bool disabled;
@@ -16,17 +17,9 @@ class PlayPauseButton extends StatelessWidget {
     return IconButton(
       onPressed: disabled
           ? null
-          : () {
-              switch (state) {
-                case "Paused":
-                case "Stopped":
-                  PlayRequest().sendSignalToRust(); // GENERATED
-                  break;
-                case "Playing":
-                  PauseRequest().sendSignalToRust(); // GENERATED
-                  break;
-              }
-            },
+          : state == "Playing"
+              ? playPause
+              : playPlay,
       icon: state == "Playing"
           ? const Icon(Symbols.pause)
           : const Icon(Symbols.play_arrow),

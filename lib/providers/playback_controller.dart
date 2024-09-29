@@ -45,11 +45,9 @@ class PlaybackControllerProvider extends ChangeNotifier {
   }
 
   void reorder(int oldIndex, int newIndex) {
-    if (newIndex > oldIndex) {
-      newIndex -= 1;
-    }
     final item = _entries.removeAt(oldIndex);
     _entries.insert(newIndex, item);
+
     _saveEntries();
     notifyListeners();
   }

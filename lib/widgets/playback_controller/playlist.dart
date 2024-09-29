@@ -86,8 +86,11 @@ class _PlaylistState extends State<Playlist> {
                                         child: Row(
                                           children: [
                                             isCurrent
-                                                ? Icon(Symbols.play_arrow,
-                                                    color: color, size: 24)
+                                                ? Icon(
+                                                    Symbols.play_arrow,
+                                                    color: color,
+                                                    size: 24,
+                                                  )
                                                 : const SizedBox(width: 24),
                                             const SizedBox(width: 4),
                                             SizedBox(

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../messages/playback.pb.dart';
+import '../../utils/api/play_previous.dart';
 
 class PreviousButton extends StatelessWidget {
   final bool disabled;
@@ -11,11 +11,7 @@ class PreviousButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: disabled
-          ? null
-          : () {
-              PreviousRequest().sendSignalToRust(); // GENERATED
-            },
+      onPressed: disabled ? null : playPrevious,
       icon: const Icon(Symbols.skip_previous),
     );
   }

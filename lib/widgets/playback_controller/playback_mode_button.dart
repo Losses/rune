@@ -2,9 +2,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../providers/status.dart';
-import '../../messages/playback.pb.dart';
+import '../../utils/api/play_mode.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
+import '../../providers/status.dart';
 
 IconData modeToIcon(PlaybackMode mode) {
   switch (mode) {
@@ -71,8 +71,7 @@ class PlaybackModeButton extends StatelessWidget {
         return IconButton(
           onPressed: () {
             final next = nextMode(currentMode);
-            SetPlaybackModeRequest(mode: next.toValue())
-                .sendSignalToRust(); // GENERATED
+            playMode(next.toValue());
           },
           icon: Icon(modeToIcon(currentMode)),
         );

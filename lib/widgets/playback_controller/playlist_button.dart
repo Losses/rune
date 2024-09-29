@@ -10,7 +10,6 @@ class PlaylistButton extends StatelessWidget {
 
   openContextMenu(BuildContext context) {
     contextController.showFlyout(
-      barrierColor: Colors.black.withOpacity(0.1),
       autoModeConfiguration: FlyoutAutoConfiguration(
         preferredMode: FlyoutPlacementMode.topCenter,
       ),

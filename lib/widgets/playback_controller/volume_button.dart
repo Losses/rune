@@ -12,18 +12,17 @@ class VolumeButton extends StatefulWidget {
   VolumeButtonState createState() => VolumeButtonState();
 }
 
+void onScroll(VolumeProvider volumeProvider, PointerSignalEvent pointerSignal) {
+  if (pointerSignal is PointerScrollEvent) {
+    final currentVolume = volumeProvider.volume;
+    final delta = pointerSignal.scrollDelta.dy * -0.0005;
+    final newVolume = (currentVolume + delta).clamp(0.0, 1.0);
+    volumeProvider.updateVolume(newVolume);
+  }
+}
+
 class VolumeButtonState extends State<VolumeButton> {
   final FlyoutController _flyoutController = FlyoutController();
-
-  void onScroll(
-      VolumeProvider volumeProvider, PointerSignalEvent pointerSignal) {
-    if (pointerSignal is PointerScrollEvent) {
-      final currentVolume = volumeProvider.volume;
-      final delta = pointerSignal.scrollDelta.dy * -0.0005;
-      final newVolume = (currentVolume + delta).clamp(0.0, 1.0);
-      volumeProvider.updateVolume(newVolume);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,9 +46,10 @@ class VolumeButtonState extends State<VolumeButton> {
             _flyoutController.showFlyout(
               barrierColor: Colors.transparent,
               builder: (context) {
-                return FlyoutContent(
+                return const FlyoutContent(
                   child: VolumeController(
-                    onScroll: onScroll,
+                    width: 40,
+                    height: 150,
                   ),
                 );
               },
@@ -68,12 +68,15 @@ class VolumeButtonState extends State<VolumeButton> {
 }
 
 class VolumeController extends StatelessWidget {
-  final void Function(
-      VolumeProvider volumeProvider, PointerSignalEvent pointerSignal) onScroll;
+  final double width;
+  final double height;
+  final bool vertical;
 
   const VolumeController({
     super.key,
-    required this.onScroll,
+    this.width = double.infinity,
+    this.height = double.infinity,
+    this.vertical = true,
   });
 
   @override
@@ -85,10 +88,10 @@ class VolumeController extends StatelessWidget {
         onScroll(volumeProvider, pointerSignal);
       },
       child: SizedBox(
-        height: 150,
-        width: 40,
+        width: width,
+        height: height,
         child: Slider(
-          vertical: true,
+          vertical: vertical,
           value: volumeProvider.volume * 100,
           onChanged: (value) {
             volumeProvider.updateVolume(value / 100);
