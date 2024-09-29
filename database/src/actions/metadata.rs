@@ -35,17 +35,18 @@ pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
         _none => return None,
     };
 
-    match get_metadata(full_path, None) {
+    match get_metadata(full_path, None).with_context(|| {
+        format!(
+            "Unable to read metadata: {}",
+            description.rel_path.display()
+        )
+    }) {
         Ok(metadata) => Some(FileMetadata {
             path: description.rel_path.clone(),
             metadata,
         }),
-        Err(err) => {
-            error!(
-                "Error reading metadata for {}: {}",
-                description.rel_path.display(),
-                err
-            );
+        Err(e) => {
+            error!("{:?}", e);
             // Continue to the next file instead of returning an empty list
             None
         }
@@ -171,7 +172,7 @@ pub async fn sync_file_descriptions(
                                 }
                                 _none => {
                                     error!(
-                                        "Unable to get metadata of the file: {:?}",
+                                        "Metadata of the file not found: {:?}",
                                         description.rel_path,
                                     );
                                 }
@@ -188,22 +189,23 @@ pub async fn sync_file_descriptions(
                     let file_metadata = read_metadata(description);
 
                     if let Some(ref x) = file_metadata {
-                        match insert_new_file(&txn, search_db, x, description).await {
+                        match insert_new_file(&txn, search_db, x, description)
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to insert new file: {}",
+                                    description.file_name.clone()
+                                )
+                            }) {
                             Ok(_) => {
                                 if let Some(existing_file) = existing_file {
                                     update_search_term(existing_file.id, x);
                                 }
                             }
-                            Err(_) => error!(
-                                "Failed to insert new file: {}",
-                                description.file_name.clone(),
-                            ),
+                            Err(e) => error!("{:?}", e),
                         }
                     } else {
-                        error!(
-                            "Unable to get metadata of the file: {:?}",
-                            description.rel_path,
-                        );
+                        error!("Metadata of the file not found: {:?}", description.rel_path,);
                     }
                 }
             }
@@ -313,7 +315,7 @@ pub async fn process_files(
                                 }
                                 _none => {
                                     error!(
-                                        "Unable to get metadata of the file: {:?}",
+                                        "Metadata of the file not found: {:?}",
                                         description.rel_path,
                                     );
                                 }
@@ -331,19 +333,20 @@ pub async fn process_files(
 
                     match file_metadata {
                         Some(x) => {
-                            match insert_new_file(&txn, search_db, &x, description).await {
+                            match insert_new_file(&txn, search_db, &x, description)
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to insert new file, metadata: {}",
+                                        description.file_name.clone(),
+                                    )
+                                }) {
                                 Ok(_) => modified = true,
-                                Err(_) => error!(
-                                    "Failed to insert new file: {}",
-                                    description.file_name.clone(),
-                                ),
+                                Err(e) => error!("{:?}", e),
                             };
                         }
                         _none => {
-                            error!(
-                                "Unable to get metadata of the file: {:?}",
-                                description.rel_path,
-                            );
+                            error!("Metadata of the file not found: {:?}", description.rel_path,);
                         }
                     }
                 }
@@ -585,20 +588,26 @@ where
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, search_db, &mut descriptions).await {
+        match sync_file_descriptions(main_db, search_db, &mut descriptions)
+            .await
+            .with_context(|| "Unable to describe the file")
+        {
             Ok(_) => {
                 debug!("Finished one batch");
             }
             Err(e) => {
-                error!("Error describing files: {:?}", e);
+                error!("{:?}", e);
             }
         };
 
         let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
 
-        match index_media_files(main_db, search_db, file_ids).await {
+        match index_media_files(main_db, search_db, file_ids)
+            .await
+            .with_context(|| "Unable to index files")
+        {
             Ok(_) => {}
-            Err(e) => error!("Error indexing files: {:?}", e),
+            Err(e) => error!("{:?}", e),
         };
 
         // Update the number of processed files
@@ -610,9 +619,12 @@ where
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(main_db, search_db, lib_path).await {
+        match clean_up_database(main_db, search_db, lib_path)
+            .await
+            .with_context(|| "Unable to cleanup database")
+        {
             Ok(_) => info!("Cleanup completed successfully."),
-            Err(e) => error!("Error during cleanup: {:?}", e),
+            Err(e) => error!("{:?}", e),
         }
     }
 

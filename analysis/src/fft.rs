@@ -1,3 +1,5 @@
+use anyhow::Context;
+use anyhow::Result;
 use log::debug;
 
 use rubato::Resampler;
@@ -48,9 +50,9 @@ pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
         .collect()
 }
 
-pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>, Error> {
+pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
     // Open the media source.
-    let src = std::fs::File::open(file_path).expect("failed to open media");
+    let src = std::fs::File::open(file_path).with_context(|| "failed to open media")?;
 
     // Create the media source stream.
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
@@ -67,7 +69,7 @@ pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>, Error> {
     // Probe the media source.
     let probed = symphonia::default::get_probe()
         .format(&hint, mss, &fmt_opts, &meta_opts)
-        .expect("unsupported format");
+        .with_context(|| "unsupported format")?;
 
     // Get the instantiated format reader.
     let format = probed.format;
