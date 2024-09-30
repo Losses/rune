@@ -120,8 +120,8 @@ final routes = <GoRoute>[
     builder: (context, state) => const settings.SettingsLibraryPage(),
   ),
   GoRoute(
-    path: '/settings/test',
-    builder: (context, state) => const settings.SettingsTestPage(),
+    path: '/settings/about',
+    builder: (context, state) => const settings.SettingsAboutPage(),
   ),
   GoRoute(
     path: '/settings/mix',

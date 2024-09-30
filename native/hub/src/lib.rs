@@ -13,6 +13,7 @@ mod player;
 mod playlist;
 mod search;
 mod stat;
+mod system;
 mod utils;
 
 use std::sync::Arc;
@@ -43,6 +44,7 @@ use crate::player::initialize_player;
 use crate::playlist::*;
 use crate::search::*;
 use crate::stat::*;
+use crate::system::*;
 
 use messages::analyse::*;
 use messages::collection::*;
@@ -56,6 +58,7 @@ use messages::playback::*;
 use messages::playlist::*;
 use messages::search::*;
 use messages::stat::*;
+use messages::system::*;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -198,6 +201,8 @@ async fn player_loop(path: String) {
             SearchForRequest => (search_db),
 
             FetchDirectoryTreeRequest => (main_db),
+
+            SystemInfoRequest => (main_db),
         );
     });
 }

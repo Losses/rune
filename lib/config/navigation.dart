@@ -36,7 +36,7 @@ final List<NavigationItem> navigationItems = [
     NavigationItem('Settings', '/settings', children: [
       NavigationItem('Library', '/settings/library'),
       NavigationItem('Controller', '/settings/media_controller'),
-      NavigationItem('Test', '/settings/test'),
+      NavigationItem('About', '/settings/about'),
       NavigationItem('Mix', '/settings/mix'),
     ]),
   ]),

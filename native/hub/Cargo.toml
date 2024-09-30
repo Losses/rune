@@ -3,6 +3,7 @@
 name = "hub"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [lib]
 # `lib` is required for non-library targets,
@@ -28,6 +29,16 @@ num_cpus = "1.16.0"
 anyhow = { version = "1.0.89", features = ["backtrace"] }
 futures = "0.3.30"
 async-trait = "0.1.83"
+sysinfo = { version = "0.31.4", features = ["windows"] }
+
+[build-dependencies]
+anyhow = { version = "1.0.89", features = ["backtrace"] }
+vergen-git2 = { version = "1.0.1", features = [
+    "build",
+    "cargo",
+    "rustc",
+    "si",
+] }
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
