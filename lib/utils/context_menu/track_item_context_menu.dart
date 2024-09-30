@@ -20,11 +20,12 @@ import '../../messages/playlist.pbserver.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
 
 void openTrackItemContextMenu(
-    Offset localPosition,
-    BuildContext context,
-    GlobalKey contextAttachKey,
-    FlyoutController contextController,
-    int fileId) async {
+  Offset localPosition,
+  BuildContext context,
+  GlobalKey contextAttachKey,
+  FlyoutController contextController,
+  int fileId,
+) async {
   final targetContext = contextAttachKey.currentContext;
 
   if (targetContext == null) return;

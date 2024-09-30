@@ -3,12 +3,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-use database::actions::cover_art::bake_cover_art_by_media_files;
 use dunce::canonicalize;
+use log::error;
 use rinf::DartSignal;
 use sea_orm::DatabaseConnection;
 
 use database::actions::cover_art::bake_cover_art_by_file_ids;
+use database::actions::cover_art::bake_cover_art_by_media_files;
 use database::actions::file::get_files_by_ids;
 use database::actions::file::get_media_files;
 use database::actions::file::list_files;
@@ -33,19 +34,26 @@ pub async fn parse_media_files(
             Path::new(lib_path.as_ref())
                 .join(&file.directory)
                 .join(&file.file_name),
-        )?;
+        );
 
-        let media_file = MediaFile {
-            id: file.id,
-            path: media_path.to_str().unwrap().to_string(),
-            artist: file.artist,
-            album: file.album,
-            title: file.title,
-            duration: file.duration,
-            cover_art_id: file.cover_art_id.unwrap_or(-1),
-        };
+        match media_path {
+            Ok(media_path) => {
+                let media_file = MediaFile {
+                    id: file.id,
+                    path: media_path.to_str().unwrap().to_string(),
+                    artist: file.artist,
+                    album: file.album,
+                    title: file.title,
+                    duration: file.duration,
+                    cover_art_id: file.cover_art_id.unwrap_or(-1),
+                };
 
-        media_files.push(media_file);
+                media_files.push(media_file);
+            }
+            Err(e) => {
+                error!("{:?}", e);
+            }
+        }
     }
 
     Ok(media_files)

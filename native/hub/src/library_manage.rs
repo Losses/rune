@@ -54,6 +54,7 @@ pub async fn scan_audio_library_request(
 
     let mut search_db = search_db.lock().await;
 
+    // BLOCKING HERE!
     let file_processed = scan_audio_library(
         &main_db,
         &mut search_db,
