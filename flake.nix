@@ -79,6 +79,7 @@
 
         rust-bin = rust-overlay.lib.mkRustBin { } pkgs.buildPackages;
       in {
+        # Development environmet for general purpose
         devShells.default = pkgs.mkShell {
           name = "Combined Flutter and Rust Dev Shell";
 
@@ -86,6 +87,7 @@
             (rust-bin.stable.latest.default.override {
               extensions = [ "rust-src" ];
             })
+            yq
             openssl
             pkg-config
             stdenv
@@ -139,6 +141,7 @@
         };
 
 
+        # Development environmet flutter-elinux
         devShells.cross = let
           pkgsCross = nixpkgs.legacyPackages.x86_64-linux.pkgsCross.aarch64-multiplatform;
           rust-bin = rust-overlay.lib.mkRustBin { } pkgsCross.buildPackages;
