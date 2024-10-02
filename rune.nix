@@ -1,11 +1,13 @@
 { 
   lib
+, jq
 , stdenv
 , fetchzip
 , flutter324
 , protobuf_26
 , protoc-gen-prost
 , makeDesktopItem
+, moreutils
 , cargo
 , rustPlatform
 , rustc
@@ -15,7 +17,8 @@
 }:
 
 let
-  pubspecLock = lib.importJSON ./pubspec.lock.json;
+  mainPubspecLock = lib.importJSON ./pubspec.lock.json;
+  cargokitPubspecLock = lib.importJSON ./pubspec.cargokit.lock.json;
 
   protoc-gen-dart = buildDartApplication rec {
     pname = "protoc-gen-dart";
@@ -73,7 +76,8 @@ flutter324.buildFlutterApplication (rec {
       };
   };
 
-  inherit pubspecLock;
+  # build_tool hack part 1: join dependencies with the main package
+  pubspecLock = lib.recursiveUpdate cargokitPubspecLock mainPubspecLock;
 
   inherit targetFlutterPlatform;
 
@@ -87,7 +91,16 @@ flutter324.buildFlutterApplication (rec {
     sourceProvenance = [ sourceTypes.fromSource ];
   };
 } // lib.optionalAttrs (targetFlutterPlatform == "linux") {
-  nativeBuildInputs = [ protobuf_26 protoc-gen-prost protoc-gen-dart ]; 
+  nativeBuildInputs = [
+    jq
+    moreutils # sponge
+    protobuf_26
+    protoc-gen-prost
+    protoc-gen-dart
+    cargo
+    rustc
+    rustPlatform.cargoSetupHook
+  ]; 
   desktopItem = makeDesktopItem {
     name = "Rune";
     exec = "player";
@@ -98,6 +111,8 @@ flutter324.buildFlutterApplication (rec {
   };
 
   preBuild = ''
+    # build_tool hack part 2: add build_tool as an actually resolvable package (the location is relative to the rinf package directory)
+    jq '.packages += [.packages.[] | select(.name == "rinf") | .rootUri += "/cargokit/build_tool" | .name = "build_tool"]' .dart_tool/package_config.json | sponge .dart_tool/package_config.json
     echo =================================
     echo GENERATING PROTOBUF CODE
     echo =================================
