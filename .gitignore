@@ -25,6 +25,7 @@ target/
 .history
 .svn/
 !pubspec.lock
+!Cargo.lock
 
 # IntelliJ related
 *.iml
