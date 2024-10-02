@@ -1,10 +1,10 @@
-{ nixpkgs, rust-overlay, expidus-nixpkgs, system }:
+{ nixpkgs, rust-overlay, master-nixpkgs, system }:
 
 let
   pkgsCross = nixpkgs.legacyPackages.x86_64-linux.pkgsCross.aarch64-multiplatform;
   rust-bin = rust-overlay.lib.mkRustBin { } pkgsCross.buildPackages;
 
-  expidusPkgs = import expidus-nixpkgs { inherit system; };
+  expidusPkgs = import master-nixpkgs { inherit system; };
 in
 pkgsCross.callPackage (
   {

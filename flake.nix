@@ -18,12 +18,12 @@
     android-nixpkgs = {
       url = "github:tadfisher/android-nixpkgs";
     };
-    expidus-nixpkgs = {
-      url = "github:ExpidusOS/nixpkgs/feat/flutter-3-24";
+    master-nixpkgs = {
+      url = "github:NixOS/nixpkgs/master";
     };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, expidus-nixpkgs, ... }:
+  outputs = { self, nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, master-nixpkgs, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = import ./overlays.nix { inherit rust-overlay; };
@@ -37,7 +37,7 @@
           };
         };
 
-        expidusPkgs = import expidus-nixpkgs { inherit system; };
+        expidusPkgs = import master-nixpkgs { inherit system; };
 
         androidCustomPackage = android-nixpkgs.sdk.${system} (
           sdkPkgs: with sdkPkgs; [
@@ -66,7 +66,11 @@
         };
 
         devShells.cross = import ./cross.devshell.nix {
-          inherit nixpkgs rust-overlay expidus-nixpkgs system;
+          inherit nixpkgs rust-overlay master-nixpkgs system;
+        };
+
+        apps.x86_64-linux.rune = pkgs.callPackage import ./rune.nix { 
+          inherit nixpkgs master-nixpkgs;
         };
       }
     );
