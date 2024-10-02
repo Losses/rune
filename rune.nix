@@ -108,14 +108,10 @@ flutter324.buildFlutterApplication (rec {
   };
 
   preBuild = ''
-    echo =================================
     echo PATCHING CARGOKIT
-    echo =================================
     # build_tool hack part 2: add build_tool as an actually resolvable package (the location is relative to the rinf package directory)
     jq '.packages += [.packages.[] | select(.name == "rinf") | .rootUri += "/cargokit/build_tool" | .name = "build_tool"]' .dart_tool/package_config.json | sponge .dart_tool/package_config.json
-    echo =================================
     echo GENERATING PROTOBUF CODE
-    echo =================================
     packageRun rinf message
 
   '';
