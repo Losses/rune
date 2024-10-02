@@ -1,13 +1,12 @@
 import 'dart:io';
 
-import 'package:player/providers/playback_controller.dart';
-import 'package:player/providers/volume.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:responsive_framework/responsive_framework.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
@@ -18,10 +17,12 @@ import 'config/navigation.dart';
 
 import 'messages/generated.dart';
 
+import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/library_path.dart';
 import 'providers/library_manager.dart';
+import 'providers/playback_controller.dart';
 import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
@@ -37,7 +38,9 @@ void main() async {
       [
         TargetPlatform.windows,
         TargetPlatform.android,
-      ].contains(defaultTargetPlatform)) {
+      ].contains(
+        defaultTargetPlatform,
+      )) {
     SystemTheme.accentColor.load();
   }
 
@@ -110,7 +113,17 @@ class Rune extends StatelessWidget {
                     : Colors.transparent,
                 child: Directionality(
                   textDirection: appTheme.textDirection,
-                  child: child!,
+                  child: ResponsiveBreakpoints.builder(
+                    breakpoints: [
+                      const Breakpoint(start: 0, end: 480, name: PHONE),
+                      const Breakpoint(start: 481, end: 650, name: MOBILE),
+                      const Breakpoint(start: 651, end: 800, name: TABLET),
+                      const Breakpoint(start: 801, end: 1920, name: DESKTOP),
+                      const Breakpoint(
+                          start: 1921, end: double.infinity, name: '4K'),
+                    ],
+                    child: child!,
+                  ),
                 ));
           },
         );

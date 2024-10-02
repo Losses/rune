@@ -11,11 +11,7 @@ impl DatabaseExecutor for DatabaseConnection {}
 impl DatabaseExecutor for DatabaseTransaction {}
 
 pub fn first_char(s: &str) -> char {
-    if let Some(first_char) = deunicode(s).chars().next() {
-        first_char
-    } else {
-        '#'
-    }
+    deunicode(s).chars().next().unwrap_or('#')
 }
 
 pub fn generate_group_name(x: &str) -> String {

@@ -723,11 +723,7 @@ pub async fn query_mix_media_files(
                 .into()
         };
 
-        let recommend_n = if let Some(query_limit) = pipe_limit {
-            query_limit
-        } else {
-            30
-        };
+        let recommend_n = pipe_limit.unwrap_or(30);
 
         let file_ids =
             get_recommendation_by_parameter(recommend_db, virtual_point, recommend_n as usize)
