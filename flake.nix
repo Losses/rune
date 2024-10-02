@@ -5,6 +5,9 @@
     nixpkgs = {
       url = "github:NixOS/nixpkgs/nixos-unstable";
     };
+    master-nixpkgs = {
+      url = "github:NixOS/nixpkgs/master";
+    };
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
     };
@@ -18,12 +21,9 @@
     android-nixpkgs = {
       url = "github:tadfisher/android-nixpkgs";
     };
-    master-nixpkgs = {
-      url = "github:NixOS/nixpkgs/master";
-    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, master-nixpkgs, ... }:
+  outputs = { self, nixpkgs, master-nixpkgs, rust-overlay, flake-utils, flake-compat, android-nixpkgs, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         overlays = import ./overlays.nix { inherit rust-overlay; };
@@ -37,7 +37,9 @@
           };
         };
 
-        masterPkgs = import master-nixpkgs { inherit system; };
+        masterPkgs = import master-nixpkgs {
+          inherit system;
+        };
 
         androidCustomPackage = android-nixpkgs.sdk.${system} (
           sdkPkgs: with sdkPkgs; [
@@ -66,16 +68,11 @@
         };
 
         devShells.cross = import ./cross.devshell.nix {
-          inherit nixpkgs rust-overlay master-nixpkgs system;
+          inherit nixpkgs rust-overlay masterPkgs system;
         };
 
         packages.default = pkgs.callPackage ./rune.nix {
-          inherit (pkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb;
-          flutter324 = masterPkgs.flutter324;
-          protobuf_26 = pkgs.protobuf_26;
-          protoc-gen-prost = pkgs.protoc-gen-prost;
-          buildDartApplication = pkgs.buildDartApplication;
-          dart = pkgs.dart;
+          inherit (masterPkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb flutter324 protobuf_26 protoc-gen-prost buildDartApplication dart;
         };
       }
     );

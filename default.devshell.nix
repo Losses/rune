@@ -1,4 +1,4 @@
-{ pkgs, expidusPkgs, androidCustomPackage, pinnedJDK, rust-bin }:
+{ pkgs, masterPkgs, androidCustomPackage, pinnedJDK, rust-bin }:
 
 pkgs.mkShell {
   name = "Rune Development Shell";
@@ -14,7 +14,7 @@ pkgs.mkShell {
     clippy
     rust-analyzer
     rustup
-    expidusPkgs.flutter
+    masterPkgs.flutter
     android-studio
     androidCustomPackage
     pinnedJDK
