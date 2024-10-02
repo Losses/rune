@@ -1,13 +1,15 @@
-import 'package:player/widgets/playback_controller/constants/controller_items.dart';
-import 'package:player/widgets/tile/cover_art.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 
-import '../../utils/format_time.dart';
-import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
+import '../../utils/format_time.dart';
+import '../../widgets/tile/cover_art.dart';
+import '../../widgets/playback_controller/cover_wall_button.dart';
+import '../../widgets/playback_controller/constants/controller_items.dart';
+import '../../messages/playback.pb.dart';
 import '../../providers/playback_controller.dart';
 
 import './constants/playback_controller_height.dart';
@@ -26,38 +28,43 @@ const scaleY = 0.9;
 class PlaybackControllerState extends State<PlaybackController> {
   @override
   Widget build(BuildContext context) {
-    return Consumer<PlaybackStatusProvider>(
-      builder: (context, playbackStatusProvider, child) {
-        final s = playbackStatusProvider.playbackStatus;
+    final s = Provider.of<PlaybackStatusProvider>(context).playbackStatus;
+    final isCoverArtWall = GoRouterState.of(context).fullPath == '/cover_wall';
 
-        final notReady = s?.ready == null || s?.ready == false;
+    final r = ResponsiveBreakpoints.of(context);
 
-        return SizedBox(
-          height: playbackControllerHeight,
-          child: Stack(
-            fit: StackFit.expand,
-            alignment: Alignment.centerRight,
-            children: <Widget>[
-              SizedBox.expand(
-                child: Center(
-                  child: Container(
-                    constraints:
-                        const BoxConstraints(minWidth: 1200, maxWidth: 1600),
-                    child: Transform(
-                      transform: Matrix4.identity()
-                        ..scale(1.0, scaleY)
-                        ..translate(0.0, (1 - scaleY) * 100),
-                      child: const FFTVisualize(),
-                    ),
-                  ),
+    final largeLayout = isCoverArtWall && r.smallerOrEqualTo(PHONE);
+    final notReady = s?.ready == null || s?.ready == false;
+
+    return SizedBox(
+      height: playbackControllerHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        alignment: Alignment.centerRight,
+        children: <Widget>[
+          SizedBox.expand(
+            child: Center(
+              child: Container(
+                constraints:
+                    const BoxConstraints(minWidth: 1200, maxWidth: 1600),
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..scale(1.0, scaleY)
+                    ..translate(0.0, (1 - scaleY) * 100),
+                  child: const FFTVisualize(),
                 ),
               ),
-              NowPlaying(notReady: notReady, status: s),
-              ControllerButtons(notReady: notReady, status: s)
-            ],
+            ),
           ),
-        );
-      },
+          if (!largeLayout) NowPlaying(notReady: notReady, status: s),
+          if (largeLayout)
+            Transform.translate(
+              offset: const Offset(0, -44),
+              child: CoverArtPageProgressBar(notReady: notReady, status: s),
+            ),
+          ControllerButtons(notReady: notReady, status: s)
+        ],
+      ),
     );
   }
 }
@@ -77,14 +84,13 @@ class NowPlaying extends StatelessWidget {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
 
-    final tablet = ResponsiveBreakpoints.of(context).isTablet;
-    final mobile = ResponsiveBreakpoints.of(context).isMobile;
-    final phone = ResponsiveBreakpoints.of(context).isPhone;
+    final r = ResponsiveBreakpoints.of(context);
 
-    final miniLayout = tablet || mobile || phone;
-    final hideProgress = phone;
+    final miniLayout = r.smallerOrEqualTo(TABLET);
+    final hideProgress = r.isPhone;
 
-    final progress = Progress(notReady: notReady, status: status);
+    final progress =
+        NowPlayingImplementation(notReady: notReady, status: status);
 
     return SizedBox.expand(
       child: Align(
@@ -93,18 +99,30 @@ class NowPlaying extends StatelessWidget {
             ? Row(
                 children: [
                   const SizedBox(width: 16),
-                  CoverArt(
-                    path: status?.coverArtPath,
-                    hint: status != null
-                        ? (
-                            status!.album,
-                            status!.artist,
-                            'Total Time ${formatTime(status!.duration)}'
-                          )
-                        : null,
-                    size: 48,
-                  ),
-                  if (phone) const SizedBox(width: 10),
+                  Button(
+                      style: const ButtonStyle(
+                        padding: WidgetStatePropertyAll(
+                          EdgeInsets.all(0),
+                        ),
+                      ),
+                      onPressed: () {
+                        showCoverArtWall(context);
+                      },
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(3),
+                        child: CoverArt(
+                          path: status?.coverArtPath,
+                          hint: status != null
+                              ? (
+                                  status!.album,
+                                  status!.artist,
+                                  'Total Time ${formatTime(status!.duration)}'
+                                )
+                              : null,
+                          size: 48,
+                        ),
+                      )),
+                  if (r.isPhone) const SizedBox(width: 10),
                   hideProgress
                       ? Expanded(
                           child: ConstrainedBox(
@@ -130,7 +148,7 @@ class NowPlaying extends StatelessWidget {
                           ),
                         )
                       : progress,
-                  if (phone) const SizedBox(width: 88),
+                  if (r.isPhone) const SizedBox(width: 88),
                 ],
               )
             : progress,
@@ -139,8 +157,61 @@ class NowPlaying extends StatelessWidget {
   }
 }
 
-class Progress extends StatelessWidget {
-  const Progress({
+class CoverArtPageProgressBar extends StatelessWidget {
+  const CoverArtPageProgressBar({
+    super.key,
+    required this.status,
+    required this.notReady,
+  });
+
+  final PlaybackStatus? status;
+  final bool notReady;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final typography = theme.typography;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                formatTime(status?.progressSeconds ?? 0),
+                style: typography.caption,
+              ),
+              Expanded(
+                child: Slider(
+                  value: status != null
+                      ? (status?.progressPercentage ?? 0) * 100
+                      : 0,
+                  onChanged: status != null && !notReady
+                      ? (v) => SeekRequest(
+                            positionSeconds:
+                                (v / 100) * (status?.duration ?? 0),
+                          ).sendSignalToRust()
+                      : null,
+                  style: const SliderThemeData(useThumbBall: false),
+                ),
+              ),
+              Text(
+                '-${formatTime((status?.duration ?? 0) - (status?.progressSeconds ?? 0))}',
+                style: typography.caption,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class NowPlayingImplementation extends StatelessWidget {
+  const NowPlayingImplementation({
     super.key,
     required this.status,
     required this.notReady,
@@ -180,7 +251,7 @@ class Progress extends StatelessWidget {
             ),
           ),
           Slider(
-            value: status != null ? status?.progressPercentage ?? 0 * 100 : 0,
+            value: status != null ? (status?.progressPercentage ?? 0) * 100 : 0,
             onChanged: status != null && !notReady
                 ? (v) => SeekRequest(
                       positionSeconds: (v / 100) * (status?.duration ?? 0),
@@ -235,10 +306,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
   @override
   Widget build(BuildContext context) {
-    final mobile = ResponsiveBreakpoints.of(context).isMobile;
-    final phone = ResponsiveBreakpoints.of(context).isPhone;
-
-    final miniLayout = phone || mobile;
+    final miniLayout =
+        ResponsiveBreakpoints.of(context).smallerOrEqualTo(MOBILE);
 
     final provider = Provider.of<PlaybackControllerProvider>(context);
     final entries = provider.entries;
@@ -248,12 +317,21 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
+    final coverArtWallLayout =
+        ResponsiveBreakpoints.of(context).smallerOrEqualTo(PHONE) &&
+            GoRouterState.of(context).fullPath == '/cover_wall';
+
     final miniEntries = [controllerItems[1], controllerItems[2]];
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisAlignment: coverArtWallLayout
+          ? MainAxisAlignment.spaceAround
+          : MainAxisAlignment.end,
       children: [
-        for (var entry in miniLayout ? miniEntries : visibleEntries)
+        if (coverArtWallLayout) const SizedBox(width: 8),
+        for (var entry in (miniLayout && !coverArtWallLayout)
+            ? miniEntries
+            : visibleEntries)
           entry.controllerButtonBuilder(widget.notReady, widget.status),
         if (hiddenEntries.isNotEmpty)
           FlyoutTarget(

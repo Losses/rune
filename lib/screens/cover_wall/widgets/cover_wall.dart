@@ -1,9 +1,13 @@
 import 'dart:math';
 
 import 'package:hashlib/hashlib.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/utils/format_time.dart';
+import 'package:player/widgets/playback_controller/cover_wall_button.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../widgets/gradient_container.dart';
@@ -27,53 +31,129 @@ class PlayingTrack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(PHONE);
+
+    if (isMini) return const PlayingTrackMini();
+
+    return const PlayingTrackLarge();
+  }
+}
+
+class PlayingTrackMini extends StatelessWidget {
+  const PlayingTrackMini({super.key});
+
+  @override
+  Widget build(BuildContext context) {
     Typography typography = FluentTheme.of(context).typography;
 
-    return Selector<PlaybackStatusProvider, (String?, String?, String?, String?)>(
-        selector: (context, playbackStatusProvider) => (
-              playbackStatusProvider.playbackStatus?.coverArtPath,
-              playbackStatusProvider.playbackStatus?.artist,
-              playbackStatusProvider.playbackStatus?.album,
-              playbackStatusProvider.playbackStatus?.title,
-            ),
-        builder: (context, p, child) {
-          if (p.$1 == null) return Container();
-          return Container(
-            padding: const EdgeInsets.fromLTRB(
-                48, 48, 48, playbackControllerHeight + 48),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(color: Colors.white, width: 4),
-                    boxShadow: axShadow(9),
-                  ),
-                  child: CoverArt(
-                    key: p.$1 != null ? Key(p.$1.toString()) : null,
-                    path: p.$1,
-                    size: 120,
-                  ),
+    final width = MediaQuery.of(context).size.width;
+
+    return Selector<PlaybackStatusProvider,
+        (String?, String?, String?, String?, double?)>(
+      selector: (context, playbackStatusProvider) => (
+        playbackStatusProvider.playbackStatus?.coverArtPath,
+        playbackStatusProvider.playbackStatus?.artist,
+        playbackStatusProvider.playbackStatus?.album,
+        playbackStatusProvider.playbackStatus?.title,
+        playbackStatusProvider.playbackStatus?.duration,
+      ),
+      builder: (context, p, child) {
+        if (p.$1 == null) return Container();
+
+        final artist = p.$2 ?? "Unknown Artist";
+        final album = p.$3 ?? "Unknown Album";
+
+        return Container(
+          padding: const EdgeInsets.fromLTRB(
+            48,
+            48,
+            48,
+            playbackControllerHeight + 48,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.white, width: 4),
+                  boxShadow: axShadow(9),
                 ),
-                const SizedBox(
-                  width: 24,
+                child: CoverArt(
+                  hint: (
+                          p.$3 ?? "",
+                          p.$2 ?? "",
+                          'Total Time ${formatTime(p.$5 ?? 0)}'
+                        ),
+                  key: p.$1 != null ? Key(p.$1.toString()) : null,
+                  path: p.$1,
+                  size: (width - 20).clamp(0, 240),
                 ),
-                Column(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(p.$3 ?? "Unknown Album", style: typography.bodyLarge),
-                    Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
-                    const SizedBox(height: 12),
-                    Text(p.$2 ?? "Unknown Artist"),
-                    const SizedBox(height: 28),
-                  ],
+              ),
+              const SizedBox(height: 24),
+              Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
+              const SizedBox(height: 12),
+              Text('$artist · $album'),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class PlayingTrackLarge extends StatelessWidget {
+  const PlayingTrackLarge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    Typography typography = FluentTheme.of(context).typography;
+
+    return Selector<PlaybackStatusProvider,
+        (String?, String?, String?, String?)>(
+      selector: (context, playbackStatusProvider) => (
+        playbackStatusProvider.playbackStatus?.coverArtPath,
+        playbackStatusProvider.playbackStatus?.artist,
+        playbackStatusProvider.playbackStatus?.album,
+        playbackStatusProvider.playbackStatus?.title,
+      ),
+      builder: (context, p, child) {
+        if (p.$1 == null) return Container();
+        return Container(
+          padding: const EdgeInsets.fromLTRB(
+              48, 48, 48, playbackControllerHeight + 48),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.white, width: 4),
+                  boxShadow: axShadow(9),
                 ),
-              ],
-            ),
-          );
-        });
+                child: CoverArt(
+                  key: p.$1 != null ? Key(p.$1.toString()) : null,
+                  path: p.$1,
+                  size: 120,
+                ),
+              ),
+              const SizedBox(width: 24),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(p.$3 ?? "Unknown Album", style: typography.bodyLarge),
+                  Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
+                  const SizedBox(height: 12),
+                  Text(p.$2 ?? "Unknown Artist"),
+                  const SizedBox(height: 28),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -114,34 +194,38 @@ class RandomGridState extends State<RandomGrid> {
               )
             : ClipRect(
                 child: OverflowBox(
-                    alignment: Alignment.topLeft,
-                    maxWidth: (crossAxisCount * gridSize).toDouble(),
-                    maxHeight: (mainAxisCount * gridSize).toDouble(),
-                    child: Center(
-                        child: GradientContainer(
-                            gradientParams: GradientParams(
-                              multX: 2.0,
-                              multY: 2.0,
-                              hue: 180.0,
-                              brightness: 1.0,
-                            ),
-                            effectParams: EffectParams(
-                              mouseInfluence: -0.2,
-                              scale: 1.25,
-                              noise: 1.5,
-                              bw: 0.0,
-                            ),
-                            color: FluentTheme.of(context).accentColor,
-                            child: StaggeredGrid.count(
-                              crossAxisCount: crossAxisCount,
-                              mainAxisSpacing: 2,
-                              crossAxisSpacing: 2,
-                              children: _generateTiles(
-                                crossAxisCount,
-                                mainAxisCount,
-                                gridSize.toDouble(),
-                              ),
-                            )))));
+                  alignment: Alignment.topLeft,
+                  maxWidth: (crossAxisCount * gridSize).toDouble(),
+                  maxHeight: (mainAxisCount * gridSize).toDouble(),
+                  child: Center(
+                    child: GradientContainer(
+                      gradientParams: GradientParams(
+                        multX: 2.0,
+                        multY: 2.0,
+                        hue: 180.0,
+                        brightness: 1.0,
+                      ),
+                      effectParams: EffectParams(
+                        mouseInfluence: -0.2,
+                        scale: 1.25,
+                        noise: 1.5,
+                        bw: 0.0,
+                      ),
+                      color: FluentTheme.of(context).accentColor,
+                      child: StaggeredGrid.count(
+                        crossAxisCount: crossAxisCount,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 2,
+                        children: _generateTiles(
+                          crossAxisCount,
+                          mainAxisCount,
+                          gridSize.toDouble(),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
 
         return Stack(
           alignment: Alignment.bottomCenter,
@@ -159,16 +243,23 @@ class RandomGridState extends State<RandomGrid> {
                 height: (mainAxisCount * gridSize).toDouble()),
             const PlayingTrack(),
             Container(
-                decoration: BoxDecoration(
-                    gradient: LinearGradient(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
                   begin: const Alignment(0.0, -1.0),
                   end: const Alignment(0.0, 1.0),
                   colors: [
                     Colors.black.withAlpha(0),
                     Colors.black.withAlpha(200),
                   ],
-                )),
-                height: playbackControllerHeight),
+                ),
+              ),
+              height: playbackControllerHeight,
+            ),
+            const Positioned(
+              top: 0,
+              left: 0,
+              child: BackButton(),
+            )
           ],
         );
       },
@@ -227,14 +318,15 @@ class RandomGridState extends State<RandomGrid> {
                   crossAxisCellCount: size,
                   mainAxisCellCount: size,
                   child: GridTile(
-                      index: row + col * mainAxisCount,
-                      row: row,
-                      col: col,
-                      size: size,
-                      child: CoverArt(
-                        path: widget.paths[coverIndex],
-                        size: size * gridSize,
-                      )),
+                    index: row + col * mainAxisCount,
+                    row: row,
+                    col: col,
+                    size: size,
+                    child: CoverArt(
+                      path: widget.paths[coverIndex],
+                      size: size * gridSize,
+                    ),
+                  ),
                 ),
               );
               break; // Once a tile is placed, move to the next cell
@@ -305,6 +397,32 @@ class RandomGridState extends State<RandomGrid> {
         occupiedCells.add('${col + i}-${row + j}');
       }
     }
+  }
+}
+
+class BackButton extends StatelessWidget {
+  const BackButton({
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(MOBILE);
+
+    if (!isMini) return Container();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 16, left: 16),
+      child: IconButton(
+        icon: const Icon(
+          Symbols.arrow_back,
+          size: 24,
+        ),
+        onPressed: () {
+          showCoverArtWall(context);
+        },
+      ),
+    );
   }
 }
 
