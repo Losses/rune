@@ -37,7 +37,7 @@
           };
         };
 
-        expidusPkgs = import master-nixpkgs { inherit system; };
+        masterPkgs = import master-nixpkgs { inherit system; };
 
         androidCustomPackage = android-nixpkgs.sdk.${system} (
           sdkPkgs: with sdkPkgs; [
@@ -62,15 +62,20 @@
         rust-bin = rust-overlay.lib.mkRustBin { } pkgs.buildPackages;
       in {
         devShells.default = import ./default.devshell.nix {
-          inherit pkgs expidusPkgs androidCustomPackage pinnedJDK rust-bin;
+          inherit pkgs masterPkgs androidCustomPackage pinnedJDK rust-bin;
         };
 
         devShells.cross = import ./cross.devshell.nix {
           inherit nixpkgs rust-overlay master-nixpkgs system;
         };
 
-        packages.rune = pkgs.callPackage import ./rune.nix { 
-          inherit nixpkgs master-nixpkgs;
+        packages.default = pkgs.callPackage ./rune.nix {
+          inherit (pkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb;
+          flutter324 = masterPkgs.flutter324;
+          protobuf_26 = pkgs.protobuf_26;
+          protoc-gen-prost = pkgs.protoc-gen-prost;
+          buildDartApplication = pkgs.buildDartApplication;
+          dart = pkgs.dart;
         };
       }
     );
