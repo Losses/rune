@@ -103,7 +103,7 @@ flutter324.buildFlutterApplication (rec {
     exec = "player";
     icon = "rune";
     desktopName = "Rune";
-    genericName = "Player your favorite music";
+    genericName = "Play your favorite music";
     categories = ["Audio"];
   };
 
