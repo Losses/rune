@@ -11,6 +11,7 @@
 , rustc
 , targetFlutterPlatform ? "linux"
 , buildDartApplication
+, dart
 }:
 
 let
@@ -53,6 +54,25 @@ flutter324.buildFlutterApplication (rec {
     lockFile = ./Cargo.lock;
   };
 
+  customSourceBuilders = {
+    rinf =
+      { version, src, ... }:
+      stdenv.mkDerivation {
+        pname = "rinf";
+        inherit version src;
+        inherit (src) passthru;
+
+        patches = [ ./rinf.patch ];
+
+        installPhase = ''
+          runHook preInstall
+          mkdir -p "$out"
+          cp -r * "$out"
+          runHook postInstall
+        '';
+      };
+  };
+
   inherit pubspecLock;
 
   inherit targetFlutterPlatform;
@@ -67,12 +87,7 @@ flutter324.buildFlutterApplication (rec {
     sourceProvenance = [ sourceTypes.fromSource ];
   };
 } // lib.optionalAttrs (targetFlutterPlatform == "linux") {
-  nativeBuildInputs = [ protobuf_26 protoc-gen-prost protoc-gen-dart ]; # , imagemagick
-
-  # runtimeDependencies = [ pulseaudio ];
-
-  # extraWrapProgramArgs = "--prefix PATH : ${zenity}/bin";
-
+  nativeBuildInputs = [ protobuf_26 protoc-gen-prost protoc-gen-dart ]; 
   desktopItem = makeDesktopItem {
     name = "Rune";
     exec = "player";
@@ -90,19 +105,3 @@ flutter324.buildFlutterApplication (rec {
 
   '';
 })
-
-  # postInstall = ''
-  #   FAV=$out/app/data/flutter_assets/assets/favicon.png
-  #   ICO=$out/share/icons
-
-  #   install -D $FAV $ICO/fluffychat.png
-  #   mkdir $out/share/applications
-  #   cp $desktopItem/share/applications/*.desktop $out/share/applications
-  #   for size in 24 32 42 64 128 256 512; do
-  #     D=$ICO/hicolor/''${s}x''${s}/apps
-  #     mkdir -p $D
-  #     convert $FAV -resize ''${size}x''${size} $D/fluffychat.png
-  #   done
-
-  #   patchelf --add-rpath ${libwebrtcRpath} $out/app/lib/libwebrtc.so
-  # '';
