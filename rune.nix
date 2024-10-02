@@ -53,10 +53,6 @@ flutter324.buildFlutterApplication (rec {
     fluent_ui = "sha256-87wJgWP4DGsVOxc4PhCMDg+ro9faHKZXy2LQtFqbmso=";
   };
 
-  cargoDeps = rustPlatform.importCargoLock {
-    lockFile = ./Cargo.lock;
-  };
-
   customSourceBuilders = {
     rinf =
       { version, src, ... }:
@@ -81,16 +77,6 @@ flutter324.buildFlutterApplication (rec {
 
   inherit targetFlutterPlatform;
 
-  meta = with lib; {
-    description = "Experience timeless melodies with a music player that blends classic design with modern technology.";
-    homepage = "https://github.com/losses/rune";
-    license = licenses.mpl20;
-    mainProgram = "player";
-    maintainers = with maintainers; [ losses ];
-    platforms = [ "x86_64-linux" ];
-    sourceProvenance = [ sourceTypes.fromSource ];
-  };
-} // lib.optionalAttrs (targetFlutterPlatform == "linux") {
   nativeBuildInputs = [
     jq
     moreutils # sponge
@@ -101,6 +87,13 @@ flutter324.buildFlutterApplication (rec {
     rustc
     rustPlatform.cargoSetupHook
   ]; 
+
+  cargoDeps = rustPlatform.fetchCargoTarball {
+    inherit src;
+    name = "${pname}-${version}";
+    hash = "";
+  };
+
   desktopItem = makeDesktopItem {
     name = "Rune";
     exec = "player";
@@ -111,6 +104,9 @@ flutter324.buildFlutterApplication (rec {
   };
 
   preBuild = ''
+    echo =================================
+    echo PATCHING CARGOKIT
+    echo =================================
     # build_tool hack part 2: add build_tool as an actually resolvable package (the location is relative to the rinf package directory)
     jq '.packages += [.packages.[] | select(.name == "rinf") | .rootUri += "/cargokit/build_tool" | .name = "build_tool"]' .dart_tool/package_config.json | sponge .dart_tool/package_config.json
     echo =================================
@@ -119,4 +115,15 @@ flutter324.buildFlutterApplication (rec {
     packageRun rinf message
 
   '';
+
+
+  meta = with lib; {
+    description = "Experience timeless melodies with a music player that blends classic design with modern technology.";
+    homepage = "https://github.com/losses/rune";
+    license = licenses.mpl20;
+    mainProgram = "player";
+    maintainers = with maintainers; [ losses ];
+    platforms = [ "x86_64-linux" ];
+    sourceProvenance = [ sourceTypes.fromSource ];
+  };
 })
