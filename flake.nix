@@ -69,7 +69,7 @@
           inherit nixpkgs rust-overlay master-nixpkgs system;
         };
 
-        apps.x86_64-linux.rune = pkgs.callPackage import ./rune.nix { 
+        packages.rune = pkgs.callPackage import ./rune.nix { 
           inherit nixpkgs master-nixpkgs;
         };
       }
