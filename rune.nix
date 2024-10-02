@@ -11,6 +11,8 @@
 , cargo
 , rustPlatform
 , rustc
+, alsa-lib
+, lmdb
 , targetFlutterPlatform ? "linux"
 , buildDartApplication
 , dart
@@ -45,8 +47,8 @@ flutter324.buildFlutterApplication (rec {
   version = "1.20.0";
 
   src = fetchzip {
-    url = "https://github.com/Losses/rune/archive/refs/tags/v0.0.0-dev.5.tar.gz";
-    sha256 = "sha256-9eYVgIfCbU2aWp3INPLNWr21fvsKAR2w794iARKY23g=";
+    url = "https://github.com/Losses/rune/archive/94b12535d185523a18d019c3ac3277ddd14998b5.tar.gz";
+    sha256 = "sha256-i98DAH6SYI3ICzbItZDOgFWKzDXhrVxN+DBVn419fxc=";
   };
 
   gitHashes = {
@@ -86,12 +88,14 @@ flutter324.buildFlutterApplication (rec {
     cargo
     rustc
     rustPlatform.cargoSetupHook
+    alsa-lib
+    lmdb
   ]; 
 
   cargoDeps = rustPlatform.fetchCargoTarball {
     inherit src;
     name = "${pname}-${version}";
-    hash = "";
+    hash = "sha256-GJiDGg26vQlWsG/X/S45CsqrBOYp2iHjVi/k693SpGE=";
   };
 
   desktopItem = makeDesktopItem {
@@ -115,7 +119,6 @@ flutter324.buildFlutterApplication (rec {
     packageRun rinf message
 
   '';
-
 
   meta = with lib; {
     description = "Experience timeless melodies with a music player that blends classic design with modern technology.";
