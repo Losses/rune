@@ -47,8 +47,8 @@ flutter324.buildFlutterApplication (rec {
   version = "1.20.0";
 
   src = fetchzip {
-    url = "https://github.com/Losses/rune/archive/94b12535d185523a18d019c3ac3277ddd14998b5.tar.gz";
-    sha256 = "sha256-i98DAH6SYI3ICzbItZDOgFWKzDXhrVxN+DBVn419fxc=";
+    url = "https://github.com/Losses/rune/archive/dfec7c09b2e92407573892fae3d0d48305462ce5.tar.gz";
+    sha256 = "sha256-acXpWC57hFNpH2Ew02htsEeJgNctF/lnWLxzGd7fCu8=";
   };
 
   gitHashes = {
@@ -113,7 +113,17 @@ flutter324.buildFlutterApplication (rec {
     jq '.packages += [.packages.[] | select(.name == "rinf") | .rootUri += "/cargokit/build_tool" | .name = "build_tool"]' .dart_tool/package_config.json | sponge .dart_tool/package_config.json
     echo GENERATING PROTOBUF CODE
     packageRun rinf message
+  '';
 
+  postInstall = ''
+    mkdir -p $out/share/icons/
+    cp -r $src/assets/icons/* $out/share/icons/
+
+    ln -s $out/share/icons/Papirus $out/share/icons/hicolor
+    ln -s $out/share/icons/Papirus $out/share/icons/Papirus-Dark
+    ln -s $out/share/icons/Papirus $out/share/icons/Papirus-Light
+
+    ln -s $out/share/icons/breeze/apps/1024/rune.png $out/share/icons/rune.png
   '';
 
   meta = with lib; {
