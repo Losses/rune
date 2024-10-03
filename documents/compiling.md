@@ -1,61 +1,77 @@
-## Using Rust Inside Flutter
+## Setting up Environment
 
-This project leverages Flutter for GUI and Rust for the backend logic,
-utilizing the capabilities of the
-[Rinf](https://pub.dev/packages/rinf) framework.
+### Linux Users
 
-To run and build this app, you need to have
-[Flutter SDK](https://docs.flutter.dev/get-started/install)
-and [Rust toolchain](https://www.rust-lang.org/tools/install)
-installed on your system.
-You can check that your system is ready with the commands below.
-Note that all the Flutter subcomponents should be installed.
+1. **Set Up Development Environment**:
+   - Install [Nix](https://nixos.org/download/#download-nix) and [Flakes](https://nixos.wiki/wiki/Flakes).
+   - Clone the repository:
+
+     ```bash
+     git clone https://github.com/losses/rune.git
+     cd rune
+     ```
+
+   - Set up the environment:
+
+     ```bash
+     nix develop
+     ```
+
+2. **Compile Rune**:
+   - Compile for Linux:
+
+     ```bash
+     flutter pub run rinf message
+     flutter build linux --release
+     ```
+
+### Windows Users
+
+1. **Configure Development Environment**:
+
+    - **Flutter SDK**: [Installation Guide](https://docs.flutter.dev/get-started/install)
+    - **Rust Toolchain**: [Installation Guide](https://www.rust-lang.org/tools/install)
+
+    Verify your setup with:
+
+    ```bash
+    rustc --version
+    flutter doctor
+    ```
+
+2. **Compile Rune**:
+   - Compile for Windows:
+
+     ```powershell
+     flutter pub run rinf message
+     flutter build windows --release
+     ```
+
+### Protobuf Messages
+
+If you’ve cloned the project or modified `.proto` files in the `./messages` directory, run:
 
 ```bash
-rustc --version
-flutter doctor
+flutter pub run rinf message
 ```
 
-You also need to have the CLI tool for Rinf ready.
+### Running the App
 
-```bash
-cargo install rinf
-```
-
-Messages sent between Dart and Rust are implemented using Protobuf.
-If you have newly cloned the project repository
-or made changes to the `.proto` files in the `./messages` directory,
-run the following command:
-
-```bash
-rinf message
-```
-
-Now you can run and build this app just like any other Flutter projects.
+Build and run the app with:
 
 ```bash
 flutter run
 ```
 
-For detailed instructions on writing Rust and Flutter together,
-please refer to Rinf's [documentation](https://rinf.cunarist.com).
+For detailed integration instructions, refer to Rinf's [documentation](https://rinf.cunarist.com).
 
-## Tips For Compiling On macOS
+## Tips for Compiling on macOS
 
-Ensure you have
-[Flutter SDK](https://docs.flutter.dev/get-started/install)
-and [Rust toolchain](https://www.rust-lang.org/tools/install)
-installed using the official methods or your preferred setup.
+Rune currently does not support macOS, but here are some tips for attempting compilation:
 
-For [CocoaPods](https://cocoapods.org/), avoid using the default
-Ruby version provided by macOS
-(see
-_[Do Not Use the macOS System Ruby](https://mac.install.guide/faq/do-not-use-mac-system-ruby/)_
-).
+- Ensure you have the Flutter SDK and Rust toolchain installed.
+- For [CocoaPods](https://cocoapods.org/), avoid using the default macOS Ruby version. Use Homebrew instead:
 
-If you prefer a quicker solution without managing Ruby versions,
-you can install CocoaPods via Homebrew:
-
-```bash
-brew install cocoapods
-```
+  ```bash
+  brew install cocoapods
+  ```

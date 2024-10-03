@@ -26,10 +26,7 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
 ## Installation and Running
 
-Rune is in the early stages of development and does not offer pre-compiled binaries. However, you can set up a development environment:
-
-- **Linux Users**: Use the Flake development environment. Clone the repository and run `nix develop` to set up the environment. Then, execute `flutter build linux --release` to compile Rune.
-- **Windows Users**: Manually configure the Rust and Flutter development environments. Run `flutter build windows --release` to compile. Rune currently does not support macOS.
+Rune is still in the early stages of development and does not provide pre-compiled binaries. However, you can set up a development environment by following the [compiling instructions](documents/compiling.md)
 
 ## Contributing
 
