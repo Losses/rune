@@ -1,63 +1,41 @@
-# player
+# Rune
 
-## Using Rust Inside Flutter
+Experience timeless melodies with a music player that blends classic design with modern technology. 
 
-This project leverages Flutter for GUI and Rust for the backend logic,
-utilizing the capabilities of the
-[Rinf](https://pub.dev/packages/rinf) framework.
+## Introduction
 
-To run and build this app, you need to have
-[Flutter SDK](https://docs.flutter.dev/get-started/install)
-and [Rust toolchain](https://www.rust-lang.org/tools/install)
-installed on your system.
-You can check that your system is ready with the commands below.
-Note that all the Flutter subcomponents should be installed.
+Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience.
 
-```bash
-rustc --version
-flutter doctor
-```
 
-You also need to have the CLI tool for Rinf ready.
+## Motivation
 
-```bash
-cargo install rinf
-```
+Rune is a UX experiment inspired by the question: What if Zune had continued to evolve? Using a modern tech stack (Flutter + Rust), Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile and Windows Media Center.
 
-Messages sent between Dart and Rust are implemented using Protobuf.
-If you have newly cloned the project repository
-or made changes to the `.proto` files in the `./messages` directory,
-run the following command:
+The motivation behind Rune is to provide a modernized audio listening and management experience. With the rise of streaming services, localized music players have become less common, and many well-known media players have stagnated. Rune aims to offer a clean, consistent, and efficient audio playback experience.
 
-```bash
-rinf message
-```
+## Unique Features
 
-Now you can run and build this app just like any other Flutter projects.
+- **Distinctive Design**: Rune boasts a unique design style.
+- **Audio Analysis and Recommendations**: Users can analyze their entire music library to receive recommendations based on tracks, albums, or playlists.
+- **Dynamic "Mix" Feature**: Users can create dynamic playlists based on customizable rules, such as:
+  - "Similar to this album"
+  - "Top 100 most played tracks"
+  - "Tracks similar to my favorites"
+  - "Playlists including specific artists"
+  
+  These mixes automatically update as users listen to and add new tracks.
 
-```bash
-flutter run
-```
+## Installation and Running
 
-For detailed instructions on writing Rust and Flutter together,
-please refer to Rinf's [documentation](https://rinf.cunarist.com).
+Rune is in the early stages of development and does not offer pre-compiled binaries. However, you can set up a development environment:
 
-## Tips For Compiling On macOS
+- **Linux Users**: Use the Flake development environment. Clone the repository and run `nix develop` to set up the environment. Then, execute `flutter build linux --release` to compile Rune.
+- **Windows Users**: Manually configure the Rust and Flutter development environments. Run `flutter build windows --release` to compile. Rune currently does not support macOS.
 
-Ensure you have
-[Flutter SDK](https://docs.flutter.dev/get-started/install)
-and [Rust toolchain](https://www.rust-lang.org/tools/install)
-installed using the official methods or your preferred setup.
+## Acknowledgments
 
-For [CocoaPods](https://cocoapods.org/), avoid using the default
-Ruby version provided by macOS
-(see
-_[Do Not Use the macOS System Ruby](https://mac.install.guide/faq/do-not-use-mac-system-ruby/)_
-).
+We extend our gratitude to the open-source project [Meyda](https://github.com/meyda/meyda) for enabling the audio analysis functionality. We also thank the countless developers in the Rust and Flutter ecosystems for making Rune possible.
 
-If you prefer a quicker solution without managing Ruby versions,
-you can install CocoaPods via Homebrew:
+## License
 
-```bash
-brew install cocoapods
-```
+This project is licensed under the MPL License.
