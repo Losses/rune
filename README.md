@@ -17,6 +17,8 @@
   </p>
 </div>
 
+https://github.com/user-attachments/assets/7c56e9ac-1e20-405b-b281-dce471870b66
+
 ## Introduction
 
 Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience.
