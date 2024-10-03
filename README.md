@@ -1,6 +1,6 @@
 <br />
 <div align="center">
-  <a href="https://github.com/othneildrew/Best-README-Template">
+  <a href="https://github.com/losses/rune">
     <img src="https://github.com/Losses/rune/blob/master/assets/icons/breeze/apps/512/rune.png?raw=true" alt="Logo" width="80" height="80">
   </a>
 
