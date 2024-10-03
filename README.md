@@ -7,7 +7,7 @@
   <h1 align="center">Rune</h1>
 
   <p align="center">
-    Experience timeless melodies with a music player that blends classic design with modern technology. 
+    The player that blends classic design with modern technology.
   </p>
   <p>
     <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune" /></a>
