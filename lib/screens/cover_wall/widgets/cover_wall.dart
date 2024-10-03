@@ -1,17 +1,18 @@
 import 'dart:math';
 
 import 'package:hashlib/hashlib.dart';
-import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/utils/format_time.dart';
-import 'package:player/widgets/playback_controller/cover_wall_button.dart';
+import 'package:player/screens/welcome/scanning.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:responsive_framework/responsive_framework.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/ax_shadow.dart';
-import '../../../widgets/gradient_container.dart';
+import '../../../utils/format_time.dart';
 import '../../../widgets/tile/cover_art.dart';
+import '../../../widgets/gradient_container.dart';
+import '../../../widgets/playback_controller/cover_wall_button.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../messages/cover_art.pb.dart';
 import '../../../providers/status.dart';
@@ -44,7 +45,16 @@ class PlayingTrackMini extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Typography typography = FluentTheme.of(context).typography;
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness.isDark;
+    final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
+
+    final typography = theme.typography;
+
+    final shadows = <Shadow>[
+      Shadow(color: shadowColor, blurRadius: 12),
+      Shadow(color: shadowColor, blurRadius: 24),
+    ];
 
     final width = MediaQuery.of(context).size.width;
 
@@ -81,19 +91,25 @@ class PlayingTrackMini extends StatelessWidget {
                 ),
                 child: CoverArt(
                   hint: (
-                          p.$3 ?? "",
-                          p.$2 ?? "",
-                          'Total Time ${formatTime(p.$5 ?? 0)}'
-                        ),
+                    p.$3 ?? "",
+                    p.$2 ?? "",
+                    'Total Time ${formatTime(p.$5 ?? 0)}'
+                  ),
                   key: p.$1 != null ? Key(p.$1.toString()) : null,
                   path: p.$1,
                   size: (width - 20).clamp(0, 240),
                 ),
               ),
               const SizedBox(height: 24),
-              Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
+              Text(
+                p.$4 ?? "Unknown Track",
+                style: typography.subtitle?.apply(shadows: shadows),
+              ),
               const SizedBox(height: 12),
-              Text('$artist · $album'),
+              Text(
+                '$artist · $album',
+                style: typography.body?.apply(shadows: shadows),
+              ),
             ],
           ),
         );
@@ -107,7 +123,16 @@ class PlayingTrackLarge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Typography typography = FluentTheme.of(context).typography;
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness.isDark;
+    final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
+
+    final shadows = <Shadow>[
+      Shadow(color: shadowColor, blurRadius: 12),
+      Shadow(color: shadowColor, blurRadius: 24),
+    ];
+
+    final Typography typography = theme.typography;
 
     return Selector<PlaybackStatusProvider,
         (String?, String?, String?, String?)>(
@@ -142,10 +167,19 @@ class PlayingTrackLarge extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.end,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(p.$3 ?? "Unknown Album", style: typography.bodyLarge),
-                  Text(p.$4 ?? "Unknown Track", style: typography.subtitle),
+                  Text(
+                    p.$3 ?? "Unknown Album",
+                    style: typography.bodyLarge?.apply(shadows: shadows),
+                  ),
+                  Text(
+                    p.$4 ?? "Unknown Track",
+                    style: typography.subtitle?.apply(shadows: shadows),
+                  ),
                   const SizedBox(height: 12),
-                  Text(p.$2 ?? "Unknown Artist"),
+                  Text(
+                    p.$2 ?? "Unknown Artist",
+                    style: typography.body?.apply(shadows: shadows),
+                  ),
                   const SizedBox(height: 28),
                 ],
               ),
@@ -181,6 +215,10 @@ class RandomGridState extends State<RandomGrid> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final isDark = theme.brightness.isDark;
+    final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final gridSize =
@@ -190,7 +228,7 @@ class RandomGridState extends State<RandomGrid> {
 
         final coverArtWall = widget.paths.isEmpty
             ? Container(
-                color: Colors.black,
+                color: shadowColor,
               )
             : ClipRect(
                 child: OverflowBox(
@@ -202,7 +240,6 @@ class RandomGridState extends State<RandomGrid> {
                       gradientParams: GradientParams(
                         multX: 2.0,
                         multY: 2.0,
-                        hue: 180.0,
                         brightness: 1.0,
                       ),
                       effectParams: EffectParams(
@@ -211,7 +248,10 @@ class RandomGridState extends State<RandomGrid> {
                         noise: 1.5,
                         bw: 0.0,
                       ),
-                      color: FluentTheme.of(context).accentColor,
+                      color: isDark
+                          ? theme.accentColor
+                          : theme.accentColor.darkest,
+                      color2: theme.accentColor.darkest.darken(0.7),
                       child: StaggeredGrid.count(
                         crossAxisCount: crossAxisCount,
                         mainAxisSpacing: 2,
@@ -230,13 +270,16 @@ class RandomGridState extends State<RandomGrid> {
         return Stack(
           alignment: Alignment.bottomCenter,
           children: [
+            Container(
+              color: isDark ? null : theme.accentColor.lightest.lighten(0.2),
+            ),
             coverArtWall,
             Container(
                 decoration: BoxDecoration(
                     gradient: RadialGradient(
                   colors: [
-                    Colors.black.withAlpha(20),
-                    Colors.black.withAlpha(255),
+                    shadowColor.withAlpha(isDark ? 20 : 140),
+                    shadowColor.withAlpha(isDark ? 255 : 255),
                   ],
                   radius: 1.5,
                 )),
@@ -248,8 +291,10 @@ class RandomGridState extends State<RandomGrid> {
                   begin: const Alignment(0.0, -1.0),
                   end: const Alignment(0.0, 1.0),
                   colors: [
-                    Colors.black.withAlpha(0),
-                    Colors.black.withAlpha(200),
+                    shadowColor.withAlpha(0),
+                    isDark
+                        ? shadowColor.withAlpha(200)
+                        : shadowColor.lighten(0.2).withAlpha(220),
                   ],
                 ),
               ),

@@ -9,16 +9,13 @@ uniform sampler2D image;
 uniform float u_time;
 uniform vec2 u_mouse;
 
-uniform float u_mode;
-uniform float u_swap;
-
 uniform vec4 u_params;
 uniform vec4 u_params2;
-uniform vec4 u_altparams;
 
 uniform vec3 u_color;
 uniform vec3 u_color2;
 
+uniform float u_is_dark;
 
 const float MPI = 6.28318530718;
 
@@ -29,8 +26,8 @@ float degreesToRadians(float degrees) {
 }
 
 // cos mix
-vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d) {
-    return a + b * cos(6.28318 * (c * t + d));
+vec3 palette(in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d, in float e) {
+    return a + b * cos(6.28318 * (c * t + d)) * e;
 }
 
 // hue shift
@@ -144,9 +141,9 @@ void main() {
     float HUE = u_params.z; // 0 / 360
     float BRIGHTNESS = u_params.w;
     float MOUSE_BRIGHTNESS = u_params2.x; // -1 / 1 -- -1 being black and 100% power
-    float SCALE = mix(u_params2.y, u_altparams.x, u_swap);
+    float SCALE = u_params2.y;
     float NOISE_FACTOR = u_params2.z;
-    float BW = mix(u_params2.w, u_altparams.y, u_swap);
+    float BW = u_params2.w;
 
     // shader
     vec2 uv = gl_FragCoord.xy / resolution.xy;
@@ -167,36 +164,43 @@ void main() {
     // end uv deformation
     scale_uv += vec2(.5);
 
-    // # COMPUTE
-    vec3 current_color = mix(u_color, u_color2, u_swap);
-    vec3 col = palette(
-        u_time + cos((m_uv.x) + (m_uv.y)), 
-        current_color, amplitude, frequency, phase_shift
-    );
-
     // mouse 
     float dist = distance(m_uv, mouse_uv * SCALE/2.);
 
     dist = 1. - dist;
     dist = smoothstep(.3, 1., dist);
 
-    vec3 shift_col = hueShift(col, sin(u_time) * MPI / 30.);
-
-    col = mix(
-        col, 
-        shift_col * col + (dist * MOUSE_BRIGHTNESS), 
-        dist
+    // # COMPUTE
+    vec3 current_color = u_color;
+    vec3 col = palette(
+        u_time + cos((m_uv.x) + (m_uv.y)), 
+        current_color, amplitude, frequency, phase_shift, u_is_dark > .5 ? 1 : -1
     );
 
-    // // final shift
-    col = hueShift(col, degreesToRadians(HUE));
-    col *= BRIGHTNESS;
+    if (u_is_dark > .5) {
+        vec3 shift_col = hueShift(col, sin(u_time) * MPI / 30.);
 
-    float bw_col = (col.r + col.g + col.b) * .3;
-    col = mix(col, vec3(bw_col), BW);
+        col = mix(
+            col, 
+            shift_col * col + (dist * MOUSE_BRIGHTNESS), 
+            dist
+        );
 
-    if (u_mode > .5) {
+        // // final shift
+        col = hueShift(col, degreesToRadians(HUE));
+        col *= BRIGHTNESS;
+
+        float bw_col = (col.r + col.g + col.b) * .3;
+        col = mix(col, vec3(bw_col), BW);
         col = vec3(1.) - col;
+    } else {
+        col = current_color;
+
+        col = mix(
+            col, 
+            u_color2, 
+            dist
+        );
     }
 
     col = clamp(col, 0.0, 1.0);
@@ -208,5 +212,10 @@ void main() {
 
     // fragColor = vec4(col, 1.0);
     // fragColor = vec4(grayColor, 1.0);
-    fragColor = vec4(grayColor * col, imageColor.a);
+    if (u_is_dark > .5) {
+        fragColor = vec4(grayColor * col, imageColor.a);
+    } else {
+        // fragColor = vec4(col, 1.0);
+        fragColor = vec4(col.r, col.g, col.b, (1 - grayColor) * imageColor.a);
+    }
 }

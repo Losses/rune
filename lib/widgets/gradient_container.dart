@@ -7,13 +7,11 @@ import 'package:flutter_shaders/flutter_shaders.dart';
 class GradientParams {
   final double multX;
   final double multY;
-  final double hue;
   final double brightness;
 
   GradientParams({
     this.multX = 2.0,
     this.multY = 2.0,
-    this.hue = 180.0,
     this.brightness = 0.8,
   });
 }
@@ -32,40 +30,19 @@ class EffectParams {
   });
 }
 
-class AltParams {
-  final double scale2;
-  final double bw2;
-
-  const AltParams({
-    this.scale2 = 1.0,
-    this.bw2 = 0.0,
-  });
-}
-
-const defaultAltParameter = AltParams(
-  scale2: 1.0,
-  bw2: 0.0,
-);
-
 class GradientContainer extends StatefulWidget {
   final Widget child;
-  final double mode;
-  final double swap;
   final GradientParams gradientParams;
   final EffectParams effectParams;
-  final AltParams altParams;
   final Color color;
   final Color color2;
 
   const GradientContainer({
     required this.child,
-    this.mode = 1.0,
-    this.swap = 0.0,
     required this.gradientParams,
     required this.effectParams,
-    this.altParams = defaultAltParameter,
     required this.color,
-    this.color2 = Colors.white,
+    required this.color2,
     super.key,
   });
 
@@ -134,6 +111,8 @@ class GradientContainerState extends State<GradientContainer> {
           return widget.child;
         }
 
+        final isDark = FluentTheme.of(context).brightness.isDark;
+
         final shader = snapshot.data!;
 
         return AnimatedSampler(
@@ -149,33 +128,36 @@ class GradientContainerState extends State<GradientContainer> {
               // u_mouse
               ..setFloat(3, _mousePosition.dx)
               ..setFloat(4, _mousePosition.dy)
-              // u_mode
-              ..setFloat(5, widget.mode)
-              // u_swap
-              ..setFloat(6, widget.swap)
               // u_params
-              ..setFloat(7, widget.gradientParams.multX)
-              ..setFloat(8, widget.gradientParams.multY)
-              ..setFloat(9, widget.gradientParams.hue)
-              ..setFloat(10, widget.gradientParams.brightness)
+              ..setFloat(5, widget.gradientParams.multX)
+              ..setFloat(6, widget.gradientParams.multY)
+              ..setFloat(7, 180.0)
+              ..setFloat(
+                8,
+                isDark
+                    ? widget.gradientParams.brightness
+                    : widget.gradientParams.brightness * 2,
+              )
               // u_params2
-              ..setFloat(11, widget.effectParams.mouseInfluence)
-              ..setFloat(12, widget.effectParams.scale)
-              ..setFloat(13, widget.effectParams.noise)
-              ..setFloat(14, widget.effectParams.bw)
-              // u_altparams
-              ..setFloat(15, widget.altParams.scale2)
-              ..setFloat(16, widget.altParams.bw2)
-              ..setFloat(17, 0.0) // Placeholder for future use
-              ..setFloat(18, 0.0) // Placeholder for future use
+              ..setFloat(
+                9,
+                isDark
+                    ? widget.effectParams.mouseInfluence
+                    : widget.effectParams.mouseInfluence * -1,
+              )
+              ..setFloat(10, widget.effectParams.scale)
+              ..setFloat(11, widget.effectParams.noise)
+              ..setFloat(12, widget.effectParams.bw)
               // u_color
-              ..setFloat(19, widget.color.red / 255.0)
-              ..setFloat(20, widget.color.green / 255.0)
-              ..setFloat(21, widget.color.blue / 255.0)
+              ..setFloat(13, widget.color.red / 255.0)
+              ..setFloat(14, widget.color.green / 255.0)
+              ..setFloat(15, widget.color.blue / 255.0)
               // u_color2
-              ..setFloat(22, widget.color2.red / 255.0)
-              ..setFloat(23, widget.color2.green / 255.0)
-              ..setFloat(24, widget.color2.blue / 255.0);
+              ..setFloat(16, widget.color2.red / 255.0)
+              ..setFloat(17, widget.color2.green / 255.0)
+              ..setFloat(18, widget.color2.blue / 255.0)
+              // u_is_dark
+              ..setFloat(19, isDark ? 1 : 0);
 
             canvas.drawRect(
               Offset.zero & size,
