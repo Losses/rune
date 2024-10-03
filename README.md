@@ -51,7 +51,7 @@ We're thrilled you're interested in contributing. Before you dive in, please tak
 - **Language Requirement**: To facilitate clear communication across all developers, all contributions, including issues and pull requests, must be submitted in English. If you are not confident in your English proficiency, consider using a language model for assistance.
 - **Feature Requests**: As Rune is in the early stages of development, we are currently not accepting feature requests.
 - **Feature Implementation**: If you have a feature proposal, please reach out to the development team for a preliminary discussion to ensure it aligns with Rune's vision.
-- **Documentation**: Collaboration is conducted exclusively in English. While we do not accept pull requests for translating the README or other development documentation, contributions for translating Rune itself are welcome.
+- **Documentation**: Collaboration is conducted exclusively in English. While we do not accept pull requests for translating the README or other development documentation, but contributions for translating Rune itself are welcome.
 
 ## Acknowledgments
 

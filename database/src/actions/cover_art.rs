@@ -253,12 +253,15 @@ pub async fn scan_cover_arts<F>(
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize>
 where
-    F: Fn(usize, usize) + Send + Sync + 'static,
+    F: Fn(usize, usize) + Send + Sync + 'static + Copy,
 {
     info!(
         "Starting cover art processing with batch size: {}",
         batch_size
     );
+
+
+    let progress_callback = Arc::new(progress_callback);
 
     let cursor_query = media_files::Entity::find();
 

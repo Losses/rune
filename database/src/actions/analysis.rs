@@ -42,6 +42,8 @@ pub async fn analysis_audio_library<F>(
 where
     F: Fn(usize, usize) + Send + Sync + 'static,
 {
+    let progress_callback = Arc::new(progress_callback);
+
     info!(
         "Starting audio library analysis with batch size: {}",
         batch_size

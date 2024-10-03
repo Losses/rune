@@ -270,14 +270,15 @@ macro_rules! parallel_media_files_processing {
         $result_handler:expr
     ) => {{
         use async_channel;
-        use tokio::sync::Semaphore;
+        use tokio::sync::{Semaphore, Mutex};
         use tokio::task;
         use log::{debug, error, info};
+        use std::sync::Arc;
 
         let cursor_query_clone = $cursor_query.clone();
         let (tx, rx) = async_channel::bounded($batch_size);
         let total_tasks = cursor_query_clone.count($main_db).await? as usize;
-        let mut total_processed = 0;
+        let processed_count = Arc::new(Mutex::new(0));
 
         let producer_cancel_token = $cancel_token.clone();
         let producer = {
@@ -303,7 +304,7 @@ macro_rules! parallel_media_files_processing {
                     }
 
                     for file in &files {
-                        tx.send(file.clone()).await.unwrap();
+                        tx.send(Some(file.clone())).await.unwrap();
                     }
 
                     if let Some(last_file) = files.last() {
@@ -314,7 +315,8 @@ macro_rules! parallel_media_files_processing {
                     }
                 }
 
-                drop(tx);
+                // Send end signal
+                tx.send(None).await.unwrap();
                 Ok::<(), sea_orm::DbErr>(())
             }
         };
@@ -322,38 +324,54 @@ macro_rules! parallel_media_files_processing {
         let consumer_cancel_token = $cancel_token.clone();
         let semaphore = Arc::new(Semaphore::new($batch_size));
         let consumer = {
+            let processed_count = Arc::clone(&processed_count);
+            let progress_callback = Arc::clone(&$progress_callback);
             async move {
-                while let Ok(file) = rx.recv().await {
-                    if let Some(ref token) = consumer_cancel_token {
-                        if token.is_cancelled() {
-                            info!("Cancellation requested. Exiting consumer loop.");
+                while let Ok(file_option) = rx.recv().await {
+                    match file_option {
+                        Some(file) => {
+                            if let Some(ref token) = consumer_cancel_token {
+                                if token.is_cancelled() {
+                                    info!("Cancellation requested. Exiting consumer loop.");
+                                    break;
+                                }
+                            }
+
+                            let main_db = $main_db.clone();
+                            let semaphore = semaphore.clone();
+                            let permit = semaphore.acquire_owned().await.unwrap();
+                            let lib_path = Arc::clone(&$lib_path);
+                            let processed_count = Arc::clone(&processed_count);
+                            let progress_callback = Arc::clone(&progress_callback);
+
+                            let file_clone = file.clone();
+
+                            task::spawn(async move {
+                                let analysis_result =
+                                    task::spawn_blocking(move || $process_fn(&file_clone, &lib_path)).await;
+
+                                match analysis_result.with_context(|| "Failed to spawn analysis task") {
+                                    Ok(analysis_result) => {
+                                        $result_handler(&main_db, file, analysis_result).await;
+                                    }
+                                    Err(e) => error!("{:?}", e),
+                                }
+
+                                let mut count = processed_count.lock().await;
+                                *count += 1;
+                                progress_callback(*count, total_tasks);
+
+                                drop(permit);
+                            });
+                        }
+                        None => {
+                            // End signal received, wait for all tasks to complete
+                            while semaphore.available_permits() < $batch_size {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                            }
                             break;
                         }
                     }
-
-                    let main_db = $main_db.clone();
-                    let semaphore = semaphore.clone();
-                    let permit = semaphore.acquire_owned().await.unwrap();
-                    let lib_path = Arc::clone(&$lib_path);
-
-                    let file_clone = file.clone();
-
-                    task::spawn(async move {
-                        let analysis_result =
-                            task::spawn_blocking(move || $process_fn(&file_clone, &lib_path)).await;
-
-                        match analysis_result {
-                            Ok(analysis_result) => {
-                                $result_handler(&main_db, file, analysis_result).await;
-                            }
-                            Err(e) => error!("Failed to spawn analysis task: {}", e),
-                        }
-
-                        drop(permit);
-                    });
-
-                    total_processed += 1;
-                    $progress_callback(total_processed, total_tasks);
                 }
 
                 Ok::<(), sea_orm::DbErr>(())
