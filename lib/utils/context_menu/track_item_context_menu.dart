@@ -59,6 +59,8 @@ Widget buildTrackItemContextMenu(
   List<Mix> mixes,
   bool analysed,
 ) {
+  print(item);
+
   final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {
     return MenuFlyoutItem(
       leading: const Icon(Symbols.list_alt),

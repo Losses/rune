@@ -9,7 +9,6 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../messages/collection.pb.dart';
 
 import '../collection/collection_list.dart';
 
@@ -98,10 +97,10 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                         gridLayoutVariation:
                             StartGroupGridLayoutVariation.square,
                         gapSize: 12,
-                        onTitleTap: () => {context.push('/albums')},
+                        onTitleTap: () => {context.push('/${item.groupTitle.toLowerCase()}')},
                         itemBuilder: (context, item) {
                           return CollectionItem(
-                            collectionType: CollectionType.Album,
+                            collectionType: item.collectionType,
                             collection: item,
                           );
                         },
