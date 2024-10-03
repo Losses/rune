@@ -40,12 +40,11 @@
     ```
 
 2. **Compile Rune**:
-   - Compile for Windows:
 
-     ```powershell
-     flutter pub run rinf message
-     flutter build windows --release
-     ```
+    ```powershell
+    flutter pub run rinf message
+    flutter build windows --release
+    ```
 
 ### Protobuf Messages
 
