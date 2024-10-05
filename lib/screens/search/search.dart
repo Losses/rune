@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
@@ -26,7 +27,7 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final searchController = TextEditingController();
 
-  String selectedItem = 'Tracks';
+  CollectionType selectedItem = CollectionType.Track;
   Timer? _debounce;
   bool _isRequestInProgress = false;
   SearchForResponse? _searchResults;
@@ -123,7 +124,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  void setSelectedField(String item) {
+  void setSelectedField(CollectionType item) {
     setState(() {
       selectedItem = item;
     });
@@ -136,6 +137,21 @@ class _SearchPageState extends State<SearchPage> {
       searchResults: _searchResults,
       registerSearchTask: _registerSearchTask,
     );
+
+    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
+
+    if (isMini) {
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: layoutManager,
+        child: LargeScreenSearchTrackList(
+          selectedItem: selectedItem,
+          tracks: tracks,
+          artists: artists,
+          albums: albums,
+          playlists: playlists,
+        ),
+      );
+    }
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
@@ -164,4 +180,3 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 }
-

@@ -5,6 +5,7 @@ import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/start_screen.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../messages/search.pb.dart';
+import '../../../messages/collection.pbenum.dart';
 
 import '../constants/search_icons.dart';
 import '../constants/search_categories.dart';
@@ -12,10 +13,10 @@ import '../constants/search_categories.dart';
 import './search_suggest_box.dart';
 
 class LargeScreenSearchSidebar extends StatelessWidget {
-  final String selectedItem;
+  final CollectionType selectedItem;
   final SearchSuggestBox autoSuggestBox;
   final SearchForResponse? searchResults;
-  final void Function(String) setSelectedField;
+  final void Function(CollectionType) setSelectedField;
   final StartScreenLayoutManager layoutManager;
 
   final List<InternalMediaFile> tracks;
@@ -83,18 +84,20 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                     int itemCount = 0;
                     if (searchResults != null) {
                       switch (item) {
-                        case 'Artists':
+                        case CollectionType.Artist:
                           itemCount = artists.length;
                           break;
-                        case 'Albums':
+                        case CollectionType.Album:
                           itemCount = albums.length;
                           break;
-                        case 'Playlists':
+                        case CollectionType.Playlist:
                           itemCount = playlists.length;
                           break;
-                        case 'Tracks':
+                        case CollectionType.Track:
                           itemCount = tracks.length;
                           break;
+                        default:
+                          itemCount = 0;
                       }
                     }
                     return ListTile.selectable(
@@ -113,7 +116,12 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                       ),
                       title: Row(
                         children: [
-                          Expanded(child: Text(item, style: typography.body)),
+                          Expanded(
+                            child: Text(
+                              '${item.toString()}s',
+                              style: typography.body,
+                            ),
+                          ),
                           if (itemCount > 0)
                             Text(
                               '$itemCount',

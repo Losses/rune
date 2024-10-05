@@ -15,7 +15,5 @@ Future<List<CollectionGroup>> fetchCollectionGroups(
   final rustSignal = await CollectionGroups.rustSignalStream.first;
   final groups = rustSignal.message.groups;
 
-  // print(groups);
-
   return groups;
 }

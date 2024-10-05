@@ -1,6 +1,8 @@
+import '../../../messages/collection.pb.dart';
+
 const searchCategories = [
-  'Tracks',
-  'Artists',
-  'Albums',
-  'Playlists',
+  CollectionType.Track,
+  CollectionType.Artist,
+  CollectionType.Album,
+  CollectionType.Playlist,
 ];

@@ -2,14 +2,14 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/start_screen.dart';
-import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../../../screens/search/widgets/search_card.dart';
+import '../../../screens/search/widgets/search_track_list.dart';
+import '../../../screens/search/utils/track_items_to_search_card.dart';
+import '../../../screens/search/utils/collection_items_to_search_card.dart';
 import '../../../messages/collection.pb.dart';
 
-import './track_search_item.dart';
-import './collection_search_item.dart';
-
 class LargeScreenSearchTrackList extends StatelessWidget {
-  final String selectedItem;
+  final CollectionType selectedItem;
   final List<InternalMediaFile> tracks;
   final List<InternalCollection> artists;
   final List<InternalCollection> albums;
@@ -37,7 +37,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 12),
-            Text(selectedItem, style: typography.title),
+            Text('${selectedItem.toString()}s', style: typography.title),
             const SizedBox(height: 24),
             Expanded(
               child: LayoutBuilder(
@@ -47,63 +47,38 @@ class LargeScreenSearchTrackList extends StatelessWidget {
 
                   const ratio = 4 / 1;
 
-                  final int rows =
-                      (constraints.maxWidth / (cellSize + gapSize)).floor();
+                  final int rows = (constraints.maxWidth / (cellSize + gapSize))
+                      .floor()
+                      .clamp(1, 0x7FFFFFFFFFFFFFFF);
 
-                  final trackIds = tracks.map((x) => x.id).toList();
+                  final List<SearchCard> items;
 
-                  return GridView(
-                    key: Key(selectedItem),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: rows,
-                      mainAxisSpacing: gapSize,
-                      crossAxisSpacing: gapSize,
-                      childAspectRatio: ratio,
-                    ),
-                    children: [
-                      if (selectedItem == "Artists")
-                        ...artists.map(
-                          (a) => CollectionSearchItem(
-                            item: a,
-                            collectionType: CollectionType.Artist,
-                          ),
-                        ),
-                      if (selectedItem == "Albums")
-                        ...albums.map(
-                          (a) => CollectionSearchItem(
-                            item: a,
-                            collectionType: CollectionType.Album,
-                          ),
-                        ),
-                      if (selectedItem == "Playlists")
-                        ...playlists.map(
-                          (a) => CollectionSearchItem(
-                            item: a,
-                            collectionType: CollectionType.Playlist,
-                          ),
-                        ),
-                      if (selectedItem == "Tracks")
-                        ...tracks.map((a) => TrackSearchItem(
-                              index: 0,
-                              item: a,
-                              fallbackFileIds: trackIds,
-                            )),
-                    ].asMap().entries.map((x) {
-                      final index = x.key;
-                      final int row = index % rows;
-                      final int column = index ~/ rows;
+                  switch (selectedItem) {
+                    case CollectionType.Artist:
+                      items =
+                          collectionItemsToSearchCard(artists, selectedItem);
+                      break;
+                    case CollectionType.Album:
+                      items = collectionItemsToSearchCard(albums, selectedItem);
+                      break;
+                    case CollectionType.Playlist:
+                      items =
+                          collectionItemsToSearchCard(playlists, selectedItem);
+                    case CollectionType.Track:
+                      items = trackItemsToSearchCard(tracks);
+                      break;
+                    default:
+                      items = [];
+                  }
 
-                      return ManagedStartScreenItem(
-                        key: Key('$selectedItem-$row:$column'),
-                        prefix: selectedItem,
-                        groupId: 0,
-                        row: row,
-                        column: column,
-                        width: cellSize / ratio,
-                        height: cellSize,
-                        child: x.value,
-                      );
-                    }).toList(),
+                  return SearchTrackList(
+                    key: Key(selectedItem.toString()),
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: selectedItem,
+                    items: items,
                   );
                 },
               ),
