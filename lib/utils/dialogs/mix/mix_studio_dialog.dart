@@ -1,12 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../../screens/search/search.dart';
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';
 
 import '../../query_list.dart';
@@ -122,8 +122,9 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
                       final int rows =
                           (constraints.maxWidth / (cellSize + gapSize)).floor();
 
-                      final trackIds =
-                          _searchManager.searchResults.map((x) => x.id).toList();
+                      final trackIds = _searchManager.searchResults
+                          .map((x) => x.id)
+                          .toList();
 
                       return GridView(
                         key: Key(_query),
