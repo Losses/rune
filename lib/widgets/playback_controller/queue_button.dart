@@ -1,10 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../widgets/playback_controller/playlist.dart';
+import 'queue.dart';
 
-class PlaylistButton extends StatelessWidget {
-  PlaylistButton({super.key});
+class QueueButton extends StatelessWidget {
+  QueueButton({super.key});
 
   final contextController = FlyoutController();
 
@@ -14,7 +14,21 @@ class PlaylistButton extends StatelessWidget {
         preferredMode: FlyoutPlacementMode.topCenter,
       ),
       builder: (context) {
-        return const Playlist();
+        return FlyoutContent(
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              double maxHeight = constraints.maxHeight - 100;
+
+              return ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: maxHeight,
+                  maxWidth: 380,
+                ),
+                child: const Queue(),
+              );
+            },
+          ),
+        );
       },
     );
   }

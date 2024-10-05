@@ -231,18 +231,19 @@ class NavigationBarState extends State<NavigationBar> {
               Padding(
                 padding: const EdgeInsets.only(top: 54, right: 16),
                 child: IconButton(
-                    icon: Icon(
-                      isSearch ? Symbols.close : Symbols.search,
-                      size: 24,
-                    ),
-                    onPressed: () => {
-                          if (isSearch)
-                            {
-                              if (context.canPop()) {context.pop()}
-                            }
-                          else
-                            {context.push('/search')}
-                        }),
+                  icon: Icon(
+                    isSearch ? Symbols.close : Symbols.search,
+                    size: 24,
+                  ),
+                  onPressed: () => {
+                    if (isSearch)
+                      {
+                        if (context.canPop()) {context.pop()}
+                      }
+                    else
+                      {context.push('/search')}
+                  },
+                ),
               )
             ],
           ),

@@ -13,7 +13,7 @@ import '../../../providers/volume.dart';
 
 import '../next_button.dart';
 import '../volume_button.dart';
-import '../playlist_button.dart';
+import '../queue_button.dart';
 import '../previous_button.dart';
 import '../cover_wall_button.dart';
 import '../play_pause_button.dart';
@@ -191,7 +191,7 @@ var controllerItems = [
     icon: Symbols.list_alt,
     title: "Playlist",
     subtitle: "View the playback queue",
-    controllerButtonBuilder: (notReady, status) => PlaylistButton(),
+    controllerButtonBuilder: (notReady, status) => QueueButton(),
     flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
       leading: const Icon(Symbols.list_alt),
       text: const Text('Playlist'),
