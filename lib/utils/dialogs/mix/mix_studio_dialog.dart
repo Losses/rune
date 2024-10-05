@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
@@ -22,14 +23,44 @@ import '../../dialogs/mix/widgets/mix_editor_controller.dart';
 
 class MixStudioDialog extends StatefulWidget {
   final int? mixId;
-
-  const MixStudioDialog({super.key, required this.mixId});
+  const MixStudioDialog({
+    super.key,
+    required this.mixId,
+  });
 
   @override
-  State<MixStudioDialog> createState() => _MixStudioDialogState();
+  State<MixStudioDialog> createState() => _MixStudioDialog();
 }
 
-class _MixStudioDialogState extends State<MixStudioDialog> {
+class _MixStudioDialog extends State<MixStudioDialog> {
+  @override
+  Widget build(BuildContext context) {
+    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
+
+    return MixStudioDialogImplementation(
+      mixId: widget.mixId,
+      isMini: isMini,
+    );
+  }
+}
+
+class MixStudioDialogImplementation extends StatefulWidget {
+  final int? mixId;
+  final bool isMini;
+
+  const MixStudioDialogImplementation({
+    super.key,
+    required this.mixId,
+    required this.isMini,
+  });
+
+  @override
+  State<MixStudioDialogImplementation> createState() =>
+      _MixStudioDialogImplementationState();
+}
+
+class _MixStudioDialogImplementationState
+    extends State<MixStudioDialogImplementation> {
   late final _controller = MixEditorController();
   final _layoutManager = StartScreenLayoutManager();
   final _searchManager = SearchTask<InternalMediaFile, List<(String, String)>>(
@@ -79,13 +110,55 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
     super.dispose();
   }
 
+  saveMix(BuildContext context) async {
+    setState(() {
+      isLoading = true;
+    });
+
+    Mix? response;
+    if (widget.mixId != null) {
+      response = await updateMix(
+        widget.mixId!,
+        _controller.titleController.text,
+        _controller.groupController.text,
+        false,
+        int.parse(
+          _controller.modeController.selectedValue ?? '99',
+        ),
+        mixEditorDataToQuery(_controller.getData()),
+      );
+    } else {
+      response = await createMix(
+        _controller.titleController.text,
+        _controller.groupController.text,
+        false,
+        int.parse(
+          _controller.modeController.selectedValue ?? '99',
+        ),
+        mixEditorDataToQuery(_controller.getData()),
+      );
+    }
+
+    setState(() {
+      isLoading = false;
+    });
+
+    if (!context.mounted) return;
+    Navigator.pop(context, response);
+  }
+
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.of(context).size.height;
     const reduce = navigationBarHeight + playbackControllerHeight + 48;
 
+    final editor = SizedBox(
+      height: height - reduce,
+      child: MixEditor(controller: _controller),
+    );
+
     return ContentDialog(
-      constraints: const BoxConstraints(maxWidth: 1000),
+      constraints: BoxConstraints(maxWidth: widget.isMini ? 420 : 1000),
       title: Column(
         children: [
           const SizedBox(height: 8),
@@ -96,118 +169,85 @@ class _MixStudioDialogState extends State<MixStudioDialog> {
         constraints: BoxConstraints(
           maxHeight: height < reduce ? reduce : height - reduce,
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 380,
-              child: SizedBox(
-                height: height - reduce,
-                child: MixEditor(controller: _controller),
-              ),
-            ),
-            const SizedBox(width: 6),
-            Expanded(
-              child: SizedBox(
-                height: height - reduce,
-                child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-                  value: _layoutManager,
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      const double gapSize = 8;
-                      const double cellSize = 200;
-
-                      const ratio = 4 / 1;
-
-                      final int rows =
-                          (constraints.maxWidth / (cellSize + gapSize)).floor();
-
-                      final trackIds = _searchManager.searchResults
-                          .map((x) => x.id)
-                          .toList();
-
-                      return GridView(
-                        key: Key(_query),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: rows,
-                          mainAxisSpacing: gapSize,
-                          crossAxisSpacing: gapSize,
-                          childAspectRatio: ratio,
-                        ),
-                        children: _searchManager.searchResults
-                            .map((a) => TrackSearchItem(
-                                  index: 0,
-                                  item: a,
-                                  fallbackFileIds: trackIds,
-                                ))
-                            .toList()
-                            .asMap()
-                            .entries
-                            .map((x) {
-                          final index = x.key;
-                          final int row = index % rows;
-                          final int column = index ~/ rows;
-
-                          return ManagedStartScreenItem(
-                            key: Key('$row:$column'),
-                            prefix: _query,
-                            groupId: 0,
-                            row: row,
-                            column: column,
-                            width: cellSize / ratio,
-                            height: cellSize,
-                            child: x.value,
-                          );
-                        }).toList(),
-                      );
-                    },
+        child: widget.isMini
+            ? editor
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 380,
+                    child: editor,
                   ),
-                ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: SizedBox(
+                      height: height - reduce,
+                      child: ChangeNotifierProvider<
+                          StartScreenLayoutManager>.value(
+                        value: _layoutManager,
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            const double gapSize = 8;
+                            const double cellSize = 200;
+
+                            const ratio = 4 / 1;
+
+                            final int rows =
+                                (constraints.maxWidth / (cellSize + gapSize))
+                                    .floor();
+
+                            final trackIds = _searchManager.searchResults
+                                .map((x) => x.id)
+                                .toList();
+
+                            return GridView(
+                              key: Key(_query),
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: rows,
+                                mainAxisSpacing: gapSize,
+                                crossAxisSpacing: gapSize,
+                                childAspectRatio: ratio,
+                              ),
+                              children: _searchManager.searchResults
+                                  .map(
+                                    (a) => TrackSearchItem(
+                                      index: 0,
+                                      item: a,
+                                      fallbackFileIds: trackIds,
+                                    ),
+                                  )
+                                  .toList()
+                                  .asMap()
+                                  .entries
+                                  .map((x) {
+                                final index = x.key;
+                                final int row = index % rows;
+                                final int column = index ~/ rows;
+
+                                return ManagedStartScreenItem(
+                                  key: Key('$row:$column'),
+                                  prefix: _query,
+                                  groupId: 0,
+                                  row: row,
+                                  column: column,
+                                  width: cellSize / ratio,
+                                  height: cellSize,
+                                  child: x.value,
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
       actions: [
         FilledButton(
-          onPressed: isLoading
-              ? null
-              : () async {
-                  setState(() {
-                    isLoading = true;
-                  });
-
-                  Mix? response;
-                  if (widget.mixId != null) {
-                    response = await updateMix(
-                      widget.mixId!,
-                      _controller.titleController.text,
-                      _controller.groupController.text,
-                      false,
-                      int.parse(
-                        _controller.modeController.selectedValue ?? '99',
-                      ),
-                      mixEditorDataToQuery(_controller.getData()),
-                    );
-                  } else {
-                    response = await createMix(
-                      _controller.titleController.text,
-                      _controller.groupController.text,
-                      false,
-                      int.parse(
-                        _controller.modeController.selectedValue ?? '99',
-                      ),
-                      mixEditorDataToQuery(_controller.getData()),
-                    );
-                  }
-
-                  setState(() {
-                    isLoading = false;
-                  });
-
-                  if (!context.mounted) return;
-                  Navigator.pop(context, response);
-                },
+          onPressed: isLoading ? null : () => saveMix(context),
           child: Text(widget.mixId != null ? 'Save' : 'Create'),
         ),
         Button(

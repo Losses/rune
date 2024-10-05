@@ -131,6 +131,7 @@ class _ChipInputState<T> extends State<ChipInput<T>> {
     _searcher.dispose();
     _focusNode.dispose();
     _textController.dispose();
+    _controller.removeListener(_updateSelectedItems);
     if (widget.controller == null) {
       _controller.dispose();
     }
