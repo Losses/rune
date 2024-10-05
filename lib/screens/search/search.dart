@@ -1,9 +1,5 @@
 import 'dart:async';
 
-import 'package:player/screens/search/utils/collection_items_to_search_card.dart';
-import 'package:player/screens/search/utils/track_items_to_search_card.dart';
-import 'package:player/screens/search/widgets/search_card.dart';
-import 'package:player/widgets/playback_controller/playback_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:responsive_framework/responsive_framework.dart';
@@ -13,13 +9,18 @@ import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../screens/search/widgets/small_screen_track_list.dart';
 import '../../widgets/start_screen/start_screen.dart';
+import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/collection.pb.dart';
 
-import './widgets/search_suggest_box.dart';
-import './widgets/large_screen_search_sidebar.dart';
-import './widgets/large_screen_search_track_list.dart';
+import 'utils/track_items_to_search_card.dart';
+import 'utils/collection_items_to_search_card.dart';
+import 'widgets/search_card.dart';
+import 'widgets/search_suggest_box.dart';
+import 'widgets/collection_search_item.dart';
+import 'widgets/large_screen_search_sidebar.dart';
+import 'widgets/large_screen_search_track_list.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -115,6 +116,18 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     });
   }
 
+  Future<List<CollectionSearchItem>> collectionResponseToSearchCard(
+    List<int> ids,
+    CollectionType type,
+  ) async {
+    return collectionItemsToSearchCard(
+      (await fetchCollectionByIds(type, ids))
+          .map(InternalCollection.fromRawCollection)
+          .toList(),
+      type,
+    );
+  }
+
   Future<void> _performSearch(String query) async {
     if (_isRequestInProgress) return;
     setState(() {
@@ -135,35 +148,20 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
         );
       }
       if (response.artists.isNotEmpty) {
-        items[CollectionType.Artist] = collectionItemsToSearchCard(
-          (await fetchCollectionByIds(
-            CollectionType.Artist,
-            response.artists,
-          ))
-              .map(InternalCollection.fromRawCollection)
-              .toList(),
+        items[CollectionType.Artist] = await collectionResponseToSearchCard(
+          response.artists,
           CollectionType.Artist,
         );
       }
       if (response.albums.isNotEmpty) {
-        items[CollectionType.Album] = collectionItemsToSearchCard(
-          (await fetchCollectionByIds(
-            CollectionType.Album,
-            response.albums,
-          ))
-              .map(InternalCollection.fromRawCollection)
-              .toList(),
+        items[CollectionType.Album] = await collectionResponseToSearchCard(
+          response.albums,
           CollectionType.Album,
         );
       }
       if (response.playlists.isNotEmpty) {
-        items[CollectionType.Playlist] = collectionItemsToSearchCard(
-          (await fetchCollectionByIds(
-            CollectionType.Playlist,
-            response.playlists,
-          ))
-              .map(InternalCollection.fromRawCollection)
-              .toList(),
+        items[CollectionType.Playlist] = await collectionResponseToSearchCard(
+          response.playlists,
           CollectionType.Playlist,
         );
       }
