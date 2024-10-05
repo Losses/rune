@@ -7,12 +7,14 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../messages/search.pb.dart';
 
 class SearchSuggestBox extends StatefulWidget {
+  final bool isMini;
   final TextEditingController controller;
   final SearchForResponse? searchResults;
   final void Function() registerSearchTask;
 
   const SearchSuggestBox({
     super.key,
+    required this.isMini,
     required this.controller,
     required this.searchResults,
     required this.registerSearchTask,
@@ -75,6 +77,16 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
 
   @override
   Widget build(BuildContext context) {
+    final icon = IgnorePointer(
+      child: IconButton(
+        onPressed: () {},
+        icon: const Icon(
+          Symbols.search,
+          size: 16,
+        ),
+      ),
+    );
+
     return AutoSuggestBox<String>(
       key: searchKey,
       focusNode: searchFocusNode,
@@ -91,15 +103,9 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
           },
         );
       }).toList(),
-      trailingIcon: IgnorePointer(
-        child: IconButton(
-          onPressed: () {},
-          icon: const Icon(
-            Symbols.search,
-            size: 16,
-          ),
-        ),
-      ),
+      clearButtonEnabled: !widget.isMini,
+      leadingIcon: !widget.isMini ? null : icon,
+      trailingIcon: widget.isMini ? null : icon,
     );
   }
 }

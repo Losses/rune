@@ -11,7 +11,7 @@ class SearchTrackList extends StatelessWidget {
   final double gapSize;
   final double cellSize;
   final CollectionType collectionType;
-  final List<SearchCard> items;
+  final List<SearchCard>? items;
 
   const SearchTrackList({
     super.key,
@@ -26,30 +26,33 @@ class SearchTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView(
+      physics: const NeverScrollableScrollPhysics(),
+      shrinkWrap: true,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: rows,
         mainAxisSpacing: gapSize,
         crossAxisSpacing: gapSize,
         childAspectRatio: ratio,
       ),
-      children: items.asMap().entries.map(
-        (x) {
-          final index = x.key;
-          final int row = index % rows;
-          final int column = index ~/ rows;
+      children: items ??
+          [].asMap().entries.map(
+            (x) {
+              final index = x.key;
+              final int row = index % rows;
+              final int column = index ~/ rows;
 
-          return ManagedStartScreenItem(
-            key: Key('${collectionType.toString()}-$row:$column'),
-            prefix: collectionType.toString(),
-            groupId: 0,
-            row: row,
-            column: column,
-            width: cellSize / ratio,
-            height: cellSize,
-            child: x.value,
-          );
-        },
-      ).toList(),
+              return ManagedStartScreenItem(
+                key: Key('${collectionType.toString()}-$row:$column'),
+                prefix: collectionType.toString(),
+                groupId: 0,
+                row: row,
+                column: column,
+                width: cellSize / ratio,
+                height: cellSize,
+                child: x.value,
+              );
+            },
+          ).toList(),
     );
   }
 }

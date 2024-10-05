@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:player/screens/search/utils/collection_items_to_search_card.dart';
+import 'package:player/screens/search/utils/track_items_to_search_card.dart';
+import 'package:player/screens/search/widgets/search_card.dart';
+import 'package:player/widgets/playback_controller/playback_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:responsive_framework/responsive_framework.dart';
@@ -7,7 +11,7 @@ import 'package:responsive_framework/responsive_framework.dart';
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
-import '../../widgets/track_list/track_list.dart';
+import '../../screens/search/widgets/small_screen_track_list.dart';
 import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../messages/search.pb.dart';
@@ -25,6 +29,26 @@ class SearchPage extends StatefulWidget {
 }
 
 class _SearchPageState extends State<SearchPage> {
+  @override
+  Widget build(BuildContext context) {
+    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
+
+    return SearchPageImplementation(
+      isMini: isMini,
+    );
+  }
+}
+
+class SearchPageImplementation extends StatefulWidget {
+  final bool isMini;
+  const SearchPageImplementation({super.key, required this.isMini});
+
+  @override
+  State<SearchPageImplementation> createState() =>
+      _SearchPageImplementationState();
+}
+
+class _SearchPageImplementationState extends State<SearchPageImplementation> {
   final searchController = TextEditingController();
 
   CollectionType selectedItem = CollectionType.Track;
@@ -32,14 +56,12 @@ class _SearchPageState extends State<SearchPage> {
   bool _isRequestInProgress = false;
   SearchForResponse? _searchResults;
 
-  List<InternalMediaFile> tracks = [];
-  List<InternalCollection> artists = [];
-  List<InternalCollection> albums = [];
-  List<InternalCollection> playlists = [];
+  Map<CollectionType, List<SearchCard>> items = {};
 
   String _lastSearched = '';
 
-  final layoutManager = StartScreenLayoutManager();
+  final largeScreenLayoutManager = StartScreenLayoutManager();
+  final smallScreenLayoutManager = StartScreenLayoutManager();
 
   @override
   void initState() {
@@ -50,10 +72,33 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
-    searchController.dispose();
-    _debounce?.cancel();
-    layoutManager.dispose();
     super.dispose();
+    _debounce?.cancel();
+    searchController.dispose();
+    largeScreenLayoutManager.dispose();
+    smallScreenLayoutManager.dispose();
+  }
+
+  void resetAnimations() {
+    largeScreenLayoutManager.resetAnimations();
+    smallScreenLayoutManager.resetAnimations();
+  }
+
+  void playAnimations() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      largeScreenLayoutManager.playAnimations();
+      smallScreenLayoutManager.playAnimations();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchPageImplementation oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.isMini != widget.isMini) {
+      resetAnimations();
+      playAnimations();
+    }
   }
 
   void _registerSearchTask() {
@@ -77,44 +122,53 @@ class _SearchPageState extends State<SearchPage> {
     });
 
     try {
-      layoutManager.resetAnimations();
-
       final response = await searchFor(query);
       setState(() {
         _searchResults = response;
       });
 
+      items = {};
+
       if (response.tracks.isNotEmpty) {
-        tracks = await fetchMediaFileByIds(response.tracks, true);
+        items[CollectionType.Track] = trackItemsToSearchCard(
+          await fetchMediaFileByIds(response.tracks, true),
+        );
       }
       if (response.artists.isNotEmpty) {
-        artists = (await fetchCollectionByIds(
+        items[CollectionType.Artist] = collectionItemsToSearchCard(
+          (await fetchCollectionByIds(
+            CollectionType.Artist,
+            response.artists,
+          ))
+              .map(InternalCollection.fromRawCollection)
+              .toList(),
           CollectionType.Artist,
-          response.artists,
-        ))
-            .map(InternalCollection.fromRawCollection)
-            .toList();
+        );
       }
       if (response.albums.isNotEmpty) {
-        albums = (await fetchCollectionByIds(
+        items[CollectionType.Album] = collectionItemsToSearchCard(
+          (await fetchCollectionByIds(
+            CollectionType.Album,
+            response.albums,
+          ))
+              .map(InternalCollection.fromRawCollection)
+              .toList(),
           CollectionType.Album,
-          response.albums,
-        ))
-            .map(InternalCollection.fromRawCollection)
-            .toList();
+        );
       }
       if (response.playlists.isNotEmpty) {
-        playlists = (await fetchCollectionByIds(
+        items[CollectionType.Playlist] = collectionItemsToSearchCard(
+          (await fetchCollectionByIds(
+            CollectionType.Playlist,
+            response.playlists,
+          ))
+              .map(InternalCollection.fromRawCollection)
+              .toList(),
           CollectionType.Playlist,
-          response.playlists,
-        ))
-            .map(InternalCollection.fromRawCollection)
-            .toList();
+        );
       }
 
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        layoutManager.playAnimations();
-      });
+      playAnimations();
     } catch (e) {
       // Handle error
     } finally {
@@ -136,44 +190,47 @@ class _SearchPageState extends State<SearchPage> {
       controller: searchController,
       searchResults: _searchResults,
       registerSearchTask: _registerSearchTask,
+      isMini: widget.isMini,
     );
 
-    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
-
-    if (isMini) {
-      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: layoutManager,
-        child: LargeScreenSearchTrackList(
-          selectedItem: selectedItem,
-          tracks: tracks,
-          artists: artists,
-          albums: albums,
-          playlists: playlists,
-        ),
+    if (widget.isMini) {
+      return Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
+            child: autoSuggestBox,
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
+                value: smallScreenLayoutManager,
+                child: SmallScreenSearchTrackList(
+                  items: items,
+                ),
+              ),
+            ),
+          ),
+          const PlaybackPlaceholder(),
+        ],
       );
     }
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-      value: layoutManager,
+      value: largeScreenLayoutManager,
       child: Row(
         children: [
-          LargeScreenSearchTrackList(
-            selectedItem: selectedItem,
-            tracks: tracks,
-            artists: artists,
-            albums: albums,
-            playlists: playlists,
+          Expanded(
+            child: LargeScreenSearchTrackList(
+              selectedItem: selectedItem,
+              items: items,
+            ),
           ),
           LargeScreenSearchSidebar(
             selectedItem: selectedItem,
             autoSuggestBox: autoSuggestBox,
             searchResults: _searchResults,
             setSelectedField: setSelectedField,
-            tracks: tracks,
-            artists: artists,
-            albums: albums,
-            playlists: playlists,
-            layoutManager: layoutManager,
+            items: items,
           ),
         ],
       ),

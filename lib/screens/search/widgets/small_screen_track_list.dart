@@ -1,25 +1,96 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../widgets/track_list/track_list.dart';
-import '../../../widgets/start_screen/start_screen.dart';
+import '../../../screens/search/widgets/search_card.dart';
 import '../../../screens/search/widgets/search_track_list.dart';
 import '../../../messages/collection.pb.dart';
 
-import '../utils/track_items_to_search_card.dart';
-import '../utils/collection_items_to_search_card.dart';
+class SmallScreenSearchTrackList extends StatelessWidget {
+  final Map<CollectionType, List<SearchCard>> items;
 
-class LargeScreenSearchTrackList extends StatelessWidget {
-  final List<InternalMediaFile> tracks;
-  final List<InternalCollection> artists;
-  final List<InternalCollection> albums;
-  final List<InternalCollection> playlists;
-
-  const LargeScreenSearchTrackList({
+  const SmallScreenSearchTrackList({
     super.key,
-    required this.tracks,
-    required this.artists,
-    required this.albums,
-    required this.playlists,
+    required this.items,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const double gapSize = 8;
+              const double cellSize = 200;
+
+              const ratio = 4 / 1;
+
+              final int rows = (constraints.maxWidth / (cellSize + gapSize))
+                  .floor()
+                  .clamp(1, 0x7FFFFFFFFFFFFFFF);
+
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (items[CollectionType.Artist]?.isNotEmpty ?? false)
+                    const SearchListSectionTitle(text: "Artists"),
+                  SearchTrackList(
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: CollectionType.Artist,
+                    items: items[CollectionType.Artist],
+                  ),
+                  if (items[CollectionType.Album]?.isNotEmpty ?? false)
+                    const SearchListSectionTitle(text: "Albums"),
+                  SearchTrackList(
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: CollectionType.Album,
+                    items: items[CollectionType.Album],
+                  ),
+                  if (items[CollectionType.Playlist]?.isNotEmpty ?? false)
+                    const SearchListSectionTitle(text: "Playlists"),
+                  SearchTrackList(
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: CollectionType.Playlist,
+                    items: items[CollectionType.Playlist],
+                  ),
+                  if (items[CollectionType.Track]?.isNotEmpty ?? false)
+                    const SearchListSectionTitle(text: "Tracks"),
+                  SearchTrackList(
+                    rows: rows,
+                    ratio: ratio,
+                    gapSize: gapSize,
+                    cellSize: cellSize,
+                    collectionType: CollectionType.Track,
+                    items: items[CollectionType.Track],
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class SearchListSectionTitle extends StatelessWidget {
+  final String text;
+
+  const SearchListSectionTitle({
+    super.key,
+    required this.text,
   });
 
   @override
@@ -27,79 +98,9 @@ class LargeScreenSearchTrackList extends StatelessWidget {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
 
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 24),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                const double gapSize = 8;
-                const double cellSize = 200;
-
-                const ratio = 4 / 1;
-
-                final int rows = (constraints.maxWidth / (cellSize + gapSize))
-                    .floor()
-                    .clamp(1, 0x7FFFFFFFFFFFFFFF);
-
-                return Column(
-                  children: [
-                    Text("Artists", style: typography.bodyLarge),
-                    SearchTrackList(
-                      rows: rows,
-                      ratio: ratio,
-                      gapSize: gapSize,
-                      cellSize: cellSize,
-                      collectionType: CollectionType.Artist,
-                      items: collectionItemsToSearchCard(
-                        artists,
-                        CollectionType.Artist,
-                      ),
-                    ),
-                    Text("Albums", style: typography.bodyLarge),
-                    SearchTrackList(
-                      rows: rows,
-                      ratio: ratio,
-                      gapSize: gapSize,
-                      cellSize: cellSize,
-                      collectionType: CollectionType.Album,
-                      items: collectionItemsToSearchCard(
-                        albums,
-                        CollectionType.Album,
-                      ),
-                    ),
-                    Text("Playlists", style: typography.bodyLarge),
-                    SearchTrackList(
-                      rows: rows,
-                      ratio: ratio,
-                      gapSize: gapSize,
-                      cellSize: cellSize,
-                      collectionType: CollectionType.Playlist,
-                      items: collectionItemsToSearchCard(
-                        playlists,
-                        CollectionType.Playlist,
-                      ),
-                    ),
-                    Text("Tracks", style: typography.bodyLarge),
-                    SearchTrackList(
-                      rows: rows,
-                      ratio: ratio,
-                      gapSize: gapSize,
-                      cellSize: cellSize,
-                      collectionType: CollectionType.Track,
-                      items: trackItemsToSearchCard(tracks),
-                    ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
-      ),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 4),
+      child: Text(text, style: typography.bodyLarge),
     );
   }
 }
