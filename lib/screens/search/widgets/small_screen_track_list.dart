@@ -44,6 +44,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     cellSize: cellSize,
                     collectionType: CollectionType.Artist,
                     items: items[CollectionType.Artist],
+                    groupId: 0,
                   ),
                   if (items[CollectionType.Album]?.isNotEmpty ?? false)
                     const SearchListSectionTitle(text: "Albums"),
@@ -54,6 +55,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     cellSize: cellSize,
                     collectionType: CollectionType.Album,
                     items: items[CollectionType.Album],
+                    groupId: 1,
                   ),
                   if (items[CollectionType.Playlist]?.isNotEmpty ?? false)
                     const SearchListSectionTitle(text: "Playlists"),
@@ -64,6 +66,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     cellSize: cellSize,
                     collectionType: CollectionType.Playlist,
                     items: items[CollectionType.Playlist],
+                    groupId: 2,
                   ),
                   if (items[CollectionType.Track]?.isNotEmpty ?? false)
                     const SearchListSectionTitle(text: "Tracks"),
@@ -74,6 +77,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     cellSize: cellSize,
                     collectionType: CollectionType.Track,
                     items: items[CollectionType.Track],
+                    groupId: 3,
                   ),
                 ],
               );

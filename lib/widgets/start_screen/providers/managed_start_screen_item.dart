@@ -45,8 +45,13 @@ class ManagedStartScreenItemState extends State<ManagedStartScreenItem> {
         provider?.unregisterItem(_data!);
       }
 
-      final registerResult = provider?.registerItem(widget.groupId, widget.row,
-          widget.column, startAnimation, widget.prefix);
+      final registerResult = provider?.registerItem(
+        widget.groupId,
+        widget.row,
+        widget.column,
+        startAnimation,
+        widget.prefix,
+      );
       _show = registerResult?.skipAnimation ?? true;
       _data = registerResult?.data;
 

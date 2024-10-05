@@ -5,6 +5,8 @@ import '../../../messages/collection.pb.dart';
 
 import './search_card.dart';
 
+const List<SearchCard> defaultList = [];
+
 class SearchTrackList extends StatelessWidget {
   final int rows;
   final double ratio;
@@ -12,6 +14,7 @@ class SearchTrackList extends StatelessWidget {
   final double cellSize;
   final CollectionType collectionType;
   final List<SearchCard>? items;
+  final int groupId; 
 
   const SearchTrackList({
     super.key,
@@ -21,6 +24,7 @@ class SearchTrackList extends StatelessWidget {
     required this.cellSize,
     required this.collectionType,
     required this.items,
+    required this.groupId,
   });
 
   @override
@@ -34,25 +38,25 @@ class SearchTrackList extends StatelessWidget {
         crossAxisSpacing: gapSize,
         childAspectRatio: ratio,
       ),
-      children: items ??
-          [].asMap().entries.map(
-            (x) {
-              final index = x.key;
-              final int row = index % rows;
-              final int column = index ~/ rows;
+      children: (items ?? defaultList).asMap().entries.map(
+        (x) {
+          final index = x.key;
+          final int row = index % rows;
+          final int column = index ~/ rows;
+          final key = '${collectionType.toString()}-$row:$column';
 
-              return ManagedStartScreenItem(
-                key: Key('${collectionType.toString()}-$row:$column'),
-                prefix: collectionType.toString(),
-                groupId: 0,
-                row: row,
-                column: column,
-                width: cellSize / ratio,
-                height: cellSize,
-                child: x.value,
-              );
-            },
-          ).toList(),
+          return ManagedStartScreenItem(
+            key: Key(key),
+            prefix: collectionType.toString(),
+            groupId: groupId,
+            row: row,
+            column: column,
+            width: cellSize / ratio,
+            height: cellSize,
+            child: x.value,
+          );
+        },
+      ).toList(),
     );
   }
 }

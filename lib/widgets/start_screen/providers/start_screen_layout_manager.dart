@@ -90,6 +90,7 @@ class StartScreenLayoutManager with ChangeNotifier {
 
   void playAnimations([double speed = 0.3]) {
     if (_animationFinished) return;
+    // This means the animation is already playing
     if (_animationTimer != null) return;
 
     // Calculate the maximum distance

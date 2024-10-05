@@ -40,7 +40,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
                     .floor()
                     .clamp(1, 0x7FFFFFFFFFFFFFFF);
 
-                final List<SearchCard> group = items[selectedItem] ?? [];
+                final List<SearchCard> itemGroup = items[selectedItem] ?? [];
 
                 return SearchTrackList(
                   key: Key(selectedItem.toString()),
@@ -49,7 +49,8 @@ class LargeScreenSearchTrackList extends StatelessWidget {
                   gapSize: gapSize,
                   cellSize: cellSize,
                   collectionType: selectedItem,
-                  items: group,
+                  items: itemGroup,
+                  groupId: 0,
                 );
               },
             ),

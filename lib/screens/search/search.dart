@@ -130,9 +130,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
   Future<void> _performSearch(String query) async {
     if (_isRequestInProgress) return;
-    setState(() {
-      _isRequestInProgress = true;
-    });
+    _isRequestInProgress = true;
 
     try {
       final response = await searchFor(query);
@@ -166,20 +164,25 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
         );
       }
 
-      playAnimations();
+      setState(() {
+        resetAnimations();
+        playAnimations();
+      });
     } catch (e) {
       // Handle error
     } finally {
-      setState(() {
-        _isRequestInProgress = false;
-      });
+      _isRequestInProgress = false;
     }
   }
 
-  void setSelectedField(CollectionType item) {
+  void _setSelectedField(CollectionType item) {
+    largeScreenLayoutManager.resetAnimations();
+
     setState(() {
       selectedItem = item;
     });
+
+    playAnimations();
   }
 
   @override
@@ -192,24 +195,24 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     );
 
     if (widget.isMini) {
-      return Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
-            child: autoSuggestBox,
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
-                value: smallScreenLayoutManager,
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: smallScreenLayoutManager,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
+              child: autoSuggestBox,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
                 child: SmallScreenSearchTrackList(
                   items: items,
                 ),
               ),
             ),
-          ),
-          const PlaybackPlaceholder(),
-        ],
+            const PlaybackPlaceholder(),
+          ],
+        ),
       );
     }
 
@@ -227,7 +230,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
             selectedItem: selectedItem,
             autoSuggestBox: autoSuggestBox,
             searchResults: _searchResults,
-            setSelectedField: setSelectedField,
+            setSelectedField: _setSelectedField,
             items: items,
           ),
         ],

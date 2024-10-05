@@ -1,9 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/screens/search/widgets/search_card.dart';
-import 'package:provider/provider.dart';
 
 import '../../../widgets/slide_fade_transition.dart';
-import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../../screens/search/widgets/search_card.dart';
 import '../../../messages/search.pb.dart';
 import '../../../messages/collection.pbenum.dart';
 
@@ -33,8 +31,6 @@ class LargeScreenSearchSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
-
-    final layoutManager = Provider.of<StartScreenLayoutManager>(context);
 
     return SizedBox(
       width: 320,
@@ -111,13 +107,7 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                         selectionMode: ListTileSelectionMode.single,
                         selected: selectedItem == item,
                         onSelectionChange: (v) {
-                          layoutManager.resetAnimations();
-
                           setSelectedField(item);
-
-                          WidgetsBinding.instance.addPostFrameCallback((_) {
-                            layoutManager.playAnimations();
-                          });
                         },
                       );
                     },
