@@ -1,13 +1,14 @@
 import 'dart:async';
 
-import 'package:player/messages/collection.pbserver.dart';
-import 'package:player/utils/query_list.dart';
+import 'package:player/widgets/delayed_display.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/query_list.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
+import '../../messages/collection.pbserver.dart';
 
 import './start_group.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -52,10 +53,8 @@ class InternalCollection {
 
 class StartScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
-  final Future<void> Function(
-      PagingController<int, Group<InternalCollection>>, int) fetchPage;
+  final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
   final Widget Function(BuildContext, InternalCollection) itemBuilder;
-  final PagingController<int, Group<InternalCollection>> pagingController;
   final bool userGenerated;
 
   const StartScreen({
@@ -63,7 +62,6 @@ class StartScreen extends StatefulWidget {
     required this.fetchSummary,
     required this.fetchPage,
     required this.itemBuilder,
-    required this.pagingController,
     required this.userGenerated,
   });
 
@@ -76,18 +74,45 @@ class StartScreenState extends State<StartScreen> {
 
   final layoutManager = StartScreenLayoutManager();
 
+  List<Group<InternalCollection>> items = [];
+
+  bool isLoading = false;
+  bool isLastPage = false;
+  bool initialized = false;
+  int cursor = 0;
+
+  void _fetchData() async {
+    setState(() {
+      initialized = true;
+      isLoading = true;
+    });
+
+    final thisCursor = cursor;
+    cursor += 1;
+    final (newItems, newIsLastPage) = await widget.fetchPage(thisCursor);
+
+    setState(() {
+      isLoading = false;
+      isLastPage = newIsLastPage;
+      items.addAll(newItems);
+    });
+
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => layoutManager.playAnimations(),
+    );
+  }
+
+  void _reloadData() async {
+    cursor = 0;
+    items = [];
+    _fetchData();
+  }
+
   @override
   void initState() {
     super.initState();
     summary = widget.fetchSummary();
-    widget.pagingController.addPageRequestListener((cursor) async {
-      await widget.fetchPage(widget.pagingController, cursor);
-
-      Timer(
-        Duration(milliseconds: gridAnimationDelay),
-        () => layoutManager.playAnimations(),
-      );
-    });
   }
 
   @override
@@ -108,37 +133,40 @@ class StartScreenState extends State<StartScreen> {
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            return SizedBox(
-              width: MediaQuery.of(context).size.width,
-              child: SmoothHorizontalScroll(
-                builder: (context, scrollController) {
-                  return PagedListView<int, Group<InternalCollection>>(
-                    pagingController: widget.pagingController,
-                    scrollDirection: Axis.horizontal,
-                    scrollController: scrollController,
-                    builderDelegate:
-                        PagedChildBuilderDelegate<Group<InternalCollection>>(
-                      noItemsFoundIndicatorBuilder: (context) {
-                        return NoItems(
-                          title: "No collection found",
-                          hasRecommendation: false,
-                          pagingController: widget.pagingController,
-                          userGenerated: widget.userGenerated,
-                        );
-                      },
-                      itemBuilder: (context, item, index) {
-                        return StartGroup<InternalCollection>(
-                          key: ValueKey(item.groupTitle),
-                          groupIndex: index,
-                          groupTitle: item.groupTitle,
-                          items: item.items,
-                          itemBuilder: widget.itemBuilder,
-                        );
-                      },
-                    ),
-                  );
-                },
-              ),
+            return SmoothHorizontalScroll(
+              builder: (context, scrollController) {
+                return InfiniteList(
+                  itemCount: items.length,
+                  scrollDirection: Axis.horizontal,
+                  scrollController: scrollController,
+                  loadingBuilder: (context) => const ProgressRing(),
+                  centerLoading: true,
+                  centerEmpty: true,
+                  isLoading: isLoading,
+                  emptyBuilder: (context) => Center(
+                    child: initialized
+                        ? NoItems(
+                            title: "No collection found",
+                            hasRecommendation: false,
+                            reloadData: _reloadData,
+                            userGenerated: widget.userGenerated,
+                          )
+                        : Container(),
+                  ),
+                  onFetchData: _fetchData,
+                  hasReachedMax: isLastPage,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return StartGroup<InternalCollection>(
+                      key: Key(item.groupTitle),
+                      groupIndex: index,
+                      groupTitle: item.groupTitle,
+                      items: item.items,
+                      itemBuilder: widget.itemBuilder,
+                    );
+                  },
+                );
+              },
             );
           }
         },

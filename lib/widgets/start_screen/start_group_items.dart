@@ -2,22 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/start_screen/providers/managed_start_screen_item.dart';
 
-class Dimensions<T> {
-  final int rows;
-  final int columns;
-  final int count;
-
-  Dimensions({
-    required this.rows,
-    required this.columns,
-    required this.count,
-  });
-
-  @override
-  String toString() => "Dimensions($rows x $columns, count: $count)";
-}
+import 'start_group_item.dart';
 
 class StartGroupItems<T> extends StatelessWidget {
   final double cellSize;
@@ -86,26 +72,15 @@ class StartGroupItems<T> extends StatelessWidget {
           double.infinity,
         );
 
-        return SizedBox(
-          width: finalWidth,
-          height: finalHeight,
-          child: Wrap(
-            spacing: gapSize,
-            runSpacing: gapSize,
-            children: List.generate(dimensions.count, (index) {
-              final int row = index ~/ dimensions.columns;
-              final int column = index % dimensions.columns;
-              final T item = items[index];
-              return ManagedStartScreenItem(
-                groupId: groupIndex,
-                row: row,
-                column: column,
-                width: cellSize,
-                height: cellSize,
-                child: itemBuilder(context, item),
-              );
-            }),
-          ),
+        return StartGroupItem<T>(
+          finalWidth: finalWidth,
+          finalHeight: finalHeight,
+          gapSize: gapSize,
+          dimensions: dimensions,
+          items: items,
+          groupIndex: groupIndex,
+          cellSize: cellSize,
+          itemBuilder: itemBuilder,
         );
       },
     );

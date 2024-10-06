@@ -1,19 +1,17 @@
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 
-import '../../providers/status.dart';
-import '../../utils/format_time.dart';
-import '../../widgets/tile/cover_art.dart';
-import '../../widgets/playback_controller/cover_wall_button.dart';
+import '../../widgets/playback_controller/now_playing.dart';
+import '../../widgets/playback_controller/cover_art_page_progress_bar.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../messages/playback.pb.dart';
+import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
 
 import './constants/playback_controller_height.dart';
-import './like_button.dart';
 import './fft_visualize.dart';
 
 class PlaybackController extends StatefulWidget {
@@ -63,218 +61,6 @@ class PlaybackControllerState extends State<PlaybackController> {
               child: CoverArtPageProgressBar(notReady: notReady, status: s),
             ),
           ControllerButtons(notReady: notReady, status: s)
-        ],
-      ),
-    );
-  }
-}
-
-class NowPlaying extends StatelessWidget {
-  const NowPlaying({
-    super.key,
-    required this.status,
-    required this.notReady,
-  });
-
-  final PlaybackStatus? status;
-  final bool notReady;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final typography = theme.typography;
-
-    final r = ResponsiveBreakpoints.of(context);
-
-    final miniLayout = r.smallerOrEqualTo(TABLET);
-    final hideProgress = r.isPhone;
-
-    final progress =
-        NowPlayingImplementation(notReady: notReady, status: status);
-
-    return SizedBox.expand(
-      child: Align(
-        alignment: miniLayout ? Alignment.centerLeft : Alignment.center,
-        child: miniLayout
-            ? Row(
-                children: [
-                  const SizedBox(width: 16),
-                  Button(
-                      style: const ButtonStyle(
-                        padding: WidgetStatePropertyAll(
-                          EdgeInsets.all(0),
-                        ),
-                      ),
-                      onPressed: () {
-                        showCoverArtWall(context);
-                      },
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
-                        child: CoverArt(
-                          path: status?.coverArtPath,
-                          hint: status != null
-                              ? (
-                                  status!.album,
-                                  status!.artist,
-                                  'Total Time ${formatTime(status!.duration)}'
-                                )
-                              : null,
-                          size: 48,
-                        ),
-                      )),
-                  if (r.isPhone) const SizedBox(width: 10),
-                  hideProgress
-                      ? Expanded(
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 116),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  status?.title ?? "",
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  status?.artist ?? "",
-                                  overflow: TextOverflow.ellipsis,
-                                  style: typography.caption?.apply(
-                                    color: theme.inactiveColor.withAlpha(160),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : progress,
-                  if (r.isPhone) const SizedBox(width: 88),
-                ],
-              )
-            : progress,
-      ),
-    );
-  }
-}
-
-class CoverArtPageProgressBar extends StatelessWidget {
-  const CoverArtPageProgressBar({
-    super.key,
-    required this.status,
-    required this.notReady,
-  });
-
-  final PlaybackStatus? status;
-  final bool notReady;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final typography = theme.typography;
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 40),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                formatTime(status?.progressSeconds ?? 0),
-                style: typography.caption,
-              ),
-              Expanded(
-                child: Slider(
-                  value: status != null
-                      ? (status?.progressPercentage ?? 0) * 100
-                      : 0,
-                  onChanged: status != null && !notReady
-                      ? (v) => SeekRequest(
-                            positionSeconds:
-                                (v / 100) * (status?.duration ?? 0),
-                          ).sendSignalToRust()
-                      : null,
-                  style: const SliderThemeData(useThumbBall: false),
-                ),
-              ),
-              Text(
-                '-${formatTime((status?.duration ?? 0) - (status?.progressSeconds ?? 0))}',
-                style: typography.caption,
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class NowPlayingImplementation extends StatelessWidget {
-  const NowPlayingImplementation({
-    super.key,
-    required this.status,
-    required this.notReady,
-  });
-
-  final PlaybackStatus? status;
-  final bool notReady;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final typography = theme.typography;
-
-    return Container(
-      constraints: const BoxConstraints(minWidth: 200, maxWidth: 360),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: Text(
-                    status?.title ?? "",
-                    overflow: TextOverflow.ellipsis,
-                    style: typography.caption,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsetsDirectional.only(start: 16),
-                  child: LikeButton(fileId: status?.id),
-                )
-              ],
-            ),
-          ),
-          Slider(
-            value: status != null ? (status?.progressPercentage ?? 0) * 100 : 0,
-            onChanged: status != null && !notReady
-                ? (v) => SeekRequest(
-                      positionSeconds: (v / 100) * (status?.duration ?? 0),
-                    ).sendSignalToRust()
-                : null,
-            style: const SliderThemeData(useThumbBall: false),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  formatTime(status?.progressSeconds ?? 0),
-                  style: typography.caption,
-                ),
-                Text(
-                  '-${formatTime((status?.duration ?? 0) - (status?.progressSeconds ?? 0))}',
-                  style: typography.caption,
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );

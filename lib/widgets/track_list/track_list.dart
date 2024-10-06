@@ -76,10 +76,14 @@ class TrackList extends StatelessWidget {
                 ),
                 builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
                   noItemsFoundIndicatorBuilder: (context) {
-                    return NoItems(
-                      title: "No tracks found",
-                      hasRecommendation: hasRecommendation,
-                      pagingController: pagingController,
+                    return SizedBox.expand(
+                      child: Center(
+                        child: NoItems(
+                          title: "No tracks found",
+                          hasRecommendation: hasRecommendation,
+                          reloadData: pagingController.refresh,
+                        ),
+                      ),
                     );
                   },
                   itemBuilder: (context, item, index) {
@@ -115,11 +119,11 @@ class TrackList extends StatelessWidget {
 class ActionButtons extends StatelessWidget {
   const ActionButtons({
     super.key,
-    required this.pagingController,
+    required this.reloadData,
     required this.hasRecommendation,
   });
 
-  final PagingController pagingController;
+  final VoidCallback reloadData;
   final bool hasRecommendation;
 
   @override
@@ -130,13 +134,13 @@ class ActionButtons extends StatelessWidget {
       children: [
         ScanLibraryButton(
           title: "Scan Library",
-          onFinished: pagingController.refresh,
+          onFinished: reloadData,
         ),
         if (hasRecommendation) ...[
           const SizedBox(width: 12),
           AnalyseLibraryButton(
             title: "Analyse Tracks",
-            onFinished: pagingController.refresh,
+            onFinished: reloadData,
           ),
         ]
       ],

@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/router_extra.dart';
 import '../../utils/api/fetch_collection_groups.dart';
@@ -25,9 +24,6 @@ class CollectionListView extends StatefulWidget {
 class CollectionListViewState extends State<CollectionListView> {
   static const _pageSize = 3;
 
-  final PagingController<int, Group<InternalCollection>> pagingController =
-      PagingController(firstPageKey: 0);
-
   Future<List<Group<InternalCollection>>> fetchSummary() async {
     final groups = await fetchCollectionGroupSummary(widget.collectionType);
 
@@ -39,40 +35,32 @@ class CollectionListViewState extends State<CollectionListView> {
     }).toList();
   }
 
-  Future<void> fetchPage(
-    PagingController<int, Group<InternalCollection>> controller,
+  Future<(List<Group<InternalCollection>>, bool)> fetchPage(
     int cursor,
   ) async {
-    try {
-      final summaries = await fetchSummary();
+    final summaries = await fetchSummary();
 
-      final startIndex = cursor * _pageSize;
-      final endIndex = (cursor + 1) * _pageSize;
+    final startIndex = cursor * _pageSize;
+    final endIndex = (cursor + 1) * _pageSize;
 
-      if (startIndex >= summaries.length) {
-        controller.appendLastPage([]);
-        return;
-      }
-
-      final currentPageSummaries = summaries.sublist(
-        startIndex,
-        endIndex > summaries.length ? summaries.length : endIndex,
-      );
-
-      final groupTitles =
-          currentPageSummaries.map((summary) => summary.groupTitle).toList();
-
-      final groups = await fetchGroups(groupTitles);
-
-      final isLastPage = endIndex >= summaries.length;
-      if (isLastPage) {
-        controller.appendLastPage(groups);
-      } else {
-        controller.appendPage(groups, cursor + 1);
-      }
-    } catch (error) {
-      controller.error = error;
+    if (startIndex >= summaries.length) {
+      final List<Group<InternalCollection>> result = [];
+      return (result, true);
     }
+
+    final currentPageSummaries = summaries.sublist(
+      startIndex,
+      endIndex > summaries.length ? summaries.length : endIndex,
+    );
+
+    final groupTitles =
+        currentPageSummaries.map((summary) => summary.groupTitle).toList();
+
+    final groups = await fetchGroups(groupTitles);
+
+    final isLastPage = endIndex >= summaries.length;
+
+    return (groups, isLastPage);
   }
 
   bool userGenerated() {
@@ -108,15 +96,8 @@ class CollectionListViewState extends State<CollectionListView> {
       fetchSummary: fetchSummary,
       fetchPage: fetchPage,
       itemBuilder: itemBuilder,
-      pagingController: pagingController,
       userGenerated: userGenerated(),
     );
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-    pagingController.dispose();
   }
 }
 

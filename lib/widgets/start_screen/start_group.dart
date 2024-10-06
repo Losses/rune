@@ -8,7 +8,6 @@ enum StartGroupGridLayoutVariation { initial, square }
 
 enum StartGroupGroupLayoutVariation { normal, stacked }
 
-
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
   final String groupTitle;
@@ -41,11 +40,17 @@ class StartGroup<T> extends StatelessWidget {
     switch (groupLayoutVariation) {
       case StartGroupGroupLayoutVariation.stacked:
         return StartGroupStackedLayout(
-            groupTitle: groupTitle, onTitleTap: onTitleTap, child: child);
+          groupTitle: groupTitle,
+          onTitleTap: onTitleTap,
+          child: child,
+        );
       case StartGroupGroupLayoutVariation.normal:
       default:
         return StartGroupNormalLayout(
-            groupTitle: groupTitle, onTitleTap: onTitleTap, child: child);
+          groupTitle: groupTitle,
+          onTitleTap: onTitleTap,
+          child: child,
+        );
     }
   }
 
