@@ -1,7 +1,11 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../widgets/playback_controller/playback_placeholder.dart';
+
+import 'settings_home_list.dart';
 
 class SettingsHomePage extends StatefulWidget {
   const SettingsHomePage({super.key});
@@ -11,27 +15,29 @@ class SettingsHomePage extends StatefulWidget {
 }
 
 class _SettingsHomePageState extends State<SettingsHomePage> {
+  final _layoutManager = StartScreenLayoutManager();
+
+  @override
+  void dispose() {
+    super.dispose();
+    _layoutManager.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      const NavigationBarPlaceholder(),
-      Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Button(
-                child: const Text("Library"),
-                onPressed: () => context.push('/settings/library')),
-            Button(
-                child: const Text("About"),
-                onPressed: () => context.push('/settings/about')),
-            Button(
-                child: const Text("Mix"),
-                onPressed: () => context.push('/settings/mix')),
-          ],
-        ),
-      )
-    ]);
+    return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+      value: _layoutManager,
+      child: Column(
+        children: [
+          const NavigationBarPlaceholder(),
+          Expanded(
+            child: SettingsHomeList(
+              layoutManager: _layoutManager,
+            ),
+          ),
+          const PlaybackPlaceholder()
+        ],
+      ),
+    );
   }
 }

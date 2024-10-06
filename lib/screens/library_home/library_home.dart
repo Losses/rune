@@ -19,11 +19,6 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
   final _layoutManager = StartScreenLayoutManager();
 
   @override
-  void initState() {
-    super.initState();
-  }
-
-  @override
   void dispose() {
     super.dispose();
     _layoutManager.dispose();
@@ -43,10 +38,11 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
         children: [
           const NavigationBarPlaceholder(),
           Expanded(
-              child: LibraryHomeListView(
-            libraryPath: libraryPath,
-            layoutManager: _layoutManager,
-          )),
+            child: LibraryHomeListView(
+              libraryPath: libraryPath,
+              layoutManager: _layoutManager,
+            ),
+          ),
           const PlaybackPlaceholder()
         ],
       ),

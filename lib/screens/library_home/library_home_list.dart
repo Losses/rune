@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/widgets/start_screen/link_tile.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
@@ -45,17 +47,17 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
 
     final groups = [
       Group<InternalCollection>(
+        groupTitle: "Artists",
+        items: librarySummary.artists
+            .map(InternalCollection.fromRawCollection)
+            .toList(),
+      ),
+      Group<InternalCollection>(
         groupTitle: "Albums",
         items: librarySummary.albums
             .map(InternalCollection.fromRawCollection)
             .toList(),
       ),
-      Group<InternalCollection>(
-        groupTitle: "Artists",
-        items: librarySummary.artists
-            .map(InternalCollection.fromRawCollection)
-            .toList(),
-      )
     ];
 
     Timer(
@@ -65,6 +67,14 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
 
     return groups;
   }
+
+  final List<(String, String, IconData)> firstColumn = [
+    ('Artists', '/artists', Symbols.face),
+    ('Albums', '/albums', Symbols.album),
+    ('Playlists', '/playlists', Symbols.queue_music),
+    ('Mixes', '/mixes', Symbols.magic_button),
+    ('Tracks', '/tracks', Symbols.music_note),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -86,30 +96,54 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                 controller: scrollController,
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
-                  children: snapshot.data!.map((item) {
-                    if (item is Group<InternalCollection>) {
-                      return StartGroup<InternalCollection>(
-                        groupIndex: item.groupTitle.hashCode,
-                        groupTitle: item.groupTitle,
-                        items: item.items,
-                        groupLayoutVariation:
-                            StartGroupGroupLayoutVariation.stacked,
-                        gridLayoutVariation:
-                            StartGroupGridLayoutVariation.square,
-                        gapSize: 12,
-                        onTitleTap: () => {context.push('/${item.groupTitle.toLowerCase()}')},
-                        itemBuilder: (context, item) {
-                          return CollectionItem(
-                            collectionType: item.collectionType,
-                            collection: item,
-                            refreshList: () {},
+                  children: [
+                    StartGroup<(String, String, IconData)>(
+                      groupIndex: 0,
+                      groupTitle: 'Start',
+                      items: firstColumn,
+                      groupLayoutVariation:
+                          StartGroupGroupLayoutVariation.stacked,
+                      gridLayoutVariation:
+                          StartGroupGridLayoutVariation.initial,
+                      gapSize: 12,
+                      onTitleTap: () {},
+                      itemBuilder: (context, item) {
+                        return LinkTile(
+                          title: item.$1,
+                          path: item.$2,
+                          icon: item.$3,
+                        );
+                      },
+                    ),
+                    ...snapshot.data!.map(
+                      (item) {
+                        if (item is Group<InternalCollection>) {
+                          return StartGroup<InternalCollection>(
+                            groupIndex: item.groupTitle.hashCode,
+                            groupTitle: item.groupTitle,
+                            items: item.items,
+                            groupLayoutVariation:
+                                StartGroupGroupLayoutVariation.stacked,
+                            gridLayoutVariation:
+                                StartGroupGridLayoutVariation.square,
+                            gapSize: 12,
+                            onTitleTap: () => {
+                              context.push('/${item.groupTitle.toLowerCase()}')
+                            },
+                            itemBuilder: (context, item) {
+                              return CollectionItem(
+                                collectionType: item.collectionType,
+                                collection: item,
+                                refreshList: () {},
+                              );
+                            },
                           );
-                        },
-                      );
-                    } else {
-                      return Container();
-                    }
-                  }).toList(),
+                        } else {
+                          return Container();
+                        }
+                      },
+                    )
+                  ],
                 ),
               ),
             ),
