@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:player/widgets/delayed_display.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';

@@ -4,7 +4,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../screens/query_tracks/widgets/query_tracks.dart';
 
-import '../../widgets/scaled.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
@@ -38,7 +37,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
-            child: Scaled(
+            child: Transform.scale(
               scale: 1.2,
               child: Text(
                 widget.title ?? 'Tracks',
