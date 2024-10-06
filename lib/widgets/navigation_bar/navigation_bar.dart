@@ -114,30 +114,27 @@ class NavigationBarState extends State<NavigationBar> {
 
     final titleFlipKey = 'title:${parent?.path}';
 
-    final parentWidget = Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: parent != null
-          ? [
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: GestureDetector(
-                    onTap: () async {
-                      _onHeaderTap(context, parent);
-                    },
-                    child: SizedBox(
-                        height: 80,
-                        width: 320,
-                        child: FlipText(
-                          key: Key(titleFlipKey),
-                          flipKey: titleFlipKey,
-                          text: parent.title,
-                          scale: 6,
-                          alpha: 80,
-                        ))),
-              )
-            ]
-          : [],
-    );
+    final Widget parentWidget = parent != null
+        ? Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: GestureDetector(
+              onTap: () async {
+                _onHeaderTap(context, parent);
+              },
+              child: SizedBox(
+                height: 80,
+                width: 320,
+                child: FlipText(
+                  key: Key(titleFlipKey),
+                  flipKey: titleFlipKey,
+                  text: parent.title,
+                  scale: 6,
+                  alpha: 80,
+                ),
+              ),
+            ),
+          )
+        : Container();
 
     if (parent != _lastParent) {
       _lastParent = parent;
@@ -200,53 +197,53 @@ class NavigationBarState extends State<NavigationBar> {
     final isSearch = path == '/search';
 
     return BackButtonListener(
-        onBackButtonPressed: () async {
-          final router = GoRouter.of(context);
-          final canPop = router.canPop();
+      onBackButtonPressed: () async {
+        final router = GoRouter.of(context);
+        final canPop = router.canPop();
 
-          if (!canPop) {
-            if (parent != null) {
-              router.go(parent.path);
-            }
+        if (!canPop) {
+          if (parent != null) {
+            router.go(parent.path);
           }
-          return !canPop;
-        },
-        child: Transform.translate(
-          offset: const Offset(0, -40),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                  child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  parentWidget,
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 20, vertical: 12),
-                    child: childrenWidget,
-                  )
-                ],
-              )),
-              Padding(
-                padding: const EdgeInsets.only(top: 54, right: 16),
-                child: IconButton(
-                  icon: Icon(
-                    isSearch ? Symbols.close : Symbols.search,
-                    size: 24,
-                  ),
-                  onPressed: () => {
-                    if (isSearch)
-                      {
-                        if (context.canPop()) {context.pop()}
-                      }
-                    else
-                      {context.push('/search')}
-                  },
-                ),
-              )
-            ],
+        }
+        return !canPop;
+      },
+      child: Stack(
+        children: [
+          Transform.translate(
+            offset: const Offset(0, -40),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                parentWidget,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  child: childrenWidget,
+                )
+              ],
+            ),
           ),
-        ));
+          Positioned(
+            top: 16,
+            right: 16,
+            child: IconButton(
+              icon: Icon(
+                isSearch ? Symbols.close : Symbols.search,
+                size: 24,
+              ),
+              onPressed: () => {
+                if (isSearch)
+                  {
+                    if (context.canPop()) {context.pop()}
+                  }
+                else
+                  {context.push('/search')}
+              },
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
