@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:player/widgets/playback_controller/constants/controller_items.dart';
+
+import '../widgets/playback_controller/constants/controller_items.dart';
 
 class PlaybackControllerProvider extends ChangeNotifier {
   static const String storageKey = 'controller_order';
@@ -23,6 +24,17 @@ class PlaybackControllerProvider extends ChangeNotifier {
       List<dynamic> storedOrderDynamic = jsonDecode(storedOrderJson);
       List<String> storedOrder = List<String>.from(storedOrderDynamic);
 
+      // Use a Map to store the last occurrence of each entry
+      Map<String, ControllerEntry> entryMap = {
+        for (var entry in controllerItems) entry.id: entry
+      };
+
+      // Clear duplicates, keeping only the last occurrence
+      _entries
+        ..clear()
+        ..addAll(entryMap.values);
+
+      // Sort according to storedOrder
       _entries.sort((a, b) {
         int indexA = storedOrder.indexOf(a.id);
         int indexB = storedOrder.indexOf(b.id);
@@ -31,7 +43,7 @@ class PlaybackControllerProvider extends ChangeNotifier {
 
       // Ensure all new entries are added to the end
       for (var item in controllerItems) {
-        if (!storedOrder.contains(item.id)) {
+        if (!_entries.any((entry) => entry.id == item.id)) {
           _entries.add(item);
         }
       }

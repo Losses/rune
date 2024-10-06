@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -20,6 +21,7 @@ import 'messages/generated.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/playlist.dart';
+import 'providers/full_screen.dart';
 import 'providers/library_path.dart';
 import 'providers/library_manager.dart';
 import 'providers/playback_controller.dart';
@@ -29,8 +31,17 @@ import 'theme.dart';
 import 'router.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await FullScreen.ensureInitialized();
   await GetStorage.init();
   await initializeRust(assignRustSignal);
+
+  final storage = GetStorage();
+  bool? storedFullScreen = storage.read<bool>('fullscreen_state');
+  if (storedFullScreen != null) {
+    FullScreen.setFullScreen(storedFullScreen);
+  }
+
   WidgetsFlutterBinding.ensureInitialized();
 
   // if it's not on the web, windows or android, load the accent color
@@ -55,11 +66,15 @@ void main() async {
           lazy: false,
           create: (_) => LibraryPathProvider(),
         ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => VolumeProvider(),
+        ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
-        ChangeNotifierProvider(create: (_) => VolumeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(create: (_) => FullScreenProvider()),
         ChangeNotifierProvider(
             create: (_) =>
                 TransitionCalculationProvider(navigationItems: navigationItems))

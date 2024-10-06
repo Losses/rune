@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/full_screen.dart';
+import 'package:player/widgets/playback_controller/fullscreen_button.dart';
 import 'package:provider/provider.dart';
 
 import '../../../utils/api/play_mode.dart';
@@ -227,5 +229,26 @@ var controllerItems = [
         showCoverArtWall(context);
       },
     ),
+  ),
+  ControllerEntry(
+    id: 'fullscreen',
+    icon: Symbols.fullscreen,
+    title: "Fullscreen",
+    subtitle: "Enter or exit fullscreen mode",
+    controllerButtonBuilder: (notReady, status) => const FullScreenButton(),
+    flyoutEntryBuilder: (context, notReady, status) {
+      final fullScreen = Provider.of<FullScreenProvider>(context);
+
+      return MenuFlyoutItem(
+        leading: fullScreen.isFullScreen
+            ? const Icon(Symbols.fullscreen_exit)
+            : const Icon(Symbols.fullscreen),
+        text: const Text('Fullscreen'),
+        onPressed: () {
+          Flyout.of(context).close();
+          fullScreen.setFullScreen(!fullScreen.isFullScreen);
+        },
+      );
+    },
   ),
 ];

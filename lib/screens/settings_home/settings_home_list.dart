@@ -38,7 +38,7 @@ class SettingsHomeListState extends State<SettingsHomeList> {
 
   final List<(String, String, IconData)> firstColumn = [
     ('Library', '/settings/library', Symbols.video_library),
-    ('Controller', '/settings/media_conrtoller', Symbols.tune),
+    ('Controller', '/settings/media_controller', Symbols.tune),
     ('About', '/settings/about', Symbols.info),
   ];
 
