@@ -83,10 +83,15 @@ class CollectionListViewState extends State<CollectionListView> {
     }).toList();
   }
 
-  Widget itemBuilder(BuildContext context, InternalCollection item) {
+  Widget itemBuilder(
+    BuildContext context,
+    InternalCollection item,
+    VoidCallback refreshList,
+  ) {
     return CollectionItem(
       collection: item,
       collectionType: widget.collectionType,
+      refreshList: refreshList,
     );
   }
 
@@ -111,11 +116,13 @@ final Map<CollectionType, String> routerName = {
 class CollectionItem extends StatelessWidget {
   final InternalCollection collection;
   final CollectionType collectionType;
+  final VoidCallback refreshList;
 
   CollectionItem({
     super.key,
     required this.collection,
     required this.collectionType,
+    required this.refreshList,
   });
 
   final contextController = FlyoutController();
@@ -134,6 +141,7 @@ class CollectionItem extends StatelessWidget {
           contextController,
           collectionType,
           collection.id,
+          refreshList,
         );
       },
       child: FlipTile(

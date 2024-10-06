@@ -25,7 +25,7 @@ final Map<CollectionType, String> typeToOperator = {
 
 final Map<
     CollectionType,
-    void Function(
+    Future<void> Function(
       BuildContext context,
       void Function()? refreshList,
       int id,
@@ -53,7 +53,7 @@ final Map<CollectionType, String> typeToEditLabel = {
 
 final Map<
     CollectionType,
-    void Function(
+    Future<void> Function(
       BuildContext context,
       void Function()? refreshList,
       int id,

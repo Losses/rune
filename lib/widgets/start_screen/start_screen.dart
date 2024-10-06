@@ -53,7 +53,7 @@ class InternalCollection {
 class StartScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
   final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection) itemBuilder;
+  final Widget Function(BuildContext, InternalCollection, VoidCallback) itemBuilder;
   final bool userGenerated;
 
   const StartScreen({
@@ -161,7 +161,7 @@ class StartScreenState extends State<StartScreen> {
                       groupIndex: index,
                       groupTitle: item.groupTitle,
                       items: item.items,
-                      itemBuilder: widget.itemBuilder,
+                      itemBuilder: (context, item) => widget.itemBuilder(context, item, _reloadData),
                     );
                   },
                 );

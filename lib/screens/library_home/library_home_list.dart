@@ -102,6 +102,7 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
                           return CollectionItem(
                             collectionType: item.collectionType,
                             collection: item,
+                            refreshList: () {},
                           );
                         },
                       );
