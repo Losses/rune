@@ -44,11 +44,11 @@ let
 in
 flutter324.buildFlutterApplication (rec {
   pname = "rune-${targetFlutterPlatform}";
-  version = "1.20.0";
+  version = "0.0.0-dev.7";
 
   src = fetchzip {
-    url = "https://github.com/Losses/rune/archive/dfec7c09b2e92407573892fae3d0d48305462ce5.tar.gz";
-    sha256 = "sha256-acXpWC57hFNpH2Ew02htsEeJgNctF/lnWLxzGd7fCu8=";
+    url = "https://github.com/Losses/rune/archive/89940184c370a5495982b2753fc5c10275e16d4c.tar.gz";
+    sha256 = "sha256-ZwhHTGS5MaIV5n7E0eqRRczY7+BnkVoUzjNSr0p+SEg=";
   };
 
   gitHashes = {
@@ -95,7 +95,7 @@ flutter324.buildFlutterApplication (rec {
   cargoDeps = rustPlatform.fetchCargoTarball {
     inherit src;
     name = "${pname}-${version}";
-    hash = "sha256-GJiDGg26vQlWsG/X/S45CsqrBOYp2iHjVi/k693SpGE=";
+    hash = "sha256-B7SQhGBsCo6xlZQOKx/ZXkdhPg4DyX1w1JUc+RgHU+M=";
   };
 
   desktopItem = makeDesktopItem {
