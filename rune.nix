@@ -47,8 +47,8 @@ flutter324.buildFlutterApplication (rec {
   version = "0.0.0-dev.7";
 
   src = fetchzip {
-    url = "https://github.com/Losses/rune/archive/89940184c370a5495982b2753fc5c10275e16d4c.tar.gz";
-    sha256 = "sha256-ZwhHTGS5MaIV5n7E0eqRRczY7+BnkVoUzjNSr0p+SEg=";
+    url = "https://github.com/Losses/rune/archive/90a0a8839de55ddc1d3cfda9a50b95567924de69.tar.gz";
+    sha256 = "sha256-atURF+EqPCSeI+/HvtgvLp6M3O7V8sCyIqfughfuxNo=";
   };
 
   gitHashes = {
