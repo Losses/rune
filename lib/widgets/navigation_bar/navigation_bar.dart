@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/widgets/smooth_horizontal_scroll.dart';
 
 import './flip_text.dart';
 import './flip_animation_manager.dart';
 import './utils/navigation_item.dart';
 import './utils/navigation_query.dart';
+
+const List<NavigationItem> emptySlibings = [];
 
 class NavigationBar extends StatefulWidget {
   final List<NavigationItem> items;
@@ -165,33 +168,40 @@ class NavigationBarState extends State<NavigationBar> {
       });
     }
 
-    final childrenWidget = Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: slibings?.asMap().entries.map((entry) {
+    final childrenWidget = SmoothHorizontalScroll(
+      builder: (context, scrollController) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        controller: scrollController,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: (slibings ?? emptySlibings).asMap().entries.map((entry) {
             final route = entry.value;
             final childFlipKey = 'child:${route.path}';
 
             return Padding(
               padding: const EdgeInsets.only(right: 24),
               child: GestureDetector(
-                  onTap: () async {
-                    _onRouteSelected(route);
-                  },
-                  child: AnimatedOpacity(
-                    key: Key('animation-$childFlipKey'),
-                    opacity: _slibingOpacities[entry.key],
-                    duration: const Duration(milliseconds: 300),
-                    child: FlipText(
-                      key: Key(childFlipKey),
-                      flipKey: childFlipKey,
-                      text: route.title,
-                      scale: 1.2,
-                      alpha: route == item ? 255 : 100,
-                    ),
-                  )),
+                onTap: () async {
+                  _onRouteSelected(route);
+                },
+                child: AnimatedOpacity(
+                  key: Key('animation-$childFlipKey'),
+                  opacity: _slibingOpacities[entry.key],
+                  duration: const Duration(milliseconds: 300),
+                  child: FlipText(
+                    key: Key(childFlipKey),
+                    flipKey: childFlipKey,
+                    text: route.title,
+                    scale: 1.2,
+                    alpha: route == item ? 255 : 100,
+                  ),
+                ),
+              ),
             );
-          }).toList() ??
-          [],
+          }).toList(),
+        ),
+      ),
     );
 
     final isSearch = path == '/search';
@@ -213,14 +223,11 @@ class NavigationBarState extends State<NavigationBar> {
           Transform.translate(
             offset: const Offset(0, -40),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.max,
               children: [
                 parentWidget,
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                  child: childrenWidget,
-                )
+                childrenWidget,
               ],
             ),
           ),
