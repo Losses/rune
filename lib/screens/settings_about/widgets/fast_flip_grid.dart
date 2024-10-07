@@ -2,11 +2,12 @@ import 'dart:math';
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../screens/settings_about/settings_mix.dart';
-import '../../../screens/settings_about/widgets/settings_mix.dart';
+import 'flip_grid_painter.dart';
+
+const flipInterval = 8;
 
 class FastFlipGrid extends StatefulWidget {
   final List<String> paths;
@@ -223,7 +224,7 @@ class FastFlipGridState extends State<FastFlipGrid>
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: CoverGridPainter(
+      painter: FlipGridPainter(
         _images,
         gridCount: _gridCount,
         rotates: _rotates,

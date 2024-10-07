@@ -3,8 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 
-const flipInterval = 8;
-
 class SettingsMixPage extends StatefulWidget {
   const SettingsMixPage({super.key});
 

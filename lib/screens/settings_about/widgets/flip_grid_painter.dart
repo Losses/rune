@@ -3,12 +3,12 @@ import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-class CoverGridPainter extends CustomPainter {
+class FlipGridPainter extends CustomPainter {
   final List<ui.Image?> images;
   final List<double> rotates;
   final int gridCount;
 
-  CoverGridPainter(
+  FlipGridPainter(
     this.images, {
     required this.rotates,
     this.gridCount = 3,
