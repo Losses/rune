@@ -51,13 +51,27 @@ class CoverGridPainter extends CustomPainter {
 
         canvas.transform(matrix4.storage);
 
-        // Define source and destination rectangles for drawing the image
-        final srcRect = Rect.fromLTWH(
-          0,
-          0,
-          image.width.toDouble(),
-          image.height.toDouble(),
-        );
+        // Calculate the aspect ratios
+        final imageAspectRatio = image.width / image.height;
+        final cellAspectRatio = cellWidth / cellHeight;
+
+        // Define source rectangle for the "cover" effect
+        Rect srcRect;
+        if (imageAspectRatio > cellAspectRatio) {
+          // Image is wider than the cell
+          final scale = image.height / cellHeight;
+          final scaledWidth = cellWidth * scale;
+          final dx = (image.width - scaledWidth) / 2;
+          srcRect = Rect.fromLTWH(dx, 0, scaledWidth, image.height.toDouble());
+        } else {
+          // Image is taller than the cell
+          final scale = image.width / cellWidth;
+          final scaledHeight = cellHeight * scale;
+          final dy = (image.height - scaledHeight) / 2;
+          srcRect = Rect.fromLTWH(0, dy, image.width.toDouble(), scaledHeight);
+        }
+
+        // Define destination rectangle
         final dstRect = Rect.fromCenter(
           center: Offset.zero,
           width: cellWidth,

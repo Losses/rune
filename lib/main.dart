@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
