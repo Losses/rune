@@ -42,6 +42,7 @@
 2. **Compile Rune**:
 
     ```powershell
+    flutter pub get
     flutter pub run rinf message
     flutter build windows --release
     ```
