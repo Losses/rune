@@ -100,6 +100,7 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
+    - assets/demo_cover.webp
     - assets/mono_color_logo.svg
     - assets/device-layer-1.svg
     - assets/device-layer-2.svg
