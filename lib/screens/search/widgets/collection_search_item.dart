@@ -4,7 +4,7 @@ import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
 import '../../../utils/context_menu/collection_item_context_menu.dart';
 import '../../../utils/router_extra.dart';
-import '../../../widgets/tile/flip_grid.dart';
+import '../../../widgets/tile/flip_cover_grid.dart';
 import '../../../widgets/start_screen/start_screen.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../screens/collection/collection_list.dart';

@@ -5,16 +5,18 @@ import 'dart:ui' as ui;
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'flip_grid_painter.dart';
+import 'utils/image_proxy.dart';
+import 'utils/flip_grid_painter.dart';
+import 'constants/image_memory_manager.dart';
 
 const flipInterval = 8;
 
-class FastFlipGrid extends StatefulWidget {
+class FastFlipCoverGrid extends StatefulWidget {
   final List<String> paths;
   final int speed;
   final int size;
 
-  const FastFlipGrid({
+  const FastFlipCoverGrid({
     super.key,
     required this.paths,
     required this.size,
@@ -22,10 +24,10 @@ class FastFlipGrid extends StatefulWidget {
   });
 
   @override
-  FastFlipGridState createState() => FastFlipGridState();
+  FastFlipCoverGridState createState() => FastFlipCoverGridState();
 }
 
-class FastFlipGridState extends State<FastFlipGrid>
+class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     with SingleTickerProviderStateMixin {
   late int _gridCount;
   late DateTime _lastFlipTime;
@@ -38,6 +40,7 @@ class FastFlipGridState extends State<FastFlipGrid>
   late List<ui.Image?> _images;
   final Random _random = Random();
   final Map<String, ui.Image> _imageCache = {};
+  final ImageProxy _imageProxy = imageMemoryManager.requireProxy();
   Ticker? _ticker;
   bool _isExecuting = false;
 
@@ -63,6 +66,7 @@ class FastFlipGridState extends State<FastFlipGrid>
     super.dispose();
     _ticker?.dispose();
     _imageCache.clear();
+    _imageProxy.dispose();
   }
 
   void _initializeGrid() {
@@ -125,36 +129,12 @@ class FastFlipGridState extends State<FastFlipGrid>
     final int size = (widget.size / _gridCount).ceil();
     final targetSize = size * pixelRatio.ceil();
 
-    // Load the image from file
-    final ui.Codec codec = await ui.instantiateImageCodecFromBuffer(
-      await ui.ImmutableBuffer.fromFilePath(path),
-    );
-
-    final ui.FrameInfo frameInfo = await codec.getNextFrame();
-    final ui.Image originalImage = frameInfo.image;
-
-    // Calculate the scale to cover the target size
-    final double scale = (originalImage.width > originalImage.height)
-        ? targetSize / originalImage.height
-        : targetSize / originalImage.width;
-
-    // Calculate the new size
-    final int newWidth = (originalImage.width * scale).ceil();
-    final int newHeight = (originalImage.height * scale).ceil();
-
-    // Load the image from file
-    final ui.Codec newCodec = await ui.instantiateImageCodecFromBuffer(
-      await ui.ImmutableBuffer.fromFilePath(path),
-      targetWidth: newWidth,
-      targetHeight: newHeight,
-    );
-
-    final ui.FrameInfo newFrameInfo = await newCodec.getNextFrame();
-    final ui.Image resizedImage = newFrameInfo.image;
+    final resizedImage = await _imageProxy.requestImage(path, targetSize);
 
     // Store the image in cache
     _imageCache[path] = resizedImage;
 
+    if (!mounted) return;
     setState(() {});
   }
 
@@ -217,6 +197,7 @@ class FastFlipGridState extends State<FastFlipGrid>
     }
 
     if (needsUpdate) {
+      if (!mounted) return;
       setState(() {});
     }
   }

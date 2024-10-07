@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/widgets/tile/tile.dart';
 
-import 'flip_grid.dart';
+import 'tile.dart';
+import 'fast_flip_cover_grid.dart';
 
 class FlipTile extends StatelessWidget {
   final String name;
@@ -28,11 +28,15 @@ class FlipTile extends StatelessWidget {
         alignment: Alignment.bottomLeft,
         children: [
           if (paths != null)
-            FlipCoverGrid(
-              paths: paths!,
-              id: name,
-              emptyTileType: emptyTileType,
-            ),
+            paths!.isNotEmpty
+                ? FastFlipCoverGrid(
+                    size: 120,
+                    paths: paths!,
+                  )
+                : EmptyFlipCover(
+                    name: name,
+                    emptyTileType: emptyTileType,
+                  ),
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -55,6 +59,40 @@ class FlipTile extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class EmptyFlipCover extends StatelessWidget {
+  const EmptyFlipCover({
+    super.key,
+    required this.name,
+    required this.emptyTileType,
+  });
+
+  final String name;
+  final BoringAvatarType emptyTileType;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final colors = [
+      theme.accentColor,
+      theme.accentColor.light,
+      theme.accentColor.lighter,
+      theme.accentColor.lightest,
+      theme.accentColor.dark,
+      theme.accentColor.darker,
+      theme.accentColor.darkest,
+    ];
+
+    return BoringAvatar(
+      name: name,
+      palette: BoringAvatarPalette(colors),
+      type: emptyTileType,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(0),
       ),
     );
   }
