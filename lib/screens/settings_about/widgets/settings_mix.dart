@@ -1,14 +1,15 @@
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
 
 class CoverGridPainter extends CustomPainter {
-  final ui.Image image;
+  final List<ui.Image?> images;
   final List<double> rotates;
   final int gridCount;
 
   CoverGridPainter(
-    this.image, {
+    this.images, {
     required this.rotates,
     this.gridCount = 3,
   });
@@ -24,6 +25,11 @@ class CoverGridPainter extends CustomPainter {
     // Loop through the grid
     for (int row = 0; row < gridCount; row++) {
       for (int col = 0; col < gridCount; col++) {
+        final k = col + row * gridCount;
+        final image = images[k % images.length];
+
+        if (image == null) continue;
+
         // Calculate the rotation angle based on the grid position
         final thisRotate = rotates[(row * gridCount + col) % rotates.length];
 
@@ -39,7 +45,9 @@ class CoverGridPainter extends CustomPainter {
         // Apply perspective and rotation transformations
         final matrix4 = Matrix4.identity()
           ..setEntry(3, 2, 0.005) // Perspective
-          ..rotateX(thisRotate); // Rotation around X-axis
+          ..rotateX(
+            thisRotate >= pi / 2 ? pi - thisRotate : thisRotate,
+          ); // Rotation around X-axis
 
         canvas.transform(matrix4.storage);
 

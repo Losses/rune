@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui' as ui;
 
@@ -31,10 +32,7 @@ class _SettingsMixPageState extends State<SettingsMixPage> {
           height: 120,
           child: FlipCoverGrid(
             paths: [
-              'assets/demo_cover.webp',
-              'assets/demo_cover.webp',
-              'assets/demo_cover.webp',
-              'assets/demo_cover.webp'
+
             ],
             size: 120,
           ),
@@ -71,6 +69,7 @@ class FlipCoverGridState extends State<FlipCoverGrid>
   late List<bool> _isFlipping;
   late List<DateTime?> _flipStartTimes;
   late List<double> _rotates;
+  late List<ui.Image?> _images;
   final Random _random = Random();
   final Map<String, ui.Image> _imageCache = {};
   late Ticker _ticker;
@@ -94,6 +93,7 @@ class FlipCoverGridState extends State<FlipCoverGrid>
     _isFront = List.filled(_gridCount * _gridCount, false);
     _isFlipping = List.filled(_gridCount * _gridCount, false);
     _flipStartTimes = List.filled(_gridCount * _gridCount, null);
+    _images = List.filled(_gridCount * _gridCount, null);
     _rotates = List.filled(_gridCount * _gridCount, 0.0);
   }
 
@@ -108,7 +108,7 @@ class FlipCoverGridState extends State<FlipCoverGrid>
       _check();
     }
 
-    _updateRotations();
+    _updateParameters();
   }
 
   void _check() {
@@ -141,17 +141,18 @@ class FlipCoverGridState extends State<FlipCoverGrid>
   }
 
   Future<void> _loadAndCacheImage(String path) async {
-    final ByteData data = await rootBundle.load(path);
-    final Uint8List bytes = data.buffer.asUint8List();
+    final Uint8List bytes = await File.fromUri(Uri.file(path)).readAsBytes();
     final int size = (widget.size / _gridCount).ceil();
 
-    final ui.Codec codec = await ui.instantiateImageCodec(
-      bytes,
+    final ui.Codec codec = await ui.instantiateImageCodecFromBuffer(
+      await ui.ImmutableBuffer.fromUint8List(bytes),
       targetWidth: size,
-      targetHeight: size,
     );
+
     final ui.FrameInfo fi = await codec.getNextFrame();
     _imageCache[path] = fi.image;
+
+    setState(() {});
   }
 
   void _stageFlipGridData(int index) {
@@ -169,11 +170,7 @@ class FlipCoverGridState extends State<FlipCoverGrid>
         attempts < maxAttempts);
 
     if (attempts < maxAttempts) {
-      if (_isFront[index] == true) {
-        _backPaths[index] = newPath;
-      } else {
-        _frontPaths[index] = newPath;
-      }
+      _backPaths[index] = newPath;
     }
   }
 
@@ -190,24 +187,32 @@ class FlipCoverGridState extends State<FlipCoverGrid>
     }
   }
 
-  void _updateRotations() {
+  void _updateParameters() {
     bool needsUpdate = false;
     for (int k = 0; k < _gridCount * _gridCount; k++) {
       if (_isFlipping[k] && _flipStartTimes[k] != null) {
         final elapsedTime =
             DateTime.now().difference(_flipStartTimes[k]!).inMilliseconds;
         _rotates[k] = (elapsedTime / widget.speed) * pi;
-        if (_rotates[k] >= pi) {
+        if (_rotates[k] > pi) {
           _rotates[k] = 0;
           _isFlipping[k] = false;
           _flipStartTimes[k] = null;
           _isFront[k] = !_isFront[k];
+
+          final frontPath = _frontPaths[k];
+          _frontPaths[k] = _backPaths[k];
+          _backPaths[k] = frontPath;
         }
         needsUpdate = true;
       } else {
         _rotates[k] = 0;
       }
+
+      _images[k] =
+          _imageCache[(_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k]];
     }
+
     if (needsUpdate) {
       setState(() {});
     }
@@ -215,17 +220,11 @@ class FlipCoverGridState extends State<FlipCoverGrid>
 
   @override
   Widget build(BuildContext context) {
-    final image = _imageCache[_frontPaths[0]];
-
-    if (image == null) {
-      return Container();
-    } else {
-      return CoverGrid(
-        image: image,
-        rotates: _rotates,
-        gridCount: _gridCount,
-      );
-    }
+    return CoverGrid(
+      images: _images,
+      rotates: _rotates,
+      gridCount: _gridCount,
+    );
   }
 
   @override
