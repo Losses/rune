@@ -7,11 +7,11 @@ message DirectoryTreeResponse {
     repeated DirectoryTreeResponse children = 3;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchDirectoryTreeRequest {
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchDirectoryTreeResponse {
   DirectoryTreeResponse root = 1;
 }

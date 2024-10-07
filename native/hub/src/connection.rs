@@ -1,16 +1,14 @@
 use anyhow::Result;
 use log::info;
 
-use crate::messages;
+use crate::messages::*;
 
 pub async fn receive_media_library_path<F, Fut>(main_loop: F) -> Result<()>
 where
     F: Fn(String) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = ()> + Send,
 {
-    use messages::connection::*;
-
-    let mut receiver = MediaLibraryPath::get_dart_signal_receiver()?; // GENERATED
+    let receiver = MediaLibraryPath::get_dart_signal_receiver();
 
     loop {
         while let Some(dart_signal) = receiver.recv().await {

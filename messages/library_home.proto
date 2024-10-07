@@ -3,12 +3,12 @@ package library_home;
 
 import "collection.proto";
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchLibrarySummaryRequest {
   bool bake_cover_arts = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message LibrarySummaryResponse {
   repeated collection.Collection albums = 1;
   repeated collection.Collection artists = 2;

@@ -11,7 +11,7 @@ enum CollectionType {
   Track = 4;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchCollectionGroupSummaryRequest {
   CollectionType collection_type = 1;
 }
@@ -21,13 +21,13 @@ message CollectionGroupSummary {
   int32 count = 2;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message CollectionGroupSummaryResponse {
   CollectionType collection_type = 1;
   repeated CollectionGroupSummary groups = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchCollectionGroupsRequest {
   CollectionType collection_type = 1;
   bool bake_cover_arts = 2;
@@ -47,32 +47,32 @@ message CollectionGroup {
   repeated Collection collections = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message CollectionGroups {
   repeated CollectionGroup groups = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchCollectionByIdsRequest {
   CollectionType collection_type = 1;
   bool bake_cover_arts = 2;
   repeated int32 ids = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchCollectionByIdsResponse {
   CollectionType collection_type = 1;
   repeated Collection result = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SearchCollectionSummaryRequest {
   CollectionType collection_type = 1;
   bool bake_cover_arts = 2;
   int32 n = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message SearchCollectionSummaryResponse {
   CollectionType collection_type = 1;
   repeated Collection result = 2;

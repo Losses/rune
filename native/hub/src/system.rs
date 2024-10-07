@@ -7,7 +7,7 @@ use sysinfo::Users;
 
 use database::connection::MainDbConnection;
 
-use crate::messages::system::{SystemInfoRequest, SystemInfoResponse};
+use crate::messages::*;
 
 pub async fn system_info_request(
     _main_db: Arc<MainDbConnection>,

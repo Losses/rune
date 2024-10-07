@@ -8,7 +8,7 @@ message MixQuery {
   string parameter = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message MixQueryRequest {
   repeated MixQuery queries = 1;
   int32 cursor = 2;
@@ -16,7 +16,7 @@ message MixQueryRequest {
   bool bake_cover_arts = 4;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message MixQueryResponse {
   repeated media_file.MediaFile files = 1;
   map<int32, string> cover_art_map = 2; 
@@ -30,16 +30,16 @@ message Mix {
   int32 mode = 5;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchAllMixesRequest {
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchAllMixesResponse {
   repeated Mix mixes = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message CreateMixRequest {
   string name = 1;
   string group = 2;
@@ -48,12 +48,12 @@ message CreateMixRequest {
   repeated MixQuery queries = 5;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message CreateMixResponse {
   Mix mix = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message UpdateMixRequest {
   int32 mix_id = 1;
   string name = 2;
@@ -63,50 +63,50 @@ message UpdateMixRequest {
   repeated MixQuery queries = 6;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message UpdateMixResponse {
   Mix mix = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message RemoveMixRequest {
   int32 mix_id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message RemoveMixResponse {
   int32 mix_id = 1;
   bool success = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message AddItemToMixRequest {
   int32 mix_id = 1;
   string operator = 2;
   string parameter = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message AddItemToMixResponse {
   bool success = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message GetMixByIdRequest {
   int32 mix_id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message GetMixByIdResponse {
   Mix mix = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchMixQueriesRequest {
   int32 mix_id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchMixQueriesResponse {
   repeated MixQuery result = 1;
 }

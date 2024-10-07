@@ -10,15 +10,9 @@ use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, mixes, playlists};
 
-use crate::messages::collection::{
-    Collection, CollectionGroup, CollectionGroupSummary, CollectionGroupSummaryResponse,
-    CollectionGroups, FetchCollectionByIdsRequest, FetchCollectionByIdsResponse,
-    FetchCollectionGroupSummaryRequest, FetchCollectionGroupsRequest,
-    SearchCollectionSummaryRequest, SearchCollectionSummaryResponse,
-};
+use crate::messages::*;
 
 use crate::utils::inject_cover_art_map;
-use crate::MixQuery;
 
 #[async_trait]
 pub trait CollectionType: Send + Sync + 'static {

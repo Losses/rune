@@ -10,11 +10,7 @@ use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 
-use crate::GetCoverArtIdsByMixQueriesRequest;
-use crate::GetCoverArtIdsByMixQueriesResponse;
-use crate::GetCoverArtIdsByMixQueriesResponseUnit;
-use crate::MixQuery;
-use crate::{GetRandomCoverArtIdsRequest, GetRandomCoverArtIdsResponse};
+use crate::messages::*;
 
 pub async fn get_random_cover_art_ids_request(
     main_db: Arc<MainDbConnection>,

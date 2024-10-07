@@ -1,14 +1,14 @@
 syntax = "proto3";
 package search;
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SearchForRequest {
   string query_str = 1;
   repeated string fields = 2;
   int32 n = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message SearchForResponse {
   repeated int32 artists = 1;
   repeated int32 albums = 2;

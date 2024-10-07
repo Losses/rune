@@ -4,7 +4,7 @@ package media_file;
 import "album.proto";
 import "artist.proto";
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchMediaFilesRequest {
   int32 cursor = 1;
   int32 page_size = 2;
@@ -21,31 +21,31 @@ message MediaFile {
   int32 cover_art_id = 7;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchParsedMediaFileRequest {
   int32 id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchParsedMediaFileResponse {
   MediaFile file = 1;
   repeated artist.Artist artists = 2;
   album.Album album = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchMediaFilesResponse {
   repeated MediaFile media_files = 1;
   map<int32, string> cover_art_map = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchMediaFileByIdsRequest {
   repeated int32 ids = 1;
   bool bake_cover_arts = 2;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchMediaFileByIdsResponse {
   repeated MediaFile media_files = 1;
   map<int32, string> cover_art_map = 2;
@@ -57,12 +57,12 @@ message MediaFileSummary {
   int32 cover_art_id = 7;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SearchMediaFileSummaryRequest {
   int32 n = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message SearchMediaFileSummaryResponse {
   repeated MediaFileSummary result = 1;
 }

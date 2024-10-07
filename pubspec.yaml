@@ -66,7 +66,7 @@ dependencies:
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
   macos_window_utils: ^1.5.0
-  rinf: ^6.15.0
+  rinf: ^7.0.2
   fixnum: ^1.1.0
   responsive_framework: ^1.5.1
   very_good_infinite_list: ^0.8.0

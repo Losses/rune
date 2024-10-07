@@ -6,10 +6,7 @@ use rinf::DartSignal;
 use database::actions::analysis::{get_analyse_count, if_analyse_exists};
 use database::connection::MainDbConnection;
 
-use crate::{
-    GetAnalyseCountRequest, GetAnalyseCountResponse, IfAnalyseExistsRequest,
-    IfAnalyseExistsResponse,
-};
+use crate::messages::*;
 
 pub async fn if_analyse_exists_request(
     main_db: Arc<MainDbConnection>,

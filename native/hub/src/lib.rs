@@ -38,6 +38,7 @@ use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
 use crate::media_file::*;
+use crate::messages::*;
 use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
@@ -46,31 +47,11 @@ use crate::search::*;
 use crate::stat::*;
 use crate::system::*;
 
-use messages::analyse::*;
-use messages::collection::*;
-use messages::cover_art::*;
-use messages::directory::*;
-use messages::library_home::*;
-use messages::library_manage::*;
-use messages::media_file::*;
-use messages::mix::*;
-use messages::playback::*;
-use messages::playlist::*;
-use messages::search::*;
-use messages::stat::*;
-use messages::system::*;
-
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
         paste::paste! {
             $(
-                let mut [<receiver_ $type:snake>] = match <$type>::get_dart_signal_receiver() {
-                    Ok(receiver) => receiver,
-                    Err(e) => {
-                        error!("Failed to get Dart signal receiver for {}: {}", stringify!($type), e);
-                        return;
-                    }
-                };
+                let [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver();
             )*
 
             loop {
@@ -209,6 +190,7 @@ async fn player_loop(path: String) {
 
 rinf::write_interface!();
 
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let filter = EnvFilter::new(
         "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
@@ -223,4 +205,6 @@ async fn main() {
     if let Err(e) = receive_media_library_path(player_loop).await {
         error!("Failed to receive media library path: {}", e);
     }
+
+    rinf::dart_shutdown().await;
 }

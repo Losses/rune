@@ -1,11 +1,11 @@
 syntax = "proto3";
 package system;
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SystemInfoRequest {
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message SystemInfoResponse {
   string build_date = 1;
   string build_sha = 2;

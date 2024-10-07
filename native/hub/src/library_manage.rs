@@ -15,13 +15,7 @@ use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use database::connection::SearchDbConnection;
 
-use crate::messages::library_manage::{
-    ScanAudioLibraryProgress, ScanAudioLibraryRequest, ScanAudioLibraryResponse,
-};
-use crate::{
-    AnalyseAudioLibraryProgress, AnalyseAudioLibraryRequest, AnalyseAudioLibraryResponse,
-    CloseLibraryRequest, CloseLibraryResponse,
-};
+use crate::messages::*;
 
 pub async fn close_library_request(
     lib_path: Arc<String>,

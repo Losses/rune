@@ -9,7 +9,7 @@ use database::actions::search::search_for;
 use database::actions::search::CollectionType;
 use database::connection::SearchDbConnection;
 
-use crate::messages::search::{SearchForRequest, SearchForResponse};
+use crate::messages::*;
 
 pub async fn search_for_request(
     search_db: Arc<Mutex<SearchDbConnection>>,

@@ -3,12 +3,12 @@ package cover_art;
 
 import "mix.proto";
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message GetRandomCoverArtIdsRequest {
   int32 count = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message GetRandomCoverArtIdsResponse {
   repeated string paths = 1;
 }
@@ -18,7 +18,7 @@ message GetCoverArtIdsByMixQueriesRequestUnit {
   repeated mix.MixQuery queries = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message GetCoverArtIdsByMixQueriesRequest {
     repeated GetCoverArtIdsByMixQueriesRequestUnit requests = 1;
 }
@@ -28,7 +28,7 @@ message GetCoverArtIdsByMixQueriesResponseUnit {
   repeated int32 cover_art_ids = 2;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message GetCoverArtIdsByMixQueriesResponse {
     repeated GetCoverArtIdsByMixQueriesResponseUnit result = 1;
 }

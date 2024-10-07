@@ -12,80 +12,80 @@ message PlaylistsGroup {
   repeated Playlist playlists = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message FetchAllPlaylistsRequest {
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message FetchAllPlaylistsResponse {
   repeated Playlist playlists = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message CreatePlaylistRequest {
   string name = 1;
   string group = 2;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message CreatePlaylistResponse {
   Playlist playlist = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message UpdatePlaylistRequest {
   int32 playlist_id = 1;
   string name = 2;
   string group = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message UpdatePlaylistResponse {
   Playlist playlist = 1;
 }
 
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message RemovePlaylistRequest {
   int32 playlist_id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message RemovePlaylistResponse {
   int32 playlist_id = 1;
   bool success = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message AddItemToPlaylistRequest {
   int32 playlist_id = 1;
   int32 media_file_id = 2;
   optional int32 position = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message AddItemToPlaylistResponse {
   bool success = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message ReorderPlaylistItemPositionRequest {
   int32 playlist_id = 1;
   int32 media_file_id = 2;
   int32 new_position = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message ReorderPlaylistItemPositionResponse {
   bool success = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message GetPlaylistByIdRequest {
   int32 playlist_id = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message GetPlaylistByIdResponse {
   Playlist playlist = 1;
 }

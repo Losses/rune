@@ -3,7 +3,7 @@ package playback;
 
 import "mix.proto";
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message PlaybackStatus {
   string state = 1;
   float progress_seconds = 2;
@@ -19,39 +19,39 @@ message PlaybackStatus {
   string cover_art_path = 12;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message PlayRequest {}
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message PauseRequest {}
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message NextRequest {}
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message PreviousRequest {}
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SetPlaybackModeRequest {
   uint32 mode = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SwitchRequest {
     uint32 index = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message SeekRequest {
     double position_seconds = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message RemoveRequest {
     uint32 index = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message MovePlaylistItemRequest {
     uint32 old_index = 1;
     uint32 new_index = 2;
@@ -65,27 +65,27 @@ message PlaylistItem {
   double duration = 5;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message PlaylistUpdate {
   repeated PlaylistItem items = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message RealtimeFFT {
   repeated float value = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message VolumeRequest {
   float volume = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message VolumeResponse {
   float volume = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message OperatePlaybackWithMixQueryRequest {
     repeated mix.MixQuery queries = 1;
     uint32 playback_mode = 2;
@@ -96,7 +96,7 @@ message OperatePlaybackWithMixQueryRequest {
     repeated int32 fallback_media_file_ids = 7;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message OperatePlaybackWithMixQueryResponse {
     repeated int32 file_ids = 1;
 }

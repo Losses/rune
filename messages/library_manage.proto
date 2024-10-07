@@ -1,46 +1,46 @@
 syntax = "proto3";
 package library_manage;
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message CloseLibraryRequest {
     string path = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message CloseLibraryResponse {
     string path = 1;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message ScanAudioLibraryRequest {
     string path = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message ScanAudioLibraryProgress {
     string path = 1;
     int32 progress = 2;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message ScanAudioLibraryResponse {
     string path = 1;
     int32 progress = 2;
 }
 
-// [RINF:DART-SIGNAL]
+// [DART-SIGNAL]
 message AnalyseAudioLibraryRequest {
     string path = 1;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message AnalyseAudioLibraryProgress {
     string path = 1;
     int32 progress = 2;
     int32 total = 3;
 }
 
-// [RINF:RUST-SIGNAL]
+// [RUST-SIGNAL]
 message AnalyseAudioLibraryResponse {
     string path = 1;
     int32 total = 2;

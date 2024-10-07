@@ -3,13 +3,12 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use rinf::DartSignal;
 
-use crate::DirectoryTreeResponse;
 
 use database::actions::directory::get_directory_tree;
 use database::actions::directory::DirectoryTree;
 use database::connection::MainDbConnection;
 
-use crate::{FetchDirectoryTreeRequest, FetchDirectoryTreeResponse};
+use crate::messages::*;
 
 fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
     DirectoryTreeResponse {
