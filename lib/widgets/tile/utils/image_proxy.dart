@@ -14,6 +14,11 @@ class ImageProxy {
     return manager.loadImage(key, this);
   }
 
+  ui.Image? getCachedImage(String path, int size) {
+    final key = ImageKey(path, size);
+    return manager.getCachedImage(key);
+  }
+
   void dispose() {
     for (var key in requestedImages) {
       manager.releaseImage(key, this);

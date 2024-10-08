@@ -55,6 +55,15 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   void didChangeDependencies() {
     super.didChangeDependencies();
     pixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    final int size = (widget.size / _gridCount).ceil();
+    final targetSize = size * pixelRatio.ceil();
+
+    _images = List.generate(
+      _gridCount * _gridCount,
+      (i) => _imageProxy.getCachedImage(_frontPaths[i], targetSize),
+    );
+
     if (_ticker == null) {
       _updateCache();
       _ticker = Ticker(_onTick)..start();
@@ -79,7 +88,6 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     _isFront = List.filled(_gridCount * _gridCount, false);
     _isFlipping = List.filled(_gridCount * _gridCount, false);
     _flipStartTimes = List.filled(_gridCount * _gridCount, null);
-    _images = List.filled(_gridCount * _gridCount, null);
     _rotates = List.filled(_gridCount * _gridCount, 0.0);
   }
 

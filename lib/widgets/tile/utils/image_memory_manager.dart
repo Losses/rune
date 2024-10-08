@@ -13,17 +13,22 @@ class ImageMemoryManager {
   ImageMemoryManager._internal();
 
   final Map<ImageKey, Completer<ui.Image>> _imageCache = {};
-  final Map<ImageKey, Set<ImageProxy>> _referenceCount = {};
+  final Map<ImageKey, ui.Image> _syncImageCache = {};
+  final Map<ImageKey, Set<ImageProxy>> _proxyReference = {};
+  Timer? _cleanupTimer;
 
   ImageProxy requireProxy() {
     final proxy = ImageProxy(manager: this);
-
     return proxy;
   }
 
+  ui.Image? getCachedImage(ImageKey key) {
+    return _syncImageCache[key];
+  }
+
   Future<ui.Image> loadImage(ImageKey key, ImageProxy proxy) {
-    final set = _referenceCount[key] ?? {};
-    _referenceCount[key] = set;
+    final set = _proxyReference[key] ?? {};
+    _proxyReference[key] = set;
 
     if (_imageCache.containsKey(key)) {
       set.add(proxy);
@@ -71,6 +76,9 @@ class ImageMemoryManager {
 
       final ui.FrameInfo newFrameInfo = await newCodec.getNextFrame();
       final ui.Image resizedImage = newFrameInfo.image;
+
+      _syncImageCache[key] = resizedImage;
+
       completer.complete(resizedImage);
     } catch (e) {
       completer.completeError(e);
@@ -78,16 +86,38 @@ class ImageMemoryManager {
   }
 
   void releaseImage(ImageKey key, ImageProxy proxy) {
-    if (!_referenceCount.containsKey(key)) return;
+    if (!_proxyReference.containsKey(key)) return;
 
-    final set = _referenceCount[key];
+    final set = _proxyReference[key];
     if (set == null) return;
     set.remove(proxy);
 
     if (set.isEmpty) {
-      _imageCache.remove(key);
-      _referenceCount.remove(key);
+      _throttleCleanup();
     }
+  }
+
+  void _throttleCleanup() {
+    if (_cleanupTimer?.isActive ?? false) return;
+
+    _cleanupTimer = Timer(const Duration(milliseconds: 200), _cleanupCache);
+  }
+
+  void _cleanupCache() {
+    // Create a list of keys to remove
+    final Set<ImageKey> keysToRemove = {};
+
+    // Iterate over each key-value pair in _proxyReference
+    _proxyReference.forEach((key, set) {
+      if (set.isEmpty) {
+        keysToRemove.add(key); // Add the key to the list if the set is empty
+      }
+    });
+
+    // After iteration, remove the empty keys from the caches
+    _imageCache.removeWhere((value, _) => keysToRemove.contains(value));
+    _syncImageCache.removeWhere((value, _) => keysToRemove.contains(value));
+    _proxyReference.removeWhere((value, _) => keysToRemove.contains(value));
   }
 }
 
