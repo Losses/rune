@@ -39,7 +39,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: rinf message --experimental_allow_proto3_optional
 
       - name: build linux
         run: flutter build linux --verbose
