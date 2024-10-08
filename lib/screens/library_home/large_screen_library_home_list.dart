@@ -2,11 +2,10 @@ import 'dart:async';
 
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/widgets/start_screen/link_tile.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
+import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/start_screen.dart';
@@ -14,18 +13,20 @@ import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 import '../collection/collection_list.dart';
 
-class LibraryHomeListView extends StatefulWidget {
+import './constants/first_column.dart';
+
+class LargeScreenLibraryHomeListView extends StatefulWidget {
   final String libraryPath;
   final StartScreenLayoutManager layoutManager;
 
-  const LibraryHomeListView(
+  const LargeScreenLibraryHomeListView(
       {super.key, required this.libraryPath, required this.layoutManager});
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
 }
 
-class LibraryHomeListState extends State<LibraryHomeListView> {
+class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
   @override
@@ -67,14 +68,6 @@ class LibraryHomeListState extends State<LibraryHomeListView> {
 
     return groups;
   }
-
-  final List<(String, String, IconData)> firstColumn = [
-    ('Artists', '/artists', Symbols.face),
-    ('Albums', '/albums', Symbols.album),
-    ('Playlists', '/playlists', Symbols.queue_music),
-    ('Mixes', '/mixes', Symbols.magic_button),
-    ('Tracks', '/tracks', Symbols.music_note),
-  ];
 
   @override
   Widget build(BuildContext context) {

@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../../widgets/track_list/track_list.dart';
-import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';

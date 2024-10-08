@@ -6,7 +6,7 @@ import '../../utils/queries_has_recommendation.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
-import '../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../start_screen/managed_start_screen_item.dart';
 
 import './track_list_item.dart';
 

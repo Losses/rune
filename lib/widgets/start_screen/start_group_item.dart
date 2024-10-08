@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'providers/managed_start_screen_item.dart';
+import 'managed_start_screen_item.dart';
 
 class Dimensions {
   final int rows;

@@ -130,6 +130,7 @@ class Rune extends StatelessWidget {
                   textDirection: appTheme.textDirection,
                   child: ResponsiveBreakpoints.builder(
                     breakpoints: [
+                      const Breakpoint(start: 0, end: 320, name: 'SMALL_PHONE'),
                       const Breakpoint(start: 0, end: 480, name: PHONE),
                       const Breakpoint(start: 481, end: 650, name: MOBILE),
                       const Breakpoint(start: 651, end: 800, name: TABLET),
