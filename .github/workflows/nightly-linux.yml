@@ -1,24 +1,23 @@
-name: Build & Release
+name: Build Linux
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-release-linux-zip:
+  build-linux:
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      
-      - name: checkout branch
+      - name: Checkout branch
         uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev mpv libmpv-dev dpkg-dev
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config dpkg-dev
 
-      - name: Setup flutter
+      - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -40,22 +39,20 @@ jobs:
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
 
-      - name: flutter pub get
+      - name: Flutter pub get
         run: flutter pub get
 
       - name: Generate message files
         run: rinf message 
 
-      - name: build linux
+      - name: Build linux
         run: flutter build linux --release --verbose
-      - name: Zip 
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}-linux.zip
-          directory: build/linux/x64/release/bundle
-      
-      - name: upload artifact linux zip
+
+      - name: Upload artifact 
         uses: actions/upload-artifact@v4
         with:
-          path: build/linux/x64/release/bundle/Rune*.zip
+          path: build/linux/x64/release/bundle/
+          name: Rune-${{ github.ref_name }}-linux
+
+      
+      
