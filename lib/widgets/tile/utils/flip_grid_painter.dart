@@ -87,6 +87,29 @@ class FlipGridPainter extends CustomPainter {
     }
   }
 
+  bool static = false;
+
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant FlipGridPainter oldDelegate) {
+    if (oldDelegate.gridCount != gridCount) return false;
+
+    if (oldDelegate.images.length != images.length) return true;
+
+    for (int i = 0; i < images.length; i++) {
+      if (oldDelegate.images[i] != images[i]) {
+        return true;
+      }
+    }
+
+    final allZero = rotates.firstWhere((x) => x != 0, orElse: () => -1) == -1;
+
+    if (allZero && !static) {
+      static = true;
+      return true;
+    }
+
+    if (allZero) return false;
+
+    return true;
+  }
 }

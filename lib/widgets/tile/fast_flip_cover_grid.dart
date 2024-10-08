@@ -65,8 +65,16 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     );
 
     if (_ticker == null) {
-      _updateCache();
-      _ticker = Ticker(_onTick)..start();
+      if (widget.paths.length > 1) {
+        _updateCache();
+        _ticker = Ticker(_onTick)..start();
+      } else {
+        _updateCache().then((_) {
+          if (!mounted) return;
+          _images[0] = _imageCache[widget.paths[0]];
+          setState(() {});
+        });
+      }
     }
   }
 
