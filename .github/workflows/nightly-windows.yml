@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-linux:
+  build-windows:
     permissions:
       contents: write
     runs-on: windows-latest
@@ -14,7 +14,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          vcpkg install lmdb alsa 
+          vcpkg install lmdb 
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
