@@ -58,4 +58,4 @@ jobs:
       - name: upload artifact linux zip
         uses: actions/upload-artifact@v4
         with:
-          path: build/
+          path: build/linux/x64/release/bundle/Rune*.zip
