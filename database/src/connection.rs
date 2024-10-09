@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
-use heed::{Env, EnvOpenOptions};
+use heed::{Env, EnvOpenOptions, EnvFlags};
 use log::{info, LevelFilter};
 use sea_orm::{ConnectOptions, Database};
 use tantivy::{schema::*, IndexReader, TantivyError};
@@ -121,6 +121,7 @@ pub fn connect_recommendation_db(
     let env = unsafe {
         EnvOpenOptions::new()
             .map_size(DB_SIZE)
+            .flags(EnvFlags::NO_LOCK)
             .open(path_str)
             .map_err(|e| ConnectRecommendationDbError::EnvOpenError(Box::new(e)))?
     };

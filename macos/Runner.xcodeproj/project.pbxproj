@@ -93,6 +93,8 @@
 		AB17CEC867529B435E38FDD3 /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		B0431E7E8F1EA155EC447E6C /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
 		F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb.dylib; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/lib/liblmdb.dylib; sourceTree = "<group>"; };
+		F929E5062CB6027A00A66BD1 /* liblmdb.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liblmdb.a; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/lib/liblmdb.a; sourceTree = "<group>"; };
+		F929E5082CB6028D00A66BD1 /* lmdb.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = lmdb.h; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/include/lmdb.h; sourceTree = "<group>"; };
 		F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -209,6 +211,8 @@
 		D73912EC22F37F3D000D13A0 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				F929E5082CB6028D00A66BD1 /* lmdb.h */,
+				F929E5062CB6027A00A66BD1 /* liblmdb.a */,
 				F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */,
 				F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */,
 				92AC0AB39EC7D98182F4FA38 /* Pods_Runner.framework */,

@@ -1,4 +1,5 @@
 import 'package:get_storage/get_storage.dart';
+import 'package:player/utils/file_storage/mac_secure_manager.dart';
 
 class FileStorageService {
   static const String _openedFilesKey = 'library_path';
@@ -20,6 +21,8 @@ class FileStorageService {
     // If the file path already exists, remove it to re-add it to the end of the list
     openedFiles.remove(filePath);
     openedFiles.add(filePath);
+
+    await MacSecureManager.shared.saveBookmark(filePath);
 
     // Store the updated list of file paths
     _storage.write(_openedFilesKey, openedFiles);

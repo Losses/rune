@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/connection.pb.dart';
-import '../utils/file_storage_service.dart';
+import '../utils/file_storage/file_storage_service.dart';
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;

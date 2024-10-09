@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:player/utils/file_storage/mac_secure_manager.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -37,6 +38,8 @@ void main() async {
   await windowManager.ensureInitialized();
   await FullScreen.ensureInitialized();
   await GetStorage.init();
+  await GetStorage.init(MacSecureManager.storageName);
+  await MacSecureManager.shared.loadBookmark();
   await initializeRust(assignRustSignal);
 
   try {
