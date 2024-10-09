@@ -24,7 +24,7 @@ class NowPlaying extends StatelessWidget {
 
     final r = ResponsiveBreakpoints.of(context);
     final miniLayout = r.smallerOrEqualTo(TABLET);
-    final hideProgress = r.isPhone;
+    final hideProgress = r.smallerOrEqualTo(PHONE);
 
     final progress =
         NowPlayingImplementation(notReady: notReady, status: status);

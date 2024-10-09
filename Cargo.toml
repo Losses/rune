@@ -6,6 +6,3 @@
 [workspace]
 members = ["./native/*", "./cli"]
 resolver = "2"
-
-[patch.crates-io]
-lmdb-master-sys = { path = "./lmdb-master-sys" }

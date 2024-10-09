@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../widgets/start_screen/providers/managed_start_screen_item.dart';
+import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../messages/collection.pb.dart';
 
 import './search_card.dart';

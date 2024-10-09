@@ -13,6 +13,8 @@ class SettingsTestPage extends StatefulWidget {
 }
 
 const globalPadding = EdgeInsets.all(4.0);
+const singleSize = 80.0;
+const doubleSize = 160.0;
 
 class _SettingsTestPageState extends State<SettingsTestPage> {
   @override
@@ -20,56 +22,68 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
     return Column(children: [
       const NavigationBarPlaceholder(),
       SizedBox(
-        width: 500,
+        width: 320,
         child: TurnstileAnimation(
           tiles: [
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.red),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.red),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.blue),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.blue),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 200, height: 100, color: Colors.green),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.green),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.red),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.white),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 200, height: 100, color: Colors.blue),
+              child: Container(
+                  width: doubleSize, height: singleSize, color: Colors.green),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.green),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.red),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 200, height: 100, color: Colors.red),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.blue),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 200, height: 100, color: Colors.blue),
+              child: Container(
+                  width: doubleSize, height: singleSize, color: Colors.blue),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.green),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.green),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.red),
+              child: Container(
+                  width: singleSize, height: singleSize, color: Colors.white),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.blue),
+              child: Container(
+                  width: doubleSize, height: singleSize, color: Colors.red),
             ),
             Padding(
               padding: globalPadding,
-              child: Container(width: 100, height: 100, color: Colors.green),
+              child: Container(
+                  width: doubleSize, height: singleSize, color: Colors.blue),
             ),
             // Add more tiles as needed
           ],
@@ -153,7 +167,7 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
         rotationTween.animate(
           CurvedAnimation(
             parent: _controller,
-            curve: Interval(beginTime, 1.0, curve: Curves.easeInOut),
+            curve: Interval(beginTime, 1.0, curve: Curves.easeOutQuint),
           ),
         ),
       );
@@ -162,11 +176,7 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
         opacityTween.animate(
           CurvedAnimation(
             parent: _controller,
-            curve: Interval(
-              widget.enterMode == EnterMode.enter ? beginTime : beginTime + 0.4,
-              1.0,
-              curve: Curves.easeInOut,
-            ),
+            curve: Interval(beginTime, 1.0, curve: Curves.easeOutQuint),
           ),
         ),
       );
@@ -190,7 +200,8 @@ class TurnstileAnimationState extends State<TurnstileAnimation>
   double _getBeginTimeFactor(double x, double y) {
     const double xFactor = 4.7143E-4;
     const double yFactor = 0.001714;
-    const double randomFactor = 0.0714;
+    // const double randomFactor = 0.0714;
+    const double randomFactor = 0.1;
 
     final columnFactor =
         widget.enterMode == EnterMode.enter ? xFactor : -xFactor;
