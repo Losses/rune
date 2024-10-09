@@ -7,6 +7,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
@@ -37,6 +38,16 @@ void main() async {
   await FullScreen.ensureInitialized();
   await GetStorage.init();
   await initializeRust(assignRustSignal);
+
+  try {
+    final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    final isWindows10 = (await deviceInfo.windowsInfo).majorVersion == 10;
+    if (isWindows10 && appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
+      appTheme.windowEffect = flutter_acrylic.WindowEffect.acrylic;
+    }
+  } catch(e) {
+    debugPrint('Device is not Windows 10, skip the patch');
+  }
 
   final storage = GetStorage();
   bool? storedFullScreen = storage.read<bool>('fullscreen_state');
