@@ -22,7 +22,7 @@ class TurntileGroupItemTile<T> extends StatelessWidget {
   final double finalHeight;
   final double gapSize;
   final Dimensions dimensions;
-  final List items;
+  final List<T> items;
   final int groupIndex;
   final int columns;
   final double cellSize;
@@ -33,28 +33,27 @@ class TurntileGroupItemTile<T> extends StatelessWidget {
     return SizedBox(
       width: finalWidth,
       height: finalHeight,
-      child: GridView.builder(
-        itemCount: dimensions.count,
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: columns,
-          crossAxisSpacing: gapSize,
-          mainAxisSpacing: gapSize,
+      child: Wrap(
+        spacing: gapSize,
+        runSpacing: gapSize,
+        children: List.generate(
+          items.length,
+          (index) {
+            final int row = index ~/ dimensions.columns;
+            final int column = index % dimensions.columns;
+            final T item = items[index];
+            return SizedBox(
+              width: cellSize,
+              height: cellSize,
+              child: ManagedTurntileScreenItem(
+                groupId: groupIndex,
+                row: row,
+                column: column,
+                child: itemBuilder(context, item),
+              ),
+            );
+          },
         ),
-        itemBuilder: (context, index) {
-          final int row = index ~/ dimensions.columns;
-          final int column = index % dimensions.columns;
-          final T item = items[index];
-          return SizedBox(
-            width: cellSize,
-            height: cellSize,
-            child: ManagedTurntileScreenItem(
-              groupId: groupIndex,
-              row: row,
-              column: column,
-              child: itemBuilder(context, item),
-            ),
-          );
-        },
       ),
     );
   }

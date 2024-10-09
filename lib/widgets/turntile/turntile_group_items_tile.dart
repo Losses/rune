@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/start_screen/start_group_item.dart';
@@ -49,7 +48,7 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
         );
 
         final finalCellSize =
-            (constraints.maxWidth - (dimensions.columns - 1 * gapSize)) /
+            (constraints.maxWidth - (dimensions.columns * gapSize)) /
                 dimensions.columns;
 
         final double finalHeight =
@@ -58,7 +57,7 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
 
         return TurntileGroupItemTile<T>(
           columns: dimensions.columns,
-          cellSize: cellSize,
+          cellSize: finalCellSize,
           finalWidth: finalWidth.floor().toDouble(),
           finalHeight: finalHeight.ceil().toDouble(),
           gapSize: gapSize,
