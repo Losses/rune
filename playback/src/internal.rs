@@ -211,7 +211,7 @@ impl PlayerInternal {
 
                     debug!("Received command: {:?}", cmd);
                     match cmd {
-                        PlayerCommand::Load { index } => self.load(Some(index)),
+                        PlayerCommand::Load { index } => self.load(Some(index), false),
                         PlayerCommand::Play => self.play(),
                         PlayerCommand::Pause => self.pause(),
                         PlayerCommand::Stop => self.stop(),
@@ -255,7 +255,7 @@ impl PlayerInternal {
         }
     }
 
-    fn load(&mut self, index: Option<usize>) {
+    fn load(&mut self, index: Option<usize>, play: bool) {
         if let Some(index) = index {
             debug!("Loading track at index: {}", index);
             let mapped_index = self.get_mapped_track_index(index);
@@ -290,22 +290,29 @@ impl PlayerInternal {
                             ));
 
                             sink.set_volume(self.volume);
+                            if !play {
+                                sink.stop();
+                            }
+
                             self.sink = Some(sink);
                             self._stream = Some(stream);
                             self.current_track_index = Some(index);
                             self.current_track_id = Some(item.id);
                             self.current_track_path = Some(item.path.clone());
                             info!("Track loaded: {:?}", item.path);
-                            self.event_sender
-                                .send(PlayerEvent::Playing {
-                                    id: self.current_track_id.unwrap(),
-                                    index: mapped_index,
-                                    path: self.current_track_path.clone().unwrap(),
-                                    playback_mode: self.playback_mode,
-                                    position: Duration::new(0, 0),
-                                })
-                                .unwrap();
-                            self.state = InternalPlaybackState::Playing;
+
+                            if play {
+                                self.event_sender
+                                    .send(PlayerEvent::Playing {
+                                        id: self.current_track_id.unwrap(),
+                                        index: mapped_index,
+                                        path: self.current_track_path.clone().unwrap(),
+                                        playback_mode: self.playback_mode,
+                                        position: Duration::new(0, 0),
+                                    })
+                                    .unwrap();
+                                self.state = InternalPlaybackState::Playing;
+                            }
                         }
                         Err(e) => {
                             error!("Failed to decode audio: {:?}", e);
@@ -358,7 +365,7 @@ impl PlayerInternal {
             self.state = InternalPlaybackState::Playing;
         } else {
             info!("Loading the first track");
-            self.load(Some(0));
+            self.load(Some(0), true);
             self.play();
         }
     }
@@ -400,26 +407,28 @@ impl PlayerInternal {
             match self.playback_mode {
                 PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
                     if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1));
+                        self.load(Some(index + 1), true);
                     } else {
                         info!("End of playlist reached");
                         self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
                         self.state = InternalPlaybackState::Stopped;
+
+                        self.load(Some(0), false);
                     }
                 }
                 PlaybackMode::RepeatAll => {
                     if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1));
+                        self.load(Some(index + 1), true);
                     } else {
-                        self.load(Some(0));
+                        self.load(Some(0), true);
                     }
                 }
                 PlaybackMode::Shuffle => {
                     if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1));
+                        self.load(Some(index + 1), true);
                     } else {
                         self.update_random_map();
-                        self.load(Some(0));
+                        self.load(Some(0), true);
                     }
                 }
             }
@@ -431,24 +440,24 @@ impl PlayerInternal {
             match self.playback_mode {
                 PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
                     if index > 0 {
-                        self.load(Some(index - 1));
+                        self.load(Some(index - 1), true);
                     } else {
                         info!("Begining of playlist reached");
                     }
                 }
                 PlaybackMode::RepeatAll => {
                     if index > 0 {
-                        self.load(Some(index - 1));
+                        self.load(Some(index - 1), true);
                     } else {
-                        self.load(Some(self.playlist.len() - 1));
+                        self.load(Some(self.playlist.len() - 1), true);
                     }
                 }
                 PlaybackMode::Shuffle => {
                     if index > 0 {
-                        self.load(Some(index - 1));
+                        self.load(Some(index - 1), true);
                     } else {
                         self.update_random_map();
-                        self.load(Some(self.playlist.len() - 1));
+                        self.load(Some(self.playlist.len() - 1), true);
                     }
                 }
             }
@@ -459,7 +468,7 @@ impl PlayerInternal {
         if index > 0 || index < self.playlist.len() {
             self.current_track_index = Some(index);
             debug!("Moving to previous track: {}", index);
-            self.load(Some(index));
+            self.load(Some(index), true);
         } else {
             warn!("Previous command received but already at the first track");
         }
