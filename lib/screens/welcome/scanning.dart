@@ -94,12 +94,13 @@ class _ScanningPageState extends State<ScanningPage>
         children: [
           Text(
             "This might take a few minutes.",
-            style: typography.title?.apply(fontWeightDelta: -50),
+            style: typography.title
+                ?.apply(fontWeightDelta: -50, color: Colors.white),
           ),
           const SizedBox(height: 12),
           Text(
             "Sit back and relax",
-            style: typography.bodyLarge,
+            style: typography.bodyLarge?.apply(color: Colors.white),
           )
         ],
       ),

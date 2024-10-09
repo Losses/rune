@@ -37,7 +37,12 @@ class LinkTile extends StatelessWidget {
         children: [
           Container(
             color: colors[path.hashCode % colors.length],
-            child: Center(child: Icon(icon, size: 40)),
+            child: Center(
+                child: Icon(
+              icon,
+              size: 40,
+              color: Colors.white,
+            )),
           ),
           Padding(
             padding: const EdgeInsets.all(6),
