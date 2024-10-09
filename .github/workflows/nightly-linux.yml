@@ -58,7 +58,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}-linux
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
 
       
       
