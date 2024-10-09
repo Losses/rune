@@ -3,7 +3,6 @@ import 'dart:math';
 import 'package:hashlib/hashlib.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../screens/welcome/scanning.dart';
