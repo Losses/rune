@@ -37,8 +37,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          cache-all-crates: "true"
       
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
@@ -108,8 +106,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-        with:
-          cache-all-crates: "true"
       
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
