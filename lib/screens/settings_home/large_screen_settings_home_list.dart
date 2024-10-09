@@ -1,26 +1,27 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
+import '../../screens/settings_home/constants/first_column.dart';
 
-class SettingsHomeList extends StatefulWidget {
+class LargeScreenSettingsHomeListView extends StatefulWidget {
   final StartScreenLayoutManager layoutManager;
 
-  const SettingsHomeList({super.key, required this.layoutManager});
+  const LargeScreenSettingsHomeListView(
+      {super.key, required this.layoutManager});
 
   @override
-  SettingsHomeListState createState() => SettingsHomeListState();
+  LargeScreenSettingsHomeListViewState createState() =>
+      LargeScreenSettingsHomeListViewState();
 }
 
-class SettingsHomeListState extends State<SettingsHomeList> {
-  final _layoutManager = StartScreenLayoutManager();
-
+class LargeScreenSettingsHomeListViewState
+    extends State<LargeScreenSettingsHomeListView> {
   @override
   void initState() {
     super.initState();
@@ -29,18 +30,6 @@ class SettingsHomeListState extends State<SettingsHomeList> {
       () => widget.layoutManager.playAnimations(),
     );
   }
-
-  @override
-  void dispose() {
-    super.dispose();
-    _layoutManager.dispose();
-  }
-
-  final List<(String, String, IconData)> firstColumn = [
-    ('Library', '/settings/library', Symbols.video_library),
-    ('Controller', '/settings/media_controller', Symbols.tune),
-    ('About', '/settings/about', Symbols.info),
-  ];
 
   @override
   Widget build(BuildContext context) {

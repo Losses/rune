@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../screens/tracks/widgets/track_list.dart';
+import 'large_screen_track_list.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
