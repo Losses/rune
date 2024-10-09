@@ -100,11 +100,13 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       opacity: _show ? 1.0 : 0.0,
-      duration: Duration(milliseconds: _showInstantly ? 0 : 300),
+      duration: Duration(milliseconds: _showInstantly ? 0 : 600),
+      curve: Curves.easeOutQuint,
       child: TweenAnimationBuilder<double>(
         tween:
             Tween<double>(begin: _show ? 90.0 : 0.0, end: _show ? 0.0 : 90.0),
-        duration: Duration(milliseconds: _showInstantly ? 0 : 300),
+        duration: Duration(milliseconds: _showInstantly ? 0 : 600),
+        curve: Curves.easeOutQuint,
         builder: (context, value, child) {
           return Transform(
             alignment: Alignment((widget.column * -1.0) - 1.4, 0.0),

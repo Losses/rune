@@ -33,7 +33,6 @@ class PlayingTrack extends StatelessWidget {
     return BreakpointBuilder(
       breakpoints: const [DeviceType.phone, DeviceType.tablet],
       builder: (context, activeBreakpoint) {
-        print(activeBreakpoint);
         return activeBreakpoint == DeviceType.phone
             ? const SmallScreenPlayingTrack()
             : const LargeScreenPlayingTrack();
