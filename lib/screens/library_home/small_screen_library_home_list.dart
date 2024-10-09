@@ -32,19 +32,21 @@ class LibraryHomeListState extends State<SmallScreenLibraryHomeListView> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: TurntileGroup<(String, String, IconData)>(
-        groupIndex: 0,
-        items: firstColumn,
-        gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
-        gapSize: 12,
-        onTitleTap: () {},
-        itemBuilder: (context, item) {
-          return LinkTurntile(
-            title: item.$1,
-            path: item.$2,
-          );
-        },
+    return Center(
+      child: SingleChildScrollView(
+        child: TurntileGroup<(String, String, IconData)>(
+          groupIndex: 0,
+          items: firstColumn,
+          gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
+          gapSize: 12,
+          onTitleTap: () {},
+          itemBuilder: (context, item) {
+            return LinkTurntile(
+              title: item.$1,
+              path: item.$2,
+            );
+          },
+        ),
       ),
     );
   }
