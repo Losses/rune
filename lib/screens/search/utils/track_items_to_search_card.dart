@@ -1,4 +1,5 @@
-import '../../../widgets/track_list/track_list.dart';
+import 'package:player/widgets/track_list/utils/internal_media_file.dart';
+
 import '../../../screens/search/widgets/track_search_item.dart';
 
 List<TrackSearchItem> trackItemsToSearchCard(List<InternalMediaFile> items) {

@@ -35,7 +35,7 @@ class _LinkTurntileState extends State<LinkTurntile> {
         onEnter: (_) => setState(() => _isHovered = true),
         onExit: (_) => setState(() => _isHovered = false),
         child: AnimatedOpacity(
-          opacity: _isHovered ? 1.0 : 0.9,
+          opacity: _isHovered ? 1.0 : 0.7,
           duration: theme.fastAnimationDuration,
           child: FocusableActionDetector(
             focusNode: _focusNode,

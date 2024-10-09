@@ -4,7 +4,7 @@ import '../../../utils/query_list.dart';
 import '../../../utils/api/operate_playback_with_mix_query.dart';
 import '../../../utils/context_menu/track_item_context_menu.dart';
 import '../../../widgets/tile/cover_art.dart';
-import '../../../widgets/track_list/track_list.dart';
+import '../../../widgets/track_list/utils/internal_media_file.dart';
 
 import './search_card.dart';
 

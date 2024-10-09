@@ -3,39 +3,20 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
-import '../../widgets/library_task_button.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/track_list/utils/internal_media_file.dart';
+
 import '../start_screen/managed_start_screen_item.dart';
 
-import './track_list_item.dart';
+import 'large_screen_track_list_item.dart';
 
-class InternalMediaFile {
-  final int id;
-  final String path;
-  final String artist;
-  final String album;
-  final String title;
-  final double duration;
-  final String coverArtPath;
-
-  InternalMediaFile({
-    required this.id,
-    required this.path,
-    required this.artist,
-    required this.album,
-    required this.title,
-    required this.duration,
-    required this.coverArtPath,
-  });
-}
-
-class TrackList extends StatelessWidget {
+class LargeScreenTrackList extends StatelessWidget {
   final PagingController<int, InternalMediaFile> pagingController;
   final QueryList queries;
   final int mode;
 
-  const TrackList({
+  const LargeScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
@@ -96,7 +77,7 @@ class TrackList extends StatelessWidget {
                       column: column,
                       width: cellSize / ratio,
                       height: cellSize,
-                      child: TrackListItem(
+                      child: LargeScreenTrackListItem(
                         index: index,
                         item: item,
                         queries: queries,
@@ -112,38 +93,6 @@ class TrackList extends StatelessWidget {
           );
         },
       ),
-    );
-  }
-}
-
-class ActionButtons extends StatelessWidget {
-  const ActionButtons({
-    super.key,
-    required this.reloadData,
-    required this.hasRecommendation,
-  });
-
-  final VoidCallback reloadData;
-  final bool hasRecommendation;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        ScanLibraryButton(
-          title: "Scan Library",
-          onFinished: reloadData,
-        ),
-        if (hasRecommendation) ...[
-          const SizedBox(width: 12),
-          AnalyseLibraryButton(
-            title: "Analyse Tracks",
-            onFinished: reloadData,
-          ),
-        ]
-      ],
     );
   }
 }

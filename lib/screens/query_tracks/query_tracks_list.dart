@@ -3,11 +3,14 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../../utils/query_list.dart';
-import '../../../utils/api/query_mix_tracks.dart';
-import '../../../config/animation.dart';
-import '../../../widgets/track_list/track_list.dart';
-import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../utils/query_list.dart';
+import '../../utils/api/query_mix_tracks.dart';
+import '../../config/animation.dart';
+import '../../widgets/track_list/large_screen_track_list.dart';
+import '../../widgets/track_list/small_screen_track_list.dart';
+import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../providers/responsive_providers.dart';
 
 class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
@@ -36,8 +39,10 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
     _pagingController.addPageRequestListener((cursor) async {
       await _fetchPage(cursor);
 
-      Timer(Duration(milliseconds: gridAnimationDelay),
-          () => widget.layoutManager.playAnimations());
+      Timer(
+        Duration(milliseconds: gridAnimationDelay),
+        () => widget.layoutManager.playAnimations(),
+      );
     });
     super.initState();
   }
@@ -66,11 +71,21 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return TrackList(
-      pagingController: _pagingController,
-      queries: widget.queries,
-      mode: widget.mode,
-    );
+    return BreakpointBuilder(
+        breakpoints: const [DeviceType.zune, DeviceType.tv],
+        builder: (context, activeBreakpoint) {
+          return activeBreakpoint == DeviceType.zune
+              ? SmallScreenTrackList(
+                  pagingController: _pagingController,
+                  queries: widget.queries,
+                  mode: widget.mode,
+                )
+              : LargeScreenTrackList(
+                  pagingController: _pagingController,
+                  queries: widget.queries,
+                  mode: widget.mode,
+                );
+        });
   }
 
   @override

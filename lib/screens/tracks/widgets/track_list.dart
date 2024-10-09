@@ -6,7 +6,8 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import '../../../utils/query_list.dart';
 import '../../../utils/api/fetch_media_files.dart';
 import '../../../config/animation.dart';
-import '../../../widgets/track_list/track_list.dart';
+import '../../../widgets/track_list/large_screen_track_list.dart';
+import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class TrackListView extends StatefulWidget {
@@ -56,7 +57,7 @@ class TrackListViewState extends State<TrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return TrackList(
+    return LargeScreenTrackList(
       pagingController: _pagingController,
       queries: const QueryList([("lib::all", "true")]),
       mode: 99,

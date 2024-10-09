@@ -1,16 +1,16 @@
 import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/track_list/track_list.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/context_menu_wrapper.dart';
+import '../../widgets/track_list/utils/internal_media_file.dart';
 
 import '../tile/cover_art.dart';
 
-class TrackListItem extends StatelessWidget {
+class LargeScreenTrackListItem extends StatelessWidget {
   final InternalMediaFile item;
   final int index;
   final QueryList queries;
@@ -21,7 +21,7 @@ class TrackListItem extends StatelessWidget {
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
 
-  TrackListItem({
+  LargeScreenTrackListItem({
     super.key,
     required this.index,
     required this.item,

@@ -1,6 +1,7 @@
 import 'dart:async';
-import 'package:player/messages/media_file.pb.dart';
-import 'package:player/widgets/track_list/track_list.dart';
+
+import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../messages/media_file.pb.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFileByIds(
     List<int> ids, bool bakeCoverArts) async {

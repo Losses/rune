@@ -1,6 +1,6 @@
-import 'package:player/widgets/track_list/track_list.dart';
 
 import '../../utils/query_list.dart';
+import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/mix.pb.dart';
 
 Future<List<InternalMediaFile>> queryMixTracks(

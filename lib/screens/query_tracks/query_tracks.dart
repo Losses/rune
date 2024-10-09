@@ -1,9 +1,9 @@
-import 'package:player/utils/query_list.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../screens/query_tracks/widgets/query_tracks.dart';
+import 'query_tracks_list.dart';
 
+import '../../utils/query_list.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 

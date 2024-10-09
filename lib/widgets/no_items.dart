@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../widgets/track_list/track_list.dart';
+import '../widgets/action_buttons.dart';
 
 class NoItems extends StatelessWidget {
   final String title;

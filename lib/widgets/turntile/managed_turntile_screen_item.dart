@@ -33,16 +33,6 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
   bool _show = false;
   StartGroupItemData? _data;
   bool _showInstantly = false;
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
-      vsync: this,
-    );
-  }
 
   @override
   void didChangeDependencies() {
@@ -68,11 +58,6 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
       setState(() {
         _show = newShow;
         _showInstantly = _show;
-        if (_show) {
-          _controller.value = 1.0;
-        } else {
-          _controller.value = 0.0;
-        }
       });
     }
   }
@@ -83,7 +68,6 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
     setState(() {
       _show = true;
       _showInstantly = false;
-      _controller.forward();
     });
   }
 
@@ -92,7 +76,6 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
     if (_data != null) {
       provider?.unregisterItem(_data!);
     }
-    _controller.dispose();
     super.dispose();
   }
 
@@ -100,12 +83,12 @@ class ManagedTurntileScreenItemState extends State<ManagedTurntileScreenItem>
   Widget build(BuildContext context) {
     return AnimatedOpacity(
       opacity: _show ? 1.0 : 0.0,
-      duration: Duration(milliseconds: _showInstantly ? 0 : 600),
+      duration: Duration(milliseconds: _showInstantly ? 0 : 800),
       curve: Curves.easeOutQuint,
       child: TweenAnimationBuilder<double>(
         tween:
             Tween<double>(begin: _show ? 90.0 : 0.0, end: _show ? 0.0 : 90.0),
-        duration: Duration(milliseconds: _showInstantly ? 0 : 600),
+        duration: Duration(milliseconds: _showInstantly ? 0 : 800),
         curve: Curves.easeOutQuint,
         builder: (context, value, child) {
           return Transform(
