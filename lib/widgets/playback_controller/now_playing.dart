@@ -1,11 +1,12 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../utils/format_time.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/cover_wall_button.dart';
 import '../../widgets/playback_controller/now_playing_implementation.dart';
 import '../../messages/playback.pb.dart';
+import '../../providers/responsive_providers.dart';
 
 class NowPlaying extends StatelessWidget {
   const NowPlaying({
@@ -22,9 +23,9 @@ class NowPlaying extends StatelessWidget {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
 
-    final r = ResponsiveBreakpoints.of(context);
-    final miniLayout = r.smallerOrEqualTo(TABLET);
-    final hideProgress = r.smallerOrEqualTo(PHONE);
+    final r = Provider.of<ResponsiveProvider>(context);
+    final miniLayout = r.smallerOrEqualTo(DeviceType.tablet);
+    final hideProgress = r.smallerOrEqualTo(DeviceType.phone);
 
     final progress =
         NowPlayingImplementation(notReady: notReady, status: status);

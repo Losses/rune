@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
@@ -13,6 +12,7 @@ import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/collection.pb.dart';
+import '../../providers/responsive_providers.dart';
 
 import 'utils/track_items_to_search_card.dart';
 import 'utils/collection_items_to_search_card.dart';
@@ -32,7 +32,8 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
-    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
+    final isMini = Provider.of<ResponsiveProvider>(context)
+        .smallerOrEqualTo(DeviceType.tablet);
 
     return SearchPageImplementation(
       isMini: isMini,

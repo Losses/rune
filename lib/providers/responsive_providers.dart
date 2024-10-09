@@ -3,12 +3,12 @@ import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 
-enum DeviceTpe { zune, phone, mobile, tablet, desktop, tv }
+enum DeviceType { zune, phone, mobile, tablet, desktop, tv }
 
 class ResponsiveBreakpoint {
   final double start;
   final double end;
-  final DeviceTpe name;
+  final DeviceType name;
 
   const ResponsiveBreakpoint(
       {required this.start, required this.end, required this.name});
@@ -16,15 +16,15 @@ class ResponsiveBreakpoint {
 
 class ResponsiveProvider extends ChangeNotifier with WindowListener {
   static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 320, name: DeviceTpe.zune),
-    ResponsiveBreakpoint(start: 0, end: 480, name: DeviceTpe.phone),
-    ResponsiveBreakpoint(start: 481, end: 650, name: DeviceTpe.mobile),
-    ResponsiveBreakpoint(start: 651, end: 800, name: DeviceTpe.tablet),
-    ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceTpe.desktop),
-    ResponsiveBreakpoint(start: 1921, end: double.infinity, name: DeviceTpe.tv),
+    ResponsiveBreakpoint(start: 0, end: 320, name: DeviceType.zune),
+    ResponsiveBreakpoint(start: 0, end: 480, name: DeviceType.phone),
+    ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
+    ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
+    ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),
+    ResponsiveBreakpoint(start: 1921, end: double.infinity, name: DeviceType.tv),
   ];
 
-  DeviceTpe _currentBreakpoint = DeviceTpe.desktop;
+  DeviceType _currentBreakpoint = DeviceType.desktop;
   DateTime? _lastUpdateTime;
   Timer? _throttleTimer;
 
@@ -33,7 +33,7 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
     _updateBreakpoint();
   }
 
-  DeviceTpe get currentBreakpoint => _currentBreakpoint;
+  DeviceType get currentBreakpoint => _currentBreakpoint;
 
   @override
   void onWindowResize() {
@@ -68,15 +68,15 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
     }
   }
 
-  bool smallerOrEqualTo(DeviceTpe breakpointName) {
+  bool smallerOrEqualTo(DeviceType breakpointName) {
     return _currentBreakpoint.index <= breakpointName.index;
   }
 
-  bool largerOrEqualTo(DeviceTpe breakpointName) {
+  bool largerOrEqualTo(DeviceType breakpointName) {
     return _currentBreakpoint.index >= breakpointName.index;
   }
 
-  bool equalTo(DeviceTpe breakpointName) {
+  bool equalTo(DeviceType breakpointName) {
     return _currentBreakpoint == breakpointName;
   }
 
@@ -89,7 +89,7 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
 }
 
 class SmallerOrEqualTo extends StatelessWidget {
-  final DeviceTpe breakpoint;
+  final DeviceType breakpoint;
   final Widget Function(BuildContext context, bool isTrue) builder;
 
   const SmallerOrEqualTo(
@@ -105,7 +105,7 @@ class SmallerOrEqualTo extends StatelessWidget {
 }
 
 class LargerOrEqualTo extends StatelessWidget {
-  final DeviceTpe breakpoint;
+  final DeviceType breakpoint;
   final Widget Function(BuildContext context, bool isTrue) builder;
 
   const LargerOrEqualTo(
@@ -121,7 +121,7 @@ class LargerOrEqualTo extends StatelessWidget {
 }
 
 class EqualTo extends StatelessWidget {
-  final DeviceTpe breakpoint;
+  final DeviceType breakpoint;
   final Widget Function(BuildContext context, bool isTrue) builder;
 
   const EqualTo({super.key, required this.breakpoint, required this.builder});
@@ -136,8 +136,8 @@ class EqualTo extends StatelessWidget {
 }
 
 class BreakpointBuilder extends StatelessWidget {
-  final List<DeviceTpe> breakpoints;
-  final Widget Function(BuildContext context, DeviceTpe activeBreakpoint)
+  final List<DeviceType> breakpoints;
+  final Widget Function(BuildContext context, DeviceType activeBreakpoint)
       builder;
 
   const BreakpointBuilder({
@@ -148,7 +148,7 @@ class BreakpointBuilder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<ResponsiveProvider, DeviceTpe>(
+    return Selector<ResponsiveProvider, DeviceType>(
       selector: (_, provider) => breakpoints.firstWhere(
         (bp) => provider.smallerOrEqualTo(bp),
         orElse: () => breakpoints.last,

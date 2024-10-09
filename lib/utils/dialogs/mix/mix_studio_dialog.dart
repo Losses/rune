@@ -1,6 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../../widgets/track_list/track_list.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
@@ -9,6 +8,7 @@ import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';
+import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';
 import '../../chip_input/search_task.dart';
@@ -35,7 +35,8 @@ class MixStudioDialog extends StatefulWidget {
 class _MixStudioDialog extends State<MixStudioDialog> {
   @override
   Widget build(BuildContext context) {
-    final isMini = ResponsiveBreakpoints.of(context).smallerOrEqualTo(TABLET);
+    final isMini = Provider.of<ResponsiveProvider>(context)
+        .smallerOrEqualTo(DeviceType.tablet);
 
     return MixStudioDialogImplementation(
       mixId: widget.mixId,

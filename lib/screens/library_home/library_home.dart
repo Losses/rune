@@ -41,9 +41,9 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
           const NavigationBarPlaceholder(),
           Expanded(
             child: BreakpointBuilder(
-              breakpoints: const [DeviceTpe.zune, DeviceTpe.tv],
+              breakpoints: const [DeviceType.zune, DeviceType.tv],
               builder: (context, activeBreakpoint) {
-                return activeBreakpoint == DeviceTpe.zune
+                return activeBreakpoint == DeviceType.zune
                     ? SmallScreenLibraryHomeListView(
                         libraryPath: libraryPath,
                         layoutManager: _layoutManager,

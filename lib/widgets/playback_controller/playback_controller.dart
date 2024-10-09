@@ -2,7 +2,6 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 
 import '../../widgets/playback_controller/now_playing.dart';
 import '../../widgets/playback_controller/cover_art_page_progress_bar.dart';
@@ -10,6 +9,7 @@ import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
+import '../../providers/responsive_providers.dart';
 
 import './constants/playback_controller_height.dart';
 import './fft_visualize.dart';
@@ -29,9 +29,9 @@ class PlaybackControllerState extends State<PlaybackController> {
     final s = Provider.of<PlaybackStatusProvider>(context).playbackStatus;
     final isCoverArtWall = GoRouterState.of(context).fullPath == '/cover_wall';
 
-    final r = ResponsiveBreakpoints.of(context);
+    final r = Provider.of<ResponsiveProvider>(context);
 
-    final largeLayout = isCoverArtWall && r.smallerOrEqualTo(PHONE);
+    final largeLayout = isCoverArtWall && r.smallerOrEqualTo(DeviceType.phone);
     final notReady = s?.ready == null || s?.ready == false;
 
     return SizedBox(
@@ -92,8 +92,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
   @override
   Widget build(BuildContext context) {
-    final miniLayout =
-        ResponsiveBreakpoints.of(context).smallerOrEqualTo(MOBILE);
+    final miniLayout = Provider.of<ResponsiveProvider>(context)
+        .smallerOrEqualTo(DeviceType.mobile);
 
     final provider = Provider.of<PlaybackControllerProvider>(context);
     final entries = provider.entries;
@@ -103,9 +103,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
-    final coverArtWallLayout =
-        ResponsiveBreakpoints.of(context).smallerOrEqualTo(PHONE) &&
-            GoRouterState.of(context).fullPath == '/cover_wall';
+    final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
+            .smallerOrEqualTo(DeviceType.phone) &&
+        GoRouterState.of(context).fullPath == '/cover_wall';
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 
