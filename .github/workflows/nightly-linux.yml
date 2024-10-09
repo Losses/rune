@@ -28,6 +28,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-all-crates: "true"
+      
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -48,6 +49,11 @@ jobs:
       - name: Build linux
         run: flutter build linux --release --verbose
 
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+      
       - name: Upload artifact 
         uses: actions/upload-artifact@v4
         with:
