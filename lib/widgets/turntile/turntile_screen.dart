@@ -7,20 +7,20 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 
-import '../smooth_horizontal_scroll.dart';
+import '../start_screen/utils/group.dart';
+import '../start_screen/utils/internal_collection.dart';
+import '../start_screen/providers/start_screen_layout_manager.dart';
 
-import './utils/group.dart';
-import './utils/internal_collection.dart';
-import './providers/start_screen_layout_manager.dart';
-import './start_group.dart';
+import 'turntile_group.dart';
 
-class StartScreen extends StatefulWidget {
+class TurntileScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
   final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback) itemBuilder;
+  final Widget Function(BuildContext, InternalCollection, VoidCallback)
+      itemBuilder;
   final bool userGenerated;
 
-  const StartScreen({
+  const TurntileScreen({
     super.key,
     required this.fetchSummary,
     required this.fetchPage,
@@ -29,10 +29,10 @@ class StartScreen extends StatefulWidget {
   });
 
   @override
-  StartScreenState createState() => StartScreenState();
+  TurntileScreenState createState() => TurntileScreenState();
 }
 
-class StartScreenState extends State<StartScreen> {
+class TurntileScreenState extends State<TurntileScreen> {
   late Future<List<Group<InternalCollection>>> summary;
 
   final layoutManager = StartScreenLayoutManager();
@@ -96,38 +96,34 @@ class StartScreenState extends State<StartScreen> {
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            return SmoothHorizontalScroll(
-              builder: (context, scrollController) {
-                return InfiniteList(
-                  itemCount: items.length,
-                  scrollDirection: Axis.horizontal,
-                  scrollController: scrollController,
-                  loadingBuilder: (context) => const ProgressRing(),
-                  centerLoading: true,
-                  centerEmpty: true,
-                  isLoading: isLoading,
-                  emptyBuilder: (context) => Center(
-                    child: initialized
-                        ? NoItems(
-                            title: "No collection found",
-                            hasRecommendation: false,
-                            reloadData: _reloadData,
-                            userGenerated: widget.userGenerated,
-                          )
-                        : Container(),
-                  ),
-                  onFetchData: _fetchData,
-                  hasReachedMax: isLastPage,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return StartGroup<InternalCollection>(
-                      key: Key(item.groupTitle),
-                      groupIndex: index,
-                      groupTitle: item.groupTitle,
-                      items: item.items,
-                      itemBuilder: (context, item) => widget.itemBuilder(context, item, _reloadData),
-                    );
-                  },
+            return InfiniteList(
+              itemCount: items.length,
+              loadingBuilder: (context) => const ProgressRing(),
+              centerLoading: true,
+              centerEmpty: true,
+              isLoading: isLoading,
+              emptyBuilder: (context) => Center(
+                child: initialized
+                    ? NoItems(
+                        title: "No collection found",
+                        hasRecommendation: false,
+                        reloadData: _reloadData,
+                        userGenerated: widget.userGenerated,
+                      )
+                    : Container(),
+              ),
+              onFetchData: _fetchData,
+              hasReachedMax: isLastPage,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return TurntileGroup<InternalCollection>(
+                  key: Key(item.groupTitle),
+                  groupIndex: index,
+                  groupTitle: item.groupTitle,
+                  gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
+                  items: item.items,
+                  itemBuilder: (context, item) =>
+                      widget.itemBuilder(context, item, _reloadData),
                 );
               },
             );

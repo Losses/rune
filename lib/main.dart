@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:player/providers/responsive_providers.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -26,6 +25,7 @@ import 'providers/full_screen.dart';
 import 'providers/library_path.dart';
 import 'providers/library_manager.dart';
 import 'providers/playback_controller.dart';
+import 'providers/responsive_providers.dart';
 import 'providers/transition_calculation.dart';
 
 import 'theme.dart';

@@ -8,10 +8,11 @@ import '../../config/animation.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
-import '../../widgets/start_screen/start_screen.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/start_screen/utils/group.dart';
+import '../../widgets/start_screen/utils/internal_collection.dart';
 
-import '../collection/collection_list.dart';
+import '../collection/large_screen_collection_list.dart';
 
 import './constants/first_column.dart';
 

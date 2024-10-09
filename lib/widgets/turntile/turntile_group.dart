@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import 'turntile_normal_layout.dart';
 import 'turntile_group_items_list.dart';
+import 'turntile_group_items_tile.dart';
 
 
 
@@ -51,10 +52,10 @@ class TurntileGroup<T> extends StatelessWidget {
           groupIndex: groupIndex,
           itemBuilder: itemBuilder,
         );
-      // case StartGroupGridLayoutVariation.initial:
+      case TurntileGroupGridLayoutVariation.tile:
       default:
-        return TurntileGroupItemsList<T>(
-          cellSize: 40,
+        return TurntileGroupItemsTile<T>(
+          cellSize: 88,
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,

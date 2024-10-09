@@ -1,12 +1,12 @@
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/screens/library_home/small_screen_library_home_list.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../screens/library_home/small_screen_library_home_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../providers/library_path.dart';
+import '../../providers/responsive_providers.dart';
 
 import 'large_screen_library_home_list.dart';
 

@@ -2,12 +2,12 @@ import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
+import '../../../utils/router_name.dart';
 import '../../../utils/context_menu/collection_item_context_menu.dart';
 import '../../../utils/router_extra.dart';
 import '../../../widgets/tile/flip_cover_grid.dart';
-import '../../../widgets/start_screen/start_screen.dart';
+import '../../../widgets/start_screen/utils/internal_collection.dart';
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../screens/collection/collection_list.dart';
 import '../../../messages/collection.pb.dart';
 
 class CollectionSearchItem extends SearchCard {
@@ -24,8 +24,10 @@ class CollectionSearchItem extends SearchCard {
 
   @override
   void onPressed(BuildContext context) {
-    context.replace('/${routerName[collectionType]}/${getItemId()}',
-        extra: QueryTracksExtra(getItemTitle()));
+    context.replace(
+      '/${collectionTypeToRouterName(collectionType)}/${getItemId()}',
+      extra: QueryTracksExtra(getItemTitle()),
+    );
   }
 
   @override

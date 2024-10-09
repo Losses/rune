@@ -7,7 +7,7 @@ import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../screens/search/widgets/small_screen_track_list.dart';
-import '../../widgets/start_screen/start_screen.dart';
+import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../messages/search.pb.dart';
