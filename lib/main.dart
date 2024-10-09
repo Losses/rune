@@ -9,7 +9,6 @@ import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:responsive_framework/responsive_framework.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
@@ -99,7 +98,6 @@ class Rune extends StatelessWidget {
     return ChangeNotifierProvider.value(
       value: appTheme,
       builder: (context, child) {
-        print('REBUILD TRIGGERED');
         final appTheme = context.watch<AppTheme>();
 
         return FluentApp.router(
@@ -136,18 +134,7 @@ class Rune extends StatelessWidget {
                     : Colors.transparent,
                 child: Directionality(
                   textDirection: appTheme.textDirection,
-                  child: ResponsiveBreakpoints.builder(
-                    breakpoints: [
-                      const Breakpoint(start: 0, end: 320, name: 'SMALL_PHONE'),
-                      const Breakpoint(start: 0, end: 480, name: PHONE),
-                      const Breakpoint(start: 481, end: 650, name: MOBILE),
-                      const Breakpoint(start: 651, end: 800, name: TABLET),
-                      const Breakpoint(start: 801, end: 1920, name: DESKTOP),
-                      const Breakpoint(
-                          start: 1921, end: double.infinity, name: '4K'),
-                    ],
-                    child: child!,
-                  ),
+                  child: child!,
                 ));
           },
         );
