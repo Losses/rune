@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:player/providers/responsive_providers.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:window_manager/window_manager.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
@@ -32,6 +34,7 @@ import 'router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await windowManager.ensureInitialized();
   await FullScreen.ensureInitialized();
   await GetStorage.init();
   await initializeRust(assignRustSignal);
@@ -70,6 +73,10 @@ void main() async {
           lazy: false,
           create: (_) => VolumeProvider(),
         ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => ResponsiveProvider(),
+        ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
@@ -92,6 +99,7 @@ class Rune extends StatelessWidget {
     return ChangeNotifierProvider.value(
       value: appTheme,
       builder: (context, child) {
+        print('REBUILD TRIGGERED');
         final appTheme = context.watch<AppTheme>();
 
         return FluentApp.router(
