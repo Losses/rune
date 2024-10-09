@@ -21,9 +21,9 @@ jobs:
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
       
-      - name: Install dependencies
-        run: |
-          vcpkg install lmdb gtk3 pkgconf
+      #- name: Install dependencies
+      #  run: |
+      #    vcpkg install lmdb gtk3 pkgconf
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
