@@ -68,7 +68,6 @@ dependencies:
   macos_window_utils: ^1.5.0
   rinf: ^7.0.2
   fixnum: ^1.1.0
-  responsive_framework: ^1.5.1
   very_good_infinite_list: ^0.8.0
   flutter_fullscreen: ^1.0.1
   window_manager: ^0.3.9
