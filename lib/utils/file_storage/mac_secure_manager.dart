@@ -20,10 +20,8 @@ class MacSecureManager {
     if (!isApplePlatform()) {
       return;
     }
-    print("Saving bookmark for $dir");
     final secureBookmarks = SecureBookmarks();
     final bookmark = await secureBookmarks.bookmark(Directory(dir));
-    print("Bookmark: $bookmark");
     await _storage.write(dir, bookmark);
   }
 
@@ -35,8 +33,6 @@ class MacSecureManager {
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();
     
-    print("Loading bookmarks: $bookmarks");
-
     for (final bookmark in bookmarks) {
       final resolvedFile = await secureBookmarks.resolveBookmark(bookmark, isDirectory: true);
       await secureBookmarks.startAccessingSecurityScopedResource(resolvedFile);
