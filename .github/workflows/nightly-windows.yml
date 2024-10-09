@@ -57,7 +57,7 @@ jobs:
       - name: Upload artifact 
         uses: actions/upload-artifact@v4
         with:
-          path: build/
+          path: build/windows/x64/runner/Release/
           name: Rune-${{ github.ref_name }}-windows
 
       
