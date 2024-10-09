@@ -77,13 +77,17 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
               padding: const EdgeInsets.symmetric(vertical: 1),
               child: Row(
                 children: [
-                  CoverArt(
-                    path: widget.coverArtPath,
-                    size: 40,
-                    hint: (
-                      widget.item.album,
-                      widget.item.artist,
-                      'Total Time ${formatTime(widget.item.duration)}'
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CoverArt(
+                      path: widget.coverArtPath,
+                      size: 40,
+                      hint: (
+                        widget.item.album,
+                        widget.item.artist,
+                        'Total Time ${formatTime(widget.item.duration)}'
+                      ),
                     ),
                   ),
                   Expanded(
