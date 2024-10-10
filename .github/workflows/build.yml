@@ -42,6 +42,7 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
@@ -112,6 +113,7 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
@@ -144,7 +146,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
           directory: build/linux/x64/release/bundle
         
       - name: Release
