@@ -38,9 +38,21 @@ pub async fn parse_media_files(
                 let media_file = MediaFile {
                     id: file.id,
                     path: media_path.to_str().unwrap().to_string(),
-                    artist: file.artist,
-                    album: file.album,
-                    title: file.title,
+                    artist: if file.artist.is_empty() {
+                        "Unknown Artist".to_owned()
+                    } else {
+                        file.artist
+                    },
+                    album: if file.album.is_empty() {
+                        "Unknown Album".to_owned()
+                    } else {
+                        file.album
+                    },
+                    title: if file.title.is_empty() {
+                        file.file_name
+                    } else {
+                        file.title
+                    },
                     duration: file.duration,
                     cover_art_id: file.cover_art_id.unwrap_or(-1),
                 };
@@ -193,7 +205,11 @@ pub async fn search_media_file_summary_request(
             .into_iter()
             .map(|x| MediaFileSummary {
                 id: x.id,
-                name: x.title,
+                name: if x.title.is_empty() {
+                    x.file_name
+                } else {
+                    x.title
+                },
                 cover_art_id: x.cover_art_id.unwrap_or(-1),
             })
             .collect(),

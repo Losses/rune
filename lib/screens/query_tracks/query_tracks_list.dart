@@ -72,20 +72,21 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   Widget build(BuildContext context) {
     return BreakpointBuilder(
-        breakpoints: const [DeviceType.zune, DeviceType.tv],
-        builder: (context, activeBreakpoint) {
-          return activeBreakpoint == DeviceType.zune
-              ? SmallScreenTrackList(
-                  pagingController: _pagingController,
-                  queries: widget.queries,
-                  mode: widget.mode,
-                )
-              : LargeScreenTrackList(
-                  pagingController: _pagingController,
-                  queries: widget.queries,
-                  mode: widget.mode,
-                );
-        });
+      breakpoints: const [DeviceType.zune, DeviceType.tv],
+      builder: (context, activeBreakpoint) {
+        return activeBreakpoint == DeviceType.zune
+            ? SmallScreenTrackList(
+                pagingController: _pagingController,
+                queries: widget.queries,
+                mode: widget.mode,
+              )
+            : LargeScreenTrackList(
+                pagingController: _pagingController,
+                queries: widget.queries,
+                mode: widget.mode,
+              );
+      },
+    );
   }
 
   @override
