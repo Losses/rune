@@ -46,7 +46,7 @@ void main() async {
     final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
     final isWindows10 = (await deviceInfo.windowsInfo).majorVersion == 10;
     if (isWindows10 && appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
-      appTheme.windowEffect = flutter_acrylic.WindowEffect.acrylic;
+      appTheme.windowEffect = flutter_acrylic.WindowEffect.solid;
     }
   } catch(e) {
     debugPrint('Device is not Windows 10, skip the patch');
