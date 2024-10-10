@@ -33,4 +33,28 @@ jobs:
     - name: Build macOS
       run: flutter build macos --release --verbose
 
+    - uses: benjlevesque/short-sha@v3.0
+      id: short-sha
+      with:
+        length: 7
+
+    - name: Upload artifact 
+      uses: actions/upload-artifact@v4
+      with:
+        path: build/macos/Build/Products/Release/player.app
+        name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
+
+    - name: Build Zip for Release
+      uses: thedoctor0/zip-release@master
+      with:
+        type: "zip"
+        filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+        directory: build/macos/Build/Products/Release/player.app
+
+    - name: Release
+      uses: ncipollo/release-action@v1
+      with:
+        artifacts: build/macos/Build/Products/Release/Rune-*.zip
+        allowUpdates: true
+        replacesArtifacts: false
     
