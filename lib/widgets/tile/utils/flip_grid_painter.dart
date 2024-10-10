@@ -7,10 +7,12 @@ class FlipGridPainter extends CustomPainter {
   final List<ui.Image?> images;
   final List<double> rotates;
   final int gridCount;
+  final List<Color> fallbackColors;
 
   FlipGridPainter(
     this.images, {
     required this.rotates,
+    required this.fallbackColors,
     this.gridCount = 3,
   });
 
@@ -19,8 +21,8 @@ class FlipGridPainter extends CustomPainter {
     final paint = Paint();
 
     // Define the size of each grid cell based on gridSize
-    final cellWidth = size.width / gridCount;
-    final cellHeight = size.height / gridCount;
+    final cellWidth = (size.width / gridCount).ceil();
+    final cellHeight = (size.height / gridCount).ceil();
 
     // Loop through the grid
     for (int row = 0; row < gridCount; row++) {
@@ -44,42 +46,52 @@ class FlipGridPainter extends CustomPainter {
 
         // Apply perspective and rotation transformations
         final matrix4 = Matrix4.identity()
-          ..setEntry(3, 2, 0.005) // Perspective
+          ..setEntry(3, 2, 0.005)
           ..rotateX(
             thisRotate >= pi / 2 ? pi - thisRotate : thisRotate,
-          ); // Rotation around X-axis
+          );
 
         canvas.transform(matrix4.storage);
 
-        // Calculate the aspect ratios
-        final imageAspectRatio = image.width / image.height;
-        final cellAspectRatio = cellWidth / cellHeight;
-
-        // Define source rectangle for the "cover" effect
-        Rect srcRect;
-        if (imageAspectRatio > cellAspectRatio) {
-          // Image is wider than the cell
-          final scale = image.height / cellHeight;
-          final scaledWidth = cellWidth * scale;
-          final dx = (image.width - scaledWidth) / 2;
-          srcRect = Rect.fromLTWH(dx, 0, scaledWidth, image.height.toDouble());
+        if (image.width == 1 && image.height == 1) {
+          paint.color = fallbackColors[k];
+          final dstRect = Rect.fromCenter(
+            center: Offset.zero,
+            width: cellWidth.toDouble(),
+            height: cellHeight.toDouble(),
+          );
+          canvas.drawRect(dstRect, paint);
         } else {
-          // Image is taller than the cell
-          final scale = image.width / cellWidth;
-          final scaledHeight = cellHeight * scale;
-          final dy = (image.height - scaledHeight) / 2;
-          srcRect = Rect.fromLTWH(0, dy, image.width.toDouble(), scaledHeight);
+          final imageAspectRatio = image.width / image.height;
+          final cellAspectRatio = cellWidth / cellHeight;
+
+          // Define source rectangle for the "cover" effect
+          Rect srcRect;
+          if (imageAspectRatio > cellAspectRatio) {
+            final scale = image.height / cellHeight;
+            final scaledWidth = cellWidth * scale;
+            final dx = (image.width - scaledWidth) / 2;
+            srcRect =
+                Rect.fromLTWH(dx, 0, scaledWidth, image.height.toDouble());
+          } else {
+            // Image is wider than the cell
+            final scale = image.width / cellWidth;
+            final scaledHeight = cellHeight * scale;
+            final dy = (image.height - scaledHeight) / 2;
+            srcRect =
+                Rect.fromLTWH(0, dy, image.width.toDouble(), scaledHeight);
+          }
+
+          // Define destination rectangle
+          final dstRect = Rect.fromCenter(
+            center: Offset.zero,
+            width: cellWidth.toDouble(),
+            height: cellHeight.toDouble(),
+          );
+
+          // Draw the image
+          canvas.drawImageRect(image, srcRect, dstRect, paint);
         }
-
-        // Define destination rectangle
-        final dstRect = Rect.fromCenter(
-          center: Offset.zero,
-          width: cellWidth,
-          height: cellHeight,
-        );
-
-        // Draw the image
-        canvas.drawImageRect(image, srcRect, dstRect, paint);
 
         // Restore the canvas state
         canvas.restore();
@@ -94,6 +106,14 @@ class FlipGridPainter extends CustomPainter {
     if (oldDelegate.gridCount != gridCount) return false;
 
     if (oldDelegate.images.length != images.length) return true;
+
+    if (oldDelegate.fallbackColors.length != fallbackColors.length) {
+      return true;
+    }
+
+    if (oldDelegate.fallbackColors[0] != fallbackColors[0]) {
+      return true;
+    }
 
     for (int i = 0; i < images.length; i++) {
       if (oldDelegate.images[i] != images[i]) {

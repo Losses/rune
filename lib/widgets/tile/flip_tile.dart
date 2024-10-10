@@ -21,6 +21,15 @@ class FlipTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
+    final colors = [
+      theme.accentColor,
+      theme.accentColor.light,
+      theme.accentColor.lighter,
+      theme.accentColor.lightest,
+      theme.accentColor.dark,
+      theme.accentColor.darker,
+      theme.accentColor.darkest,
+    ];
 
     return Tile(
       onPressed: onPressed,
@@ -31,11 +40,14 @@ class FlipTile extends StatelessWidget {
             paths!.isNotEmpty
                 ? FastFlipCoverGrid(
                     size: 120,
+                    name: name,
                     paths: paths!,
+                    colors: colors,
                   )
                 : EmptyFlipCover(
                     name: name,
                     emptyTileType: emptyTileType,
+                    colors: colors,
                   ),
           Container(
             decoration: BoxDecoration(
@@ -68,25 +80,16 @@ class EmptyFlipCover extends StatelessWidget {
   const EmptyFlipCover({
     super.key,
     required this.name,
+    required this.colors,
     required this.emptyTileType,
   });
 
   final String name;
   final BoringAvatarType emptyTileType;
+  final List<Color> colors;
 
   @override
   Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final colors = [
-      theme.accentColor,
-      theme.accentColor.light,
-      theme.accentColor.lighter,
-      theme.accentColor.lightest,
-      theme.accentColor.dark,
-      theme.accentColor.darker,
-      theme.accentColor.darkest,
-    ];
-
     return BoringAvatar(
       name: name,
       palette: BoringAvatarPalette(colors),

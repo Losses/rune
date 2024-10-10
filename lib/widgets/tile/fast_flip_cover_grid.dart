@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import 'utils/hash13.dart';
 import 'utils/image_proxy.dart';
 import 'utils/flip_grid_painter.dart';
 import 'constants/image_memory_manager.dart';
@@ -15,11 +16,15 @@ class FastFlipCoverGrid extends StatefulWidget {
   final List<String> paths;
   final int speed;
   final int size;
+  final String name;
+  final List<Color> colors;
 
   const FastFlipCoverGrid({
     super.key,
     required this.paths,
     required this.size,
+    required this.name,
+    required this.colors,
     this.speed = 500,
   });
 
@@ -33,12 +38,14 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   late DateTime _lastFlipTime;
   late List<String> _frontPaths;
   late List<String> _backPaths;
+  late List<Color> _frontColors;
+  late List<Color> _backColors;
   late List<bool> _isFront;
   late List<bool> _isFlipping;
   late List<DateTime?> _flipStartTimes;
   late List<double> _rotates;
   late List<ui.Image?> _images;
-  final Random _random = Random();
+  late List<Color> _colors;
   final Map<String, ui.Image> _imageCache = {};
   final ImageProxy _imageProxy = imageMemoryManager.requireProxy();
   Ticker? _ticker;
@@ -48,6 +55,17 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
   void initState() {
     super.initState();
     _initializeGrid();
+  }
+
+  int i = 0;
+
+  double rand(double x) {
+    i += 1;
+    return hash13(
+      x + i,
+      (DateTime.now().millisecondsSinceEpoch / 100000).floor().toDouble(),
+      widget.name.hashCode.toDouble(),
+    );
   }
 
   late double pixelRatio;
@@ -63,6 +81,8 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
       _gridCount * _gridCount,
       (i) => _imageProxy.getCachedImage(_frontPaths[i], targetSize),
     );
+
+    _colors = List.from(_frontColors);
 
     if (_ticker == null) {
       if (widget.paths.length > 1) {
@@ -86,13 +106,32 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     _imageProxy.dispose();
   }
 
+  int _compareRandom0(String a, String b) {
+    return rand(a.hashCode / b.hashCode) > 0.5 ? 1 : -1;
+  }
+
+  int _compareRandom1(String a, String b) {
+    return rand(a.hashCode / b.hashCode + 1) > 0.5 ? 1 : -1;
+  }
+
+  List<Color> randomColorList() {
+    return List.generate(
+      _gridCount * _gridCount,
+      (index) {
+        return pickRandom(widget.colors, index);
+      },
+    );
+  }
+
   void _initializeGrid() {
     _lastFlipTime = DateTime.now();
     _gridCount = _determineGridSize();
     _frontPaths = List.from(widget.paths);
     _backPaths = List.from(widget.paths);
-    _frontPaths.shuffle();
-    _backPaths.shuffle();
+    _frontPaths.sort(_compareRandom0);
+    _backPaths.sort(_compareRandom1);
+    _frontColors = randomColorList();
+    _backColors = randomColorList();
     _isFront = List.filled(_gridCount * _gridCount, false);
     _isFlipping = List.filled(_gridCount * _gridCount, false);
     _flipStartTimes = List.filled(_gridCount * _gridCount, null);
@@ -160,7 +199,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
     String newPath;
 
     do {
-      newPath = widget.paths[_random.nextInt(widget.paths.length)];
+      newPath = pickRandom(widget.paths, index);
       attempts++;
     } while ((_frontPaths.contains(newPath) ||
             _backPaths.contains(newPath) ||
@@ -175,7 +214,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
   void _prepareFlip() {
     for (int k = 0; k < _gridCount * _gridCount; k++) {
-      if (_random.nextDouble() > 0.64) {
+      if (rand(k.toDouble()) > 0.64) {
         _isFlipping[k] = true;
         _flipStartTimes[k] = DateTime.now();
         _stageFlipGridData(k);
@@ -184,6 +223,10 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
         _flipStartTimes[k] = null;
       }
     }
+  }
+
+  T pickRandom<T>(List<T> x, int k) {
+    return x[(x.length * rand(k.toDouble())).floor()];
   }
 
   void _updateParameters() {
@@ -199,9 +242,13 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
           _flipStartTimes[k] = null;
           _isFront[k] = !_isFront[k];
 
-          final frontPath = _frontPaths[k];
+          final x = _frontPaths[k];
           _frontPaths[k] = _backPaths[k];
-          _backPaths[k] = frontPath;
+          _backPaths[k] = x;
+
+          final y = _frontColors[k];
+          _frontColors[k] = _backColors[k];
+          _backColors[k] = y;
         }
         needsUpdate = true;
       } else {
@@ -210,6 +257,8 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
       _images[k] =
           _imageCache[(_rotates[k] >= pi / 2) ? _frontPaths[k] : _backPaths[k]];
+
+      _colors[k] = (_rotates[k] >= pi / 2) ? _frontColors[k] : _backColors[k];
     }
 
     if (needsUpdate) {
@@ -225,6 +274,7 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
         _images,
         gridCount: _gridCount,
         rotates: _rotates,
+        fallbackColors: _colors,
       ),
       // Set the size to fill the available space
       size: Size.infinite,

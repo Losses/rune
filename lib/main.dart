@@ -45,10 +45,11 @@ void main() async {
   try {
     final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
     final isWindows10 = (await deviceInfo.windowsInfo).majorVersion == 10;
-    if (isWindows10 && appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
+    if (isWindows10 &&
+        appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
       appTheme.windowEffect = flutter_acrylic.WindowEffect.solid;
     }
-  } catch(e) {
+  } catch (e) {
     debugPrint('Device is not Windows 10, skip the patch');
   }
 
@@ -143,13 +144,14 @@ class Rune extends StatelessWidget {
             final theme = FluentTheme.of(context);
 
             return Container(
-                color: Platform.isLinux
-                    ? theme.micaBackgroundColor
-                    : Colors.transparent,
-                child: Directionality(
-                  textDirection: appTheme.textDirection,
-                  child: child!,
-                ));
+              color: Platform.isLinux
+                  ? theme.micaBackgroundColor
+                  : Colors.transparent,
+              child: Directionality(
+                textDirection: appTheme.textDirection,
+                child: child!,
+              ),
+            );
           },
         );
       },
