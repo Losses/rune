@@ -1,7 +1,14 @@
 import 'dart:ui' as ui;
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
 
 import 'image_proxy.dart';
+
+final Uint8List blankBytes = const Base64Codec()
+    .decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
+
+final emptyKey = ImageKey('', 0);
 
 class ImageMemoryManager {
   static final ImageMemoryManager _instance = ImageMemoryManager._internal();
@@ -27,6 +34,10 @@ class ImageMemoryManager {
   }
 
   Future<ui.Image> loadImage(ImageKey key, ImageProxy proxy) {
+    if (key.path == '') {
+      key = emptyKey;
+    }
+
     final set = _proxyReference[key] ?? {};
     _proxyReference[key] = set;
 
@@ -39,10 +50,29 @@ class ImageMemoryManager {
 
       set.add(proxy);
 
-      _loadAndCacheImage(key, completer);
+      if (key.path == '') {
+        _loadAndCacheEmptyImage(completer);
+      } else {
+        _loadAndCacheImage(key, completer);
+      }
 
       return completer.future;
     }
+  }
+
+  Future<void> _loadAndCacheEmptyImage(
+    Completer<ui.Image> completer,
+  ) async {
+    final ui.Codec codec = await ui.instantiateImageCodecFromBuffer(
+      await ui.ImmutableBuffer.fromUint8List(blankBytes),
+    );
+
+    final ui.FrameInfo frameInfo = await codec.getNextFrame();
+    final ui.Image emptylImage = frameInfo.image;
+
+    _syncImageCache[emptyKey] = emptylImage;
+
+    completer.complete(emptylImage);
   }
 
   Future<void> _loadAndCacheImage(
