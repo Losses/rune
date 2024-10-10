@@ -83,6 +83,7 @@ jobs:
         with:
           artifacts: build/windows/x64/runner/Release/Rune-*.zip
           allowUpdates: true
+          replacesArtifacts: false
 
   build-linux:
     permissions:
@@ -152,6 +153,7 @@ jobs:
         with:
           artifacts: build/linux/x64/release/bundle/Rune-*.zip
           allowUpdates: true
+          replacesArtifacts: false
     
       
       
