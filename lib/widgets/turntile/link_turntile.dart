@@ -1,6 +1,8 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/hover_opacity.dart';
+
 class LinkTurntile extends StatefulWidget {
   final String title;
   final String path;
@@ -18,7 +20,6 @@ class LinkTurntile extends StatefulWidget {
 }
 
 class _LinkTurntileState extends State<LinkTurntile> {
-  bool _isHovered = false;
   final FocusNode _focusNode = FocusNode();
 
   void onPressed() {
@@ -31,19 +32,13 @@ class _LinkTurntileState extends State<LinkTurntile> {
 
     return GestureDetector(
       onTap: onPressed,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: AnimatedOpacity(
-          opacity: _isHovered ? 1.0 : 0.7,
-          duration: theme.fastAnimationDuration,
-          child: FocusableActionDetector(
-            focusNode: _focusNode,
-            child: Text(
-              widget.title,
-              textAlign: TextAlign.start,
-              style: theme.typography.title?.apply(fontWeightDelta: -100),
-            ),
+      child: HoverOpacity(
+        child: FocusableActionDetector(
+          focusNode: _focusNode,
+          child: Text(
+            widget.title,
+            textAlign: TextAlign.start,
+            style: theme.typography.title?.apply(fontWeightDelta: -100),
           ),
         ),
       ),

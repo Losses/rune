@@ -47,15 +47,15 @@ class NavigationBarState extends State<NavigationBar> {
     final path = GoRouterState.of(context).fullPath;
 
     if (_previousPath != null && path != _previousPath) {
-      final previousItem = widget.query.getItem(_previousPath);
-      final currentItem = widget.query.getItem(path);
+      final previousItem = widget.query.getItem(_previousPath, false);
+      final currentItem = widget.query.getItem(path, false);
 
       if (previousItem != null && currentItem != null) {
-        if (widget.query.getParent(path)?.path == _previousPath) {
+        if (widget.query.getParent(path, false)?.path == _previousPath) {
           // parent to child
           playFlipAnimation(
               context, 'child:$_previousPath', 'title:$_previousPath');
-        } else if (widget.query.getParent(_previousPath)?.path == path) {
+        } else if (widget.query.getParent(_previousPath, false)?.path == path) {
           // child to parent
           playFlipAnimation(context, 'title:$path', 'child:$path');
         } else {}
@@ -110,79 +110,81 @@ class NavigationBarState extends State<NavigationBar> {
 
   @override
   Widget build(BuildContext context) {
-    final path = GoRouterState.of(context).fullPath;
-    final item = widget.query.getItem(path);
-    final parent = widget.query.getParent(path);
-    final slibings =
-        widget.query.getSiblings(path)?.where((x) => !x.hidden).toList();
+    return SmallerOrEqualTo(
+      breakpoint: DeviceType.zune,
+      builder: (context, isZune) {
+        final path = GoRouterState.of(context).fullPath;
+        final item = widget.query.getItem(path, isZune);
+        final parent = widget.query.getParent(path, isZune);
+        final slibings =
+            widget.query.getSiblings(path, isZune)?.where((x) => !x.hidden).toList();
 
-    final titleFlipKey = 'title:${parent?.path}';
+        final titleFlipKey = 'title:${parent?.path}';
 
-    final Widget parentWidget = parent != null
-        ? Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: GestureDetector(
-              onTap: () async {
-                _onHeaderTap(context, parent);
-              },
-              child: SizedBox(
-                height: 80,
-                width: 320,
-                child: FlipText(
-                  key: Key(titleFlipKey),
-                  flipKey: titleFlipKey,
-                  text: parent.title,
-                  scale: 6,
-                  alpha: 80,
+        final Widget parentWidget = parent != null
+            ? Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: GestureDetector(
+                  onTap: () async {
+                    _onHeaderTap(context, parent);
+                  },
+                  child: SizedBox(
+                    height: 80,
+                    width: 320,
+                    child: FlipText(
+                      key: Key(titleFlipKey),
+                      flipKey: titleFlipKey,
+                      text: parent.title,
+                      scale: 6,
+                      alpha: 80,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-          )
-        : Container();
+              )
+            : Container();
 
-    if (parent != _lastParent) {
-      _lastParent = parent;
-      _disposeAnimations();
-      _resetAnimations();
+        final baseSlibings = (slibings ?? emptySlibings);
+        final validSlibings = (isZune
+            ? baseSlibings
+            : baseSlibings.where((x) => !x.zuneOnly).toList());
 
-      int itemIndex = slibings?.indexWhere((route) => route == item) ?? -1;
+        if (parent != _lastParent) {
+          _lastParent = parent;
+          _disposeAnimations();
+          _resetAnimations();
 
-      slibings?.asMap().entries.forEach((entry) {
-        final index = entry.key;
-        final isCurrent = itemIndex == index;
+          int itemIndex = validSlibings.indexWhere((route) => route == item);
 
-        if (!isCurrent) {
-          final delay = ((index - itemIndex - 1).abs() * 100);
-          _slibingOpacities.add(0);
+          validSlibings.asMap().entries.forEach((entry) {
+            final index = entry.key;
+            final isCurrent = itemIndex == index;
 
-          final timer = Timer(Duration(milliseconds: delay), () {
-            if (mounted) {
-              setState(() {
-                _slibingOpacities[index] = 1;
+            if (!isCurrent) {
+              final delay = ((index - itemIndex - 1).abs() * 100);
+              _slibingOpacities.add(0);
+
+              final timer = Timer(Duration(milliseconds: delay), () {
+                if (mounted) {
+                  setState(() {
+                    _slibingOpacities[index] = 1;
+                  });
+                }
               });
+              _slibingAnimationFutures.add(timer);
+            } else {
+              _slibingOpacities.add(1);
             }
           });
-          _slibingAnimationFutures.add(timer);
-        } else {
-          _slibingOpacities.add(1);
         }
-      });
-    }
 
-    final childrenWidget = SmoothHorizontalScroll(
-      builder: (context, scrollController) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        controller: scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: SmallerOrEqualTo(
-          breakpoint: DeviceType.zune,
-          builder: (context, isZune) {
-            final baseData = (slibings ?? emptySlibings);
-            final validData =
-                isZune ? baseData : baseData.where((x) => !x.zuneOnly);
-            return Row(
+        final childrenWidget = SmoothHorizontalScroll(
+          builder: (context, scrollController) => SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.start,
-              children: validData.toList().asMap().entries.map(
+              children: validSlibings.toList().asMap().entries.map(
                 (entry) {
                   final route = entry.value;
                   final childFlipKey = 'child:${route.path}';
@@ -209,65 +211,61 @@ class NavigationBarState extends State<NavigationBar> {
                   );
                 },
               ).toList(),
-            );
+            ),
+          ),
+        );
+
+        final isSearch = path == '/search';
+
+        return BackButtonListener(
+          onBackButtonPressed: () async {
+            final router = GoRouter.of(context);
+            final canPop = router.canPop();
+
+            if (!canPop) {
+              if (parent != null) {
+                router.go(parent.path);
+              }
+            }
+            return !canPop;
           },
-        ),
-      ),
-    );
-
-    final isSearch = path == '/search';
-
-    return BackButtonListener(
-      onBackButtonPressed: () async {
-        final router = GoRouter.of(context);
-        final canPop = router.canPop();
-
-        if (!canPop) {
-          if (parent != null) {
-            router.go(parent.path);
-          }
-        }
-        return !canPop;
+          child: Stack(
+            children: [
+              if (isZune || !isSearch)
+                Transform.translate(
+                  offset: const Offset(0, -40),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      parentWidget,
+                      childrenWidget,
+                    ],
+                  ),
+                ),
+              if (!isZune)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: IconButton(
+                    icon: Icon(
+                      isSearch ? Symbols.close : Symbols.search,
+                      size: 24,
+                    ),
+                    onPressed: () => {
+                      if (isSearch)
+                        {
+                          if (context.canPop()) {context.pop()}
+                        }
+                      else
+                        {context.push('/search')}
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
       },
-      child: SmallerOrEqualTo(
-          breakpoint: DeviceType.zune,
-          builder: (context, isZune) {
-            return Stack(
-              children: [
-                if (isZune || !isSearch)
-                  Transform.translate(
-                    offset: const Offset(0, -40),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      mainAxisSize: MainAxisSize.max,
-                      children: [
-                        parentWidget,
-                        childrenWidget,
-                      ],
-                    ),
-                  ),
-                if (!isZune)
-                  Positioned(
-                    top: 16,
-                    right: 16,
-                    child: IconButton(
-                      icon: Icon(
-                        isSearch ? Symbols.close : Symbols.search,
-                        size: 24,
-                      ),
-                      onPressed: () => {
-                        if (isSearch)
-                          {
-                            if (context.canPop()) {context.pop()}
-                          }
-                        else
-                          {context.push('/search')}
-                      },
-                    ),
-                  ),
-              ],
-            );
-          }),
     );
   }
 }

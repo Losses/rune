@@ -3,18 +3,19 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/responsive_providers.dart';
 
 import '../../../messages/search.pb.dart';
 
 class SearchSuggestBox extends StatefulWidget {
-  final bool isMini;
+  final DeviceType deviceType;
   final TextEditingController controller;
   final SearchForResponse? searchResults;
   final void Function() registerSearchTask;
 
   const SearchSuggestBox({
     super.key,
-    required this.isMini,
+    required this.deviceType,
     required this.controller,
     required this.searchResults,
     required this.registerSearchTask,
@@ -103,9 +104,9 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
           },
         );
       }).toList(),
-      clearButtonEnabled: !widget.isMini,
-      leadingIcon: !widget.isMini ? null : icon,
-      trailingIcon: widget.isMini ? null : icon,
+      clearButtonEnabled: widget.deviceType != DeviceType.tablet,
+      leadingIcon: widget.deviceType != DeviceType.tablet ? null : icon,
+      trailingIcon: widget.deviceType == DeviceType.tablet ? null : icon,
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/hover_opacity.dart';
+
 class TurnTileGroupNormalLayout extends StatefulWidget {
   final String? groupTitle;
   final Widget child;
@@ -18,8 +20,6 @@ class TurnTileGroupNormalLayout extends StatefulWidget {
 }
 
 class TurnTileGroupNormalLayoutState extends State<TurnTileGroupNormalLayout> {
-  double _opacity = 1.0;
-
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
@@ -30,24 +30,14 @@ class TurnTileGroupNormalLayoutState extends State<TurnTileGroupNormalLayout> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.groupTitle != null)
-            FocusableActionDetector(
-              onShowFocusHighlight: (focus) {},
-              onShowHoverHighlight: (hover) {},
-              child: MouseRegion(
-                onEnter: (_) => _changeOpacity(0.7),
-                onExit: (_) => _changeOpacity(1.0),
-                child: GestureDetector(
-                  onTap: widget.onTitleTap,
-                  child: AnimatedOpacity(
-                    opacity: _opacity,
-                    duration: const Duration(milliseconds: 100),
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 4),
-                      child: Text(
-                        widget.groupTitle!,
-                        style: theme.typography.bodyLarge,
-                      ),
-                    ),
+            HoverOpacity(
+              child: GestureDetector(
+                onTap: widget.onTitleTap,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    widget.groupTitle!,
+                    style: theme.typography.bodyLarge,
                   ),
                 ),
               ),
@@ -56,11 +46,5 @@ class TurnTileGroupNormalLayoutState extends State<TurnTileGroupNormalLayout> {
         ],
       ),
     );
-  }
-
-  void _changeOpacity(double opacity) {
-    setState(() {
-      _opacity = opacity;
-    });
   }
 }

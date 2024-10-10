@@ -7,7 +7,7 @@ import './search_card.dart';
 
 const List<SearchCard> defaultList = [];
 
-class SearchTrackList extends StatelessWidget {
+class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   final int rows;
   final double ratio;
   final double gapSize;
@@ -16,7 +16,7 @@ class SearchTrackList extends StatelessWidget {
   final List<SearchCard>? items;
   final int groupId; 
 
-  const SearchTrackList({
+  const LargeScreenSearchTrackListImplementation({
     super.key,
     required this.rows,
     required this.ratio,

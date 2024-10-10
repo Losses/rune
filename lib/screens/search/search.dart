@@ -1,12 +1,13 @@
 import 'dart:async';
 
+import 'package:player/screens/search/widgets/small_screen_search_track_list.dart';
+import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
-import '../../screens/search/widgets/small_screen_track_list.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -21,6 +22,7 @@ import 'widgets/search_suggest_box.dart';
 import 'widgets/collection_search_item.dart';
 import 'widgets/large_screen_search_sidebar.dart';
 import 'widgets/large_screen_search_track_list.dart';
+import 'widgets/medium_screen_search_track_list.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -32,18 +34,20 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
-    final isMini = Provider.of<ResponsiveProvider>(context)
-        .smallerOrEqualTo(DeviceType.tablet);
-
-    return SearchPageImplementation(
-      isMini: isMini,
+    return BreakpointBuilder(
+      breakpoints: const [DeviceType.zune, DeviceType.tablet, DeviceType.tv],
+      builder: (context, deviceType) {
+        return SearchPageImplementation(
+          deviceType: deviceType,
+        );
+      },
     );
   }
 }
 
 class SearchPageImplementation extends StatefulWidget {
-  final bool isMini;
-  const SearchPageImplementation({super.key, required this.isMini});
+  final DeviceType deviceType;
+  const SearchPageImplementation({super.key, required this.deviceType});
 
   @override
   State<SearchPageImplementation> createState() =>
@@ -63,6 +67,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
   String _lastSearched = '';
 
   final largeScreenLayoutManager = StartScreenLayoutManager();
+  final mediumScreenLayoutManager = StartScreenLayoutManager();
   final smallScreenLayoutManager = StartScreenLayoutManager();
 
   @override
@@ -78,17 +83,20 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     _debounce?.cancel();
     searchController.dispose();
     largeScreenLayoutManager.dispose();
+    mediumScreenLayoutManager.dispose();
     smallScreenLayoutManager.dispose();
   }
 
   void resetAnimations() {
     largeScreenLayoutManager.resetAnimations();
+    mediumScreenLayoutManager.resetAnimations();
     smallScreenLayoutManager.resetAnimations();
   }
 
   void playAnimations() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       largeScreenLayoutManager.playAnimations();
+      mediumScreenLayoutManager.playAnimations();
       smallScreenLayoutManager.playAnimations();
     });
   }
@@ -97,7 +105,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
   void didUpdateWidget(covariant SearchPageImplementation oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.isMini != widget.isMini) {
+    if (oldWidget.deviceType != widget.deviceType) {
       resetAnimations();
       playAnimations();
     }
@@ -192,16 +200,39 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       controller: searchController,
       searchResults: _searchResults,
       registerSearchTask: _registerSearchTask,
-      isMini: widget.isMini,
+      deviceType: widget.deviceType,
     );
 
-    if (widget.isMini) {
+    if (widget.deviceType == DeviceType.tablet) {
       return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: smallScreenLayoutManager,
+        value: mediumScreenLayoutManager,
         child: Column(
           children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
+              child: autoSuggestBox,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                child: MediumScreenSearchTrackList(
+                  items: items,
+                ),
+              ),
+            ),
+            const PlaybackPlaceholder(),
+          ],
+        ),
+      );
+    }
+
+    if (widget.deviceType == DeviceType.zune) {
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: smallScreenLayoutManager,
+        child: Column(
+          children: [
+            const NavigationBarPlaceholder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
               child: autoSuggestBox,
             ),
             Expanded(

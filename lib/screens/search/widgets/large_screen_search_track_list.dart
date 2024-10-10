@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/search/widgets/search_card.dart';
-import '../../../screens/search/widgets/search_track_list.dart';
+import 'large_screen_search_track_list_implementation.dart';
 import '../../../messages/collection.pb.dart';
 
 class LargeScreenSearchTrackList extends StatelessWidget {
@@ -42,7 +42,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
 
                 final List<SearchCard> itemGroup = items[selectedItem] ?? [];
 
-                return SearchTrackList(
+                return LargeScreenSearchTrackListImplementation(
                   key: Key(selectedItem.toString()),
                   rows: rows,
                   ratio: ratio,
