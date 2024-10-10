@@ -12,14 +12,15 @@ class FlipText extends StatefulWidget {
   final double? fontWeight;
   final bool hidden;
 
-  const FlipText(
-      {super.key,
-      required this.flipKey,
-      required this.text,
-      this.hidden = false,
-      this.scale = 1,
-      this.alpha,
-      this.fontWeight});
+  const FlipText({
+    super.key,
+    required this.flipKey,
+    required this.text,
+    this.hidden = false,
+    this.scale = 1,
+    this.alpha,
+    this.fontWeight,
+  });
 
   @override
   FlipTextState createState() => FlipTextState();

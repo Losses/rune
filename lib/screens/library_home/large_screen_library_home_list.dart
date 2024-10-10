@@ -91,10 +91,10 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: [
-                    StartGroup<(String, String, IconData)>(
+                    StartGroup<(String, String, IconData, bool)>(
                       groupIndex: 0,
                       groupTitle: 'Start',
-                      items: firstColumn,
+                      items: firstColumn.where((x) => !x.$4).toList(),
                       groupLayoutVariation:
                           StartGroupGroupLayoutVariation.stacked,
                       gridLayoutVariation:

@@ -25,8 +25,11 @@ class TransitionCalculationProvider with ChangeNotifier {
   void _initializeMaps() {
     void traverse(List<NavigationItem> items, String? parentPath) {
       for (var item in items) {
-        _pathToItemMap[item.path] = item;
-        _pathToParentMap[item.path] = parentPath;
+        if (!item.zuneOnly) {
+          _pathToItemMap[item.path] = item;
+          _pathToParentMap[item.path] = parentPath;
+        }
+
         traverse(item.children ?? [], item.path);
       }
     }

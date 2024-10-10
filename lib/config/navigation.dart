@@ -3,6 +3,7 @@ import '../../widgets/navigation_bar/utils/navigation_item.dart';
 final List<NavigationItem> navigationItems = [
   NavigationItem('Rune', '/home', tappable: false, children: [
     NavigationItem('Library', '/library', children: [
+      NavigationItem('Search', '/search', zuneOnly: true),
       NavigationItem('Artists', '/artists', children: [
         NavigationItem(
           'Artist Query',
@@ -40,5 +41,6 @@ final List<NavigationItem> navigationItems = [
       NavigationItem('Test', '/settings/mix'),
     ]),
   ]),
+  // We must keep this here to make page transition parsing works correctly!
   NavigationItem('Search', '/search'),
 ];

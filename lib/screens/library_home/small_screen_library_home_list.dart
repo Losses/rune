@@ -34,7 +34,7 @@ class LibraryHomeListState extends State<SmallScreenLibraryHomeListView> {
   Widget build(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
-        child: TurntileGroup<(String, String, IconData)>(
+        child: TurntileGroup<(String, String, IconData, bool)>(
           groupIndex: 0,
           items: firstColumn,
           gridLayoutVariation: TurntileGroupGridLayoutVariation.list,

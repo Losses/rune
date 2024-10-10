@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:player/providers/responsive_providers.dart';
 import 'package:player/widgets/smooth_horizontal_scroll.dart';
 
 import './flip_text.dart';
@@ -173,33 +174,43 @@ class NavigationBarState extends State<NavigationBar> {
         scrollDirection: Axis.horizontal,
         controller: scrollController,
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.start,
-          children: (slibings ?? emptySlibings).asMap().entries.map((entry) {
-            final route = entry.value;
-            final childFlipKey = 'child:${route.path}';
+        child: SmallerOrEqualTo(
+          breakpoint: DeviceType.zune,
+          builder: (context, isZune) {
+            final baseData = (slibings ?? emptySlibings);
+            final validData =
+                isZune ? baseData : baseData.where((x) => !x.zuneOnly);
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: validData.toList().asMap().entries.map(
+                (entry) {
+                  final route = entry.value;
+                  final childFlipKey = 'child:${route.path}';
 
-            return Padding(
-              padding: const EdgeInsets.only(right: 24),
-              child: GestureDetector(
-                onTap: () async {
-                  _onRouteSelected(route);
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 24),
+                    child: GestureDetector(
+                      onTap: () async {
+                        _onRouteSelected(route);
+                      },
+                      child: AnimatedOpacity(
+                        key: Key('animation-$childFlipKey'),
+                        opacity: _slibingOpacities[entry.key],
+                        duration: const Duration(milliseconds: 300),
+                        child: FlipText(
+                          key: Key(childFlipKey),
+                          flipKey: childFlipKey,
+                          text: route.title,
+                          scale: 1.2,
+                          alpha: route == item ? 255 : 100,
+                        ),
+                      ),
+                    ),
+                  );
                 },
-                child: AnimatedOpacity(
-                  key: Key('animation-$childFlipKey'),
-                  opacity: _slibingOpacities[entry.key],
-                  duration: const Duration(milliseconds: 300),
-                  child: FlipText(
-                    key: Key(childFlipKey),
-                    flipKey: childFlipKey,
-                    text: route.title,
-                    scale: 1.2,
-                    alpha: route == item ? 255 : 100,
-                  ),
-                ),
-              ),
+              ).toList(),
             );
-          }).toList(),
+          },
         ),
       ),
     );
@@ -218,39 +229,45 @@ class NavigationBarState extends State<NavigationBar> {
         }
         return !canPop;
       },
-      child: Stack(
-        children: [
-          Transform.translate(
-            offset: const Offset(0, -40),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.max,
+      child: SmallerOrEqualTo(
+          breakpoint: DeviceType.zune,
+          builder: (context, isZune) {
+            return Stack(
               children: [
-                parentWidget,
-                childrenWidget,
+                if (isZune || !isSearch)
+                  Transform.translate(
+                    offset: const Offset(0, -40),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        parentWidget,
+                        childrenWidget,
+                      ],
+                    ),
+                  ),
+                if (!isZune)
+                  Positioned(
+                    top: 16,
+                    right: 16,
+                    child: IconButton(
+                      icon: Icon(
+                        isSearch ? Symbols.close : Symbols.search,
+                        size: 24,
+                      ),
+                      onPressed: () => {
+                        if (isSearch)
+                          {
+                            if (context.canPop()) {context.pop()}
+                          }
+                        else
+                          {context.push('/search')}
+                      },
+                    ),
+                  ),
               ],
-            ),
-          ),
-          Positioned(
-            top: 16,
-            right: 16,
-            child: IconButton(
-              icon: Icon(
-                isSearch ? Symbols.close : Symbols.search,
-                size: 24,
-              ),
-              onPressed: () => {
-                if (isSearch)
-                  {
-                    if (context.canPop()) {context.pop()}
-                  }
-                else
-                  {context.push('/search')}
-              },
-            ),
-          ),
-        ],
-      ),
+            );
+          }),
     );
   }
 }
