@@ -20,15 +20,18 @@ jobs:
         brew install flutter rust lmdb
 
     - uses: Swatinem/rust-cache@v2
-
+      
+    - name: Install the Rust dependencies
+      run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+      
     - name: Activate Protobuf
       run: flutter pub global activate protoc_plugin
-
+      
     - name: Flutter pub get
       run: flutter pub get
 
     - name: Generate message files
-      run: flutter pub run rinf message
+      run: rinf message 
 
     - name: Build macOS
       run: flutter build macos --release --verbose
