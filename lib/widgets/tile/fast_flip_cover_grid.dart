@@ -269,15 +269,17 @@ class FastFlipCoverGridState extends State<FastFlipCoverGrid>
 
   @override
   Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: FlipGridPainter(
-        _images,
-        gridCount: _gridCount,
-        rotates: _rotates,
-        fallbackColors: _colors,
+    return RepaintBoundary(
+      child: CustomPaint(
+        painter: FlipGridPainter(
+          _images,
+          gridCount: _gridCount,
+          rotates: _rotates,
+          fallbackColors: _colors,
+        ),
+        // Set the size to fill the available space
+        size: Size.infinite,
       ),
-      // Set the size to fill the available space
-      size: Size.infinite,
     );
   }
 }
