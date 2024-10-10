@@ -15,7 +15,7 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install CocoaPods lmdb cocoa
+        brew install CocoaPods lmdb
 
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
