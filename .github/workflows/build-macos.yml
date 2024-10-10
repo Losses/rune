@@ -1,76 +1,91 @@
-name: macOS Build
+name: macOS Build and Release
 
 on:
   workflow_dispatch:
   push:
+    tags:
+      - 'v*'
 
 jobs:
   build-macos:
     runs-on: macos-latest
-
     steps:
-    # Checkout the code from the repository
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Install dependencies
-      run: |
-        brew install CocoaPods lmdb
-        brew info lmdb
-
-    - name: Setup Flutter
-      uses: subosito/flutter-action@v2
-      with:
-        channel: 'stable'
-
-    - name: Setup Rust toolchain
-      uses: dtolnay/rust-toolchain@stable
-
-    - uses: Swatinem/rust-cache@v2
-
-    - name: Install Protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        version: "26.x"
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Install dependencies
+        run: |
+          brew install CocoaPods lmdb
+          brew info lmdb
+          
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - uses: Swatinem/rust-cache@v2
       
-    - name: Install the Rust dependencies
-      run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-      
-    - name: Activate Protobuf
-      run: flutter pub global activate protoc_plugin
-      
-    - name: Flutter pub get
-      run: flutter pub get
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
+        
+      - name: Flutter pub get
+        run: flutter pub get
+        
+      - name: Generate message files
+        run: rinf message 
+        
+      - name: Build macOS
+        run: flutter build macos --release --verbose
+        
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+          
+      - name: Upload artifact 
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/macos/Build/Products/Release/player.app
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
 
-    - name: Generate message files
-      run: rinf message 
-
-    - name: Build macOS
-      run: flutter build macos --release --verbose
-
-    - uses: benjlevesque/short-sha@v3.0
-      id: short-sha
-      with:
-        length: 7
-
-    - name: Upload artifact 
-      uses: actions/upload-artifact@v4
-      with:
-        path: build/macos/Build/Products/Release/player.app
-        name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
-
-    - name: Build Zip for Release
-      uses: thedoctor0/zip-release@master
-      with:
-        type: "zip"
-        filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
-        directory: build/macos/Build/Products/Release/player.app
-
-    - name: Release
-      uses: ncipollo/release-action@v1
-      with:
-        artifacts: build/macos/Build/Products/Release/Rune-*.zip
-        allowUpdates: true
-        replacesArtifacts: false
-    
+  release:
+    needs: build-macos
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+          
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-macOS
+          path: artifacts
+          
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.zip
+          directory: artifacts
+          
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "artifacts/Rune-*.zip"
+          allowUpdates: true
+          replacesArtifacts: false
