@@ -46,7 +46,7 @@ jobs:
       run: rinf message 
 
     - name: Build macOS
-      run: flutter build macos --release
+      run: flutter build macos --release --verbose
 
     - uses: benjlevesque/short-sha@v3.0
       id: short-sha
