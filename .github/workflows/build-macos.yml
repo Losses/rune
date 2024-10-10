@@ -1,0 +1,36 @@
+name: macOS Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    # Checkout the code from the repository
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        brew install flutter rust lmdb
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Activate Protobuf
+      run: flutter pub global activate protoc_plugin
+
+    - name: Flutter pub get
+      run: flutter pub get
+
+    - name: Generate message files
+      run: flutter pub run rinf message
+
+    - name: Build macOS
+      run: flutter build macos --release --verbose
+
+    
