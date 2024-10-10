@@ -3,8 +3,6 @@ name: macOS Build
 on:
   workflow_dispatch:
   push:
-    tags:
-      - '*'
 
 jobs:
   build-macos:
@@ -17,7 +15,15 @@ jobs:
 
     - name: Install dependencies
       run: |
-        brew install flutter rust lmdb
+        brew install CocoaPods lmdb cocoa
+
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'stable'
+
+    - name: Setup Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
 
     - uses: Swatinem/rust-cache@v2
 
@@ -40,7 +46,7 @@ jobs:
       run: rinf message 
 
     - name: Build macOS
-      run: flutter build macos --release --verbose
+      run: flutter build macos --release
 
     - uses: benjlevesque/short-sha@v3.0
       id: short-sha
