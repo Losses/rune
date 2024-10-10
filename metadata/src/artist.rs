@@ -2,7 +2,7 @@ use lazy_static::lazy_static;
 use regex::Regex;
 
 lazy_static! {
-    static ref SPLITTERS: Vec<&'static str> = vec![", ", " × ", " x ", " ft. ", " feat. " , " & "];
+    static ref SPLITTERS: Vec<&'static str> = vec![", ", "; ", " × ", " x ", " ft.", " ft. ", " feat. " , " & "];
     static ref WHITELIST: Vec<&'static str> = vec![];
     static ref SPLITTERS_REGEX: Regex = {
         let splitters_pattern = SPLITTERS
