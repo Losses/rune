@@ -7,82 +7,82 @@ on:
       - v*
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    env: 
-        VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
+  # build-windows:
+  #   runs-on: windows-latest
+  #   env: 
+  #       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+  #   steps:
+  #     - name: Checkout branch
+  #       uses: actions/checkout@v4
       
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+  #     - name: Setup Flutter
+  #       uses: subosito/flutter-action@v2
+  #       with:
+  #         channel: 'stable'
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+  #     - name: Setup Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@v2
+  #     - uses: Swatinem/rust-cache@v2
       
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "26.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Install Protoc
+  #       uses: arduino/setup-protoc@v3
+  #       with:
+  #         version: "26.x"
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+  #     - name: Install the Rust dependencies
+  #       run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
         
-      - name: Activate Protobuf
-        run: flutter pub global activate protoc_plugin
+  #     - name: Activate Protobuf
+  #       run: flutter pub global activate protoc_plugin
 
-      - name: Flutter pub get
-        run: flutter pub get
+  #     - name: Flutter pub get
+  #       run: flutter pub get
 
-      - name: Generate message files
-        run: rinf message 
+  #     - name: Generate message files
+  #       run: rinf message 
 
-      - name: Build Windows
-        run: flutter build windows --release --verbose
+  #     - name: Build Windows
+  #       run: flutter build windows --release --verbose
       
-      - uses: benjlevesque/short-sha@v3.0
-        id: short-sha
-        with:
-          length: 7
+  #     - uses: benjlevesque/short-sha@v3.0
+  #       id: short-sha
+  #       with:
+  #         length: 7
     
-      - name: Upload artifact 
-        uses: actions/upload-artifact@v4
-        with:
-          path: build/windows/x64/runner/Release/
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
+  #     - name: Upload artifact 
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         path: build/windows/x64/runner/Release/
+  #         name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
       
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
-          directory: build/windows/x64/runner/Release
+  #     - name: Build Zip for Release
+  #       uses: thedoctor0/zip-release@master
+  #       with:
+  #         type: "zip"
+  #         filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
+  #         directory: build/windows/x64/runner/Release
 
-  release-windows:
-    permissions:
-      contents: write
-    needs: build-windows
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*-windows
-          path: artifacts
+  # release-windows:
+  #   permissions:
+  #     contents: write
+  #   needs: build-windows
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download artifact
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: Rune-*-windows
+  #         path: artifacts
           
-      - name: Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "artifacts/*.zip"
-          allowUpdates: true
-          replacesArtifacts: false
+  #     - name: Release
+  #       uses: ncipollo/release-action@v1
+  #       with:
+  #         artifacts: "artifacts/*.zip"
+  #         allowUpdates: true
+  #         replacesArtifacts: false
 
   build-linux:
     runs-on: ubuntu-latest
@@ -157,96 +157,101 @@ jobs:
           pattern: Rune-*-linux
           path: artifacts
           
+      - name: TEST
+        run: |
+          tree
+          tree /artifacts/
+          
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.zip"
+          artifacts: "/artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
     
-  build-macos:
-    runs-on: macos-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+  # build-macos:
+  #   runs-on: macos-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
         
-      - name: Install dependencies
-        run: |
-          brew install CocoaPods lmdb create-dmg
-          brew info lmdb
+  #     - name: Install dependencies
+  #       run: |
+  #         brew install CocoaPods lmdb create-dmg
+  #         brew info lmdb
           
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
+  #     - name: Setup Flutter
+  #       uses: subosito/flutter-action@v2
+  #       with:
+  #         channel: 'stable'
           
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+  #     - name: Setup Rust toolchain
+  #       uses: dtolnay/rust-toolchain@stable
         
-      - uses: Swatinem/rust-cache@v2
+  #     - uses: Swatinem/rust-cache@v2
       
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "26.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+  #     - name: Install Protoc
+  #       uses: arduino/setup-protoc@v3
+  #       with:
+  #         version: "26.x"
+  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
         
-      - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+  #     - name: Install the Rust dependencies
+  #       run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
         
-      - name: Activate Protobuf
-        run: flutter pub global activate protoc_plugin
+  #     - name: Activate Protobuf
+  #       run: flutter pub global activate protoc_plugin
         
-      - name: Flutter pub get
-        run: flutter pub get
+  #     - name: Flutter pub get
+  #       run: flutter pub get
         
-      - name: Generate message files
-        run: rinf message 
+  #     - name: Generate message files
+  #       run: rinf message 
         
-      - uses: benjlevesque/short-sha@v3.0
-        id: short-sha
-        with:
-          length: 7
+  #     - uses: benjlevesque/short-sha@v3.0
+  #       id: short-sha
+  #       with:
+  #         length: 7
           
-      - name: Build macOS and Create DMG
-        run: |
-          cd macos
-          pod update
-          cd ..
-          flutter build macos --release
-          chmod -R +x build/macos/Build/Products/Release/player.app
-          xattr -cr build/macos/Build/Products/Release/player.app
-          create-dmg \
-            --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
-            --window-pos 200 120 \
-            --window-size 800 450 \
-            --icon-size 100 \
-            --app-drop-link 600 185 \
-            Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-            build/macos/Build/Products/Release/player.app
+  #     - name: Build macOS and Create DMG
+  #       run: |
+  #         cd macos
+  #         pod update
+  #         cd ..
+  #         flutter build macos --release
+  #         chmod -R +x build/macos/Build/Products/Release/player.app
+  #         xattr -cr build/macos/Build/Products/Release/player.app
+  #         create-dmg \
+  #           --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
+  #           --window-pos 200 120 \
+  #           --window-size 800 450 \
+  #           --icon-size 100 \
+  #           --app-drop-link 600 185 \
+  #           Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
+  #           build/macos/Build/Products/Release/player.app
           
-      - name: Upload artifact macOS DMG
-        uses: actions/upload-artifact@v4
-        with:
-          path: "*.dmg"
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
+  #     - name: Upload artifact macOS DMG
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         path: "*.dmg"
+  #         name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
 
-  release-macos:
-    permissions:
-      contents: write
-    needs: build-macos
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*-macOS
-          path: artifacts
+  # release-macos:
+  #   permissions:
+  #     contents: write
+  #   needs: build-macos
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Download artifact
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         pattern: Rune-*-macOS
+  #         path: artifacts
           
-      - name: Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "artifacts/*.zip"
-          allowUpdates: true
-          replacesArtifacts: false
+  #     - name: Release
+  #       uses: ncipollo/release-action@v1
+  #       with:
+  #         artifacts: "artifacts/*.zip"
+  #         allowUpdates: true
+  #         replacesArtifacts: false
