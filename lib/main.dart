@@ -48,7 +48,9 @@ void main() async {
 
   try {
     final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-    final isWindows10 = (await deviceInfo.windowsInfo).majorVersion == 10;
+    final windowsInfo = await deviceInfo.windowsInfo;
+    final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
+
     if (isWindows10 &&
         appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
       appTheme.windowEffect = flutter_acrylic.WindowEffect.solid;
