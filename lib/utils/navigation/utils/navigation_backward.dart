@@ -10,7 +10,7 @@ bool navigationBackward(BuildContext context) {
     final routerState = GoRouterState.of(context);
     final path = routerState.fullPath;
     final parent = navigationQuery.getParent(path, false);
-    if (parent != null && parent.path != '/') {
+    if (parent != null && parent.path != '/' && parent.path != '/home') {
       router.go(parent.path);
     }
   }
