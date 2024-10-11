@@ -13,7 +13,7 @@ pub struct CoverArt {
 
 fn decode_image(image_data: &Vec<u8>) -> Result<Vec<u8>> {
     // Decode the image from binary data
-    let img = image::load_from_memory(&image_data)?;
+    let img = image::load_from_memory(image_data)?;
 
     // Resize the image to 16x16 pixels
     let resized = img.resize_exact(16, 16, image::imageops::FilterType::Lanczos3);
