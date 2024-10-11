@@ -10,6 +10,7 @@ import 'config/navigation.dart';
 
 import 'routes/welcome.dart' as welcome;
 
+import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
 import 'widgets/playback_controller/playback_controller.dart';
@@ -196,18 +197,23 @@ final router = GoRouter(
           return const welcome.ScanningPage();
         }
 
-        return FlipAnimationContext(
-          child: Stack(alignment: Alignment.bottomCenter, children: [
-            SizedBox.expand(
-              child: RouterFrame(
-                shellContext: _shellNavigatorKey.currentContext,
-                appTheme: appTheme,
-                child: child,
-              ),
+        return NavigationShortcutManager(
+          child: FlipAnimationContext(
+            child: Stack(
+              alignment: Alignment.bottomCenter,
+              children: [
+                SizedBox.expand(
+                  child: RouterFrame(
+                    shellContext: _shellNavigatorKey.currentContext,
+                    appTheme: appTheme,
+                    child: child,
+                  ),
+                ),
+                const PlaybackController(),
+                NavigationBar(items: navigationItems),
+              ],
             ),
-            const PlaybackController(),
-            NavigationBar(items: navigationItems),
-          ]),
+          ),
         );
       },
       routes: routes,

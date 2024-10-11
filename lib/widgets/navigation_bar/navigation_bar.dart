@@ -3,24 +3,22 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/smooth_horizontal_scroll.dart';
+
+import '../../utils/navigation/navigation_item.dart';
+import '../../config/navigation_query.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../providers/responsive_providers.dart';
 
 import './flip_text.dart';
 import './flip_animation_manager.dart';
-import './utils/navigation_item.dart';
-import './utils/navigation_query.dart';
 
 const List<NavigationItem> emptySlibings = [];
 
 class NavigationBar extends StatefulWidget {
   final List<NavigationItem> items;
   final String defaultPath;
-  late final NavigationQuery query;
 
-  NavigationBar({super.key, required this.items, this.defaultPath = "/"}) {
-    query = NavigationQuery(items);
-  }
+  const NavigationBar({super.key, required this.items, this.defaultPath = "/"});
 
   @override
   NavigationBarState createState() => NavigationBarState();
@@ -47,15 +45,16 @@ class NavigationBarState extends State<NavigationBar> {
     final path = GoRouterState.of(context).fullPath;
 
     if (_previousPath != null && path != _previousPath) {
-      final previousItem = widget.query.getItem(_previousPath, false);
-      final currentItem = widget.query.getItem(path, false);
+      final previousItem = navigationQuery.getItem(_previousPath, false);
+      final currentItem = navigationQuery.getItem(path, false);
 
       if (previousItem != null && currentItem != null) {
-        if (widget.query.getParent(path, false)?.path == _previousPath) {
+        if (navigationQuery.getParent(path, false)?.path == _previousPath) {
           // parent to child
           playFlipAnimation(
               context, 'child:$_previousPath', 'title:$_previousPath');
-        } else if (widget.query.getParent(_previousPath, false)?.path == path) {
+        } else if (navigationQuery.getParent(_previousPath, false)?.path ==
+            path) {
           // child to parent
           playFlipAnimation(context, 'title:$path', 'child:$path');
         } else {}
@@ -115,9 +114,9 @@ class NavigationBarState extends State<NavigationBar> {
       breakpoint: DeviceType.zune,
       builder: (context, isZune) {
         final path = GoRouterState.of(context).fullPath;
-        final item = widget.query.getItem(path, isZune);
-        final parent = widget.query.getParent(path, isZune);
-        final slibings = widget.query
+        final item = navigationQuery.getItem(path, isZune);
+        final parent = navigationQuery.getParent(path, isZune);
+        final slibings = navigationQuery
             .getSiblings(path, isZune)
             ?.where((x) => !x.hidden)
             .toList();
@@ -221,53 +220,40 @@ class NavigationBarState extends State<NavigationBar> {
 
         final isSearch = path == '/search';
 
-        return BackButtonListener(
-          onBackButtonPressed: () async {
-            final router = GoRouter.of(context);
-            final canPop = router.canPop();
-
-            if (!canPop) {
-              if (parent != null) {
-                router.go(parent.path);
-              }
-            }
-            return !canPop;
-          },
-          child: Stack(
-            children: [
-              if (isZune || !isSearch)
-                Transform.translate(
-                  offset: const Offset(0, -40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      parentWidget,
-                      childrenWidget,
-                    ],
-                  ),
+        return Stack(
+          children: [
+            if (isZune || !isSearch)
+              Transform.translate(
+                offset: const Offset(0, -40),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    parentWidget,
+                    childrenWidget,
+                  ],
                 ),
-              if (!isZune)
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: IconButton(
-                    icon: Icon(
-                      isSearch ? Symbols.close : Symbols.search,
-                      size: 24,
-                    ),
-                    onPressed: () => {
-                      if (isSearch)
-                        {
-                          if (context.canPop()) {context.pop()}
-                        }
-                      else
-                        {context.push('/search')}
-                    },
+              ),
+            if (!isZune)
+              Positioned(
+                top: 16,
+                right: 16,
+                child: IconButton(
+                  icon: Icon(
+                    isSearch ? Symbols.close : Symbols.search,
+                    size: 24,
                   ),
+                  onPressed: () => {
+                    if (isSearch)
+                      {
+                        if (context.canPop()) {context.pop()}
+                      }
+                    else
+                      {context.push('/search')}
+                  },
                 ),
-            ],
-          ),
+              ),
+          ],
         );
       },
     );

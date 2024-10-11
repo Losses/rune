@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:player/utils/file_storage/mac_secure_manager.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -13,10 +12,14 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
+import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
 import 'config/app_title.dart';
 import 'config/navigation.dart';
+
+import 'config/shortcuts.dart';
+import 'utils/navigation/navigation_action.dart';
 
 import 'messages/generated.dart';
 
@@ -32,6 +35,7 @@ import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
 import 'router.dart';
+import 'utils/navigation/navigation_intent.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -120,7 +124,10 @@ class Rune extends StatelessWidget {
           themeMode: appTheme.mode,
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
-          // scrollBehavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          shortcuts: shortcuts,
+          actions: <Type, Action<Intent>>{
+            NavigationIntent: NavigationAction(context),
+          },
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,
@@ -144,7 +151,7 @@ class Rune extends StatelessWidget {
             final theme = FluentTheme.of(context);
 
             return Container(
-              color: Platform.isLinux
+              color: appTheme.windowEffect == flutter_acrylic.WindowEffect.solid
                   ? theme.micaBackgroundColor
                   : Colors.transparent,
               child: Directionality(

@@ -1,3 +1,5 @@
+import 'package:fluent_ui/fluent_ui.dart';
+
 class NavigationItem {
   final String title;
   final String path;
@@ -5,6 +7,7 @@ class NavigationItem {
   final bool tappable;
   final bool zuneOnly;
   final List<NavigationItem>? children;
+  final List<LogicalKeySet>? shortcuts;
 
   NavigationItem(
     this.title,
@@ -13,6 +16,7 @@ class NavigationItem {
     this.tappable = true,
     this.children = const [],
     this.zuneOnly = false,
+    this.shortcuts,
   });
 
   @override
