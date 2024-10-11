@@ -247,6 +247,9 @@ jobs:
         with:
           pattern: Rune-*-macOS
           path: artifacts
+
+      - name: test
+        run: tree
           
       - name: Release
         uses: ncipollo/release-action@v1
