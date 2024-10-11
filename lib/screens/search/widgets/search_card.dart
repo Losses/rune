@@ -1,10 +1,12 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/hover_opacity.dart';
 
+import '../../../widgets/ax_pressure.dart';
+import '../../../widgets/hover_opacity.dart';
 import '../../../widgets/context_menu_wrapper.dart';
+import '../../../providers/responsive_providers.dart';
+
 
 abstract class SearchCard extends StatelessWidget {
   final int index;
@@ -25,73 +27,77 @@ abstract class SearchCard extends StatelessWidget {
       contextAttachKey: contextAttachKey,
       contextController: contextController,
       onContextMenu: (position) => onContextMenu(context, position),
-      child: SmallerOrEqualTo(
-        breakpoint: DeviceType.zune,
-        builder: (context, isZune) {
-          if (isZune) {
-            final typography = FluentTheme.of(context).typography;
+      child: AxPressure(
+        child: SmallerOrEqualTo(
+          breakpoint: DeviceType.zune,
+          builder: (context, isZune) {
+            if (isZune) {
+              final typography = FluentTheme.of(context).typography;
 
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 40,
-                    height: 40,
-                    child: buildLeadingWidget(40),
-                  ),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.all(8),
-                      child: HoverOpacity(
-                        child: Text(
-                          getItemTitle(),
-                          style: typography.bodyLarge?.apply(fontSizeFactor: 0.9),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 40,
+                      height: 40,
+                      child: buildLeadingWidget(40),
                     ),
-                  ),
-                ],
-              ),
-            );
-          }
-
-          return Button(
-            style: const ButtonStyle(
-              padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
-            ),
-            onPressed: () => onPressed(context),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final size = min(constraints.maxWidth, constraints.maxHeight);
-                  return Row(
-                    children: [
-                      buildLeadingWidget(size),
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                getItemTitle(),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: HoverOpacity(
+                          child: Text(
+                            getItemTitle(),
+                            style: typography.bodyLarge
+                                ?.apply(fontSizeFactor: 0.9),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ),
-                    ],
-                  );
-                },
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return Button(
+              style: const ButtonStyle(
+                padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
               ),
-            ),
-          );
-        },
+              onPressed: () => onPressed(context),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final size =
+                        min(constraints.maxWidth, constraints.maxHeight);
+                    return Row(
+                      children: [
+                        buildLeadingWidget(size),
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  getItemTitle(),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
