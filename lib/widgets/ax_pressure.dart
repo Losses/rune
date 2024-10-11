@@ -20,7 +20,7 @@ class AxPressure extends StatefulWidget {
     this.tiltFactor = 10,
     this.tiltDepth = 50,
     this.perspective = 800,
-    this.zoomFactor = 10,
+    this.zoomFactor = 16,
     this.tiltMode = TiltMode.relateive,
   });
 
@@ -42,13 +42,16 @@ class AxPressureState extends State<AxPressure> {
   }
 
   void _updateTransform(Offset localPosition, Size size) {
-    final centerX = localPosition.dx - size.width / 2;
-    final centerY = localPosition.dy - size.height / 2;
+    final halfW = size.width / 2;
+    final halfH = size.height / 2;
+
+    final centerX = (localPosition.dx - halfW).clamp(-halfW, halfW);
+    final centerY = (localPosition.dy - halfH).clamp(-halfH, halfH);
 
     List<double> degFactors;
     if (widget.tiltMode == TiltMode.absolute) {
-      final sinX = widget.tiltDepth / (size.width / 2);
-      final sinY = widget.tiltDepth / (size.height / 2);
+      final sinX = widget.tiltDepth / halfW;
+      final sinY = widget.tiltDepth / halfH;
       final degX = asin(sinX.clamp(-0.99, 0.99)) * 180 / pi;
       final degY = asin(sinY.clamp(-0.99, 0.99)) * 180 / pi;
       degFactors = [degX, degY];
