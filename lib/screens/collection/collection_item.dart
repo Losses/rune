@@ -26,6 +26,26 @@ class CollectionItem extends StatelessWidget {
   final contextController = FlyoutController();
   final contextAttachKey = GlobalKey();
 
+  List<String> filterDuplicates(List<String> input) {
+    Set<String> seen = {};
+    int blankCount = 0;
+    List<String> result = [];
+
+    for (var item in input) {
+      if (item.trim().isEmpty) {
+        if (blankCount < 5) {
+          result.add(item);
+          blankCount++;
+        }
+      } else if (!seen.contains(item)) {
+        seen.add(item);
+        result.add(item);
+      }
+    }
+
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ContextMenuWrapper(
@@ -44,7 +64,7 @@ class CollectionItem extends StatelessWidget {
       },
       child: FlipTile(
         name: collection.name,
-        paths: collection.coverArtMap.values.toList(),
+        paths: filterDuplicates(collection.coverArtMap.values.toList()),
         emptyTileType: BoringAvatarType.bauhaus,
         onPressed: () {
           context.push(
