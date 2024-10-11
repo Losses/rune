@@ -291,7 +291,7 @@ impl PlayerInternal {
 
                             sink.set_volume(self.volume);
                             if !play {
-                                sink.stop();
+                                sink.pause();
                             }
 
                             self.sink = Some(sink);
