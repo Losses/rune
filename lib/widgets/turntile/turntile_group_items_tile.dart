@@ -30,7 +30,7 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     double gapSize,
     List items,
   ) {
-    final int columns = (containerWidth / (cellSize + gapSize)).floor();
+    final int columns = ((containerWidth / (cellSize + gapSize)).floor()).clamp(1, 0x7FFFFFFFFFFFFFFF);
     final int rows = (items.length / columns).ceil();
 
     return Dimensions(rows: rows, columns: columns, count: items.length);
