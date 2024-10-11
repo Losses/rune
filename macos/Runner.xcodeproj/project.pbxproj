@@ -29,9 +29,9 @@
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
 		85ED2F22B0DC212004342B6F /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 92AC0AB39EC7D98182F4FA38 /* Pods_Runner.framework */; };
-		F929E5022CB5B7C500A66BD1 /* liblmdb.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */; };
-		F929E5042CB5C7CD00A66BD1 /* liblmdb.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		F94E0AC72CB41AB900F42987 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */; };
+		F9AD579C2CB885550085EEDC /* liblmdb.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = F9AD579B2CB885550085EEDC /* liblmdb.dylib */; };
+		F9AD579D2CB885550085EEDC /* liblmdb.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = F9AD579B2CB885550085EEDC /* liblmdb.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,13 +52,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		F929E5052CB5C7CD00A66BD1 /* Embed Libraries */ = {
+		F9AD579E2CB885550085EEDC /* Embed Libraries */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				F929E5042CB5C7CD00A66BD1 /* liblmdb.dylib in Embed Libraries */,
+				F9AD579D2CB885550085EEDC /* liblmdb.dylib in Embed Libraries */,
 			);
 			name = "Embed Libraries";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -96,6 +96,7 @@
 		F929E5062CB6027A00A66BD1 /* liblmdb.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = liblmdb.a; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/lib/liblmdb.a; sourceTree = "<group>"; };
 		F929E5082CB6028D00A66BD1 /* lmdb.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = lmdb.h; path = ../../../../../opt/homebrew/Cellar/lmdb/0.9.33/include/lmdb.h; sourceTree = "<group>"; };
 		F94E0AC62CB41AB900F42987 /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
+		F9AD579B2CB885550085EEDC /* liblmdb.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = liblmdb.dylib; path = "liblmdb-0.9.33/lib/liblmdb.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -113,7 +114,7 @@
 			files = (
 				F94E0AC72CB41AB900F42987 /* MediaPlayer.framework in Frameworks */,
 				85ED2F22B0DC212004342B6F /* Pods_Runner.framework in Frameworks */,
-				F929E5022CB5B7C500A66BD1 /* liblmdb.dylib in Frameworks */,
+				F9AD579C2CB885550085EEDC /* liblmdb.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,6 +212,7 @@
 		D73912EC22F37F3D000D13A0 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				F9AD579B2CB885550085EEDC /* liblmdb.dylib */,
 				F929E5082CB6028D00A66BD1 /* lmdb.h */,
 				F929E5062CB6027A00A66BD1 /* liblmdb.a */,
 				F929E5012CB5B7C500A66BD1 /* liblmdb.dylib */,
@@ -253,7 +255,7 @@
 				33CC10EB2044A3C60003C045 /* Resources */,
 				3399D490228B24CF009A79C7 /* ShellScript */,
 				E94A419C39B7B09CF46ADB6E /* [CP] Embed Pods Frameworks */,
-				F929E5052CB5C7CD00A66BD1 /* Embed Libraries */,
+				F9AD579E2CB885550085EEDC /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -596,6 +598,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
+					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -734,6 +737,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
+					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -760,6 +764,7 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					/opt/homebrew/Cellar/lmdb/0.9.33/lib,
+					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
 				PROVISIONING_PROFILE_SPECIFIER = "";

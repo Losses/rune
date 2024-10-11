@@ -1,0 +1,2 @@
+macos/liblmdb-0.9.33/** filter=lfs diff=lfs merge=lfs -text
+# macos/liblmdb-0.9.33/share/man/man1/mdb_stat.1 filter=lfs diff=lfs merge=lfs -text
