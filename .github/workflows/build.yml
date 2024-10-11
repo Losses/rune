@@ -136,13 +136,6 @@ jobs:
         with:
           path: build/linux/x64/release/bundle/
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
-      
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
-          directory: build/linux/x64/release/bundle
 
   release-linux:
     permissions:
@@ -160,12 +153,18 @@ jobs:
       - name: TEST
         run: |
           tree
-          tree /artifacts/
+          
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+          directory: artifacts
           
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "/artifacts/*.zip"
+          artifacts: "artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
     
