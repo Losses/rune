@@ -73,7 +73,6 @@ dependencies:
   window_manager: ^0.3.9
   device_info_plus: ^10.1.2
   macos_secure_bookmarks: ^0.2.1
-  hotkey_manager: ^0.2.3
 
 dev_dependencies:
   build_runner: ^2.4.11
