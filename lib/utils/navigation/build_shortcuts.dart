@@ -1,11 +1,18 @@
+import 'package:flutter/services.dart';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
+import 'back_intent.dart';
+import 'escape_intent.dart';
 import 'navigation_item.dart';
-
 import 'navigation_intent.dart';
 
 Map<LogicalKeySet, Intent> buildShortcuts(List<NavigationItem> items) {
-  final shortcuts = <LogicalKeySet, Intent>{};
+  final shortcuts = <LogicalKeySet, Intent>{
+    LogicalKeySet(LogicalKeyboardKey.goBack): const BackIntent(),
+    LogicalKeySet(LogicalKeyboardKey.escape): const EscapeIntent(),
+    LogicalKeySet(LogicalKeyboardKey.backspace): const BackIntent(),
+  };
 
   void addShortcuts(List<NavigationItem> items) {
     for (var item in items) {

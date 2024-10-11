@@ -173,7 +173,9 @@ class _RouterFrameState extends State<RouterFrame>
     _animationController.reset();
     _animationController.forward();
 
-    return _applyAnimation(widget.child, relation);
+    return NavigationShortcutManager(
+      child: _applyAnimation(widget.child, relation),
+    );
   }
 }
 
@@ -197,22 +199,20 @@ final router = GoRouter(
           return const welcome.ScanningPage();
         }
 
-        return NavigationShortcutManager(
-          child: FlipAnimationContext(
-            child: Stack(
-              alignment: Alignment.bottomCenter,
-              children: [
-                SizedBox.expand(
-                  child: RouterFrame(
-                    shellContext: _shellNavigatorKey.currentContext,
-                    appTheme: appTheme,
-                    child: child,
-                  ),
+        return FlipAnimationContext(
+          child: Stack(
+            alignment: Alignment.bottomCenter,
+            children: [
+              SizedBox.expand(
+                child: RouterFrame(
+                  shellContext: _shellNavigatorKey.currentContext,
+                  appTheme: appTheme,
+                  child: child,
                 ),
-                const PlaybackController(),
-                NavigationBar(items: navigationItems),
-              ],
-            ),
+              ),
+              const PlaybackController(),
+              NavigationBar(items: navigationItems),
+            ],
           ),
         );
       },

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/navigation/navigation_item.dart';
+import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../providers/responsive_providers.dart';
@@ -245,9 +246,7 @@ class NavigationBarState extends State<NavigationBar> {
                   ),
                   onPressed: () => {
                     if (isSearch)
-                      {
-                        if (context.canPop()) {context.pop()}
-                      }
+                      {escapeFromSearch(context)}
                     else
                       {context.push('/search')}
                   },

@@ -8,12 +8,12 @@ final List<NavigationItem> navigationItems = [
     'Rune',
     '/home',
     tappable: false,
-    shortcuts: [LogicalKeySet(LogicalKeyboardKey.home)],
     children: [
       NavigationItem(
         'Library',
         '/library',
         shortcuts: [
+          LogicalKeySet(LogicalKeyboardKey.home),
           LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyL)
         ],
         children: [
@@ -43,7 +43,7 @@ final List<NavigationItem> navigationItems = [
             'Albums',
             '/albums',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyB)
+              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyA)
             ],
             children: [
               NavigationItem(
@@ -81,7 +81,13 @@ final List<NavigationItem> navigationItems = [
               ),
             ],
           ),
-          NavigationItem('Tracks', '/tracks'),
+          NavigationItem(
+            'Tracks',
+            '/tracks',
+            shortcuts: [
+              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyT)
+            ],
+          ),
         ],
       ),
       NavigationItem(

@@ -19,7 +19,6 @@ import 'config/app_title.dart';
 import 'config/navigation.dart';
 
 import 'config/shortcuts.dart';
-import 'utils/navigation/navigation_action.dart';
 
 import 'messages/generated.dart';
 
@@ -35,7 +34,6 @@ import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
 import 'router.dart';
-import 'utils/navigation/navigation_intent.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -127,9 +125,6 @@ class Rune extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
           shortcuts: shortcuts,
-          actions: <Type, Action<Intent>>{
-            NavigationIntent: NavigationAction(context),
-          },
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,

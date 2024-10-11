@@ -10,7 +10,11 @@ class NavigationAction extends Action<NavigationIntent> {
 
   @override
   void invoke(covariant NavigationIntent intent) {
-    print('!!');
-    GoRouter.of(context).go(intent.path);
+    final currentPath = GoRouterState.of(context).fullPath;
+    if (intent.path == currentPath) {
+      return;
+    }
+
+    GoRouter.of(context).push(intent.path);
   }
 }
