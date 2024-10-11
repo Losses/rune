@@ -17,17 +17,6 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
       
-      #- name: Export GitHub Actions cache environment variables
-      #  uses: actions/github-script@v7
-      #  with:
-      #    script: |
-      #      core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-      #      core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
-      
-      #- name: Install dependencies
-      #  run: |
-      #    vcpkg install lmdb gtk3 pkgconf
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -71,18 +60,27 @@ jobs:
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
       
       - name: Build Zip for Release
-        if: github.event_name == 'push'
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
           filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
           directory: build/windows/x64/runner/Release
-      
+
+  release-windows:
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-windows
+          path: artifacts
+          
       - name: Release
-        if: github.event_name == 'push'
         uses: ncipollo/release-action@v1
         with:
-          artifacts: build/windows/x64/runner/Release/Rune-*.zip
+          artifacts: "artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
 
@@ -142,87 +140,96 @@ jobs:
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
       
       - name: Build Zip for Release
-        if: github.event_name == 'push'
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
           filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
           directory: build/linux/x64/release/bundle
-        
+
+  release-linux:
+    needs: build-linux
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-linux
+          path: artifacts
+          
       - name: Release
-        if: github.event_name == 'push'
         uses: ncipollo/release-action@v1
         with:
-          artifacts: build/linux/x64/release/bundle/Rune-*.zip
+          artifacts: "artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
     
   build-macos:
-      runs-on: macos-latest
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
-          
-        - name: Install dependencies
-          run: |
-            brew install CocoaPods lmdb create-dmg
-            brew info lmdb
-            
-        - name: Setup Flutter
-          uses: subosito/flutter-action@v2
-          with:
-            channel: 'stable'
-            
-        - name: Setup Rust toolchain
-          uses: dtolnay/rust-toolchain@stable
-          
-        - uses: Swatinem/rust-cache@v2
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
         
-        - name: Install Protoc
-          uses: arduino/setup-protoc@v3
-          with:
-            version: "26.x"
-            repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install dependencies
+        run: |
+          brew install CocoaPods lmdb create-dmg
+          brew info lmdb
           
-        - name: Install the Rust dependencies
-          run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
           
-        - name: Activate Protobuf
-          run: flutter pub global activate protoc_plugin
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
+        
+      - name: Flutter pub get
+        run: flutter pub get
+        
+      - name: Generate message files
+        run: rinf message 
+        
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
           
-        - name: Flutter pub get
-          run: flutter pub get
+      - name: Build macOS and Create DMG
+        run: |
+          cd macos
+          pod update
+          cd ..
+          flutter build macos --release
+          chmod -R +x build/macos/Build/Products/Release/player.app
+          xattr -cr build/macos/Build/Products/Release/player.app
+          create-dmg \
+            --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
+            --window-pos 200 120 \
+            --window-size 800 450 \
+            --icon-size 100 \
+            --app-drop-link 600 185 \
+            Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
+            build/macos/Build/Products/Release/player.app
           
-        - name: Generate message files
-          run: rinf message 
-          
-        - uses: benjlevesque/short-sha@v3.0
-          id: short-sha
-          with:
-            length: 7
-            
-        - name: Build macOS and Create DMG
-          run: |
-            cd macos
-            pod update
-            cd ..
-            flutter build macos --release
-            chmod -R +x build/macos/Build/Products/Release/player.app
-            xattr -cr build/macos/Build/Products/Release/player.app
-            create-dmg \
-              --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
-              --window-pos 200 120 \
-              --window-size 800 450 \
-              --icon-size 100 \
-              --app-drop-link 600 185 \
-              Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-              build/macos/Build/Products/Release/player.app
-            
-        - name: Upload artifact macOS DMG
-          uses: actions/upload-artifact@v4
-          with:
-            path: "*.dmg"
-            name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
+      - name: Upload artifact macOS DMG
+        uses: actions/upload-artifact@v4
+        with:
+          path: "*.dmg"
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
 
   release-macos:
     needs: build-macos
@@ -241,6 +248,3 @@ jobs:
           artifacts: "artifacts/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
-        
-      
-      
