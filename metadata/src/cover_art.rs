@@ -11,7 +11,7 @@ pub struct CoverArt {
     pub data: Vec<u8>,
 }
 
-fn decode_image(image_data: &Vec<u8>) -> Result<Vec<u8>> {
+fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
     // Decode the image from binary data
     let img = image::load_from_memory(image_data)?;
 
