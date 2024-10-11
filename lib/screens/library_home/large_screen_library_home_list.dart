@@ -11,8 +11,7 @@ import '../../widgets/start_screen/start_group.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
-
-import '../collection/large_screen_collection_list.dart';
+import '../../screens/collection/collection_item.dart';
 
 import './constants/first_column.dart';
 

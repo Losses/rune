@@ -89,6 +89,7 @@ class NavigationBarState extends State<NavigationBar> {
   List<Timer> _slibingAnimationFutures = [];
   List<double> _slibingOpacities = [];
   NavigationItem? _lastParent;
+  bool? _lastIsZune;
 
   @override
   void dispose() {
@@ -116,8 +117,10 @@ class NavigationBarState extends State<NavigationBar> {
         final path = GoRouterState.of(context).fullPath;
         final item = widget.query.getItem(path, isZune);
         final parent = widget.query.getParent(path, isZune);
-        final slibings =
-            widget.query.getSiblings(path, isZune)?.where((x) => !x.hidden).toList();
+        final slibings = widget.query
+            .getSiblings(path, isZune)
+            ?.where((x) => !x.hidden)
+            .toList();
 
         final titleFlipKey = 'title:${parent?.path}';
 
@@ -144,12 +147,13 @@ class NavigationBarState extends State<NavigationBar> {
             : Container();
 
         final baseSlibings = (slibings ?? emptySlibings);
-        final validSlibings = (isZune
+        final validSlibings = isZune
             ? baseSlibings
-            : baseSlibings.where((x) => !x.zuneOnly).toList());
+            : baseSlibings.where((x) => !x.zuneOnly).toList();
 
-        if (parent != _lastParent) {
+        if (parent != _lastParent || isZune != _lastIsZune) {
           _lastParent = parent;
+          _lastIsZune = isZune;
           _disposeAnimations();
           _resetAnimations();
 

@@ -1,11 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../screens/collection/large_screen_collection_list.dart';
 import '../../screens/collection/small_screen_collection_list.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';
+
+import 'large_screen_collection_list.dart';
 
 class CollectionPage extends StatelessWidget {
   final CollectionType collectionType;
