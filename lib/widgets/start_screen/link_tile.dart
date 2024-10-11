@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/widgets/ax_pressure.dart';
 
 import '../../widgets/tile/tile.dart';
 import '../../screens/welcome/scanning.dart';
@@ -28,31 +29,33 @@ class LinkTile extends StatelessWidget {
       theme.accentColor.darken(0.25),
     ];
 
-    return Tile(
-      onPressed: () {
-        context.push(path);
-      },
-      child: Stack(
-        alignment: Alignment.bottomLeft,
-        children: [
-          Container(
-            color: colors[path.hashCode % colors.length],
-            child: Center(
-                child: Icon(
-              icon,
-              size: 40,
-              color: Colors.white,
-            )),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: Text(
-              title,
-              textAlign: TextAlign.start,
-              style: theme.typography.body?.apply(color: theme.activeColor),
+    return AxPressure(
+      child: Tile(
+        onPressed: () {
+          context.push(path);
+        },
+        child: Stack(
+          alignment: Alignment.bottomLeft,
+          children: [
+            Container(
+              color: colors[path.hashCode % colors.length],
+              child: Center(
+                  child: Icon(
+                icon,
+                size: 40,
+                color: Colors.white,
+              )),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(
+                title,
+                textAlign: TextAlign.start,
+                style: theme.typography.body?.apply(color: theme.activeColor),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
