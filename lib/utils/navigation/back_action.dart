@@ -13,12 +13,9 @@ class BackAction extends Action<BackIntent> {
 
   @override
   void invoke(covariant BackIntent intent) {
-    print(1);
     if (escapeFromSearch(context)) return;
-    print(2);
     if (escapeFromCoverArtWall(context)) return;
 
-    print('!!!');
-    navigationBackward(context);
+    navigateBackwardWithPop(context);
   }
 }

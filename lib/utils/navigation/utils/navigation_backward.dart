@@ -4,17 +4,24 @@ import 'package:player/config/navigation_query.dart';
 
 bool navigationBackward(BuildContext context) {
   final router = GoRouter.of(context);
-  final routerState = GoRouterState.of(context);
-  final path = routerState.fullPath;
-
-  final parent = navigationQuery.getParent(path, false);
-
   final canPop = router.canPop();
 
   if (!canPop) {
-    if (parent != null) {
+    final routerState = GoRouterState.of(context);
+    final path = routerState.fullPath;
+    final parent = navigationQuery.getParent(path, false);
+    if (parent != null && parent.path != '/') {
       router.go(parent.path);
     }
   }
+
   return !canPop;
+}
+
+navigateBackwardWithPop(BuildContext context) {
+  final router = GoRouter.of(context);
+
+  if (!navigationBackward(context)) {
+    router.pop();
+  }
 }
