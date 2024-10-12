@@ -4,6 +4,7 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
 import '../../utils/queries_has_recommendation.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/ax_pressure.dart';
@@ -11,6 +12,7 @@ import '../../widgets/tile/tile.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 
+import '../context_menu_wrapper.dart';
 import '../tile/cover_art.dart';
 
 class BandScreenTrackList extends StatelessWidget {
@@ -18,12 +20,15 @@ class BandScreenTrackList extends StatelessWidget {
   final QueryList queries;
   final int mode;
 
-  const BandScreenTrackList({
+  BandScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
     required this.mode,
   });
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -56,7 +61,19 @@ class BandScreenTrackList extends StatelessWidget {
                   vertical: 1,
                 ),
                 child: AxPressure(
-                  child: Tile(
+                  child: ContextMenuWrapper(
+                    contextAttachKey: contextAttachKey,
+                    contextController: contextController,
+                    onContextMenu: (position) {
+                      openTrackItemContextMenu(
+                        position,
+                        context,
+                        contextAttachKey,
+                        contextController,
+                        item.id,
+                      );
+                    },
+                    child: Tile(
                       onPressed: () {
                         safeOperatePlaybackWithMixQuery(
                           context: context,
@@ -80,7 +97,9 @@ class BandScreenTrackList extends StatelessWidget {
                           item.artist,
                           'Total Time ${formatTime(item.duration)}'
                         ),
-                      )),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

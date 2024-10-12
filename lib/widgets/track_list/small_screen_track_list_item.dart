@@ -63,8 +63,13 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       contextAttachKey: contextAttachKey,
       contextController: contextController,
       onContextMenu: (position) {
-        openTrackItemContextMenu(position, context, contextAttachKey,
-            contextController, widget.item.id);
+        openTrackItemContextMenu(
+          position,
+          context,
+          contextAttachKey,
+          contextController,
+          widget.item.id,
+        );
       },
       child: GestureDetector(
         onTap: onPressed,
