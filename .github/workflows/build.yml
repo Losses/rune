@@ -169,6 +169,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: TEST
+        working-directory: macos/liblmdb-0.9.33/lib/
+        run: file liblmdb.dylib
+        
         
       - name: Install dependencies
         run: |
