@@ -8,8 +8,6 @@ on:
 
 jobs:
   build-windows:
-    permissions:
-      contents: write
     runs-on: windows-latest
     env: 
         VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
@@ -58,15 +56,10 @@ jobs:
         with:
           path: build/windows/x64/runner/Release/
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
-      
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
-          directory: build/windows/x64/runner/Release
 
   release-windows:
+    permissions:
+      contents: write
     needs: build-windows
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -76,7 +69,14 @@ jobs:
         with:
           pattern: Rune-*-windows
           path: artifacts
-          
+
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
+          directory: artifacts
+      
       - name: Release
         uses: ncipollo/release-action@v1
         with:
@@ -85,8 +85,6 @@ jobs:
           replacesArtifacts: false
 
   build-linux:
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
@@ -138,15 +136,10 @@ jobs:
         with:
           path: build/linux/x64/release/bundle/
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
-      
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
-          directory: build/linux/x64/release/bundle
 
   release-linux:
+    permissions:
+      contents: write
     needs: build-linux
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -156,6 +149,13 @@ jobs:
         with:
           pattern: Rune-*-linux
           path: artifacts
+          
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+          directory: artifacts
           
       - name: Release
         uses: ncipollo/release-action@v1
@@ -232,6 +232,8 @@ jobs:
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
 
   release-macos:
+    permissions:
+      contents: write
     needs: build-macos
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -245,6 +247,6 @@ jobs:
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.dmg"
+          artifacts: "artifacts/**/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
