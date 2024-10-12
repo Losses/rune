@@ -1,24 +1,23 @@
 import 'dart:io';
 
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/hover_opacity.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 
 import 'config/theme.dart';
 import 'config/routes.dart';
-import 'config/navigation.dart';
 
 import 'routes/welcome.dart' as welcome;
 
+import 'widgets/hover_opacity.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
 import 'providers/library_path.dart';
+import 'providers/responsive_providers.dart';
 import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
