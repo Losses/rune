@@ -1,7 +1,6 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 enum DeviceType { band, zune, phone, mobile, tablet, desktop, tv }
 
@@ -14,7 +13,7 @@ class ResponsiveBreakpoint {
       {required this.start, required this.end, required this.name});
 }
 
-class ResponsiveProvider extends ChangeNotifier with WindowListener {
+class ResponsiveProvider extends ChangeNotifier with WidgetsBindingObserver {
   static const List<ResponsiveBreakpoint> breakpoints = [
     ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.band),
     ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
@@ -22,7 +21,8 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
     ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
     ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
     ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),
-    ResponsiveBreakpoint(start: 1921, end: double.infinity, name: DeviceType.tv),
+    ResponsiveBreakpoint(
+        start: 1921, end: double.infinity, name: DeviceType.tv),
   ];
 
   DeviceType _currentBreakpoint = DeviceType.desktop;
@@ -30,14 +30,16 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
   Timer? _throttleTimer;
 
   ResponsiveProvider() {
-    windowManager.addListener(this);
+    WidgetsBinding.instance.addObserver(this);
     _updateBreakpoint();
   }
 
   DeviceType get currentBreakpoint => _currentBreakpoint;
 
   @override
-  void onWindowResize() {
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+
     final now = DateTime.now();
     if (_lastUpdateTime == null ||
         now.difference(_lastUpdateTime!) >= const Duration(milliseconds: 100)) {
@@ -54,7 +56,8 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
   }
 
   void _updateBreakpoint() async {
-    final size = await windowManager.getSize();
+    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
+    final size = firstView.physicalSize / firstView.devicePixelRatio;
     final width = size.width;
     final newBreakpoint = breakpoints
         .firstWhere(
@@ -83,7 +86,7 @@ class ResponsiveProvider extends ChangeNotifier with WindowListener {
 
   @override
   void dispose() {
-    windowManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     _throttleTimer?.cancel();
     super.dispose();
   }
