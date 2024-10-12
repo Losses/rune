@@ -16,10 +16,9 @@ import './flip_animation_manager.dart';
 const List<NavigationItem> emptySlibings = [];
 
 class NavigationBar extends StatefulWidget {
-  final List<NavigationItem> items;
   final String defaultPath;
 
-  const NavigationBar({super.key, required this.items, this.defaultPath = "/"});
+  const NavigationBar({super.key, this.defaultPath = "/"});
 
   @override
   NavigationBarState createState() => NavigationBarState();

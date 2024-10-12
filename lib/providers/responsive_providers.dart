@@ -3,7 +3,7 @@ import 'package:window_manager/window_manager.dart';
 import 'dart:async';
 import 'package:provider/provider.dart';
 
-enum DeviceType { zune, phone, mobile, tablet, desktop, tv }
+enum DeviceType { band, zune, phone, mobile, tablet, desktop, tv }
 
 class ResponsiveBreakpoint {
   final double start;
@@ -16,8 +16,9 @@ class ResponsiveBreakpoint {
 
 class ResponsiveProvider extends ChangeNotifier with WindowListener {
   static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 320, name: DeviceType.zune),
-    ResponsiveBreakpoint(start: 0, end: 480, name: DeviceType.phone),
+    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.band),
+    ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
+    ResponsiveBreakpoint(start: 321, end: 480, name: DeviceType.phone),
     ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
     ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
     ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),

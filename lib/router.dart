@@ -1,5 +1,8 @@
 import 'dart:io';
 
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:player/providers/responsive_providers.dart';
+import 'package:player/widgets/hover_opacity.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
@@ -211,7 +214,27 @@ final router = GoRouter(
                 ),
               ),
               const PlaybackController(),
-              NavigationBar(items: navigationItems),
+              SmallerOrEqualTo(
+                breakpoint: DeviceType.band,
+                builder: (context, isBand) {
+                  if (!isBand) return const NavigationBar();
+
+                  return Positioned(
+                    top: -12,
+                    left: -12,
+                    child: HoverOpacity(
+                      child: SvgPicture.asset(
+                        'assets/arrow-circle-left-solid.svg',
+                        width: 56,
+                        colorFilter: ColorFilter.mode(
+                          FluentTheme.of(context).inactiveColor,
+                          BlendMode.srcIn,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         );
