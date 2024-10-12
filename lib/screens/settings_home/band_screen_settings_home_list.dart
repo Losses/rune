@@ -30,6 +30,6 @@ class LibraryHomeListState extends State<BandScreenLibraryHomeListView> {
 
   @override
   Widget build(BuildContext context) {
-    return const BandLinkTileList(links: bandScreenFirstColumn);
+    return const BandLinkTileList(links: firstColumn);
   }
 }

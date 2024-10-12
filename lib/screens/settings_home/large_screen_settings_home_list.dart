@@ -42,7 +42,7 @@ class LargeScreenSettingsHomeListViewState
           child: Row(
             mainAxisAlignment: MainAxisAlignment.start,
             children: [
-              StartGroup<(String, String, IconData)>(
+              StartGroup<(String, String, IconData, bool)>(
                 groupIndex: 0,
                 groupTitle: 'Explore',
                 items: firstColumn,
