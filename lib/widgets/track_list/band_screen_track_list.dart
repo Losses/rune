@@ -20,15 +20,12 @@ class BandScreenTrackList extends StatelessWidget {
   final QueryList queries;
   final int mode;
 
-  BandScreenTrackList({
+  const BandScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
     required this.mode,
   });
-
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -49,62 +46,92 @@ class BandScreenTrackList extends StatelessWidget {
           );
         },
         itemBuilder: (context, item, index) {
-          return ManagedTurntileScreenItem(
-            groupId: 0,
-            row: index,
-            column: 1,
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 2,
-                  vertical: 1,
-                ),
-                child: AxPressure(
-                  child: ContextMenuWrapper(
-                    contextAttachKey: contextAttachKey,
-                    contextController: contextController,
-                    onContextMenu: (position) {
-                      openTrackItemContextMenu(
-                        position,
-                        context,
-                        contextAttachKey,
-                        contextController,
-                        item.id,
-                      );
-                    },
-                    child: Tile(
-                      onPressed: () {
-                        safeOperatePlaybackWithMixQuery(
-                          context: context,
-                          queries: queries,
-                          playbackMode: mode,
-                          hintPosition: index,
-                          initialPlaybackId: item.id,
-                          replacePlaylist: true,
-                          instantlyPlay: true,
-                          fallbackFileIds: pagingController.itemList
-                                  ?.map((x) => x.id)
-                                  .toList() ??
-                              [],
-                        );
-                      },
-                      child: CoverArt(
-                        path: item.coverArtPath,
-                        size: 40,
-                        hint: (
-                          item.album,
-                          item.artist,
-                          'Total Time ${formatTime(item.duration)}'
-                        ),
-                      ),
-                    ),
+          return BandViewTrackItem(
+            index: index,
+            item: item,
+            queries: queries,
+            mode: mode,
+            pagingController: pagingController,
+          );
+        },
+      ),
+    );
+  }
+}
+
+class BandViewTrackItem extends StatelessWidget {
+  BandViewTrackItem({
+    super.key,
+    required this.index,
+    required this.item,
+    required this.queries,
+    required this.mode,
+    required this.pagingController,
+  });
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
+
+  final int index;
+  final InternalMediaFile item;
+  final QueryList queries;
+  final int mode;
+  final PagingController<int, InternalMediaFile> pagingController;
+
+  @override
+  Widget build(BuildContext context) {
+    return ManagedTurntileScreenItem(
+      groupId: 0,
+      row: index,
+      column: 1,
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 2,
+            vertical: 1,
+          ),
+          child: AxPressure(
+            child: ContextMenuWrapper(
+              contextAttachKey: contextAttachKey,
+              contextController: contextController,
+              onContextMenu: (position) {
+                openTrackItemContextMenu(
+                  position,
+                  context,
+                  contextAttachKey,
+                  contextController,
+                  item.id,
+                );
+              },
+              child: Tile(
+                onPressed: () {
+                  safeOperatePlaybackWithMixQuery(
+                    context: context,
+                    queries: queries,
+                    playbackMode: mode,
+                    hintPosition: index,
+                    initialPlaybackId: item.id,
+                    replacePlaylist: true,
+                    instantlyPlay: true,
+                    fallbackFileIds:
+                        pagingController.itemList?.map((x) => x.id).toList() ??
+                            [],
+                  );
+                },
+                child: CoverArt(
+                  path: item.coverArtPath,
+                  size: 40,
+                  hint: (
+                    item.album,
+                    item.artist,
+                    'Total Time ${formatTime(item.duration)}'
                   ),
                 ),
               ),
             ),
-          );
-        },
+          ),
+        ),
       ),
     );
   }
