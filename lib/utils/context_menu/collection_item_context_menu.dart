@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:player/messages/collection.pb.dart';
+import 'package:player/providers/responsive_providers.dart';
 import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
 import 'package:player/utils/build_collection_query.dart';
+import 'package:provider/provider.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/get_all_mixes.dart';
@@ -98,14 +100,36 @@ void openCollectionItemContextMenu(
     ancestor: Navigator.of(context).context.findRenderObject(),
   );
 
-  final mixes = await getAllMixes();
   final queries = type == CollectionType.Mix
       ? await fetchMixQueriesByMixId(id)
       : buildCollectionQuery(type, id);
 
+  if (!context.mounted) return;
+
+  final isBand = Provider.of<ResponsiveProvider>(context, listen: false)
+      .smallerOrEqualTo(DeviceType.band);
+
+  if (isBand) {
+    contextController.showFlyout(
+      position: position,
+      builder: (context) {
+        return buildBandScreenCollectionItemContextMenu(
+          context,
+          type,
+          id,
+          queries,
+        );
+      },
+    );
+
+    return;
+  }
+
+  final mixes = await getAllMixes();
+
   contextController.showFlyout(
     position: position,
-    builder: (context) => buildCollectionItemContextMenu(
+    builder: (context) => buildLargeScreenCollectionItemContextMenu(
       context,
       type,
       id,
@@ -117,7 +141,7 @@ void openCollectionItemContextMenu(
   );
 }
 
-Widget buildCollectionItemContextMenu(
+MenuFlyout buildLargeScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
@@ -263,5 +287,87 @@ Widget buildCollectionItemContextMenu(
 
   return MenuFlyout(
     items: items,
+  );
+}
+
+FlyoutContent buildBandScreenCollectionItemContextMenu(
+  BuildContext context,
+  CollectionType type,
+  int id,
+  List<(String, String)> queries, [
+  List<int> fallbackFileIds = const [],
+]) {
+  List<CommandBarButton> items = [
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Start Playing',
+        child: Icon(Symbols.play_circle),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: true,
+          replacePlaylist: true,
+          fallbackFileIds: fallbackFileIds,
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Add to Queue',
+        child: Icon(Symbols.playlist_add),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+          fallbackFileIds: [],
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Start Roaming',
+        child: Icon(Symbols.rocket),
+      ),
+      onPressed: () async {
+        final q = QueryList([
+          ...queries,
+          ("pipe::limit", "50"),
+          ("pipe::recommend", "-1"),
+        ]);
+
+        if (context.mounted) {
+          await safeOperatePlaybackWithMixQuery(
+            context: context,
+            queries: q,
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: true,
+            replacePlaylist: true,
+            fallbackFileIds: [],
+          );
+        }
+      },
+    ),
+  ];
+
+  return FlyoutContent(
+    child: Container(
+      constraints: const BoxConstraints(maxHeight: 96),
+      child: CommandBar(
+        primaryItems: items,
+        direction: Axis.vertical,
+        overflowBehavior: CommandBarOverflowBehavior.scrolling,
+      ),
+    ),
   );
 }
