@@ -1,9 +1,10 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/ax_pressure.dart';
 
 import '../../widgets/tile/tile.dart';
-import '../../screens/welcome/scanning.dart';
+import '../../widgets/ax_pressure.dart';
+
+import 'utils/get_tile_colors.dart';
 
 class LinkTile extends StatelessWidget {
   final String title;
@@ -21,13 +22,7 @@ class LinkTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    final List<Color> colors = [
-      theme.accentColor.darker,
-      theme.accentColor.darken(0.1),
-      theme.accentColor.darken(0.15),
-      theme.accentColor.darken(0.2),
-      theme.accentColor.darken(0.25),
-    ];
+    final List<Color> colors = getTileColors(theme);
 
     return AxPressure(
       child: Tile(

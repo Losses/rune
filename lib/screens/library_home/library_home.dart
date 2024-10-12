@@ -1,3 +1,4 @@
+import 'package:player/screens/library_home/band_screen_library_home_list.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -38,20 +39,36 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
       value: _layoutManager,
       child: Column(
         children: [
-          const NavigationBarPlaceholder(),
+          SmallerOrEqualTo(
+              breakpoint: DeviceType.band,
+              builder: (context, isBand) {
+                if (isBand) return const SizedBox();
+                return const NavigationBarPlaceholder();
+              }),
           Expanded(
             child: BreakpointBuilder(
-              breakpoints: const [DeviceType.zune, DeviceType.tv],
+              breakpoints: const [
+                DeviceType.band,
+                DeviceType.zune,
+                DeviceType.tv
+              ],
               builder: (context, activeBreakpoint) {
-                return activeBreakpoint == DeviceType.zune
-                    ? SmallScreenLibraryHomeListView(
-                        libraryPath: libraryPath,
-                        layoutManager: _layoutManager,
-                      )
-                    : LargeScreenLibraryHomeListView(
-                        libraryPath: libraryPath,
-                        layoutManager: _layoutManager,
-                      );
+                if (activeBreakpoint == DeviceType.band) {
+                  return BandScreenLibraryHomeListView(
+                    layoutManager: _layoutManager,
+                  );
+                }
+
+                if (activeBreakpoint == DeviceType.zune) {
+                  return SmallScreenLibraryHomeListView(
+                    layoutManager: _layoutManager,
+                  );
+                }
+
+                return LargeScreenLibraryHomeListView(
+                  libraryPath: libraryPath,
+                  layoutManager: _layoutManager,
+                );
               },
             ),
           ),
