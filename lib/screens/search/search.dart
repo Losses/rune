@@ -1,7 +1,5 @@
 import 'dart:async';
 
-import 'package:player/screens/search/widgets/small_screen_search_track_list.dart';
-import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -10,7 +8,9 @@ import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';
@@ -37,8 +37,11 @@ class _SearchPageState extends State<SearchPage> {
     return BreakpointBuilder(
       breakpoints: const [DeviceType.zune, DeviceType.tablet, DeviceType.tv],
       builder: (context, deviceType) {
-        return SearchPageImplementation(
-          deviceType: deviceType,
+        return Actions(
+          actions: {},
+          child: SearchPageImplementation(
+            deviceType: deviceType,
+          ),
         );
       },
     );
