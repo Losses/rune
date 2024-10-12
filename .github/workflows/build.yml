@@ -150,10 +150,6 @@ jobs:
           pattern: Rune-*-linux
           path: artifacts
           
-      - name: TEST
-        run: |
-          tree
-          
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
@@ -247,13 +243,10 @@ jobs:
         with:
           pattern: Rune-*-macOS
           path: artifacts
-
-      - name: test
-        run: tree
           
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.dmg"
+          artifacts: "artifacts/**/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
