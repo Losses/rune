@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:player/widgets/turntile/managed_turntile_screen_item.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
@@ -7,21 +8,18 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 
-import '../smooth_horizontal_scroll.dart';
+import '../start_screen/utils/group.dart';
+import '../start_screen/utils/internal_collection.dart';
+import '../start_screen/providers/start_screen_layout_manager.dart';
 
-import './utils/group.dart';
-import './utils/internal_collection.dart';
-import './providers/start_screen_layout_manager.dart';
-
-import './start_group.dart';
-
-class StartScreen extends StatefulWidget {
+class BandScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
   final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback) itemBuilder;
+  final Widget Function(BuildContext, InternalCollection, VoidCallback)
+      itemBuilder;
   final bool userGenerated;
 
-  const StartScreen({
+  const BandScreen({
     super.key,
     required this.fetchSummary,
     required this.fetchPage,
@@ -30,10 +28,10 @@ class StartScreen extends StatefulWidget {
   });
 
   @override
-  StartScreenState createState() => StartScreenState();
+  BandScreenState createState() => BandScreenState();
 }
 
-class StartScreenState extends State<StartScreen> {
+class BandScreenState extends State<BandScreen> {
   late Future<List<Group<InternalCollection>>> summary;
 
   final layoutManager = StartScreenLayoutManager();
@@ -97,38 +95,43 @@ class StartScreenState extends State<StartScreen> {
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            return SmoothHorizontalScroll(
-              builder: (context, scrollController) {
-                return InfiniteList(
-                  itemCount: items.length,
-                  scrollDirection: Axis.horizontal,
-                  scrollController: scrollController,
-                  loadingBuilder: (context) => const ProgressRing(),
-                  centerLoading: true,
-                  centerEmpty: true,
-                  isLoading: isLoading,
-                  emptyBuilder: (context) => Center(
-                    child: initialized
-                        ? NoItems(
-                            title: "No collection found",
-                            hasRecommendation: false,
-                            reloadData: _reloadData,
-                            userGenerated: widget.userGenerated,
-                          )
-                        : Container(),
+            final List<InternalCollection> flattenItems =
+                items.expand((x) => x.items).toList();
+
+            return InfiniteList(
+              itemCount: flattenItems.length,
+              loadingBuilder: (context) => const ProgressRing(),
+              centerLoading: true,
+              centerEmpty: true,
+              isLoading: isLoading,
+              emptyBuilder: (context) => Center(
+                child: initialized
+                    ? NoItems(
+                        title: "No collection found",
+                        hasRecommendation: false,
+                        reloadData: _reloadData,
+                        userGenerated: widget.userGenerated,
+                      )
+                    : Container(),
+              ),
+              onFetchData: _fetchData,
+              hasReachedMax: isLastPage,
+              itemBuilder: (context, index) {
+                final item = flattenItems[index];
+                return ManagedTurntileScreenItem(
+                  groupId: 0,
+                  row: index,
+                  column: 1,
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 2,
+                        vertical: 1,
+                      ),
+                      child: widget.itemBuilder(context, item, _reloadData),
+                    ),
                   ),
-                  onFetchData: _fetchData,
-                  hasReachedMax: isLastPage,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return StartGroup<InternalCollection>(
-                      key: Key(item.groupTitle),
-                      groupIndex: index,
-                      groupTitle: item.groupTitle,
-                      items: item.items,
-                      itemBuilder: (context, item) => widget.itemBuilder(context, item, _reloadData),
-                    );
-                  },
                 );
               },
             );

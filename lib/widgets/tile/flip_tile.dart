@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
+import 'package:player/providers/responsive_providers.dart';
 
 import 'tile.dart';
 import 'fast_flip_cover_grid.dart';
@@ -33,44 +34,54 @@ class FlipTile extends StatelessWidget {
 
     return Tile(
       onPressed: onPressed,
-      child: Stack(
-        alignment: Alignment.bottomLeft,
-        children: [
-          if (paths != null)
-            paths!.isNotEmpty
-                ? FastFlipCoverGrid(
-                    size: 120,
-                    name: name,
-                    paths: paths!,
-                    colors: colors,
-                  )
-                : EmptyFlipCover(
-                    name: name,
-                    emptyTileType: emptyTileType,
-                    colors: colors,
+      child: SmallerOrEqualTo(
+        breakpoint: DeviceType.band,
+        builder: (context, isBand) {
+          final coverArts = paths != null
+              ? paths!.isNotEmpty
+                  ? FastFlipCoverGrid(
+                      size: 120,
+                      name: name,
+                      paths: paths!,
+                      colors: colors,
+                    )
+                  : EmptyFlipCover(
+                      name: name,
+                      emptyTileType: emptyTileType,
+                      colors: colors,
+                    )
+              : Container();
+
+          if (isBand) return coverArts;
+
+          return Stack(
+            alignment: Alignment.bottomLeft,
+            children: [
+              coverArts,
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(0.0, -1.0),
+                    end: const Alignment(0.0, 1.0),
+                    colors: [
+                      Colors.black.withAlpha(0),
+                      Colors.black.withAlpha(160),
+                    ],
                   ),
-          Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: const Alignment(0.0, -1.0),
-                end: const Alignment(0.0, 1.0),
-                colors: [
-                  Colors.black.withAlpha(0),
-                  Colors.black.withAlpha(160),
-                ],
+                ),
+                height: 80,
               ),
-            ),
-            height: 80,
-          ),
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: Text(
-              name,
-              textAlign: TextAlign.start,
-              style: theme.typography.body?.apply(color: theme.activeColor),
-            ),
-          ),
-        ],
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  name,
+                  textAlign: TextAlign.start,
+                  style: theme.typography.body?.apply(color: theme.activeColor),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
