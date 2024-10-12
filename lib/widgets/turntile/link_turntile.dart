@@ -28,12 +28,18 @@ class _LinkTurntileState extends State<LinkTurntile> {
   }
 
   @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    return GestureDetector(
-      onTap: onPressed,
-      child: AxPressure(
+    return AxPressure(
+      child: GestureDetector(
+        onTap: onPressed,
         child: HoverOpacity(
           child: FocusableActionDetector(
             focusNode: _focusNode,
