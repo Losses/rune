@@ -208,14 +208,14 @@ jobs:
       #   with:
       #     length: 7
           
-      - name: Build macOS 
-        run: |
-          cd macos
-          pod update
-          cd ..
-          flutter build macos --release
-          chmod -R +x build/macos/Build/Products/Release/player.app
-          xattr -cr build/macos/Build/Products/Release/player.app
+      # - name: Build macOS 
+      #   run: |
+      #     cd macos
+      #     pod update
+      #     cd ..
+      #     flutter build macos --release
+      #     chmod -R +x build/macos/Build/Products/Release/player.app
+      #     xattr -cr build/macos/Build/Products/Release/player.app
 
       - name: Install certificates
         env:
