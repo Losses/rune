@@ -1,13 +1,40 @@
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
-use std::{sync::Arc, thread};
+use std::io::Write;
+use std::{env, fs::File};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    thread,
+};
 
 use anyhow::{bail, Error, Result};
 use log::{debug, error, info};
+use once_cell::sync::OnceCell;
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::player::{PlaybackState, Player};
+
+// Use include_bytes! to embed the image into the binary
+const IMAGE_DATA: &[u8] = include_bytes!("default_cover_art.png");
+
+// Use OnceCell to store the temporary file path
+static IMAGE_PATH: OnceCell<PathBuf> = OnceCell::new();
+
+pub fn get_default_cover_art_path() -> &'static Path {
+    IMAGE_PATH.get_or_init(|| {
+        // Get the path to the temporary directory
+        let temp_dir = env::temp_dir();
+        let image_path = temp_dir.join("default_cover_art.png");
+
+        // Write the image data to the temporary file
+        let mut file = File::create(&image_path).expect("Failed to create file");
+        file.write_all(IMAGE_DATA).expect("Failed to write data");
+
+        image_path
+    })
+}
 
 pub struct MediaControlManager {
     pub controls: MediaControls,

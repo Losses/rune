@@ -14,7 +14,7 @@ use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::metadata::MetadataSummary;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
-use playback::controller::handle_media_control_event;
+use playback::controller::{get_default_cover_art_path, handle_media_control_event};
 use playback::controller::MediaControlManager;
 use playback::player::Player;
 use playback::player::PlaylistStatus;
@@ -259,11 +259,17 @@ async fn update_media_controls_metadata(
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
+    let cover_url = if cover_art_path.is_none() {
+        get_default_cover_art_path().to_str()
+    } else {
+        cover_art_path
+    };
+
     let metadata = MediaMetadata {
         title: Some(&status.title),
         album: Some(&status.album),
         artist: Some(&status.artist),
-        cover_url: cover_art_path,
+        cover_url,
         duration: Some(std::time::Duration::from_secs_f64(status.duration)),
     };
 
