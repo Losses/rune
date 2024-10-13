@@ -5,7 +5,6 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_linux
   flutter_acrylic
-  hotkey_manager_linux
   screen_retriever
   system_theme
   url_launcher_linux

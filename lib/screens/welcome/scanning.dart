@@ -1,3 +1,4 @@
+import 'package:player/utils/color_brightness.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -6,27 +7,6 @@ import 'package:mesh_gradient/mesh_gradient.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
-
-extension ColorBrightness on Color {
-  Color darken([double amount = .1]) {
-    assert(amount >= 0 && amount <= 1);
-
-    final hsl = HSLColor.fromColor(this);
-    final hslDark = hsl.withLightness((hsl.lightness - amount).clamp(0.0, 1.0));
-
-    return hslDark.toColor();
-  }
-
-  Color lighten([double amount = .1]) {
-    assert(amount >= 0 && amount <= 1);
-
-    final hsl = HSLColor.fromColor(this);
-    final hslLight =
-        hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0));
-
-    return hslLight.toColor();
-  }
-}
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});

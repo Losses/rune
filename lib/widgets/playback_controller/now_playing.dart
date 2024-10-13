@@ -4,9 +4,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/format_time.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/cover_wall_button.dart';
-import '../../widgets/playback_controller/now_playing_implementation.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/responsive_providers.dart';
+
+import 'conrtoller_progress_bar.dart';
 
 class NowPlaying extends StatelessWidget {
   const NowPlaying({
@@ -27,8 +28,7 @@ class NowPlaying extends StatelessWidget {
     final miniLayout = r.smallerOrEqualTo(DeviceType.tablet);
     final hideProgress = r.smallerOrEqualTo(DeviceType.phone);
 
-    final progress =
-        NowPlayingImplementation(notReady: notReady, status: status);
+    final progress = ControllerProgressBar(notReady: notReady, status: status);
 
     return SizedBox.expand(
       child: Align(
@@ -38,28 +38,29 @@ class NowPlaying extends StatelessWidget {
                 children: [
                   const SizedBox(width: 16),
                   Button(
-                      style: const ButtonStyle(
-                        padding: WidgetStatePropertyAll(
-                          EdgeInsets.all(0),
-                        ),
+                    style: const ButtonStyle(
+                      padding: WidgetStatePropertyAll(
+                        EdgeInsets.all(0),
                       ),
-                      onPressed: () {
-                        showCoverArtWall(context);
-                      },
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(3),
-                        child: CoverArt(
-                          path: status?.coverArtPath,
-                          hint: status != null
-                              ? (
-                                  status!.album,
-                                  status!.artist,
-                                  'Total Time ${formatTime(status!.duration)}'
-                                )
-                              : null,
-                          size: 48,
-                        ),
-                      )),
+                    ),
+                    onPressed: () {
+                      showCoverArtWall(context);
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: CoverArt(
+                        path: status?.coverArtPath,
+                        hint: status != null
+                            ? (
+                                status!.album,
+                                status!.artist,
+                                'Total Time ${formatTime(status!.duration)}'
+                              )
+                            : null,
+                        size: 48,
+                      ),
+                    ),
+                  ),
                   if (hideProgress) const SizedBox(width: 10),
                   hideProgress
                       ? Expanded(

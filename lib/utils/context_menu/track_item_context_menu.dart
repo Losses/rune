@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/router_extra.dart';
@@ -16,6 +17,7 @@ import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
 import '../../messages/mix.pbserver.dart';
 import '../../messages/media_file.pb.dart';
 import '../../messages/playlist.pbserver.dart';
+import '../../providers/responsive_providers.dart';
 
 import '../dialogs/playlist/create_edit_playlist.dart';
 
@@ -39,6 +41,25 @@ void openTrackItemContextMenu(
   final playlists = await getAllPlaylists();
   final mixes = await getAllMixes();
   final parsedMediaFile = await getParsedMediaFile(fileId);
+
+  if (!context.mounted) return;
+
+  final isBand = Provider.of<ResponsiveProvider>(context, listen: false)
+      .smallerOrEqualTo(DeviceType.band);
+
+  if (isBand) {
+    contextController.showFlyout(
+      position: position,
+      builder: (context) {
+        return buildBandScreenTrackItemContextMenu(
+          context,
+          parsedMediaFile,
+        );
+      },
+    );
+
+    return;
+  }
 
   contextController.showFlyout(
     position: position,
@@ -88,8 +109,40 @@ Widget buildTrackItemContextMenu(
     );
   }).toList();
 
+  final queries = QueryList([("lib::track", item.file.id.toString())]);
+
   return MenuFlyout(
     items: [
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.play_circle),
+        text: const Text('Start Playing'),
+        onPressed: () async {
+          operatePlaybackWithMixQuery(
+            queries: queries,
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: true,
+            replacePlaylist: true,
+            fallbackFileIds: [],
+          );
+        },
+      ),
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.playlist_add),
+        text: const Text('Add to Queue'),
+        onPressed: () async {
+          operatePlaybackWithMixQuery(
+            queries: queries,
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: false,
+            replacePlaylist: false,
+            fallbackFileIds: [],
+          );
+        },
+      ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
         text: const Text('Start Roaming'),
@@ -103,7 +156,7 @@ Widget buildTrackItemContextMenu(
             await safeOperatePlaybackWithMixQuery(
               context: context,
               queries: QueryList([
-                ("lib::track", item.file.id.toString()),
+                ...queries,
                 ("pipe::limit", "50"),
                 ("pipe::recommend", "-1")
               ]),
@@ -117,6 +170,7 @@ Widget buildTrackItemContextMenu(
           }
         },
       ),
+      const MenuFlyoutSeparator(),
       if (item.artists.length == 1)
         MenuFlyoutItem(
           leading: const Icon(Symbols.face),
@@ -200,5 +254,86 @@ Widget buildTrackItemContextMenu(
         ],
       ),
     ],
+  );
+}
+
+FlyoutContent buildBandScreenTrackItemContextMenu(
+  BuildContext context,
+  FetchParsedMediaFileResponse item,
+) {
+  final queries = QueryList([("lib::track", item.file.id.toString())]);
+
+  List<CommandBarButton> items = [
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Start Playing',
+        child: Icon(Symbols.play_circle),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: true,
+          replacePlaylist: true,
+          fallbackFileIds: [],
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Add to Queue',
+        child: Icon(Symbols.playlist_add),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+          fallbackFileIds: [],
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Start Roaming',
+        child: Icon(Symbols.rocket),
+      ),
+      onPressed: () async {
+        final q = QueryList([
+          ...queries,
+          ("pipe::limit", "50"),
+          ("pipe::recommend", "-1"),
+        ]);
+
+        if (context.mounted) {
+          await safeOperatePlaybackWithMixQuery(
+            context: context,
+            queries: q,
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: true,
+            replacePlaylist: true,
+            fallbackFileIds: [],
+          );
+        }
+      },
+    ),
+  ];
+
+  return FlyoutContent(
+    child: Container(
+      constraints: const BoxConstraints(maxHeight: 96),
+      child: CommandBar(
+        primaryItems: items,
+        direction: Axis.vertical,
+        overflowBehavior: CommandBarOverflowBehavior.scrolling,
+      ),
+    ),
   );
 }

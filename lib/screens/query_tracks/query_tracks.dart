@@ -1,3 +1,5 @@
+import 'package:player/providers/responsive_providers.dart';
+import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -32,29 +34,35 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
-            child: Transform.scale(
-              scale: 1.2,
-              child: Text(
-                widget.title ?? 'Tracks',
-                style: TextStyle(color: theme.inactiveColor),
-              ),
-            ),
-          ),
-          Expanded(
-            child: QueryTrackListView(
-              layoutManager: _layoutManager,
-              queries: widget.queries,
-              mode: widget.mode,
-            ),
-          ),
-          const PlaybackPlaceholder(),
-        ],
-      ),
+      child: SmallerOrEqualTo(
+          breakpoint: DeviceType.band,
+          builder: (context, isBand) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!isBand)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
+                    child: Transform.scale(
+                      scale: 1.2,
+                      child: Text(
+                        widget.title ?? 'Tracks',
+                        style: TextStyle(color: theme.inactiveColor),
+                      ),
+                    ),
+                  ),
+                if (isBand) const NavigationBarPlaceholder(),
+                Expanded(
+                  child: QueryTrackListView(
+                    layoutManager: _layoutManager,
+                    queries: widget.queries,
+                    mode: widget.mode,
+                  ),
+                ),
+                const PlaybackPlaceholder(),
+              ],
+            );
+          }),
     );
   }
 }

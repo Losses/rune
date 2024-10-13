@@ -1,19 +1,18 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/turntile/link_turntile.dart';
 
 import '../../config/animation.dart';
-import '../../widgets/turntile/turntile_group.dart';
 import '../../screens/library_home/constants/first_column.dart';
+import '../../widgets/turntile/link_turntile.dart';
+import '../../widgets/turntile/turntile_group.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class SmallScreenLibraryHomeListView extends StatefulWidget {
-  final String libraryPath;
   final StartScreenLayoutManager layoutManager;
 
   const SmallScreenLibraryHomeListView(
-      {super.key, required this.libraryPath, required this.layoutManager});
+      {super.key, required this.layoutManager});
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
@@ -36,7 +35,7 @@ class LibraryHomeListState extends State<SmallScreenLibraryHomeListView> {
       child: SingleChildScrollView(
         child: TurntileGroup<(String, String, IconData, bool)>(
           groupIndex: 0,
-          items: firstColumn,
+          items: smallScreenFirstColumn,
           gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
           gapSize: 12,
           onTitleTap: () {},

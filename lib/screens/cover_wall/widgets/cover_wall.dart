@@ -5,7 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
-import '../../../screens/welcome/scanning.dart';
+import '../../../utils/color_brightness.dart';
 import '../../../screens/cover_wall/widgets/large_screen_playing_track.dart';
 import '../../../screens/cover_wall/widgets/small_screen_playing_track.dart';
 import '../../../widgets/tile/cover_art.dart';

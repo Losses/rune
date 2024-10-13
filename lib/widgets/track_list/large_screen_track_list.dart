@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/ax_pressure.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
@@ -77,13 +78,15 @@ class LargeScreenTrackList extends StatelessWidget {
                       column: column,
                       width: cellSize / ratio,
                       height: cellSize,
-                      child: LargeScreenTrackListItem(
-                        index: index,
-                        item: item,
-                        queries: queries,
-                        fallbackFileIds: fallbackFileIds,
-                        coverArtPath: item.coverArtPath,
-                        mode: mode,
+                      child: AxPressure(
+                        child: LargeScreenTrackListItem(
+                          index: index,
+                          item: item,
+                          queries: queries,
+                          fallbackFileIds: fallbackFileIds,
+                          coverArtPath: item.coverArtPath,
+                          mode: mode,
+                        ),
                       ),
                     );
                   },

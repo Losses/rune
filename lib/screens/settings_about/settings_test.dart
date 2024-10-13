@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/widgets/ax_pressure.dart';
 
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
@@ -27,8 +28,13 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
           tiles: [
             Padding(
               padding: globalPadding,
-              child: Container(
-                  width: singleSize, height: singleSize, color: Colors.red),
+              child: AxPressure(
+                child: Container(
+                  width: singleSize,
+                  height: singleSize,
+                  color: Colors.red,
+                ),
+              ),
             ),
             Padding(
               padding: globalPadding,

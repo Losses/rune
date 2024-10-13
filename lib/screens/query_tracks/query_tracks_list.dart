@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
+import 'package:player/widgets/track_list/band_screen_track_list.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/query_mix_tracks.dart';
@@ -72,19 +73,29 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   Widget build(BuildContext context) {
     return BreakpointBuilder(
-      breakpoints: const [DeviceType.zune, DeviceType.tv],
+      breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
       builder: (context, activeBreakpoint) {
-        return activeBreakpoint == DeviceType.zune
-            ? SmallScreenTrackList(
-                pagingController: _pagingController,
-                queries: widget.queries,
-                mode: widget.mode,
-              )
-            : LargeScreenTrackList(
-                pagingController: _pagingController,
-                queries: widget.queries,
-                mode: widget.mode,
-              );
+        if (activeBreakpoint == DeviceType.band) {
+          return BandScreenTrackList(
+            pagingController: _pagingController,
+            queries: widget.queries,
+            mode: widget.mode,
+          );
+        }
+
+        if (activeBreakpoint == DeviceType.zune) {
+          return SmallScreenTrackList(
+            pagingController: _pagingController,
+            queries: widget.queries,
+            mode: widget.mode,
+          );
+        }
+
+        return LargeScreenTrackList(
+          pagingController: _pagingController,
+          queries: widget.queries,
+          mode: widget.mode,
+        );
       },
     );
   }

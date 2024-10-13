@@ -2,7 +2,9 @@ import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/tile/tile.dart';
-import '../../screens/welcome/scanning.dart';
+import '../../widgets/ax_pressure.dart';
+
+import 'utils/get_tile_colors.dart';
 
 class LinkTile extends StatelessWidget {
   final String title;
@@ -20,39 +22,35 @@ class LinkTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    final List<Color> colors = [
-      theme.accentColor.darker,
-      theme.accentColor.darken(0.1),
-      theme.accentColor.darken(0.15),
-      theme.accentColor.darken(0.2),
-      theme.accentColor.darken(0.25),
-    ];
+    final List<Color> colors = getTileColors(theme);
 
-    return Tile(
-      onPressed: () {
-        context.push(path);
-      },
-      child: Stack(
-        alignment: Alignment.bottomLeft,
-        children: [
-          Container(
-            color: colors[path.hashCode % colors.length],
-            child: Center(
-                child: Icon(
-              icon,
-              size: 40,
-              color: Colors.white,
-            )),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: Text(
-              title,
-              textAlign: TextAlign.start,
-              style: theme.typography.body?.apply(color: theme.activeColor),
+    return AxPressure(
+      child: Tile(
+        onPressed: () {
+          context.push(path);
+        },
+        child: Stack(
+          alignment: Alignment.bottomLeft,
+          children: [
+            Container(
+              color: colors[path.hashCode % colors.length],
+              child: Center(
+                  child: Icon(
+                icon,
+                size: 40,
+                color: Colors.white,
+              )),
             ),
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(6),
+              child: Text(
+                title,
+                textAlign: TextAlign.start,
+                style: theme.typography.body?.apply(color: theme.activeColor),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -151,7 +151,7 @@ class _MixStudioDialogImplementationState
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.of(context).size.height;
-    const reduce = navigationBarHeight + playbackControllerHeight + 48;
+    const reduce = fullNavigationBarHeight + playbackControllerHeight + 48;
 
     final editor = SizedBox(
       height: height - reduce,

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:player/screens/collection/band_screen_collection_list.dart';
 
 import '../../screens/collection/small_screen_collection_list.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
@@ -18,15 +19,23 @@ class CollectionPage extends StatelessWidget {
       const NavigationBarPlaceholder(),
       Expanded(
         child: BreakpointBuilder(
-          breakpoints: const [DeviceType.zune, DeviceType.tv],
+          breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
           builder: (context, activeBreakpoint) {
-            return activeBreakpoint == DeviceType.zune
-                ? SmallScreenCollectionListView(
-                    collectionType: collectionType,
-                  )
-                : LargeScreenCollectionListView(
-                    collectionType: collectionType,
-                  );
+            if (activeBreakpoint == DeviceType.band) {
+              return BandScreenCollectionListView(
+                collectionType: collectionType,
+              );
+            }
+
+            if (activeBreakpoint == DeviceType.zune) {
+              return SmallScreenCollectionListView(
+                collectionType: collectionType,
+              );
+            }
+
+            return LargeScreenCollectionListView(
+              collectionType: collectionType,
+            );
           },
         ),
       ),

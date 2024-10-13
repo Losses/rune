@@ -93,7 +93,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                     StartGroup<(String, String, IconData, bool)>(
                       groupIndex: 0,
                       groupTitle: 'Start',
-                      items: firstColumn.where((x) => !x.$4).toList(),
+                      items: smallScreenFirstColumn.where((x) => !x.$4).toList(),
                       groupLayoutVariation:
                           StartGroupGroupLayoutVariation.stacked,
                       gridLayoutVariation:
