@@ -93,10 +93,6 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
-    final statusProvider = Provider.of<PlaybackStatusProvider>(context);
-    final status = statusProvider.playbackStatus;
-    final notReady = statusProvider.notReady;
-
     final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
             .smallerOrEqualTo(DeviceType.phone) &&
         GoRouterState.of(context).fullPath == '/cover_wall';
@@ -124,11 +120,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                     return MenuFlyout(
                       items: [
                         for (var entry in hiddenEntries)
-                          entry.flyoutEntryBuilder(
-                            context,
-                            notReady,
-                            status,
-                          ),
+                          entry.flyoutEntryBuilder(context),
                       ],
                     );
                   },
