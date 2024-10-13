@@ -11,7 +11,11 @@ use std::{
 use anyhow::{bail, Error, Result};
 use log::{debug, error, info};
 use once_cell::sync::OnceCell;
-use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig};
+#[cfg(target_os = "android")]
+use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
+
+#[cfg(not(target_os = "android"))]
+use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 use tokio::sync::{broadcast, Mutex};
 
 use crate::player::{PlaybackState, Player};
@@ -45,7 +49,7 @@ pub struct MediaControlManager {
 
 impl MediaControlManager {
     pub fn new() -> Result<Self> {
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
         let hwnd = None;
 
         #[cfg(target_os = "windows")]
@@ -55,9 +59,13 @@ impl MediaControlManager {
             (Some(handle), dummy_window)
         };
 
+        // #[cfg(target_os = "android")]
+        // let hwnd = ();
+
         let config = PlatformConfig {
             dbus_name: "rune_player",
             display_name: "Rune",
+            #[cfg(not(target_os = "android"))]
             hwnd,
         };
 
@@ -134,8 +142,8 @@ pub async fn handle_media_control_event(
         MediaControlEvent::Stop => player.lock().await.stop(),
         MediaControlEvent::Seek(direction) => {
             let seek_seconds: f64 = match direction {
-                souvlaki::SeekDirection::Forward => 10.0,
-                souvlaki::SeekDirection::Backward => -10.0,
+                SeekDirection::Forward => 10.0,
+                SeekDirection::Backward => -10.0,
             };
 
             let current_position = player.lock().await.current_status.lock().unwrap().position;
