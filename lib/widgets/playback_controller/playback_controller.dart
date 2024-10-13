@@ -6,8 +6,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../widgets/playback_controller/now_playing.dart';
 import '../../widgets/playback_controller/cover_art_page_progress_bar.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
-import '../../messages/playback.pb.dart';
-import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -26,13 +24,11 @@ const scaleY = 0.9;
 class PlaybackControllerState extends State<PlaybackController> {
   @override
   Widget build(BuildContext context) {
-    final s = Provider.of<PlaybackStatusProvider>(context).playbackStatus;
     final isCoverArtWall = GoRouterState.of(context).fullPath == '/cover_wall';
 
     final r = Provider.of<ResponsiveProvider>(context);
 
     final largeLayout = isCoverArtWall && r.smallerOrEqualTo(DeviceType.phone);
-    final notReady = s?.ready == null || s?.ready == false;
 
     return SizedBox(
       height: playbackControllerHeight,
@@ -54,13 +50,13 @@ class PlaybackControllerState extends State<PlaybackController> {
               ),
             ),
           ),
-          if (!largeLayout) NowPlaying(notReady: notReady, status: s),
+          if (!largeLayout) const NowPlaying(),
           if (largeLayout)
             Transform.translate(
               offset: const Offset(0, -44),
-              child: CoverArtPageProgressBar(notReady: notReady, status: s),
+              child: const CoverArtPageProgressBar(),
             ),
-          ControllerButtons(notReady: notReady, status: s)
+          const ControllerButtons(),
         ],
       ),
     );
@@ -68,14 +64,7 @@ class PlaybackControllerState extends State<PlaybackController> {
 }
 
 class ControllerButtons extends StatefulWidget {
-  const ControllerButtons({
-    super.key,
-    required this.notReady,
-    required this.status,
-  });
-
-  final bool notReady;
-  final PlaybackStatus? status;
+  const ControllerButtons({super.key});
 
   @override
   State<ControllerButtons> createState() => _ControllerButtonsState();
@@ -95,8 +84,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final miniLayout = Provider.of<ResponsiveProvider>(context)
         .smallerOrEqualTo(DeviceType.mobile);
 
-    final provider = Provider.of<PlaybackControllerProvider>(context);
-    final entries = provider.entries;
+    final controllerProvider = Provider.of<PlaybackControllerProvider>(context);
+    final entries = controllerProvider.entries;
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
     final visibleEntries =
         hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
@@ -118,7 +107,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
         for (var entry in (miniLayout && !coverArtWallLayout)
             ? miniEntries
             : visibleEntries)
-          entry.controllerButtonBuilder(widget.notReady, widget.status),
+          entry.controllerButtonBuilder(context),
         if (hiddenEntries.isNotEmpty)
           FlyoutTarget(
             controller: menuController,
@@ -127,15 +116,14 @@ class _ControllerButtonsState extends State<ControllerButtons> {
               onPressed: () {
                 menuController.showFlyout(
                   builder: (context) {
-                    return MenuFlyout(
-                      items: [
-                        for (var entry in hiddenEntries)
-                          entry.flyoutEntryBuilder(
-                            context,
-                            widget.notReady,
-                            widget.status,
-                          ),
-                      ],
+                    return Container(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: MenuFlyout(
+                        items: [
+                          for (var entry in hiddenEntries)
+                            entry.flyoutEntryBuilder(context),
+                        ],
+                      ),
                     );
                   },
                 );

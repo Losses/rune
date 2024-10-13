@@ -6,6 +6,8 @@ import '../../utils/navigation/escape_action.dart';
 import '../../utils/navigation/escape_intent.dart';
 import '../../utils/navigation/navigation_action.dart';
 import '../../utils/navigation/navigation_intent.dart';
+import '../../utils/navigation/controller_action.dart';
+import '../../utils/navigation/controller_intent.dart';
 import '../../utils/navigation/utils/navigation_backward.dart';
 
 class NavigationShortcutManager extends StatelessWidget {
@@ -25,6 +27,7 @@ class NavigationShortcutManager extends StatelessWidget {
       child: Actions(
         actions: <Type, Action<Intent>>{
           NavigationIntent: NavigationAction(context),
+          ControllerIntent: ControllerAction(context),
           EscapeIntent: EscapeAction(context),
           BackIntent: BackAction(context),
         },

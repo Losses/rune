@@ -27,4 +27,8 @@ class PlaybackStatusProvider with ChangeNotifier {
     _playbackStatus = signal.message;
     notifyListeners();
   }
+
+  bool get notReady {
+    return _playbackStatus?.ready == null || _playbackStatus!.ready == false;
+  }
 }

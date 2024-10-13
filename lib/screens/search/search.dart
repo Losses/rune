@@ -38,7 +38,7 @@ class _SearchPageState extends State<SearchPage> {
       breakpoints: const [DeviceType.zune, DeviceType.tablet, DeviceType.tv],
       builder: (context, deviceType) {
         return Actions(
-          actions: {},
+          actions: const {},
           child: SearchPageImplementation(
             deviceType: deviceType,
           ),
