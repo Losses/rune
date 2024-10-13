@@ -20,3 +20,4 @@ souvlaki = "0.7.3"
 anyhow = "1.0.89"
 raw-window-handle = "0.5.2"
 windows = {version = "0.44.0", features = ["Win32_System_LibraryLoader", "Win32_UI", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Gdi"] }
+once_cell = "1.20.2"

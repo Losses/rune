@@ -1,10 +1,7 @@
 import 'dart:io';
 
-import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
-
-import 'dart:io' show Platform;
-
 import 'package:get_storage/get_storage.dart';
+import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
 
 class MacSecureManager {
   static final MacSecureManager shared = MacSecureManager();
@@ -32,9 +29,10 @@ class MacSecureManager {
     final secureBookmarks = SecureBookmarks();
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();
-    
+
     for (final bookmark in bookmarks) {
-      final resolvedFile = await secureBookmarks.resolveBookmark(bookmark, isDirectory: true);
+      final resolvedFile =
+          await secureBookmarks.resolveBookmark(bookmark, isDirectory: true);
       await secureBookmarks.startAccessingSecurityScopedResource(resolvedFile);
     }
   }

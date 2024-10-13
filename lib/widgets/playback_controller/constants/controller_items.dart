@@ -1,17 +1,19 @@
+import 'package:flutter/services.dart';
+import 'package:player/utils/api/play_next.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/full_screen.dart';
-import 'package:player/widgets/playback_controller/fullscreen_button.dart';
-import 'package:provider/provider.dart';
 
 import '../../../utils/api/play_mode.dart';
 import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_play.dart';
 import '../../../utils/api/play_previous.dart';
 import '../../../utils/dialogs/play_queue_dialog.dart';
+import '../../../widgets/playback_controller/fullscreen_button.dart';
 import '../../../widgets/playback_controller/utils/playback_mode.dart';
-import '../../../messages/playback.pb.dart';
+import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
+import '../../../providers/full_screen.dart';
 
 import '../next_button.dart';
 import '../volume_button.dart';
@@ -26,11 +28,10 @@ class ControllerEntry {
   final IconData icon;
   final String title;
   final String subtitle;
-  final Widget Function(bool notReady, PlaybackStatus? status)
-      controllerButtonBuilder;
-  final MenuFlyoutItem Function(
-          BuildContext context, bool notReady, PlaybackStatus? status)
-      flyoutEntryBuilder;
+  final Widget Function(BuildContext context) controllerButtonBuilder;
+  final MenuFlyoutItem Function(BuildContext context) flyoutEntryBuilder;
+  final List<LogicalKeySet>? shortcuts;
+  final void Function(BuildContext context) onShortcut;
 
   ControllerEntry({
     required this.id,
@@ -39,6 +40,8 @@ class ControllerEntry {
     required this.subtitle,
     required this.controllerButtonBuilder,
     required this.flyoutEntryBuilder,
+    required this.shortcuts,
+    required this.onShortcut,
   });
 }
 
@@ -48,65 +51,137 @@ var controllerItems = [
     icon: Symbols.skip_previous,
     title: "Previous",
     subtitle: "Go to the previous track",
-    controllerButtonBuilder: (notReady, status) =>
-        PreviousButton(disabled: notReady),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: const Icon(Symbols.skip_previous),
-      text: const Text('Previous'),
-      onPressed: notReady
-          ? null
-          : () {
-              Flyout.of(context).close();
-              playPrevious();
-            },
-    ),
+    shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.arrowLeft),
+    ],
+    onShortcut: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      if (notReady) return;
+
+      playPrevious();
+    },
+    controllerButtonBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      return PreviousButton(disabled: notReady);
+    },
+    flyoutEntryBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.skip_previous),
+        text: const Text('Previous'),
+        onPressed: notReady
+            ? null
+            : () {
+                Flyout.of(context).close();
+                playPrevious();
+              },
+      );
+    },
   ),
   ControllerEntry(
     id: 'toggle',
     icon: Symbols.play_arrow,
     title: "Play/Pause",
     subtitle: "Toggle between play and pause",
-    controllerButtonBuilder: (notReady, status) =>
-        PlayPauseButton(disabled: notReady, state: status?.state ?? "Stopped"),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: status?.state == "Playing"
-          ? const Icon(Symbols.pause)
-          : const Icon(Symbols.play_arrow),
-      text:
-          status?.state == "Playing" ? const Text('Pause') : const Text('Play'),
-      onPressed: notReady
-          ? null
-          : () {
-              Flyout.of(context).close();
-              status?.state == "Playing" ? playPause() : playPlay();
-            },
-    ),
+    shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyP),
+    ],
+    onShortcut: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      if (notReady) return;
+
+      if (statusProvider.playbackStatus?.state == "Playing") {
+        playPause();
+      } else {
+        playPlay();
+      }
+    },
+    controllerButtonBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final status = statusProvider.playbackStatus;
+      final notReady = statusProvider.notReady;
+
+      return PlayPauseButton(
+        disabled: notReady,
+        state: status?.state ?? "Stopped",
+      );
+    },
+    flyoutEntryBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final status = statusProvider.playbackStatus;
+      final notReady = statusProvider.notReady;
+
+      return MenuFlyoutItem(
+        leading: status?.state == "Playing"
+            ? const Icon(Symbols.pause)
+            : const Icon(Symbols.play_arrow),
+        text: status?.state == "Playing"
+            ? const Text('Pause')
+            : const Text('Play'),
+        onPressed: notReady
+            ? null
+            : () {
+                Flyout.of(context).close();
+                status?.state == "Playing" ? playPause() : playPlay();
+              },
+      );
+    },
   ),
   ControllerEntry(
     id: 'next',
     icon: Symbols.skip_next,
     title: "Next",
     subtitle: "Go to the next track",
-    controllerButtonBuilder: (notReady, status) =>
-        NextButton(disabled: notReady),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: const Icon(Symbols.skip_next),
-      text: const Text('Next'),
-      onPressed: notReady
-          ? null
-          : () {
-              Flyout.of(context).close();
-              playPrevious();
-            },
-    ),
+    shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.arrowRight),
+    ],
+    onShortcut: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      if (notReady) return;
+
+      playNext();
+    },
+    controllerButtonBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      return NextButton(disabled: notReady);
+    },
+    flyoutEntryBuilder: (context) {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final notReady = statusProvider.notReady;
+
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.skip_next),
+        text: const Text('Next'),
+        onPressed: notReady
+            ? null
+            : () {
+                Flyout.of(context).close();
+                playPrevious();
+              },
+      );
+    },
   ),
   ControllerEntry(
     id: 'volume',
     icon: Symbols.volume_up,
     title: "Volume",
     subtitle: "Adjust the volume",
-    controllerButtonBuilder: (notReady, status) => const VolumeButton(),
-    flyoutEntryBuilder: (context, notReady, status) {
+    shortcuts: [],
+    onShortcut: (context) {},
+    controllerButtonBuilder: (context) => const VolumeButton(),
+    flyoutEntryBuilder: (context) {
       final volumeProvider = Provider.of<VolumeProvider>(context);
 
       return MenuFlyoutItem(
@@ -149,13 +224,19 @@ var controllerItems = [
     icon: Symbols.east,
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
-    controllerButtonBuilder: (notReady, status) => const PlaybackModeButton(),
-    flyoutEntryBuilder: (context, notReady, status) {
+    controllerButtonBuilder: (context) => const PlaybackModeButton(),
+    shortcuts: [],
+    onShortcut: (context) {},
+    flyoutEntryBuilder: (context) {
       Typography typography = FluentTheme.of(context).typography;
       Color accentColor = Color.alphaBlend(
         FluentTheme.of(context).inactiveColor.withAlpha(100),
         FluentTheme.of(context).accentColor,
       );
+
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final status = statusProvider.playbackStatus;
+
       final currentMode =
           PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
 
@@ -193,50 +274,74 @@ var controllerItems = [
     icon: Symbols.list_alt,
     title: "Playlist",
     subtitle: "View the playback queue",
-    controllerButtonBuilder: (notReady, status) => QueueButton(),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: const Icon(Symbols.list_alt),
-      text: const Text('Playlist'),
-      onPressed: () {
-        Flyout.of(context).close();
-        showPlayQueueDialog(context);
-      },
-    ),
+    shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyQ),
+    ],
+    onShortcut: (context) {
+      showPlayQueueDialog(context);
+    },
+    controllerButtonBuilder: (context) => QueueButton(),
+    flyoutEntryBuilder: (context) {
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.list_alt),
+        text: const Text('Playlist'),
+        onPressed: () {
+          Flyout.of(context).close();
+          showPlayQueueDialog(context);
+        },
+      );
+    },
   ),
   ControllerEntry(
     id: 'hidden',
     icon: Symbols.hide_source,
     title: "Hidden",
     subtitle: "Content below will be hidden in the others list",
-    controllerButtonBuilder: (_, __) => Container(),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: const Icon(Symbols.hide),
-      text: const Text('Hidden'),
-      onPressed: () {},
-    ),
+    shortcuts: [],
+    onShortcut: (context) {},
+    controllerButtonBuilder: (context) => Container(),
+    flyoutEntryBuilder: (context) {
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.hide),
+        text: const Text('Hidden'),
+        onPressed: () {},
+      );
+    },
   ),
   ControllerEntry(
     id: 'cover_wall',
     icon: Symbols.photo,
     title: "Cover Wall",
     subtitle: "Display cover art for a unique ambience",
-    controllerButtonBuilder: (notReady, status) => const CoverWallButton(),
-    flyoutEntryBuilder: (context, notReady, status) => MenuFlyoutItem(
-      leading: const Icon(Symbols.photo),
-      text: const Text('Cover Wall'),
-      onPressed: () {
-        Flyout.of(context).close();
-        showCoverArtWall(context);
-      },
-    ),
+    shortcuts: [],
+    onShortcut: (context) {},
+    controllerButtonBuilder: (context) => const CoverWallButton(),
+    flyoutEntryBuilder: (context) {
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.photo),
+        text: const Text('Cover Wall'),
+        onPressed: () {
+          Flyout.of(context).close();
+          showCoverArtWall(context);
+        },
+      );
+    },
   ),
   ControllerEntry(
     id: 'fullscreen',
     icon: Symbols.fullscreen,
     title: "Fullscreen",
     subtitle: "Enter or exit fullscreen mode",
-    controllerButtonBuilder: (notReady, status) => const FullScreenButton(),
-    flyoutEntryBuilder: (context, notReady, status) {
+    shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.f11),
+    ],
+    onShortcut: (context) {
+      final fullScreen = Provider.of<FullScreenProvider>(context);
+
+      fullScreen.setFullScreen(!fullScreen.isFullScreen);
+    },
+    controllerButtonBuilder: (context) => const FullScreenButton(),
+    flyoutEntryBuilder: (context) {
       final fullScreen = Provider.of<FullScreenProvider>(context);
 
       return MenuFlyoutItem(

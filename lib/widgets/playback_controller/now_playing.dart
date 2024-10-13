@@ -1,28 +1,25 @@
+import 'package:player/providers/status.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/format_time.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/cover_wall_button.dart';
-import '../../messages/playback.pb.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'conrtoller_progress_bar.dart';
 
 class NowPlaying extends StatelessWidget {
-  const NowPlaying({
-    super.key,
-    required this.status,
-    required this.notReady,
-  });
-
-  final PlaybackStatus? status;
-  final bool notReady;
+  const NowPlaying({super.key});
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
+
+    final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+    final status = statusProvider.playbackStatus;
+    final notReady = statusProvider.notReady;
 
     final r = Provider.of<ResponsiveProvider>(context);
     final miniLayout = r.smallerOrEqualTo(DeviceType.tablet);
@@ -52,9 +49,9 @@ class NowPlaying extends StatelessWidget {
                         path: status?.coverArtPath,
                         hint: status != null
                             ? (
-                                status!.album,
-                                status!.artist,
-                                'Total Time ${formatTime(status!.duration)}'
+                                status.album,
+                                status.artist,
+                                'Total Time ${formatTime(status.duration)}'
                               )
                             : null,
                         size: 48,
