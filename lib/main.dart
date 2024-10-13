@@ -37,7 +37,9 @@ import 'router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await windowManager.ensureInitialized();
+  if (!Platform.isAndroid) {
+    await windowManager.ensureInitialized();
+  }
   await FullScreen.ensureInitialized();
   await GetStorage.init();
   await GetStorage.init(MacSecureManager.storageName);

@@ -94,7 +94,11 @@ final List<NavigationItem> navigationItems = [
         'Settings',
         '/settings',
         shortcuts: [
-          LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyT)
+          LogicalKeySet(
+            LogicalKeyboardKey.control,
+            LogicalKeyboardKey.alt,
+            LogicalKeyboardKey.keyS,
+          )
         ],
         children: [
           NavigationItem('Library', '/settings/library'),
