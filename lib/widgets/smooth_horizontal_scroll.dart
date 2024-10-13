@@ -1,5 +1,5 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/gestures.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/lerp_controller.dart';
 
@@ -49,7 +49,12 @@ class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
     return Listener(
       onPointerSignal: (pointerSignal) {
         if (pointerSignal is PointerScrollEvent) {
-          _startSmoothScroll(pointerSignal.scrollDelta.dy);
+          double scrollDelta = pointerSignal.scrollDelta.dx.abs() >
+                  pointerSignal.scrollDelta.dy.abs()
+              ? pointerSignal.scrollDelta.dx
+              : pointerSignal.scrollDelta.dy;
+
+          _startSmoothScroll(scrollDelta);
         }
       },
       child: widget.builder(context, _scrollController),
