@@ -6,7 +6,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../widgets/playback_controller/now_playing.dart';
 import '../../widgets/playback_controller/cover_art_page_progress_bar.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
-import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -117,11 +116,14 @@ class _ControllerButtonsState extends State<ControllerButtons> {
               onPressed: () {
                 menuController.showFlyout(
                   builder: (context) {
-                    return MenuFlyout(
-                      items: [
-                        for (var entry in hiddenEntries)
-                          entry.flyoutEntryBuilder(context),
-                      ],
+                    return Container(
+                      constraints: const BoxConstraints(maxWidth: 200),
+                      child: MenuFlyout(
+                        items: [
+                          for (var entry in hiddenEntries)
+                            entry.flyoutEntryBuilder(context),
+                        ],
+                      ),
                     );
                   },
                 );

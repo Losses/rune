@@ -1,12 +1,12 @@
 import 'package:flutter/services.dart';
-import 'package:player/utils/api/play_next.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../utils/api/play_mode.dart';
-import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_play.dart';
+import '../../../utils/api/play_mode.dart';
+import '../../../utils/api/play_next.dart';
+import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_previous.dart';
 import '../../../utils/dialogs/play_queue_dialog.dart';
 import '../../../widgets/playback_controller/fullscreen_button.dart';
@@ -74,7 +74,13 @@ var controllerItems = [
 
       return MenuFlyoutItem(
         leading: const Icon(Symbols.skip_previous),
-        text: const Text('Previous'),
+        text: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Previous'),
+            ShortcutText('Ctrl+←'),
+          ],
+        ),
         onPressed: notReady
             ? null
             : () {
@@ -123,9 +129,10 @@ var controllerItems = [
         leading: status?.state == "Playing"
             ? const Icon(Symbols.pause)
             : const Icon(Symbols.play_arrow),
-        text: status?.state == "Playing"
-            ? const Text('Pause')
-            : const Text('Play'),
+        text: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          status?.state == "Playing" ? const Text('Pause') : const Text('Play'),
+          const ShortcutText('Ctrl+P'),
+        ]),
         onPressed: notReady
             ? null
             : () {
@@ -163,7 +170,13 @@ var controllerItems = [
 
       return MenuFlyoutItem(
         leading: const Icon(Symbols.skip_next),
-        text: const Text('Next'),
+        text: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Next'),
+            ShortcutText('Ctrl+→'),
+          ],
+        ),
         onPressed: notReady
             ? null
             : () {
@@ -284,7 +297,13 @@ var controllerItems = [
     flyoutEntryBuilder: (context) {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
-        text: const Text('Playlist'),
+        text: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Playlist'),
+            ShortcutText('Ctrl+Q'),
+          ],
+        ),
         onPressed: () {
           Flyout.of(context).close();
           showPlayQueueDialog(context);
@@ -313,13 +332,21 @@ var controllerItems = [
     icon: Symbols.photo,
     title: "Cover Wall",
     subtitle: "Display cover art for a unique ambience",
-    shortcuts: [],
-    onShortcut: (context) {},
+    shortcuts: [LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyN)],
+    onShortcut: (context) {
+      showCoverArtWall(context);
+    },
     controllerButtonBuilder: (context) => const CoverWallButton(),
     flyoutEntryBuilder: (context) {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
-        text: const Text('Cover Wall'),
+        text: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Cover Wall'),
+            ShortcutText('Alt+N'),
+          ],
+        ),
         onPressed: () {
           Flyout.of(context).close();
           showCoverArtWall(context);
@@ -348,7 +375,13 @@ var controllerItems = [
         leading: fullScreen.isFullScreen
             ? const Icon(Symbols.fullscreen_exit)
             : const Icon(Symbols.fullscreen),
-        text: const Text('Fullscreen'),
+        text: const Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Fullscreen'),
+            ShortcutText('F11'),
+          ],
+        ),
         onPressed: () {
           Flyout.of(context).close();
           fullScreen.setFullScreen(!fullScreen.isFullScreen);
@@ -357,3 +390,20 @@ var controllerItems = [
     },
   ),
 ];
+
+class ShortcutText extends StatelessWidget {
+  const ShortcutText(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+    return Text(
+      text,
+      style: theme.typography.caption?.apply(
+        color: theme.activeColor.withAlpha(80),
+      ),
+    );
+  }
+}
