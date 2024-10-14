@@ -201,3 +201,23 @@ class SmallerOrEqualToScreenSize extends StatelessWidget {
     );
   }
 }
+
+class GreaterOrEqualToScreenSize extends StatelessWidget {
+  final double minWidth;
+  final Widget Function(BuildContext context, bool isSmaller) builder;
+
+  const GreaterOrEqualToScreenSize({
+    super.key,
+    required this.minWidth,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) =>
+          screenSizeProvider.screenSize.width >= minWidth,
+      builder: (context, isSmaller, child) => builder(context, isSmaller),
+    );
+  }
+}
