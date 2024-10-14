@@ -1,4 +1,4 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env sh
 
 set -e
 
@@ -20,7 +20,7 @@ cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
 
 echo "DEBUG: ----------------------------"
 
-where cargo
-where rustc
-where rustup
+which cargo
+which rustc
+which rustup
 rustup target list --installed

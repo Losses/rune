@@ -1,4 +1,4 @@
-macos-ci-all: macos-ci-clean macos-install
+macos-ci-all: macos-ci-clean macos-ci-install
   ./scripts/macos_2_build.sh
   ./scripts/macos_3_prepare_before_sign.sh
   ./scripts/macos_4_replace_dylib.sh

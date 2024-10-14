@@ -196,21 +196,21 @@ jobs:
       #     brew install CocoaPods lmdb create-dmg
       #     brew info lmdb
           
-      # - name: Setup Flutter
-      #   uses: subosito/flutter-action@v2
-      #   with:
-      #     channel: 'stable'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
           
-      # - name: Setup Rust toolchain
-      #   uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         
-      # - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
       
-      # - name: Install Protoc
-      #   uses: arduino/setup-protoc@v3
-      #   with:
-      #     version: "26.x"
-      #     repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
         
       # - name: Install the Rust dependencies
       #   run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
