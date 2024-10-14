@@ -330,10 +330,10 @@ jobs:
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
       
       - name: Setup Java toolchain
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: "zulu"
-          java-version: "11"
+          java-version: "17"
 
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
