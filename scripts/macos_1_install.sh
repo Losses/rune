@@ -7,7 +7,8 @@ cd ..
 
 brew install --cask flutter
 
-brew install CocoaPods lmdb create-dmg rust rustup protobuf
+brew install cocoapods 
+brew install lmdb create-dmg rust rustup protobuf
 
 rustup target add x86_64-apple-darwin
 rustup target add aarch64-apple-darwin
@@ -19,7 +20,7 @@ cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
 
 echo "DEBUG: ----------------------------"
 
-which cargo
-which rustc
-which rustup
+where cargo
+where rustc
+where rustup
 rustup target list --installed

@@ -10,6 +10,6 @@ rinf message
 cd macos
 pod update
 cd ..
-flutter build macos --release --verbose
+flutter build macos --release
 chmod -R +x build/macos/Build/Products/Release/player.app
 xattr -cr build/macos/Build/Products/Release/player.app
