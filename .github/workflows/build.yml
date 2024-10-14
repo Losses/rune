@@ -329,11 +329,17 @@ jobs:
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
       
-      - name: Setup Java toolchain (Only Android target)
+      - name: Setup Java toolchain
         uses: actions/setup-java@v3
         with:
           distribution: "zulu"
           java-version: "11"
+
+      - name: Setup NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: "23.1.7779620"
+          local-cache: true
           
       # This is temporary disabled since Android version is not ready to release yet
       # - name: Setup Android keystore
