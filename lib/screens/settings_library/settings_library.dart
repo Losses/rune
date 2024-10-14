@@ -7,7 +7,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../widgets/library_task_button.dart';
-import '../../widgets/unavailable_on_band.dart';
+import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/playback_controller/playback_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../messages/library_manage.pb.dart';
@@ -38,7 +38,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
     return Column(children: [
       const NavigationBarPlaceholder(),
       Expanded(
-        child: UnavailableOnBand(
+        child: UnavailablePageOnBand(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: SingleChildScrollView(
