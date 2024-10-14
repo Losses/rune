@@ -166,7 +166,6 @@ jobs:
         uses: ncipollo/release-action@v1
         with:
           artifacts: "artifacts/*.zip"
-          allowUpdates: true
           replacesArtifacts: false
     
   # build-macos:
