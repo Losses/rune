@@ -96,6 +96,7 @@ var controllerItems = [
     title: "Play/Pause",
     subtitle: "Toggle between play and pause",
     shortcuts: [
+      LogicalKeySet(LogicalKeyboardKey.space),
       LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyP),
     ],
     onShortcut: (context) {
