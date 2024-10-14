@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import './widgets/cover_wall.dart';
+import 'large_screen_cover_wall.dart';
 
 class CoverWallPage extends StatefulWidget {
   const CoverWallPage({super.key});
