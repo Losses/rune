@@ -9,7 +9,9 @@ cd temp_macos
 echo "Codesign: ----------------------------"
 
 # DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY must use Developer ID Application certificate, or app cannot be notarized
-/usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
+# /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
+
+/usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --entitlements Release.entitlements --options runtime player.app -v
 
 echo "Notarize: ----------------------------"
 
