@@ -338,7 +338,7 @@ jobs:
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         with:
-          ndk-version: "23.1.7779620"
+          ndk-version: r27b
           local-cache: true
           
       # This is temporary disabled since Android version is not ready to release yet
