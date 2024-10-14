@@ -11,7 +11,7 @@ import '../../widgets/playback_controller/controller_buttons.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/now_playing.dart';
-import '../../widgets/playback_controller/cover_art_page_progress_bar.dart';
+import '../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -62,11 +62,6 @@ class PlaybackControllerState extends State<PlaybackController> {
                 ),
               ),
               if (!largeLayout) const NowPlaying(),
-              if (largeLayout)
-                Transform.translate(
-                  offset: const Offset(0, -44),
-                  child: const CoverArtPageProgressBar(),
-                ),
               const ControllerButtons(),
             ],
           ),
