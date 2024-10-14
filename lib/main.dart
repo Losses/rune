@@ -95,7 +95,13 @@ void main() async {
         ),
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => ResponsiveProvider(),
+          create: (_) => ScreenSizeProvider(),
+        ),
+        ChangeNotifierProxyProvider<ScreenSizeProvider, ResponsiveProvider>(
+          create: (context) =>
+              ResponsiveProvider(context.read<ScreenSizeProvider>()),
+          update: (context, screenSizeProvider, previous) =>
+              previous ?? ResponsiveProvider(screenSizeProvider),
         ),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),

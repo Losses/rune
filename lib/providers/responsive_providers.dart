@@ -13,28 +13,17 @@ class ResponsiveBreakpoint {
       {required this.start, required this.end, required this.name});
 }
 
-class ResponsiveProvider extends ChangeNotifier with WidgetsBindingObserver {
-  static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.band),
-    ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
-    ResponsiveBreakpoint(start: 321, end: 480, name: DeviceType.phone),
-    ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
-    ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
-    ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),
-    ResponsiveBreakpoint(
-        start: 1921, end: double.infinity, name: DeviceType.tv),
-  ];
-
-  DeviceType _currentBreakpoint = DeviceType.desktop;
+class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
+  Size _screenSize = Size.zero;
   DateTime? _lastUpdateTime;
   Timer? _throttleTimer;
 
-  ResponsiveProvider() {
+  ScreenSizeProvider() {
     WidgetsBinding.instance.addObserver(this);
-    _updateBreakpoint();
+    _updateScreenSize();
   }
 
-  DeviceType get currentBreakpoint => _currentBreakpoint;
+  Size get screenSize => _screenSize;
 
   @override
   void didChangeMetrics() {
@@ -43,22 +32,59 @@ class ResponsiveProvider extends ChangeNotifier with WidgetsBindingObserver {
     final now = DateTime.now();
     if (_lastUpdateTime == null ||
         now.difference(_lastUpdateTime!) >= const Duration(milliseconds: 100)) {
-      _updateBreakpoint();
+      _updateScreenSize();
       _lastUpdateTime = now;
     } else {
       _throttleTimer?.cancel();
       _throttleTimer = Timer(
-          Duration(
-              milliseconds:
-                  100 - now.difference(_lastUpdateTime!).inMilliseconds),
-          _updateBreakpoint);
+        Duration(
+            milliseconds:
+                100 - now.difference(_lastUpdateTime!).inMilliseconds),
+        _updateScreenSize,
+      );
     }
   }
 
-  void _updateBreakpoint() async {
+  void _updateScreenSize() {
     final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-    final size = firstView.physicalSize / firstView.devicePixelRatio;
-    final width = size.width;
+    final size = firstView.physicalSize;
+    if (size != _screenSize) {
+      _screenSize = size;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _throttleTimer?.cancel();
+    super.dispose();
+  }
+}
+
+class ResponsiveProvider extends ChangeNotifier {
+  static const List<ResponsiveBreakpoint> breakpoints = [
+    ResponsiveBreakpoint(start: 0, end: 240, name: DeviceType.band),
+    ResponsiveBreakpoint(start: 241, end: 640, name: DeviceType.zune),
+    ResponsiveBreakpoint(start: 641, end: 960, name: DeviceType.phone),
+    ResponsiveBreakpoint(start: 961, end: 1300, name: DeviceType.mobile),
+    ResponsiveBreakpoint(start: 1301, end: 1600, name: DeviceType.tablet),
+    ResponsiveBreakpoint(start: 1601, end: 3840, name: DeviceType.desktop),
+    ResponsiveBreakpoint(
+        start: 3841, end: double.infinity, name: DeviceType.tv),
+  ];
+
+  DeviceType _currentBreakpoint = DeviceType.desktop;
+
+  ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
+    screenSizeProvider.addListener(_updateBreakpoint);
+    _updateBreakpoint();
+  }
+
+  DeviceType get currentBreakpoint => _currentBreakpoint;
+
+  void _updateBreakpoint() {
+    final width = ScreenSizeProvider().screenSize.width;
     final newBreakpoint = breakpoints
         .firstWhere(
           (bp) => width >= bp.start && width <= bp.end,
@@ -82,13 +108,6 @@ class ResponsiveProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   bool equalTo(DeviceType breakpointName) {
     return _currentBreakpoint == breakpointName;
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _throttleTimer?.cancel();
-    super.dispose();
   }
 }
 
@@ -159,6 +178,26 @@ class BreakpointBuilder extends StatelessWidget {
       ),
       builder: (context, activeBreakpoint, child) =>
           builder(context, activeBreakpoint),
+    );
+  }
+}
+
+class SmallerOrEqualToScreenSize extends StatelessWidget {
+  final double maxWidth;
+  final Widget Function(BuildContext context, bool isSmaller) builder;
+
+  const SmallerOrEqualToScreenSize({
+    super.key,
+    required this.maxWidth,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) =>
+          screenSizeProvider.screenSize.width <= maxWidth,
+      builder: (context, isSmaller, child) => builder(context, isSmaller),
     );
   }
 }
