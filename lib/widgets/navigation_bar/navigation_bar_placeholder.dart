@@ -10,14 +10,17 @@ class NavigationBarPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final topInset = MediaQuery.viewInsetsOf(context).top;
+
     return SmallerOrEqualTo(
-        breakpoint: DeviceType.band,
-        builder: (context, isBand) {
-          if (isBand) {
-            return const SizedBox(height: bandNavigationBarHeight);
-          } else {
-            return const SizedBox(height: fullNavigationBarHeight);
-          }
-        });
+      breakpoint: DeviceType.band,
+      builder: (context, isBand) {
+        if (isBand) {
+          return SizedBox(height: bandNavigationBarHeight + topInset);
+        } else {
+          return SizedBox(height: fullNavigationBarHeight + topInset);
+        }
+      },
+    );
   }
 }

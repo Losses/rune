@@ -6,7 +6,7 @@ import 'package:player/messages/system.pb.dart';
 import 'package:player/utils/api/system_info.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 
 const size = 400.0;
@@ -34,7 +34,7 @@ class SettingsAboutPage extends StatelessWidget {
             ),
           ),
         ),
-        const PlaybackPlaceholder()
+        const ControllerPlaceholder()
       ],
     );
   }

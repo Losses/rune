@@ -4,7 +4,7 @@ import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../widgets/unavailable_page_on_band.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../screens/settings_library/widgets/settings_button.dart';
 import '../../providers/playback_controller.dart';
@@ -102,7 +102,7 @@ class _SettingsMediaControllerPageState
           ),
         ),
       ),
-      const PlaybackPlaceholder(),
+      const ControllerPlaceholder(),
     ]);
   }
 }

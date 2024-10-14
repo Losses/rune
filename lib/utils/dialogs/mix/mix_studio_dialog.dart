@@ -11,7 +11,6 @@ import '../../../messages/mix.pbserver.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';
-import '../../chip_input/search_task.dart';
 import '../../api/create_mix.dart';
 import '../../api/update_mix.dart';
 import '../../api/get_mix_by_id.dart';
@@ -20,6 +19,7 @@ import '../../api/fetch_mix_queries_by_mix_id.dart';
 import '../../dialogs/mix/widgets/mix_editor.dart';
 import '../../dialogs/mix/utils/mix_editor_data.dart';
 import '../../dialogs/mix/widgets/mix_editor_controller.dart';
+import '../../chip_input/search_task.dart';
 
 import '../unavailable_dialog_on_band.dart';
 

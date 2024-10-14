@@ -7,7 +7,7 @@ import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
@@ -232,7 +232,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
               ),
             ),
-            const PlaybackPlaceholder(),
+            const ControllerPlaceholder(),
           ],
         ),
       );
@@ -256,7 +256,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
               ),
             ),
-            const PlaybackPlaceholder(),
+            const ControllerPlaceholder(),
           ],
         ),
       );
@@ -279,7 +279,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
               ),
             ),
-            const PlaybackPlaceholder(),
+            const ControllerPlaceholder(),
           ],
         ),
       );
