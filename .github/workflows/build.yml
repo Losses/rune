@@ -165,8 +165,11 @@ jobs:
       - name: Release
         uses: ncipollo/release-action@v1
         with:
+          allowUpdates: true
           artifacts: "artifacts/*.zip"
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          omitBody: true
     
   # build-macos:
   #   runs-on: macos-latest
