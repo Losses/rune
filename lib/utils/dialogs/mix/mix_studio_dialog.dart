@@ -1,4 +1,3 @@
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -21,6 +20,8 @@ import '../../api/fetch_mix_queries_by_mix_id.dart';
 import '../../dialogs/mix/widgets/mix_editor.dart';
 import '../../dialogs/mix/utils/mix_editor_data.dart';
 import '../../dialogs/mix/widgets/mix_editor_controller.dart';
+
+import '../unavailable_dialog_on_band.dart';
 
 class MixStudioDialog extends StatefulWidget {
   final int? mixId;
@@ -261,42 +262,6 @@ class _MixStudioDialogImplementationState
           ),
         ],
       ),
-    );
-  }
-}
-
-class UnavailableDialogOnBand extends StatelessWidget {
-  const UnavailableDialogOnBand({super.key, required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return SmallerOrEqualTo(
-      breakpoint: DeviceType.band,
-      builder: (context, isBand) {
-        if (isBand) {
-          return Column(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              LayoutBuilder(
-                builder: (context, constraint) {
-                  return IconButton(
-                    icon: Icon(
-                      Symbols.devices,
-                      size: (constraint.maxWidth * 0.8).clamp(0, 48),
-                    ),
-                    onPressed: () => Navigator.pop(context, null),
-                  );
-                },
-              ),
-            ],
-          );
-        }
-
-        return child;
-      },
     );
   }
 }

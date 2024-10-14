@@ -8,6 +8,8 @@ import '../../api/update_mix.dart';
 import '../../api/get_mix_by_id.dart';
 import '../../api/fetch_collection_group_summary_title.dart';
 
+import '../unavailable_dialog_on_band.dart';
+
 class CreateEditMixDialog extends StatefulWidget {
   final int? mixId;
   final (String, String)? operator;
@@ -53,88 +55,90 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return ContentDialog(
-      title: Column(
-        children: [
-          const SizedBox(height: 16),
-          Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
+    return UnavailableDialogOnBand(
+      child: ContentDialog(
+        title: Column(
+          children: [
+            const SizedBox(height: 16),
+            Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            InfoLabel(
+              label: 'Title',
+              child: TextBox(
+                controller: titleController,
+                enabled: !isLoading,
+              ),
+            ),
+            const SizedBox(height: 16),
+            InfoLabel(
+              label: 'Group',
+              child: AutoSuggestBox<String>(
+                controller: groupController,
+                items: groupList.map<AutoSuggestBoxItem<String>>(
+                  (e) {
+                    return AutoSuggestBoxItem<String>(
+                      value: e,
+                      label: e,
+                    );
+                  },
+                ).toList(),
+                placeholder: "Select a group",
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: isLoading
+                ? null
+                : () async {
+                    setState(() {
+                      isLoading = true;
+                    });
+
+                    final operator = widget.operator;
+
+                    Mix? response;
+                    if (widget.mixId != null) {
+                      response = await updateMix(
+                        widget.mixId!,
+                        titleController.text,
+                        groupController.text,
+                        false,
+                        99,
+                        operator == null ? [] : [operator],
+                      );
+                    } else {
+                      response = await createMix(
+                        titleController.text,
+                        groupController.text,
+                        false,
+                        99,
+                        operator == null ? [] : [operator],
+                      );
+                    }
+
+                    setState(() {
+                      isLoading = false;
+                    });
+
+                    if (!context.mounted) return;
+                    Navigator.pop(context, response);
+                  },
+            child: Text(widget.mixId != null ? 'Save' : 'Create'),
+          ),
+          Button(
+            onPressed: isLoading ? null : () => Navigator.pop(context, null),
+            child: const Text('Cancel'),
+          ),
         ],
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 16),
-          InfoLabel(
-            label: 'Title',
-            child: TextBox(
-              controller: titleController,
-              enabled: !isLoading,
-            ),
-          ),
-          const SizedBox(height: 16),
-          InfoLabel(
-            label: 'Group',
-            child: AutoSuggestBox<String>(
-              controller: groupController,
-              items: groupList.map<AutoSuggestBoxItem<String>>(
-                (e) {
-                  return AutoSuggestBoxItem<String>(
-                    value: e,
-                    label: e,
-                  );
-                },
-              ).toList(),
-              placeholder: "Select a group",
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-      actions: [
-        FilledButton(
-          onPressed: isLoading
-              ? null
-              : () async {
-                  setState(() {
-                    isLoading = true;
-                  });
-
-                  final operator = widget.operator;
-
-                  Mix? response;
-                  if (widget.mixId != null) {
-                    response = await updateMix(
-                      widget.mixId!,
-                      titleController.text,
-                      groupController.text,
-                      false,
-                      99,
-                      operator == null ? [] : [operator],
-                    );
-                  } else {
-                    response = await createMix(
-                      titleController.text,
-                      groupController.text,
-                      false,
-                      99,
-                      operator == null ? [] : [operator],
-                    );
-                  }
-
-                  setState(() {
-                    isLoading = false;
-                  });
-
-                  if (!context.mounted) return;
-                  Navigator.pop(context, response);
-                },
-          child: Text(widget.mixId != null ? 'Save' : 'Create'),
-        ),
-        Button(
-          onPressed: isLoading ? null : () => Navigator.pop(context, null),
-          child: const Text('Cancel'),
-        ),
-      ],
     );
   }
 }
