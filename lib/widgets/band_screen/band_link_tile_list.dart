@@ -1,3 +1,4 @@
+import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/start_screen/band_link_tile.dart';
@@ -25,7 +26,9 @@ class BandLinkTileList extends StatelessWidget {
                   aspectRatio: 1,
                   child: BandLinkTile(
                     title: item.$1,
-                    path: item.$2,
+                    onPressed: () {
+                      context.push(item.$2);
+                    },
                     icon: item.$3,
                   ),
                 ),

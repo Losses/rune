@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/ax_pressure.dart';
@@ -8,13 +7,13 @@ import 'utils/get_tile_colors.dart';
 
 class BandLinkTile extends StatelessWidget {
   final String title;
-  final String path;
+  final VoidCallback onPressed;
   final IconData icon;
 
   const BandLinkTile({
     super.key,
     required this.title,
-    required this.path,
+    required this.onPressed,
     required this.icon,
   });
 
@@ -26,11 +25,9 @@ class BandLinkTile extends StatelessWidget {
 
     return AxPressure(
       child: Tile(
-        onPressed: () {
-          context.push(path);
-        },
+        onPressed: onPressed,
         child: Container(
-          color: colors[path.hashCode % colors.length],
+          color: colors[title.hashCode % colors.length],
           child: Center(
             child: LayoutBuilder(
               builder: (context, constraints) {

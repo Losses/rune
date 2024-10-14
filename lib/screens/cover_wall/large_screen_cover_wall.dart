@@ -1,4 +1,3 @@
-
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../messages/cover_art.pb.dart';
@@ -7,14 +6,15 @@ import 'widgets/random_grid.dart';
 
 const int count = 40;
 
-class CoverWallView extends StatefulWidget {
-  const CoverWallView({super.key});
+class LargeScreenCoverWallView extends StatefulWidget {
+  const LargeScreenCoverWallView({super.key});
 
   @override
-  State<CoverWallView> createState() => _CoverWallViewState();
+  State<LargeScreenCoverWallView> createState() =>
+      _LargeScreenCoverWallViewState();
 }
 
-class _CoverWallViewState extends State<CoverWallView> {
+class _LargeScreenCoverWallViewState extends State<LargeScreenCoverWallView> {
   List<String> paths = [];
   bool _isLoading = true;
 
