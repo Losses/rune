@@ -296,3 +296,93 @@ jobs:
           artifacts: "artifacts/**/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
+
+  build-android:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+      
+      - name: Setup Java toolchain (Only Android target)
+        uses: actions/setup-java@v3
+        with:
+          distribution: "zulu"
+          java-version: "11"
+          
+      # This is temporary disabled since Android version is not ready to release yet
+      # - name: Setup Android keystore
+      #   run: |
+      #     echo "${{ secrets.SIGNING_KEY_STORE_BASE64 }}" | base64 -di > android/app/upload-keystore.jks
+      #     echo "${{ secrets.SIGNING_KEY_PROPERTIES }}" > android/key.properties
+
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
+
+      - name: Flutter pub get
+        run: flutter pub get
+        
+      - name: Generate message files
+        run: rinf message
+
+      - name: Build android apks
+        run: |
+          flutter build apk --release --split-per-abi
+          cd build/app/outputs/flutter-apk
+          mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
+          mv app-armeabi-v7a-release.apk Rune-${{ github.ref_name }}-android-armeabi-v7a.apk
+          mv app-x86_64-release.apk Rune-${{ github.ref_name }}-android-x86_64.apk
+
+      - name: Upload artifact android apks
+        uses: actions/upload-artifact@v4
+        with:
+          path: "build/app/outputs/flutter-apk/Rune-*.apk"
+
+  release-android:
+    permissions:
+      contents: write
+    needs: build-android
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*.apk
+          path: artifacts
+
+      - name: Release Android apks
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "artifacts/Rune-*.apk"
+          allowUpdates: true
+          replacesArtifacts: false
+
