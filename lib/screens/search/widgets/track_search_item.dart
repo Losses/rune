@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/query_list.dart';
+import '../../../utils/format_time.dart';
 import '../../../utils/api/operate_playback_with_mix_query.dart';
 import '../../../utils/context_menu/track_item_context_menu.dart';
 import '../../../widgets/tile/cover_art.dart';
@@ -29,6 +30,11 @@ class TrackSearchItem extends SearchCard {
   Widget buildLeadingWidget(double size) {
     return CoverArt(
       path: item.coverArtPath,
+      hint: (
+        item.album,
+        item.artist,
+        'Total Time ${formatTime(item.duration)}'
+      ),
       size: size,
     );
   }

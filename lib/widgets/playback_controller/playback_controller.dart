@@ -11,7 +11,6 @@ import '../../widgets/playback_controller/controller_buttons.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/now_playing.dart';
-import '../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
