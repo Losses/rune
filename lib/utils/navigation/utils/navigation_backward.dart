@@ -20,8 +20,11 @@ bool navigationBackward(BuildContext context) {
 
 navigateBackwardWithPop(BuildContext context) {
   final router = GoRouter.of(context);
+  final routerState = GoRouterState.of(context);
 
   if (!navigationBackward(context)) {
     router.pop();
+  } else if (routerState.path != '/library') {
+    router.go('/library');
   }
 }
