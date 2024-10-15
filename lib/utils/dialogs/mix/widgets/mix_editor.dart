@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/collection.pb.dart';
-import 'package:player/utils/api/fetch_collection_by_ids.dart';
-import 'package:player/utils/api/fetch_collection_group_summary_title.dart';
-import 'package:player/utils/api/fetch_media_file_by_ids.dart';
-import 'package:player/utils/api/search_collection_summary.dart';
+import 'package:rune/messages/collection.pb.dart';
+import 'package:rune/utils/api/fetch_collection_by_ids.dart';
+import 'package:rune/utils/api/fetch_collection_group_summary_title.dart';
+import 'package:rune/utils/api/fetch_media_file_by_ids.dart';
+import 'package:rune/utils/api/search_collection_summary.dart';
 
 import 'package:provider/provider.dart';
 

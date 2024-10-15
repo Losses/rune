@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/screens/collection/band_screen_collection_list.dart';
+import 'package:rune/screens/collection/band_screen_collection_list.dart';
 
 import '../../screens/collection/small_screen_collection_list.dart';
 import '../../widgets/playback_controller/controllor_placeholder.dart';

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/playback_controller/cover_wall_button.dart';
+import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/widgets/playback_controller/cover_wall_button.dart';
 
 class BackButton extends StatelessWidget {
   const BackButton({

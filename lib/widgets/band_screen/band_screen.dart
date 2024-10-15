@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:player/widgets/turntile/managed_turntile_screen_item.dart';
+import 'package:rune/widgets/turntile/managed_turntile_screen_item.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';

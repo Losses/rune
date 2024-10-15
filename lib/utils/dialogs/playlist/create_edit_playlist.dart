@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
+import 'package:rune/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 
 import '../../../messages/playlist.pb.dart';
 

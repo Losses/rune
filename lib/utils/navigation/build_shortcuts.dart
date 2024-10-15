@@ -1,9 +1,9 @@
 import 'package:flutter/services.dart';
-
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/config/navigation.dart';
-import 'package:player/utils/navigation/controller_intent.dart';
-import 'package:player/widgets/playback_controller/constants/controller_items.dart';
+
+import '../../utils/navigation/controller_intent.dart';
+import '../../config/navigation.dart';
+import '../../widgets/playback_controller/constants/controller_items.dart';
 
 import 'back_intent.dart';
 import 'escape_intent.dart';

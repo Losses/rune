@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
-import 'package:player/widgets/playback_controller/controllor_placeholder.dart';
+import 'package:rune/widgets/navigation_bar/navigation_bar_placeholder.dart';
+import 'package:rune/widgets/playback_controller/controllor_placeholder.dart';
 import 'package:provider/provider.dart';
 
 import '../../config/animation.dart';

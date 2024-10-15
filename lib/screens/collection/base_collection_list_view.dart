@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/messages/collection.pb.dart';
+import 'package:rune/messages/collection.pb.dart';
 
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';

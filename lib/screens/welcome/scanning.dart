@@ -1,4 +1,4 @@
-import 'package:player/utils/color_brightness.dart';
+import 'package:rune/utils/color_brightness.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';

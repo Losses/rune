@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/providers/status.dart';
+import 'package:rune/providers/status.dart';
 import 'package:provider/provider.dart';
 
 import '../../../utils/format_time.dart';

@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/messages/collection.pb.dart';
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/utils/api/fetch_mix_queries_by_mix_id.dart';
-import 'package:player/utils/build_collection_query.dart';
+import 'package:rune/messages/collection.pb.dart';
+import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/utils/api/fetch_mix_queries_by_mix_id.dart';
+import 'package:rune/utils/build_collection_query.dart';
 import 'package:provider/provider.dart';
 
 import '../../utils/query_list.dart';

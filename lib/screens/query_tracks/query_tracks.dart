@@ -1,5 +1,5 @@
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
+import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/widgets/navigation_bar/navigation_bar_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 

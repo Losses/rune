@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/tile/config.dart';
-import 'package:player/widgets/tile/fancy_cover_implementation.dart';
+import 'package:rune/widgets/tile/config.dart';
+import 'package:rune/widgets/tile/fancy_cover_implementation.dart';
 
 class FancyCover extends StatelessWidget {
   final double size;

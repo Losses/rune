@@ -2,8 +2,8 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:player/messages/system.pb.dart';
-import 'package:player/utils/api/system_info.dart';
+import 'package:rune/messages/system.pb.dart';
+import 'package:rune/utils/api/system_info.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/playback_controller/controllor_placeholder.dart';
