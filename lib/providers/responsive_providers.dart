@@ -47,7 +47,7 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
   void _updateScreenSize() {
     final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-    final size = firstView.physicalSize;
+    final size = firstView.physicalSize / firstView.devicePixelRatio;
     if (size != _screenSize) {
       _screenSize = size;
       notifyListeners();
@@ -64,14 +64,14 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
 class ResponsiveProvider extends ChangeNotifier {
   static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 240, name: DeviceType.band),
-    ResponsiveBreakpoint(start: 241, end: 640, name: DeviceType.zune),
-    ResponsiveBreakpoint(start: 641, end: 960, name: DeviceType.phone),
-    ResponsiveBreakpoint(start: 961, end: 1300, name: DeviceType.mobile),
-    ResponsiveBreakpoint(start: 1301, end: 1600, name: DeviceType.tablet),
-    ResponsiveBreakpoint(start: 1601, end: 3840, name: DeviceType.desktop),
+    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.band),
+    ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
+    ResponsiveBreakpoint(start: 321, end: 480, name: DeviceType.phone),
+    ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
+    ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
+    ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),
     ResponsiveBreakpoint(
-        start: 3841, end: double.infinity, name: DeviceType.tv),
+        start: 1921, end: double.infinity, name: DeviceType.tv),
   ];
 
   DeviceType _currentBreakpoint = DeviceType.desktop;
