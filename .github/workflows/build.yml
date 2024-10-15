@@ -309,10 +309,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libssl-dev
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update && sudo apt-get install libssl-dev:arm64
-          sudo dpkg --add-architecture armhf
-          sudo apt-get update && sudo apt-get install libssl-dev:armhf
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -374,6 +370,8 @@ jobs:
         env:
           PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+          OPENSSL_LIB_DIR: "/usr/lib/x86_64-linux-gnu"
+          OPENSSL_INCLUDE_DIR: "/usr/include/openssl"
 
       - name: Upload artifact android apks
         uses: actions/upload-artifact@v4
