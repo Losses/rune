@@ -69,7 +69,12 @@ jobs:
         with:
           pattern: Rune-*-windows
           path: artifacts
-
+          
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+          
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
@@ -83,6 +88,8 @@ jobs:
           artifacts: "artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
 
   build-linux:
     runs-on: ubuntu-latest
@@ -149,6 +156,11 @@ jobs:
         with:
           pattern: Rune-*-linux
           path: artifacts
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
           
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
@@ -160,9 +172,11 @@ jobs:
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.zip"
           allowUpdates: true
+          artifacts: "artifacts/*.zip"
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
     
   build-macos:
     runs-on: macos-latest
@@ -296,3 +310,5 @@ jobs:
           artifacts: "artifacts/**/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
