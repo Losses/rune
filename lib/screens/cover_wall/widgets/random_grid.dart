@@ -5,7 +5,6 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/color_brightness.dart';
 import '../../../widgets/tile/cover_art.dart';
-import '../../../widgets/gradient_container.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 
 import '../utils/string_to_double.dart';
@@ -14,6 +13,7 @@ import '../utils/random_grid_config.dart';
 import 'grid_tile.dart';
 import 'back_button.dart';
 import 'playing_track.dart';
+import 'gradient_container.dart';
 
 class RandomGrid extends StatefulWidget {
   final int seed;
