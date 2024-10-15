@@ -245,12 +245,12 @@ jobs:
 
       - name: Replace System Dylib
         run: |
-          otool -L player.app/Contents/MacOS/player | grep lmdb
-          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib player.app/Contents/MacOS/player
+          otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
+          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
         working-directory: build/macos/Build/Products/Release
 
       - name: Code Signing
-        run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
+        run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime Rune.app -v
         working-directory: build/macos/Build/Products/Release
         env:
           DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
@@ -264,7 +264,7 @@ jobs:
             --icon-size 100 \
             --app-drop-link 600 185 \
             Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-            build/macos/Build/Products/Release/player.app
+            build/macos/Build/Products/Release/Rune.app
           
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
