@@ -22,14 +22,39 @@ class FlipAnimationManager extends StatefulWidget {
 
 class FlipAnimationManagerState extends State<FlipAnimationManager> {
   final Map<String, GlobalKey> _registeredKeys = {};
-  final Map<String, TextStyleSheet> _cachedBoundingBox = {};
+  final Map<String, FlipTextPositions> _cachedPositions = {};
+  final Map<String, FlipTextStyles> _cachedStyles = {};
   final List<OverlayEntry> _overlayEntries = [];
+
+  void registerStyle(
+    String key,
+    double scale,
+    double fontWeight,
+    Color color,
+    double alpha,
+  ) {
+    final style = _cachedStyles[key];
+
+    if (style == null) {
+      _cachedStyles[key] = FlipTextStyles(
+        scale: scale,
+        fontWeight: fontWeight,
+        color: color,
+        alpha: alpha,
+      );
+    } else {
+      style.scale = scale;
+      style.fontWeight = fontWeight;
+      style.color = color;
+      style.alpha = alpha;
+    }
+  }
 
   void registerKey(String key, GlobalKey globalKey) {
     _registeredKeys[key] = globalKey;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      cacheStyleSheetWithKey(key);
+      cachePositionWithKey(key);
     });
   }
 
@@ -37,14 +62,14 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     _registeredKeys.remove(key);
   }
 
-  void cacheStyleSheetWithKey(String key) {
+  void cachePositionWithKey(String key) {
     if (_registeredKeys.containsKey(key)) {
       final globalKey = _registeredKeys[key];
 
-      final boundingBox = getStyleSheet(key, globalKey!);
+      final styles = getPosition(key, globalKey!);
 
-      if (boundingBox != null) {
-        _cachedBoundingBox[key] = boundingBox;
+      if (styles != null) {
+        _cachedPositions[key] = styles;
 
         // logger.i("Cached bounding box cached: $key");
       } else {
@@ -76,8 +101,8 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
   Future<bool> flipAnimation(String fromKey, String toKey) async {
     _stopAllAnimations(); // Stop all ongoing animations
 
-    cacheStyleSheetWithKey(fromKey);
-    cacheStyleSheetWithKey(toKey);
+    cachePositionWithKey(fromKey);
+    cachePositionWithKey(toKey);
 
     _setVisibility(fromKey, false);
     _setVisibility(toKey, false);
@@ -85,33 +110,44 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     final completer = Completer<bool>();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      cacheStyleSheetWithKey(fromKey);
-      cacheStyleSheetWithKey(toKey);
+      cachePositionWithKey(fromKey);
+      cachePositionWithKey(toKey);
 
-      final fromBoundingBox = _cachedBoundingBox[fromKey];
-      final toBoundingBox = _cachedBoundingBox[toKey];
+      final fromPosition = _cachedPositions[fromKey];
+      final toPosition = _cachedPositions[toKey];
+      final fromStyles = _cachedStyles[fromKey];
+      final toStyles = _cachedStyles[toKey];
 
       // Hide elements before starting animation
       _setVisibility(fromKey, false);
       _setVisibility(toKey, false);
 
-      if (fromBoundingBox == null) {
+      if (fromPosition == null) {
         completer.complete(false);
         return;
       }
-      if (toBoundingBox == null) {
-        completer.complete(false);
-        return;
-      }
-
-      if (!fromBoundingBox.context.mounted && !toBoundingBox.context.mounted) {
+      if (toPosition == null) {
         completer.complete(false);
         return;
       }
 
-      final mountedContext = toBoundingBox.context.mounted
-          ? toBoundingBox.context
-          : fromBoundingBox.context;
+      if (fromStyles == null) {
+        completer.complete(false);
+        return;
+      }
+      if (toStyles == null) {
+        completer.complete(false);
+        return;
+      }
+
+      if (!fromPosition.context.mounted && !toPosition.context.mounted) {
+        completer.complete(false);
+        return;
+      }
+
+      final mountedContext = toPosition.context.mounted
+          ? toPosition.context
+          : fromPosition.context;
       final transformWidget = mountedContext.widget as Transform?;
       final textWidget = transformWidget?.child as Text?;
 
@@ -121,17 +157,19 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       // Create a text overlay in the animation layer and perform a smooth transition animation
       overlayEntry = OverlayEntry(
         builder: (context) => FlipTextAnimation(
-          fromStyles: fromBoundingBox,
-          toStyles: toBoundingBox,
+          fromPositions: fromPosition,
+          toPositions: toPosition,
+          fromStyles: fromStyles,
+          toStyles: toStyles,
           text: textWidget?.data ?? '',
           onAnimationComplete: () {
             overlayEntry.remove();
             _overlayEntries.remove(overlayEntry);
             // Show elements after animation ends if they are still mounted
-            if (fromBoundingBox.context.mounted) {
+            if (fromPosition.context.mounted) {
               _setVisibility(fromKey, true);
             }
-            if (toBoundingBox.context.mounted) {
+            if (toPosition.context.mounted) {
               _setVisibility(toKey, true);
             }
             completer.complete(true);
@@ -160,7 +198,7 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     return null;
   }
 
-  TextStyleSheet? getStyleSheet(String key, GlobalKey globalKey) {
+  FlipTextPositions? getPosition(String key, GlobalKey globalKey) {
     final context = globalKey.currentContext;
 
     if (context == null) {
@@ -176,28 +214,10 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
     final box = context.findRenderObject() as RenderBox;
     final position = box.localToGlobal(Offset.zero);
 
-    final transformWidget = context.widget as Transform;
-    final textWidget = transformWidget.child as Text;
-    final style = textWidget.style;
-
-    final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
-    TextStyle? effectiveTextStyle = style;
-    if (style == null || style.inherit) {
-      effectiveTextStyle = defaultTextStyle.style.merge(style);
-    }
-    if (MediaQuery.boldTextOf(context)) {
-      effectiveTextStyle = effectiveTextStyle!
-          .merge(const TextStyle(fontWeight: FontWeight.bold));
-    }
-
-    return TextStyleSheet(
-        context: context,
-        position: position,
-        scale: transformWidget.transform.row0[0],
-        fontWeight:
-            getFontVariationValue(effectiveTextStyle?.fontVariations, 'wght') ??
-                400,
-        color: (effectiveTextStyle?.color)!);
+    return FlipTextPositions(
+      context: context,
+      position: position,
+    );
   }
 
   @override

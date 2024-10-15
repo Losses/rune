@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/logger.dart';
-
 import './flip_animation_manager.dart';
 
 class FlipText extends StatefulWidget {
@@ -11,6 +10,9 @@ class FlipText extends StatefulWidget {
   final double? alpha;
   final double? fontWeight;
   final bool hidden;
+  final Color? color;
+  final Color glowColor;
+  final double glowRadius;
 
   const FlipText({
     super.key,
@@ -20,6 +22,9 @@ class FlipText extends StatefulWidget {
     this.scale = 1,
     this.alpha,
     this.fontWeight,
+    this.color,
+    this.glowColor = Colors.transparent,
+    this.glowRadius = 0,
   });
 
   @override
@@ -32,8 +37,6 @@ class FlipTextState extends State<FlipText> {
   bool _visible = true;
 
   registerKey() {
-    _flipAnimation = FlipAnimationManager.of(context);
-
     if (_flipAnimation == null) {
       logger.w("Flip context not found for ${widget.flipKey}");
       return;
@@ -48,10 +51,33 @@ class FlipTextState extends State<FlipText> {
     });
   }
 
+  void updateStyle() {
+    final theme = FluentTheme.of(context);
+    final defaultTextStyle = theme.typography.body;
+
+    _flipAnimation?.registerStyle(
+      widget.flipKey,
+      widget.scale,
+      widget.fontWeight ?? 400,
+      widget.color ?? defaultTextStyle!.color!,
+      widget.alpha ?? 255,
+    );
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _flipAnimation = FlipAnimationManager.of(context);
+
     registerKey();
+    updateStyle();
+  }
+
+  @override
+  void didUpdateWidget(covariant FlipText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    updateStyle();
   }
 
   @override
@@ -62,27 +88,74 @@ class FlipTextState extends State<FlipText> {
 
   @override
   Widget build(BuildContext context) {
-    final DefaultTextStyle defaultTextStyle = DefaultTextStyle.of(context);
+    final theme = FluentTheme.of(context);
+    final defaultTextStyle = theme.typography.body;
+    final initialColor = (widget.color ?? defaultTextStyle!.color)
+        ?.withAlpha(widget.alpha?.toInt() ?? 255);
 
     return Visibility(
       maintainSize: true,
       maintainAnimation: true,
       maintainState: true,
       visible: _visible && !widget.hidden,
-      child: Transform.scale(
-          key: _globalKey,
-          scale: widget.scale,
-          alignment: Alignment.topLeft,
-          child: Text(
-            widget.text,
-            style: TextStyle(
-              fontVariations: <FontVariation>[
-                FontVariation('wght', widget.fontWeight ?? 400),
-              ],
-              color: defaultTextStyle.style.color!
-                  .withAlpha(widget.alpha?.toInt() ?? 255),
+      child: TweenAnimationBuilder(
+        tween: ColorTween(
+          begin: initialColor,
+          end: initialColor,
+        ),
+        duration: theme.fastAnimationDuration,
+        builder: (context, Color? color, child) {
+          return TweenAnimationBuilder(
+            tween: ColorTween(
+              begin: Colors.transparent,
+              end: widget.glowColor,
             ),
-          )),
+            duration: theme.fastAnimationDuration,
+            builder: (context, Color? glowColor, child) {
+              return TweenAnimationBuilder(
+                tween: Tween<double>(
+                  begin: 0,
+                  end: widget.glowRadius,
+                ),
+                duration: theme.fastAnimationDuration,
+                builder: (context, double glowRadius, child) {
+                  return TweenAnimationBuilder(
+                    tween: Tween<double>(
+                      begin: 255.0,
+                      end: widget.alpha?.toDouble() ?? 255.0,
+                    ),
+                    duration: theme.fastAnimationDuration,
+                    builder: (context, double alpha, child) {
+                      return Transform.scale(
+                        key: _globalKey,
+                        scale: widget.scale,
+                        alignment: Alignment.topLeft,
+                        child: Text(
+                          widget.text,
+                          style: TextStyle(
+                            fontVariations: <FontVariation>[
+                              FontVariation('wght', widget.fontWeight ?? 400),
+                            ],
+                            color: color?.withAlpha(alpha.toInt()),
+                            shadows: glowRadius <= 0
+                                ? null
+                                : [
+                                    Shadow(
+                                      color: glowColor ?? Colors.transparent,
+                                      blurRadius: glowRadius,
+                                    )
+                                  ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
     );
   }
 }

@@ -126,20 +126,13 @@ class NavigationBarState extends State<NavigationBar> {
         final Widget parentWidget = parent != null
             ? Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: GestureDetector(
-                  onTap: () async {
-                    _onHeaderTap(context, parent);
-                  },
-                  child: SizedBox(
-                    height: 80,
-                    width: 320,
-                    child: FlipText(
-                      key: Key(titleFlipKey),
-                      flipKey: titleFlipKey,
-                      text: parent.title,
-                      scale: 6,
-                      alpha: 80,
-                    ),
+                child: SizedBox(
+                  height: 80,
+                  width: 320,
+                  child: ParentText(
+                    titleFlipKey: titleFlipKey,
+                    text: parent.title,
+                    onTap: () => _onHeaderTap(context, parent),
                   ),
                 ),
               )
@@ -254,6 +247,85 @@ class NavigationBarState extends State<NavigationBar> {
           ],
         );
       },
+    );
+  }
+}
+
+class ParentText extends StatefulWidget {
+  final String titleFlipKey;
+  final String text;
+  final VoidCallback onTap;
+
+  const ParentText({
+    super.key,
+    required this.titleFlipKey,
+    required this.text,
+    required this.onTap,
+  });
+
+  @override
+  ParentTextState createState() => ParentTextState();
+}
+
+class ParentTextState extends State<ParentText> {
+  double _alpha = 80;
+  double _glowRadius = 0;
+  final FocusNode _focusNode = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_handleFocusChange);
+  }
+
+  @override
+  void dispose() {
+    _focusNode.removeListener(_handleFocusChange);
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _handleFocusChange() {
+    setState(() {
+      _glowRadius = _focusNode.hasFocus ? 20 : 0;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Focus(
+          focusNode: _focusNode,
+          child: MouseRegion(
+            onEnter: (_) {
+              setState(() {
+                _alpha = 100;
+              });
+            },
+            onExit: (_) {
+              setState(() {
+                _alpha = 80;
+              });
+            },
+            child: SizedBox(
+              height: 80,
+              width: 320,
+              child: FlipText(
+                key: Key(widget.titleFlipKey),
+                flipKey: widget.titleFlipKey,
+                text: widget.text,
+                scale: 6,
+                alpha: _alpha,
+                glowColor: Colors.red,
+                glowRadius: _glowRadius,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
