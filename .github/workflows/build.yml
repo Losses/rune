@@ -308,7 +308,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev openssl
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -337,6 +337,7 @@ jobs:
 
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r27b
           local-cache: true
@@ -366,6 +367,9 @@ jobs:
           mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
           mv app-armeabi-v7a-release.apk Rune-${{ github.ref_name }}-android-armeabi-v7a.apk
           mv app-x86_64-release.apk Rune-${{ github.ref_name }}-android-x86_64.apk
+        env:
+          PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
 
       - name: Upload artifact android apks
         uses: actions/upload-artifact@v4
