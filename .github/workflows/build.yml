@@ -7,176 +7,176 @@ on:
       - v*
 
 jobs:
-  # build-windows:
-  #   runs-on: windows-latest
-  #   env: 
-  #       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
-  #   steps:
-  #     - name: Checkout branch
-  #       uses: actions/checkout@v4
+  build-windows:
+    runs-on: windows-latest
+    env: 
+        VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
       
-  #     - name: Setup Flutter
-  #       uses: subosito/flutter-action@v2
-  #       with:
-  #         channel: 'stable'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
 
-  #     - name: Setup Rust toolchain
-  #       uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-  #     - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
       
-  #     - name: Install Protoc
-  #       uses: arduino/setup-protoc@v3
-  #       with:
-  #         version: "26.x"
-  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-  #     - name: Install the Rust dependencies
-  #       run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
         
-  #     - name: Activate Protobuf
-  #       run: flutter pub global activate protoc_plugin
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
 
-  #     - name: Flutter pub get
-  #       run: flutter pub get
+      - name: Flutter pub get
+        run: flutter pub get
 
-  #     - name: Generate message files
-  #       run: rinf message 
+      - name: Generate message files
+        run: rinf message 
 
-  #     - name: Build Windows
-  #       run: flutter build windows --release --verbose
+      - name: Build Windows
+        run: flutter build windows --release --verbose
       
-  #     - uses: benjlevesque/short-sha@v3.0
-  #       id: short-sha
-  #       with:
-  #         length: 7
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
     
-  #     - name: Upload artifact 
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         path: build/windows/x64/runner/Release/
-  #         name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
+      - name: Upload artifact 
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/windows/x64/runner/Release/
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
 
-  # release-windows:
-  #   permissions:
-  #     contents: write
-  #   needs: build-windows
-  #   if: startsWith(github.ref, 'refs/tags/v')
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Download artifact
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         pattern: Rune-*-windows
-  #         path: artifacts
+  release-windows:
+    permissions:
+      contents: write
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-windows
+          path: artifacts
           
-  #     - uses: benjlevesque/short-sha@v3.0
-  #       id: short-sha
-  #       with:
-  #         length: 7
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
           
-  #     - name: Build Zip for Release
-  #       uses: thedoctor0/zip-release@master
-  #       with:
-  #         type: "zip"
-  #         filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
-  #         directory: artifacts
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
+          directory: artifacts
       
-  #     - name: Release
-  #       uses: ncipollo/release-action@v1
-  #       with:
-  #         artifacts: "artifacts/*.zip"
-  #         allowUpdates: true
-  #         replacesArtifacts: false
-  #         omitBodyDuringUpdate: true
-  #         makeLatest: true
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "artifacts/*.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
 
-  # build-linux:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout branch
-  #       uses: actions/checkout@v4
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
 
-  #     - name: Install dependencies
-  #       run: |
-  #         sudo apt-get update
-  #         sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev
 
-  #     - name: Setup Flutter
-  #       uses: subosito/flutter-action@v2
-  #       with:
-  #         channel: 'stable'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
 
-  #     - name: Setup Rust toolchain
-  #       uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-  #     - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2
       
-  #     - name: Install Protoc
-  #       uses: arduino/setup-protoc@v3
-  #       with:
-  #         version: "26.x"
-  #         repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-  #     - name: Install the Rust dependencies
-  #       run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
         
-  #     - name: Activate Protobuf
-  #       run: flutter pub global activate protoc_plugin
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
 
-  #     - name: Flutter pub get
-  #       run: flutter pub get
+      - name: Flutter pub get
+        run: flutter pub get
 
-  #     - name: Generate message files
-  #       run: rinf message 
+      - name: Generate message files
+        run: rinf message 
 
-  #     - name: Build linux
-  #       run: flutter build linux --release --verbose
+      - name: Build linux
+        run: flutter build linux --release --verbose
 
-  #     - uses: benjlevesque/short-sha@v3.0
-  #       id: short-sha
-  #       with:
-  #         length: 7
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
       
-  #     - name: Upload artifact 
-  #       uses: actions/upload-artifact@v4
-  #       with:
-  #         path: build/linux/x64/release/bundle/
-  #         name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
+      - name: Upload artifact 
+        uses: actions/upload-artifact@v4
+        with:
+          path: build/linux/x64/release/bundle/
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
 
-  # release-linux:
-  #   permissions:
-  #     contents: write
-  #   needs: build-linux
-  #   if: startsWith(github.ref, 'refs/tags/v')
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Download artifact
-  #       uses: actions/download-artifact@v4
-  #       with:
-  #         pattern: Rune-*-linux
-  #         path: artifacts
+  release-linux:
+    permissions:
+      contents: write
+    needs: build-linux
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-linux
+          path: artifacts
 
-  #     - uses: benjlevesque/short-sha@v3.0
-  #       id: short-sha
-  #       with:
-  #         length: 7
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
           
-  #     - name: Build Zip for Release
-  #       uses: thedoctor0/zip-release@master
-  #       with:
-  #         type: "zip"
-  #         filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
-  #         directory: artifacts
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+          directory: artifacts
           
-  #     - name: Release
-  #       uses: ncipollo/release-action@v1
-  #       with:
-  #         allowUpdates: true
-  #         artifacts: "artifacts/*.zip"
-  #         replacesArtifacts: false
-  #         omitBodyDuringUpdate: true
-  #         makeLatest: true
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: "artifacts/*.zip"
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
     
   build-macos:
     runs-on: macos-latest
@@ -185,16 +185,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-
-      # - name: TEST
-      #   working-directory: macos/liblmdb-0.9.33/lib/
-      #   run: file liblmdb.dylib
-        
-        
-      # - name: Install dependencies
-      #   run: |
-      #     brew install CocoaPods lmdb create-dmg
-      #     brew info lmdb
           
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -212,31 +202,10 @@ jobs:
           version: "26.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
         
-      # - name: Install the Rust dependencies
-      #   run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
-      # - name: Activate Protobuf
-      #   run: flutter pub global activate protoc_plugin
-        
-      # - name: Flutter pub get
-      #   run: flutter pub get
-        
-      # - name: Generate message files
-      #   run: rinf message 
-        
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
-          
-      # - name: Build macOS 
-      #   run: |
-      #     cd macos
-      #     pod update
-      #     cd ..
-      #     flutter build macos --release
-      #     chmod -R +x build/macos/Build/Products/Release/player.app
-      #     xattr -cr build/macos/Build/Products/Release/player.app
 
       - name: Install certificates
         env:
@@ -274,28 +243,28 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      # - name: Replace System Dylib
-      #   run: |
-      #     otool -L player.app/Contents/MacOS/player | grep lmdb
-      #     install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib player.app/Contents/MacOS/player
-      #   working-directory: build/macos/Build/Products/Release
+      - name: Replace System Dylib
+        run: |
+          otool -L player.app/Contents/MacOS/player | grep lmdb
+          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib player.app/Contents/MacOS/player
+        working-directory: build/macos/Build/Products/Release
 
-      # - name: Code Signing
-      #   run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
-      #   working-directory: build/macos/Build/Products/Release
-        # env:
-        #   DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
+      - name: Code Signing
+        run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
+        working-directory: build/macos/Build/Products/Release
+        env:
+          DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
 
-      # - name: Create DMG
-      #   run: |
-      #     create-dmg \
-      #       --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
-      #       --window-pos 200 120 \
-      #       --window-size 800 450 \
-      #       --icon-size 100 \
-      #       --app-drop-link 600 185 \
-      #       Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-      #       build/macos/Build/Products/Release/player.app
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
+            --window-pos 200 120 \
+            --window-size 800 450 \
+            --icon-size 100 \
+            --app-drop-link 600 185 \
+            Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
+            build/macos/Build/Products/Release/player.app
           
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
