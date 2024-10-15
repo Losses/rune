@@ -11,5 +11,5 @@ cd macos
 pod update
 cd ..
 flutter build macos --release
-chmod -R +x build/macos/Build/Products/Release/player.app
-xattr -cr build/macos/Build/Products/Release/player.app
+chmod -R +x build/macos/Build/Products/Release/Rune.app
+xattr -cr build/macos/Build/Products/Release/Rune.app

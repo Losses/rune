@@ -13,4 +13,4 @@ create-dmg \
   --icon-size 100 \
   --app-drop-link 600 185 \
   "Rune-$REF_NAME-$SHA-macOS.dmg" \
-  player.app
+  Rune.app

@@ -8,12 +8,12 @@ cd temp_macos
 
 echo "----------------------------"
 
-otool -L player.app/Contents/MacOS/player | grep lmdb
+otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
 
 echo "----------------------------"
 
-install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib player.app/Contents/MacOS/player
+install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
 
 echo "----------------------------"
 
-otool -L player.app/Contents/MacOS/player | grep lmdb
+otool -L Rune.app/Contents/MacOS/Rune | grep lmdb

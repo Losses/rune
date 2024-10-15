@@ -11,13 +11,13 @@ echo "Codesign: ----------------------------"
 # DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY must use Developer ID Application certificate, or app cannot be notarized
 # /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
 
-/usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --entitlements Release.entitlements --options runtime player.app -v
+/usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --entitlements Release.entitlements --options runtime Rune.app -v
 
 echo "Notarize: ----------------------------"
 
-/usr/bin/ditto -c -k --keepParent "player.app" "player.zip"
+/usr/bin/ditto -c -k --keepParent "Rune.app" "Rune.zip"
 
 # APPLE_PASSWORD must use app-specific password
-xcrun notarytool submit "player.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD" --wait
+xcrun notarytool submit "Rune.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD" --wait
 
-xcrun stapler staple "player.app"
+xcrun stapler staple "Rune.app"
