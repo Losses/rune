@@ -144,3 +144,6 @@ target/
 
 # eLinux
 result
+
+temp_macos/
+/.env

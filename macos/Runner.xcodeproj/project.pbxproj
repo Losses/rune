@@ -589,7 +589,7 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -601,6 +601,7 @@
 					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
+				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 			};
@@ -728,7 +729,7 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/DebugProfile.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -740,6 +741,7 @@
 					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
+				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -755,7 +757,7 @@
 				CODE_SIGN_ENTITLEMENTS = Runner/Release.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -767,6 +769,7 @@
 					"$(PROJECT_DIR)/liblmdb-0.9.33/lib",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 10.14.6;
+				PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_VERSION = 5.0;
 			};
