@@ -362,6 +362,7 @@ jobs:
 
       - name: Build android apks
         run: |
+          sudo ln -s /usr/include/x86_64-linux-gnu/openssl/opensslconf.h /usr/include/openssl/opensslconf.h
           flutter build apk --release --split-per-abi
           cd build/app/outputs/flutter-apk
           mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
@@ -370,8 +371,7 @@ jobs:
         env:
           PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          OPENSSL_LIB_DIR: "/usr/lib/x86_64-linux-gnu"
-          OPENSSL_INCLUDE_DIR: "/usr/include/openssl"
+          OPENSSL_DIR: "/usr"
 
       - name: Upload artifact android apks
         uses: actions/upload-artifact@v4
