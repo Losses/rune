@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:player/messages/collection.pb.dart';
+import 'package:rune/messages/collection.pb.dart';
 
 Future<List<Collection>> fetchCollectionByIds(
   CollectionType collectionType,

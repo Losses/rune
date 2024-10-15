@@ -1,4 +1,4 @@
-import 'package:player/messages/media_file.pb.dart';
+import 'package:rune/messages/media_file.pb.dart';
 
 Future<FetchParsedMediaFileResponse> getParsedMediaFile(int fileId) async {
   final fetchRequest = FetchParsedMediaFileRequest(id: fileId);

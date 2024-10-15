@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:player/providers/responsive_providers.dart';
+import 'package:rune/providers/responsive_providers.dart';
 
 import 'tile.dart';
 import 'fast_flip_cover_grid.dart';

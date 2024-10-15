@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/turntile/managed_turntile_screen_item.dart';
+import 'package:rune/widgets/turntile/managed_turntile_screen_item.dart';
 
 import '../../../messages/collection.pb.dart';
 

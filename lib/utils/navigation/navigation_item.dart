@@ -7,7 +7,7 @@ class NavigationItem {
   final bool tappable;
   final bool zuneOnly;
   final List<NavigationItem>? children;
-  final List<LogicalKeySet>? shortcuts;
+  final List<SingleActivator>? shortcuts;
 
   NavigationItem(
     this.title,

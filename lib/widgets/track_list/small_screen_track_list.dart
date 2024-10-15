@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:player/widgets/ax_pressure.dart';
+import 'package:rune/widgets/ax_pressure.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';

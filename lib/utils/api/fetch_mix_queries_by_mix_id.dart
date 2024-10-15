@@ -1,4 +1,4 @@
-import 'package:player/messages/mix.pbserver.dart';
+import 'package:rune/messages/mix.pbserver.dart';
 
 Future<List<(String, String)>> fetchMixQueriesByMixId(int mixId) async {
   final fetchMediaFiles = FetchMixQueriesRequest(mixId: mixId);

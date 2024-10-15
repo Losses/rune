@@ -1,4 +1,4 @@
-import 'package:player/messages/mix.pbserver.dart';
+import 'package:rune/messages/mix.pbserver.dart';
 
 Future<List<Mix>> getAllMixes() async {
   final fetchRequest = FetchAllMixesRequest();

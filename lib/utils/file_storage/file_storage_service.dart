@@ -1,5 +1,5 @@
 import 'package:get_storage/get_storage.dart';
-import 'package:player/utils/file_storage/mac_secure_manager.dart';
+import 'package:rune/utils/file_storage/mac_secure_manager.dart';
 
 class FileStorageService {
   static const String _openedFilesKey = 'library_path';

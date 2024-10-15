@@ -1,20 +1,20 @@
 import 'package:flutter/services.dart';
-
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/config/navigation.dart';
-import 'package:player/utils/navigation/controller_intent.dart';
-import 'package:player/widgets/playback_controller/constants/controller_items.dart';
+
+import '../../utils/navigation/controller_intent.dart';
+import '../../config/navigation.dart';
+import '../../widgets/playback_controller/constants/controller_items.dart';
 
 import 'back_intent.dart';
 import 'escape_intent.dart';
 import 'navigation_item.dart';
 import 'navigation_intent.dart';
 
-Map<LogicalKeySet, Intent> buildShortcuts() {
-  final shortcuts = <LogicalKeySet, Intent>{
-    LogicalKeySet(LogicalKeyboardKey.goBack): const BackIntent(),
-    LogicalKeySet(LogicalKeyboardKey.escape): const EscapeIntent(),
-    LogicalKeySet(LogicalKeyboardKey.backspace): const BackIntent(),
+Map<SingleActivator, Intent> buildShortcuts() {
+  final shortcuts = <SingleActivator, Intent>{
+    const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
+    const SingleActivator(LogicalKeyboardKey.escape): const EscapeIntent(),
+    const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
   };
 
   void addNavigationShortcuts(List<NavigationItem> items) {
