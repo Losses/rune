@@ -10,11 +10,11 @@ import 'escape_intent.dart';
 import 'navigation_item.dart';
 import 'navigation_intent.dart';
 
-Map<LogicalKeySet, Intent> buildShortcuts() {
-  final shortcuts = <LogicalKeySet, Intent>{
-    LogicalKeySet(LogicalKeyboardKey.goBack): const BackIntent(),
-    LogicalKeySet(LogicalKeyboardKey.escape): const EscapeIntent(),
-    LogicalKeySet(LogicalKeyboardKey.backspace): const BackIntent(),
+Map<SingleActivator, Intent> buildShortcuts() {
+  final shortcuts = <SingleActivator, Intent>{
+    const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
+    const SingleActivator(LogicalKeyboardKey.escape): const EscapeIntent(),
+    const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
   };
 
   void addNavigationShortcuts(List<NavigationItem> items) {
