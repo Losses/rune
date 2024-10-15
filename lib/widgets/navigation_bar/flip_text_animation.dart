@@ -107,8 +107,6 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
   }
 
   Future<void> _startAnimation() async {
-    print('${widget.fromStyles.alpha} -> ${widget.toStyles.alpha}');
-
     List<Future<void>> futures = [
       _positionXController.lerp(widget.toPositions.position.dx),
       _positionYController.lerp(widget.toPositions.position.dy),

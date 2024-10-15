@@ -107,21 +107,21 @@ class FlipTextState extends State<FlipText> {
         builder: (context, Color? color, child) {
           return TweenAnimationBuilder(
             tween: ColorTween(
-              begin: Colors.transparent,
+              begin: widget.glowColor,
               end: widget.glowColor,
             ),
             duration: theme.fastAnimationDuration,
             builder: (context, Color? glowColor, child) {
               return TweenAnimationBuilder(
                 tween: Tween<double>(
-                  begin: 0,
+                  begin: widget.glowRadius,
                   end: widget.glowRadius,
                 ),
                 duration: theme.fastAnimationDuration,
                 builder: (context, double glowRadius, child) {
                   return TweenAnimationBuilder(
                     tween: Tween<double>(
-                      begin: 255.0,
+                      begin: widget.alpha?.toDouble() ?? 255.0,
                       end: widget.alpha?.toDouble() ?? 255.0,
                     ),
                     duration: theme.fastAnimationDuration,
