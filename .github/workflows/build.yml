@@ -309,9 +309,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libssl-dev
-          dpkg --add-architecture arm64
+          sudo dpkg --add-architecture arm64
           sudo apt-get update && sudo apt-get install libssl-dev:arm64
-          dpkg --add-architecture armhf
+          sudo dpkg --add-architecture armhf
           sudo apt-get update && sudo apt-get install libssl-dev:armhf
 
       - name: Setup Flutter
