@@ -85,29 +85,6 @@ class NavigationBarState extends State<NavigationBar> {
     await flipAnimation?.flipAnimation(from, to);
   }
 
-  List<Timer> _slibingAnimationFutures = [];
-  List<double> _slibingOpacities = [];
-  NavigationItem? _lastParent;
-  bool? _lastIsZune;
-
-  @override
-  void dispose() {
-    super.dispose();
-
-    _disposeAnimations();
-  }
-
-  _disposeAnimations() {
-    for (final x in _slibingAnimationFutures) {
-      x.cancel();
-    }
-  }
-
-  _resetAnimations() {
-    _slibingAnimationFutures = [];
-    _slibingOpacities = [];
-  }
-
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
@@ -129,7 +106,7 @@ class NavigationBarState extends State<NavigationBar> {
                 child: SizedBox(
                   height: 80,
                   width: 320,
-                  child: ParentText(
+                  child: ParentLink(
                     titleFlipKey: titleFlipKey,
                     text: parent.title,
                     onTap: () => _onHeaderTap(context, parent),
@@ -143,35 +120,8 @@ class NavigationBarState extends State<NavigationBar> {
             ? baseSlibings
             : baseSlibings.where((x) => !x.zuneOnly).toList();
 
-        if (parent != _lastParent || isZune != _lastIsZune) {
-          _lastParent = parent;
-          _lastIsZune = isZune;
-          _disposeAnimations();
-          _resetAnimations();
-
-          int itemIndex = validSlibings.indexWhere((route) => route == item);
-
-          validSlibings.asMap().entries.forEach((entry) {
-            final index = entry.key;
-            final isCurrent = itemIndex == index;
-
-            if (!isCurrent) {
-              final delay = ((index - itemIndex - 1).abs() * 100);
-              _slibingOpacities.add(0);
-
-              final timer = Timer(Duration(milliseconds: delay), () {
-                if (mounted) {
-                  setState(() {
-                    _slibingOpacities[index] = 1;
-                  });
-                }
-              });
-              _slibingAnimationFutures.add(timer);
-            } else {
-              _slibingOpacities.add(1);
-            }
-          });
-        }
+        final int currentItemIndex =
+            validSlibings.indexWhere((route) => route == item);
 
         final childrenWidget = SmoothHorizontalScroll(
           builder: (context, scrollController) => SingleChildScrollView(
@@ -183,27 +133,20 @@ class NavigationBarState extends State<NavigationBar> {
               children: validSlibings.toList().asMap().entries.map(
                 (entry) {
                   final route = entry.value;
-                  final childFlipKey = 'child:${route.path}';
 
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 24),
-                    child: GestureDetector(
-                      onTap: () async {
-                        _onRouteSelected(route);
-                      },
-                      child: AnimatedOpacity(
-                        key: Key('animation-$childFlipKey'),
-                        opacity: _slibingOpacities[entry.key],
-                        duration: const Duration(milliseconds: 300),
-                        child: FlipText(
-                          key: Key(childFlipKey),
-                          flipKey: childFlipKey,
-                          text: route.title,
-                          scale: 1.2,
-                          alpha: route == item ? 255 : 100,
-                        ),
-                      ),
-                    ),
+                  final index = entry.key;
+                  final isCurrent = currentItemIndex == index;
+
+                  final int? delay = !isCurrent
+                      ? ((index - currentItemIndex).abs() * 100)
+                      : null;
+
+                  return SlibingLink(
+                    key: ValueKey('${parent?.path}/${route.path}'),
+                    route: route,
+                    isSelected: route == item,
+                    delay: delay,
+                    onTap: () => _onRouteSelected(route),
                   );
                 },
               ).toList(),
@@ -251,12 +194,109 @@ class NavigationBarState extends State<NavigationBar> {
   }
 }
 
-class ParentText extends StatefulWidget {
+class SlibingLink extends StatefulWidget {
+  final NavigationItem route;
+  final bool isSelected;
+  final int? delay;
+  final VoidCallback onTap;
+
+  const SlibingLink({
+    super.key,
+    required this.route,
+    required this.isSelected,
+    required this.delay,
+    required this.onTap,
+  });
+
+  @override
+  State<SlibingLink> createState() => _SlibingLinkState();
+}
+
+class _SlibingLinkState extends State<SlibingLink> {
+  Timer? timer;
+  late double _entryAnimationOpacity;
+
+  bool _isHovered = false;
+  double _glowRadius = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    final delay = widget.delay;
+    if (delay != null) {
+      timer = Timer(Duration(milliseconds: delay), () {
+        if (!mounted) return;
+
+        setState(() {
+          _entryAnimationOpacity = 1;
+        });
+      });
+      _entryAnimationOpacity = 0;
+    } else {
+      _entryAnimationOpacity = 1;
+    }
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+
+    timer?.cancel();
+  }
+
+  void _handleFocusHighlight(bool value) {
+    setState(() {
+      _glowRadius = value ? 20 : 0;
+    });
+  }
+
+  void _handleHoveHighlight(bool value) {
+    setState(() {
+      _isHovered = value;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final childFlipKey = 'child:${widget.route.path}';
+
+    return Padding(
+      padding: const EdgeInsets.only(right: 24),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: FocusableActionDetector(
+          onShowFocusHighlight: _handleFocusHighlight,
+          onShowHoverHighlight: _handleHoveHighlight,
+          child: AnimatedOpacity(
+            key: Key('animation-$childFlipKey'),
+            opacity: _entryAnimationOpacity,
+            duration: const Duration(milliseconds: 300),
+            child: FlipText(
+              key: Key(childFlipKey),
+              flipKey: childFlipKey,
+              text: widget.route.title,
+              scale: 1.2,
+              glowColor: Colors.red,
+              glowRadius: _glowRadius,
+              alpha: widget.isSelected
+                  ? 255
+                  : _isHovered
+                      ? 200
+                      : 100,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class ParentLink extends StatefulWidget {
   final String titleFlipKey;
   final String text;
   final VoidCallback onTap;
 
-  const ParentText({
+  const ParentLink({
     super.key,
     required this.titleFlipKey,
     required this.text,
@@ -264,30 +304,22 @@ class ParentText extends StatefulWidget {
   });
 
   @override
-  ParentTextState createState() => ParentTextState();
+  ParentLinkState createState() => ParentLinkState();
 }
 
-class ParentTextState extends State<ParentText> {
+class ParentLinkState extends State<ParentLink> {
   double _alpha = 80;
   double _glowRadius = 0;
-  final FocusNode _focusNode = FocusNode();
 
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(_handleFocusChange);
-  }
-
-  @override
-  void dispose() {
-    _focusNode.removeListener(_handleFocusChange);
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _handleFocusChange() {
+  void _handleFocusHighlight(bool value) {
     setState(() {
-      _glowRadius = _focusNode.hasFocus ? 20 : 0;
+      _glowRadius = value ? 20 : 0;
+    });
+  }
+
+  void _handleHoveHighlight(bool value) {
+    setState(() {
+      _alpha = value ? 100 : 80;
     });
   }
 
@@ -297,31 +329,20 @@ class ParentTextState extends State<ParentText> {
       padding: const EdgeInsets.only(right: 12),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: Focus(
-          focusNode: _focusNode,
-          child: MouseRegion(
-            onEnter: (_) {
-              setState(() {
-                _alpha = 100;
-              });
-            },
-            onExit: (_) {
-              setState(() {
-                _alpha = 80;
-              });
-            },
-            child: SizedBox(
-              height: 80,
-              width: 320,
-              child: FlipText(
-                key: Key(widget.titleFlipKey),
-                flipKey: widget.titleFlipKey,
-                text: widget.text,
-                scale: 6,
-                alpha: _alpha,
-                glowColor: Colors.red,
-                glowRadius: _glowRadius,
-              ),
+        child: FocusableActionDetector(
+          onShowFocusHighlight: _handleFocusHighlight,
+          onShowHoverHighlight: _handleHoveHighlight,
+          child: SizedBox(
+            height: 80,
+            width: 320,
+            child: FlipText(
+              key: Key(widget.titleFlipKey),
+              flipKey: widget.titleFlipKey,
+              text: widget.text,
+              scale: 6,
+              alpha: _alpha,
+              glowColor: Colors.red,
+              glowRadius: _glowRadius,
             ),
           ),
         ),
