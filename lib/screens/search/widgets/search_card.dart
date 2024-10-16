@@ -7,7 +7,6 @@ import '../../../widgets/hover_opacity.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../providers/responsive_providers.dart';
 
-
 abstract class SearchCard extends StatelessWidget {
   final int index;
   final FlyoutController contextController = FlyoutController();
@@ -28,10 +27,35 @@ abstract class SearchCard extends StatelessWidget {
       contextController: contextController,
       onContextMenu: (position) => onContextMenu(context, position),
       child: AxPressure(
-        child: SmallerOrEqualTo(
-          breakpoint: DeviceType.zune,
-          builder: (context, isZune) {
-            if (isZune) {
+        child: BreakpointBuilder(
+          breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
+          builder: (context, deviceType) {
+            if (deviceType == DeviceType.band) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 1,
+                  horizontal: 2,
+                ),
+                child: Button(
+                  style: const ButtonStyle(
+                    padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
+                  ),
+                  onPressed: () => onPressed(context),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(3),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final size =
+                            min(constraints.maxWidth, constraints.maxHeight);
+                        return buildLeadingWidget(size);
+                      },
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            if (deviceType == DeviceType.zune) {
               final typography = FluentTheme.of(context).typography;
 
               return Padding(

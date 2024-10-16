@@ -1,5 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/providers/responsive_providers.dart';
+import 'package:rune/providers/responsive_providers.dart';
 
 import '../../utils/format_time.dart';
 import '../../messages/playback.pb.dart';

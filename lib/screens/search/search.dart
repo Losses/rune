@@ -7,7 +7,7 @@ import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
@@ -21,6 +21,7 @@ import 'widgets/search_card.dart';
 import 'widgets/search_suggest_box.dart';
 import 'widgets/collection_search_item.dart';
 import 'widgets/large_screen_search_sidebar.dart';
+import 'widgets/band_screen_search_track_list.dart';
 import 'widgets/large_screen_search_track_list.dart';
 import 'widgets/medium_screen_search_track_list.dart';
 
@@ -35,7 +36,12 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     return BreakpointBuilder(
-      breakpoints: const [DeviceType.zune, DeviceType.tablet, DeviceType.tv],
+      breakpoints: const [
+        DeviceType.band,
+        DeviceType.zune,
+        DeviceType.tablet,
+        DeviceType.tv
+      ],
       builder: (context, deviceType) {
         return Actions(
           actions: const {},
@@ -69,6 +75,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
   String _lastSearched = '';
 
+  final bandScreenLayoutManager = StartScreenLayoutManager();
   final largeScreenLayoutManager = StartScreenLayoutManager();
   final mediumScreenLayoutManager = StartScreenLayoutManager();
   final smallScreenLayoutManager = StartScreenLayoutManager();
@@ -85,12 +92,14 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     super.dispose();
     _debounce?.cancel();
     searchController.dispose();
+    bandScreenLayoutManager.dispose();
     largeScreenLayoutManager.dispose();
     mediumScreenLayoutManager.dispose();
     smallScreenLayoutManager.dispose();
   }
 
   void resetAnimations() {
+    bandScreenLayoutManager.resetAnimations();
     largeScreenLayoutManager.resetAnimations();
     mediumScreenLayoutManager.resetAnimations();
     smallScreenLayoutManager.resetAnimations();
@@ -98,6 +107,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
 
   void playAnimations() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      bandScreenLayoutManager.playAnimations();
       largeScreenLayoutManager.playAnimations();
       mediumScreenLayoutManager.playAnimations();
       smallScreenLayoutManager.playAnimations();
@@ -222,7 +232,31 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
               ),
             ),
-            const PlaybackPlaceholder(),
+            const ControllerPlaceholder(),
+          ],
+        ),
+      );
+    }
+
+    if (widget.deviceType == DeviceType.band) {
+      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
+        value: bandScreenLayoutManager,
+        child: Column(
+          children: [
+            const NavigationBarPlaceholder(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: autoSuggestBox,
+            ),
+            const SizedBox(height: 2),
+            Expanded(
+              child: SingleChildScrollView(
+                child: BandScreenSearchTrackList(
+                  items: items,
+                ),
+              ),
+            ),
+            const ControllerPlaceholder(),
           ],
         ),
       );
@@ -245,7 +279,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                 ),
               ),
             ),
-            const PlaybackPlaceholder(),
+            const ControllerPlaceholder(),
           ],
         ),
       );

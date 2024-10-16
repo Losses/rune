@@ -5,7 +5,7 @@ import '../../screens/library_home/band_screen_library_home_list.dart';
 import '../../screens/library_home/small_screen_library_home_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -72,7 +72,7 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
               },
             ),
           ),
-          const PlaybackPlaceholder()
+          const ControllerPlaceholder()
         ],
       ),
     );

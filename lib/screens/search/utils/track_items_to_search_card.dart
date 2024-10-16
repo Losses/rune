@@ -1,4 +1,4 @@
-import 'package:player/widgets/track_list/utils/internal_media_file.dart';
+import 'package:rune/widgets/track_list/utils/internal_media_file.dart';
 
 import '../../../screens/search/widgets/track_search_item.dart';
 

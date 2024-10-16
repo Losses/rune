@@ -1,10 +1,10 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:player/widgets/ax_pressure.dart';
+import 'package:rune/widgets/ax_pressure.dart';
 
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 
 class SettingsTestPage extends StatefulWidget {
   const SettingsTestPage({super.key});
@@ -99,7 +99,7 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
           duration: const Duration(milliseconds: 1000),
         ),
       ),
-      const PlaybackPlaceholder(),
+      const ControllerPlaceholder(),
     ]);
   }
 }

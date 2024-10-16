@@ -25,7 +25,7 @@ class AppTheme extends ChangeNotifier {
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
   WindowEffect windowEffect =
-      Platform.isLinux ? WindowEffect.solid : WindowEffect.mica;
+      (Platform.isLinux || Platform.isAndroid) ? WindowEffect.solid : WindowEffect.mica;
 
   TextDirection _textDirection = TextDirection.ltr;
   TextDirection get textDirection => _textDirection;

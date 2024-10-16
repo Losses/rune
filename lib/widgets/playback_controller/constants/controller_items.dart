@@ -30,8 +30,8 @@ class ControllerEntry {
   final String subtitle;
   final Widget Function(BuildContext context) controllerButtonBuilder;
   final MenuFlyoutItem Function(BuildContext context) flyoutEntryBuilder;
-  final List<LogicalKeySet>? shortcuts;
-  final void Function(BuildContext context) onShortcut;
+  final List<SingleActivator>? shortcuts;
+  final void Function(BuildContext context)? onShortcut;
 
   ControllerEntry({
     required this.id,
@@ -52,7 +52,7 @@ var controllerItems = [
     title: "Previous",
     subtitle: "Go to the previous track",
     shortcuts: [
-      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.arrowLeft),
+      const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
       final statusProvider = Provider.of<PlaybackStatusProvider>(context);
@@ -96,10 +96,12 @@ var controllerItems = [
     title: "Play/Pause",
     subtitle: "Toggle between play and pause",
     shortcuts: [
-      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyP),
+      const SingleActivator(LogicalKeyboardKey.space),
+      const SingleActivator(LogicalKeyboardKey.keyP, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
@@ -111,7 +113,8 @@ var controllerItems = [
       }
     },
     controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
       final notReady = statusProvider.notReady;
 
@@ -121,7 +124,8 @@ var controllerItems = [
       );
     },
     flyoutEntryBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
       final notReady = statusProvider.notReady;
 
@@ -148,10 +152,11 @@ var controllerItems = [
     title: "Next",
     subtitle: "Go to the next track",
     shortcuts: [
-      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.arrowRight),
+      const SingleActivator(LogicalKeyboardKey.arrowRight, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
@@ -159,13 +164,15 @@ var controllerItems = [
       playNext();
     },
     controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return NextButton(disabled: notReady);
     },
     flyoutEntryBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
@@ -192,10 +199,11 @@ var controllerItems = [
     title: "Volume",
     subtitle: "Adjust the volume",
     shortcuts: [],
-    onShortcut: (context) {},
+    onShortcut: null,
     controllerButtonBuilder: (context) => const VolumeButton(),
     flyoutEntryBuilder: (context) {
-      final volumeProvider = Provider.of<VolumeProvider>(context);
+      final volumeProvider =
+          Provider.of<VolumeProvider>(context, listen: false);
 
       return MenuFlyoutItem(
         leading: Icon(
@@ -239,7 +247,7 @@ var controllerItems = [
     subtitle: "Switch between sequential, repeat, or shuffle",
     controllerButtonBuilder: (context) => const PlaybackModeButton(),
     shortcuts: [],
-    onShortcut: (context) {},
+    onShortcut: null,
     flyoutEntryBuilder: (context) {
       Typography typography = FluentTheme.of(context).typography;
       Color accentColor = Color.alphaBlend(
@@ -247,7 +255,8 @@ var controllerItems = [
         FluentTheme.of(context).accentColor,
       );
 
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
       final currentMode =
@@ -288,7 +297,7 @@ var controllerItems = [
     title: "Playlist",
     subtitle: "View the playback queue",
     shortcuts: [
-      LogicalKeySet(LogicalKeyboardKey.control, LogicalKeyboardKey.keyQ),
+      const SingleActivator(LogicalKeyboardKey.keyQ, control: true),
     ],
     onShortcut: (context) {
       showPlayQueueDialog(context);
@@ -317,7 +326,7 @@ var controllerItems = [
     title: "Hidden",
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
-    onShortcut: (context) {},
+    onShortcut: null,
     controllerButtonBuilder: (context) => Container(),
     flyoutEntryBuilder: (context) {
       return MenuFlyoutItem(
@@ -332,7 +341,7 @@ var controllerItems = [
     icon: Symbols.photo,
     title: "Cover Wall",
     subtitle: "Display cover art for a unique ambience",
-    shortcuts: [LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyN)],
+    shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
     onShortcut: (context) {
       showCoverArtWall(context);
     },
@@ -360,16 +369,18 @@ var controllerItems = [
     title: "Fullscreen",
     subtitle: "Enter or exit fullscreen mode",
     shortcuts: [
-      LogicalKeySet(LogicalKeyboardKey.f11),
+      const SingleActivator(LogicalKeyboardKey.f11),
     ],
     onShortcut: (context) {
-      final fullScreen = Provider.of<FullScreenProvider>(context);
+      final fullScreen =
+          Provider.of<FullScreenProvider>(context, listen: false);
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
     controllerButtonBuilder: (context) => const FullScreenButton(),
     flyoutEntryBuilder: (context) {
-      final fullScreen = Provider.of<FullScreenProvider>(context);
+      final fullScreen =
+          Provider.of<FullScreenProvider>(context, listen: false);
 
       return MenuFlyoutItem(
         leading: fullScreen.isFullScreen

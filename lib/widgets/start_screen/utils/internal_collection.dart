@@ -1,5 +1,5 @@
-import 'package:player/messages/collection.pbserver.dart';
-import 'package:player/utils/query_list.dart';
+import 'package:rune/messages/collection.pbserver.dart';
+import 'package:rune/utils/query_list.dart';
 
 class InternalCollection {
   final int id;

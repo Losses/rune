@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:player/messages/search.pb.dart';
+import 'package:rune/messages/search.pb.dart';
 
 Future<SearchForResponse> searchFor(String query) async {
   final searchRequest = SearchForRequest(queryStr: query, n: 30);

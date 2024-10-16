@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:player/providers/responsive_providers.dart';
+import 'package:rune/providers/responsive_providers.dart';
 
 import '../../../messages/search.pb.dart';
 
@@ -78,6 +78,8 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     final icon = IgnorePointer(
       child: IconButton(
         onPressed: () {},
@@ -93,6 +95,9 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       focusNode: searchFocusNode,
       controller: widget.controller,
       unfocusedColor: Colors.transparent,
+      style: widget.deviceType == DeviceType.band
+          ? theme.typography.caption
+          : null,
       items: suggestions.map((suggestion) {
         return AutoSuggestBoxItem<String>(
           value: suggestion,
@@ -104,9 +109,13 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
           },
         );
       }).toList(),
-      clearButtonEnabled: widget.deviceType != DeviceType.tablet,
-      leadingIcon: widget.deviceType != DeviceType.tablet ? null : icon,
-      trailingIcon: widget.deviceType == DeviceType.tablet ? null : icon,
+      clearButtonEnabled: widget.deviceType != DeviceType.tablet &&
+          widget.deviceType != DeviceType.band,
+      leadingIcon: widget.deviceType == DeviceType.tablet ? icon : null,
+      trailingIcon: widget.deviceType == DeviceType.tablet ||
+              widget.deviceType == DeviceType.band
+          ? null
+          : icon,
     );
   }
 }

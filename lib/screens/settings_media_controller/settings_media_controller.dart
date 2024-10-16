@@ -3,9 +3,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../screens/settings_library/widgets/settings_button.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../screens/settings_library/widgets/settings_button.dart';
 import '../../providers/playback_controller.dart';
 
 class SettingsMediaControllerPage extends StatefulWidget {
@@ -27,79 +28,81 @@ class _SettingsMediaControllerPageState
     return Column(children: [
       const NavigationBarPlaceholder(),
       Expanded(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: double.maxFinite,
-                    child: ReorderableColumn(
-                      onReorder: playbackController.reorder,
-                      children: playbackController.entries
-                          .map(
-                            (item) => item.id == 'hidden'
-                                ? Padding(
-                                    key: const ValueKey("hidden"),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 12,
-                                      horizontal: 8,
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Container(
-                                            height: 1,
-                                            width: double.infinity,
-                                            color: theme.inactiveColor
-                                                .withAlpha(40),
-                                          ),
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 24,
-                                          ),
-                                          child: Text(
-                                            "Action Menu",
-                                            style: TextStyle(
+        child: UnavailablePageOnBand(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: double.maxFinite,
+                      child: ReorderableColumn(
+                        onReorder: playbackController.reorder,
+                        children: playbackController.entries
+                            .map(
+                              (item) => item.id == 'hidden'
+                                  ? Padding(
+                                      key: const ValueKey("hidden"),
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 12,
+                                        horizontal: 8,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Expanded(
+                                            child: Container(
+                                              height: 1,
+                                              width: double.infinity,
                                               color: theme.inactiveColor
-                                                  .withAlpha(160),
+                                                  .withAlpha(40),
                                             ),
                                           ),
-                                        ),
-                                        Expanded(
-                                          child: Container(
-                                            height: 1,
-                                            width: double.infinity,
-                                            color: theme.inactiveColor
-                                                .withAlpha(40),
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 24,
+                                            ),
+                                            child: Text(
+                                              "Action Menu",
+                                              style: TextStyle(
+                                                color: theme.inactiveColor
+                                                    .withAlpha(160),
+                                              ),
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                          Expanded(
+                                            child: Container(
+                                              height: 1,
+                                              width: double.infinity,
+                                              color: theme.inactiveColor
+                                                  .withAlpha(40),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : SettingsButton(
+                                      key: ValueKey(item.id),
+                                      icon: item.icon,
+                                      suffixIcon: Symbols.drag_indicator,
+                                      title: item.title,
+                                      subtitle: item.subtitle,
+                                      onPressed: () {},
                                     ),
-                                  )
-                                : SettingsButton(
-                                    key: ValueKey(item.id),
-                                    icon: item.icon,
-                                    suffixIcon: Symbols.drag_indicator,
-                                    title: item.title,
-                                    subtitle: item.subtitle,
-                                    onPressed: () {},
-                                  ),
-                          )
-                          .toList(),
+                            )
+                            .toList(),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
-      const PlaybackPlaceholder(),
+      const ControllerPlaceholder(),
     ]);
   }
 }

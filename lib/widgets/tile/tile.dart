@@ -5,10 +5,14 @@ class Tile extends StatefulWidget {
     super.key,
     required this.onPressed,
     required this.child,
+    this.radius = 4,
+    this.borderWidth,
   });
 
   final VoidCallback? onPressed;
   final Widget child;
+  final double radius;
+  final double? borderWidth;
 
   @override
   TileState createState() => TileState();
@@ -55,11 +59,14 @@ class TileState extends State<Tile> {
             width: double.infinity,
             height: double.infinity,
             decoration: BoxDecoration(
-              border: Border.all(color: borderColor),
-              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: borderColor,
+                width: widget.borderWidth ?? 1,
+              ),
+              borderRadius: BorderRadius.circular(widget.radius),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(widget.radius - 1),
               child: widget.child,
             ),
           ),

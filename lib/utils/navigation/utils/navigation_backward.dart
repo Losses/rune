@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
-import 'package:player/config/navigation_query.dart';
+import 'package:rune/config/navigation_query.dart';
 
 bool navigationBackward(BuildContext context) {
   final router = GoRouter.of(context);
@@ -20,8 +20,11 @@ bool navigationBackward(BuildContext context) {
 
 navigateBackwardWithPop(BuildContext context) {
   final router = GoRouter.of(context);
+  final routerState = GoRouterState.of(context);
 
   if (!navigationBackward(context)) {
     router.pop();
+  } else if (routerState.path != '/library') {
+    router.go('/library');
   }
 }

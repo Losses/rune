@@ -48,6 +48,7 @@ class _RouterFrameState extends State<RouterFrame>
 
   void _updateWindowEffectCallback() {
     if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
 
     final theme = FluentTheme.of(context);
     updateWindowEffect(theme);
@@ -55,6 +56,7 @@ class _RouterFrameState extends State<RouterFrame>
 
   void updateWindowEffect(FluentThemeData theme) {
     if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {

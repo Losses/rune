@@ -1,52 +1,19 @@
 import 'dart:math';
 
-import 'package:hashlib/hashlib.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/color_brightness.dart';
-import '../../../screens/cover_wall/widgets/large_screen_playing_track.dart';
-import '../../../screens/cover_wall/widgets/small_screen_playing_track.dart';
 import '../../../widgets/tile/cover_art.dart';
-import '../../../widgets/gradient_container.dart';
-import '../../../widgets/playback_controller/cover_wall_button.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
-import '../../../messages/cover_art.pb.dart';
-import '../../../providers/responsive_providers.dart';
 
-const int count = 40;
+import '../utils/string_to_double.dart';
+import '../utils/random_grid_config.dart';
 
-final maxHashValue = BigInt.from(1) << 64;
-
-double stringToDouble(String input) {
-  var hash = xxh3.string(input).bigInt();
-
-  return hash / maxHashValue;
-}
-
-class PlayingTrack extends StatelessWidget {
-  const PlayingTrack({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return BreakpointBuilder(
-      breakpoints: const [DeviceType.phone, DeviceType.tablet],
-      builder: (context, activeBreakpoint) {
-        return activeBreakpoint == DeviceType.phone
-            ? const SmallScreenPlayingTrack()
-            : const LargeScreenPlayingTrack();
-      },
-    );
-  }
-}
-
-class RandomGridConfig {
-  final int size;
-  final double probability;
-
-  const RandomGridConfig({required this.size, required this.probability});
-}
+import 'grid_tile.dart';
+import 'back_button.dart';
+import 'playing_track.dart';
+import 'gradient_container.dart';
 
 class RandomGrid extends StatefulWidget {
   final int seed;
@@ -292,96 +259,5 @@ class RandomGridState extends State<RandomGrid> {
         occupiedCells.add('${col + i}-${row + j}');
       }
     }
-  }
-}
-
-class BackButton extends StatelessWidget {
-  const BackButton({
-    super.key,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SmallerOrEqualTo(
-        breakpoint: DeviceType.mobile,
-        builder: (_, isTrue) {
-          if (!isTrue) return Container();
-
-          return Padding(
-            padding: const EdgeInsets.only(top: 16, left: 16),
-            child: IconButton(
-              icon: const Icon(
-                Symbols.arrow_back,
-                size: 24,
-              ),
-              onPressed: () {
-                showCoverArtWall(context);
-              },
-            ),
-          );
-        });
-  }
-}
-
-class GridTile extends StatelessWidget {
-  final int index;
-  final int row;
-  final int col;
-  final int size;
-  final Widget child;
-
-  const GridTile(
-      {super.key,
-      required this.index,
-      required this.row,
-      required this.col,
-      required this.size,
-      required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: FluentTheme.of(context).accentColor,
-      child: Center(
-        child: child,
-      ),
-    );
-  }
-}
-
-class CoverWallView extends StatefulWidget {
-  const CoverWallView({super.key});
-
-  @override
-  State<CoverWallView> createState() => _CoverWallViewState();
-}
-
-class _CoverWallViewState extends State<CoverWallView> {
-  List<String> paths = [];
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _fetchRandomCoverArtIds();
-  }
-
-  Future<void> _fetchRandomCoverArtIds() async {
-    GetRandomCoverArtIdsRequest(count: count).sendSignalToRust();
-    GetRandomCoverArtIdsResponse.rustSignalStream.listen((event) {
-      final response = event.message;
-
-      if (!mounted) return;
-      setState(() {
-        paths = response.paths;
-        _isLoading = false;
-      });
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _isLoading ? Container() : RandomGrid(seed: 42, paths: paths);
   }
 }

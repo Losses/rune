@@ -13,8 +13,8 @@ final List<NavigationItem> navigationItems = [
         'Library',
         '/library',
         shortcuts: [
-          LogicalKeySet(LogicalKeyboardKey.home),
-          LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyL)
+          const SingleActivator(LogicalKeyboardKey.home),
+          const SingleActivator(alt: true, LogicalKeyboardKey.keyL)
         ],
         children: [
           NavigationItem(
@@ -22,14 +22,14 @@ final List<NavigationItem> navigationItems = [
             '/search',
             zuneOnly: true,
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyS)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyS)
             ],
           ),
           NavigationItem(
             'Artists',
             '/artists',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyR)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyR)
             ],
             children: [
               NavigationItem(
@@ -43,7 +43,7 @@ final List<NavigationItem> navigationItems = [
             'Albums',
             '/albums',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyA)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyA)
             ],
             children: [
               NavigationItem(
@@ -57,7 +57,7 @@ final List<NavigationItem> navigationItems = [
             'Playlists',
             '/playlists',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyP)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyP)
             ],
             children: [
               NavigationItem(
@@ -71,7 +71,7 @@ final List<NavigationItem> navigationItems = [
             'Mixes',
             '/mixes',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyM)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyM)
             ],
             children: [
               NavigationItem(
@@ -85,7 +85,7 @@ final List<NavigationItem> navigationItems = [
             'Tracks',
             '/tracks',
             shortcuts: [
-              LogicalKeySet(LogicalKeyboardKey.alt, LogicalKeyboardKey.keyT)
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyT)
             ],
           ),
         ],
@@ -94,9 +94,9 @@ final List<NavigationItem> navigationItems = [
         'Settings',
         '/settings',
         shortcuts: [
-          LogicalKeySet(
-            LogicalKeyboardKey.control,
-            LogicalKeyboardKey.alt,
+          const SingleActivator(
+            control: true,
+            alt: true,
             LogicalKeyboardKey.keyS,
           )
         ],

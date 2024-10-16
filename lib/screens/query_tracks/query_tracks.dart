@@ -1,12 +1,12 @@
-import 'package:player/providers/responsive_providers.dart';
-import 'package:player/widgets/navigation_bar/navigation_bar_placeholder.dart';
+import 'package:rune/providers/responsive_providers.dart';
+import 'package:rune/widgets/navigation_bar/navigation_bar_placeholder.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'query_tracks_list.dart';
 
 import '../../utils/query_list.dart';
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
 class QueryTracksPage extends StatefulWidget {
@@ -59,7 +59,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
                     mode: widget.mode,
                   ),
                 ),
-                const PlaybackPlaceholder(),
+                const ControllerPlaceholder(),
               ],
             );
           }),

@@ -1,5 +1,5 @@
-import 'package:player/messages/collection.pb.dart';
-import 'package:player/utils/context_menu/collection_item_context_menu.dart';
+import 'package:rune/messages/collection.pb.dart';
+import 'package:rune/utils/context_menu/collection_item_context_menu.dart';
 
 List<(String, String)> buildCollectionQuery(
     CollectionType collectionType, int id) {

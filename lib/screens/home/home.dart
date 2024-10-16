@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
 
-import '../../widgets/playback_controller/playback_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../providers/library_path.dart';
 
@@ -86,7 +86,7 @@ class _HomePageState extends State<HomePage> {
                   ]),
             ),
           ),
-          const PlaybackPlaceholder(),
+          const ControllerPlaceholder(),
         ],
       );
     });

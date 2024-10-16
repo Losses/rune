@@ -9,6 +9,10 @@ class ControllerAction extends Action<ControllerIntent> {
 
   @override
   void invoke(covariant ControllerIntent intent) {
-    intent.entry.onShortcut(context);
+    final fn = intent.entry.onShortcut;
+
+    if (fn != null) {
+      fn(context);
+    }
   }
 }

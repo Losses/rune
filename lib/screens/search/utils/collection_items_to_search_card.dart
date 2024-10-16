@@ -1,4 +1,4 @@
-import 'package:player/widgets/start_screen/utils/internal_collection.dart';
+import 'package:rune/widgets/start_screen/utils/internal_collection.dart';
 
 import '../../../screens/search/widgets/collection_search_item.dart';
 import '../../../messages/collection.pb.dart';

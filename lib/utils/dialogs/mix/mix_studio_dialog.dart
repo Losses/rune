@@ -1,5 +1,5 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
@@ -11,7 +11,6 @@ import '../../../messages/mix.pbserver.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';
-import '../../chip_input/search_task.dart';
 import '../../api/create_mix.dart';
 import '../../api/update_mix.dart';
 import '../../api/get_mix_by_id.dart';
@@ -20,6 +19,9 @@ import '../../api/fetch_mix_queries_by_mix_id.dart';
 import '../../dialogs/mix/widgets/mix_editor.dart';
 import '../../dialogs/mix/utils/mix_editor_data.dart';
 import '../../dialogs/mix/widgets/mix_editor_controller.dart';
+import '../../chip_input/search_task.dart';
+
+import '../unavailable_dialog_on_band.dart';
 
 class MixStudioDialog extends StatefulWidget {
   final int? mixId;
@@ -158,104 +160,108 @@ class _MixStudioDialogImplementationState
       child: MixEditor(controller: _controller),
     );
 
-    return ContentDialog(
-      constraints: BoxConstraints(maxWidth: widget.isMini ? 420 : 1000),
-      title: Column(
-        children: [
-          const SizedBox(height: 8),
-          Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
-        ],
-      ),
-      content: Container(
-        constraints: BoxConstraints(
-          maxHeight: height < reduce ? reduce : height - reduce,
+    return UnavailableDialogOnBand(
+      child: ContentDialog(
+        constraints: BoxConstraints(maxWidth: widget.isMini ? 420 : 1000),
+        title: Column(
+          children: [
+            const SizedBox(height: 8),
+            Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
+          ],
         ),
-        child: widget.isMini
-            ? editor
-            : Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox(
-                    width: 380,
-                    child: editor,
-                  ),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: SizedBox(
-                      height: height - reduce,
-                      child: ChangeNotifierProvider<
-                          StartScreenLayoutManager>.value(
-                        value: _layoutManager,
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            const double gapSize = 8;
-                            const double cellSize = 200;
+        content: Container(
+          constraints: BoxConstraints(
+            maxHeight: height < reduce ? reduce : height - reduce,
+          ),
+          child: widget.isMini
+              ? editor
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 380,
+                      child: editor,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: SizedBox(
+                        height: height - reduce,
+                        child: ChangeNotifierProvider<
+                            StartScreenLayoutManager>.value(
+                          value: _layoutManager,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              const double gapSize = 8;
+                              const double cellSize = 200;
 
-                            const ratio = 4 / 1;
+                              const ratio = 4 / 1;
 
-                            final int rows =
-                                (constraints.maxWidth / (cellSize + gapSize))
-                                    .floor();
+                              final int rows =
+                                  (constraints.maxWidth / (cellSize + gapSize))
+                                      .floor();
 
-                            final trackIds = _searchManager.searchResults
-                                .map((x) => x.id)
-                                .toList();
+                              final trackIds = _searchManager.searchResults
+                                  .map((x) => x.id)
+                                  .toList();
 
-                            return GridView(
-                              key: Key(_query),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: rows,
-                                mainAxisSpacing: gapSize,
-                                crossAxisSpacing: gapSize,
-                                childAspectRatio: ratio,
-                              ),
-                              children: _searchManager.searchResults
-                                  .map(
-                                    (a) => TrackSearchItem(
-                                      index: 0,
-                                      item: a,
-                                      fallbackFileIds: trackIds,
-                                    ),
-                                  )
-                                  .toList()
-                                  .asMap()
-                                  .entries
-                                  .map((x) {
-                                final index = x.key;
-                                final int row = index % rows;
-                                final int column = index ~/ rows;
+                              return GridView(
+                                key: Key(_query),
+                                gridDelegate:
+                                    SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: rows,
+                                  mainAxisSpacing: gapSize,
+                                  crossAxisSpacing: gapSize,
+                                  childAspectRatio: ratio,
+                                ),
+                                children: _searchManager.searchResults
+                                    .map(
+                                      (a) => TrackSearchItem(
+                                        index: 0,
+                                        item: a,
+                                        fallbackFileIds: trackIds,
+                                      ),
+                                    )
+                                    .toList()
+                                    .asMap()
+                                    .entries
+                                    .map(
+                                  (x) {
+                                    final index = x.key;
+                                    final int row = index % rows;
+                                    final int column = index ~/ rows;
 
-                                return ManagedStartScreenItem(
-                                  key: Key('$row:$column'),
-                                  prefix: _query,
-                                  groupId: 0,
-                                  row: row,
-                                  column: column,
-                                  width: cellSize / ratio,
-                                  height: cellSize,
-                                  child: x.value,
-                                );
-                              }).toList(),
-                            );
-                          },
+                                    return ManagedStartScreenItem(
+                                      key: Key('$row:$column'),
+                                      prefix: _query,
+                                      groupId: 0,
+                                      row: row,
+                                      column: column,
+                                      width: cellSize / ratio,
+                                      height: cellSize,
+                                      child: x.value,
+                                    );
+                                  },
+                                ).toList(),
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: isLoading ? null : () => saveMix(context),
+            child: Text(widget.mixId != null ? 'Save' : 'Create'),
+          ),
+          Button(
+            onPressed: isLoading ? null : () => Navigator.pop(context, null),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
-      actions: [
-        FilledButton(
-          onPressed: isLoading ? null : () => saveMix(context),
-          child: Text(widget.mixId != null ? 'Save' : 'Create'),
-        ),
-        Button(
-          onPressed: isLoading ? null : () => Navigator.pop(context, null),
-          child: const Text('Cancel'),
-        ),
-      ],
     );
   }
 }

@@ -2,6 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../api/remove_mix.dart';
 
+import '../unavailable_dialog_on_band.dart';
+
 Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
   final result = await showDialog<bool>(
     context: context,
@@ -28,37 +30,39 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return ContentDialog(
-      title: const Column(
-        children: [
-          SizedBox(height: 8),
-          Text('Remove Mix'),
+    return UnavailableDialogOnBand(
+      child: ContentDialog(
+        title: const Column(
+          children: [
+            SizedBox(height: 8),
+            Text('Remove Mix'),
+          ],
+        ),
+        content: const Text(
+          'If you delete this mix, you won\'t be able to recover it. Do you want to delete it?',
+        ),
+        actions: [
+          Button(
+            onPressed: isLoading
+                ? null
+                : () async {
+                    setState(() {
+                      isLoading = true;
+                    });
+                    await removeMix(widget.mixId);
+
+                    if (!context.mounted) return;
+
+                    Navigator.pop(context, true);
+                  },
+            child: const Text('Delete'),
+          ),
+          FilledButton(
+            onPressed: isLoading ? null : () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
         ],
       ),
-      content: const Text(
-        'If you delete this mix, you won\'t be able to recover it. Do you want to delete it?',
-      ),
-      actions: [
-        Button(
-          onPressed: isLoading
-              ? null
-              : () async {
-                  setState(() {
-                    isLoading = true;
-                  });
-                  await removeMix(widget.mixId);
-
-                  if (!context.mounted) return;
-
-                  Navigator.pop(context, true);
-                },
-          child: const Text('Delete'),
-        ),
-        FilledButton(
-          onPressed: isLoading ? null : () => Navigator.pop(context, false),
-          child: const Text('Cancel'),
-        ),
-      ],
     );
   }
 }

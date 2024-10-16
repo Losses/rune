@@ -1,11 +1,13 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/format_time.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../../providers/status.dart';
+import '../../../providers/responsive_providers.dart';
 
 class SmallScreenPlayingTrack extends StatelessWidget {
   const SmallScreenPlayingTrack({super.key});
@@ -42,40 +44,69 @@ class SmallScreenPlayingTrack extends StatelessWidget {
 
         return Container(
           padding: const EdgeInsets.fromLTRB(
-            48,
-            48,
-            48,
-            playbackControllerHeight + 48,
+            12,
+            12,
+            12,
+            playbackControllerHeight + 12,
           ),
+          constraints: const BoxConstraints(maxWidth: 240),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white, width: 4),
-                  boxShadow: axShadow(9),
-                ),
-                child: CoverArt(
-                  hint: (
-                    p.$3 ?? "",
-                    p.$2 ?? "",
-                    'Total Time ${formatTime(p.$5 ?? 0)}'
-                  ),
-                  key: p.$1 != null ? Key(p.$1.toString()) : null,
-                  path: p.$1,
-                  size: (width - 20).clamp(0, 240),
-                ),
+              SmallerOrEqualToScreenSize(
+                maxWidth: 340,
+                builder: (context, isSmaller) {
+                  if (isSmaller) return Container();
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.white, width: 4),
+                        boxShadow: axShadow(9),
+                      ),
+                      child: AspectRatio(
+                        aspectRatio: 1,
+                        child: CoverArt(
+                          hint: (
+                            p.$3 ?? "",
+                            p.$2 ?? "",
+                            'Total Time ${formatTime(p.$5 ?? 0)}'
+                          ),
+                          key: p.$1 != null ? Key(p.$1.toString()) : null,
+                          path: p.$1,
+                          size: (width - 20).clamp(0, 240),
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
-              const SizedBox(height: 24),
+              SmallerOrEqualToScreenSize(
+                  maxWidth: 340,
+                  builder: (context, isSmaller) {
+                    if (isSmaller) return Container();
+
+                    return Transform.translate(
+                      offset: const Offset(0, -16),
+                      child: SizedBox(
+                        height: 80,
+                        child: CoverArtPageProgressBar(shadows: shadows),
+                      ),
+                    );
+                  }),
+              const SizedBox(height: 8),
               Text(
                 p.$4 ?? "Unknown Track",
                 style: typography.subtitle?.apply(shadows: shadows),
+                textAlign: TextAlign.center,
               ),
               const SizedBox(height: 12),
               Text(
                 '$artist · $album',
-                style: typography.body?.apply(shadows: shadows),
+                style:
+                    typography.body?.apply(shadows: shadows, heightFactor: 2),
+                textAlign: TextAlign.center,
               ),
             ],
           ),
