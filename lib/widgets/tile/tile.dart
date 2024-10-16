@@ -20,55 +20,61 @@ class Tile extends StatefulWidget {
 
 class TileState extends State<Tile> {
   bool _isHovered = false;
-  final FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(() {
-      setState(() {});
+  void _handleFocusHighlight(bool value) {
+    setState(() {
+      _isFocused = value;
     });
   }
 
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
+  void _handleHoverHighlight(bool value) {
+    setState(() {
+      _isHovered = value;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     Color borderColor;
+    List<BoxShadow>? boxShadow;
 
-    if (_isHovered || _focusNode.hasFocus) {
+    if (_isHovered) {
       borderColor = theme.resources.controlStrokeColorDefault;
+    } else if (_isFocused) {
+      borderColor = theme.accentColor;
+      boxShadow = [
+        BoxShadow(
+          color: theme.accentColor.withOpacity(0.5),
+          blurRadius: 10,
+          spreadRadius: 2,
+        ),
+      ];
     } else {
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
     return GestureDetector(
       onTap: widget.onPressed,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: FocusableActionDetector(
-          focusNode: _focusNode,
-          child: AnimatedContainer(
-            duration: theme.fastAnimationDuration,
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: borderColor,
-                width: widget.borderWidth ?? 1,
-              ),
-              borderRadius: BorderRadius.circular(widget.radius),
+      child: FocusableActionDetector(
+        onShowFocusHighlight: _handleFocusHighlight,
+        onShowHoverHighlight: _handleHoverHighlight,
+        child: AnimatedContainer(
+          duration: theme.fastAnimationDuration,
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: borderColor,
+              width: widget.borderWidth ?? 1,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(widget.radius - 1),
-              child: widget.child,
-            ),
+            borderRadius: BorderRadius.circular(widget.radius),
+            boxShadow: _isFocused ? boxShadow : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(widget.radius - 1),
+            child: widget.child,
           ),
         ),
       ),
