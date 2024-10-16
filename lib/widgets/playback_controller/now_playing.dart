@@ -62,7 +62,7 @@ class NowPlaying extends StatelessWidget {
                   hideProgress
                       ? Expanded(
                           child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: 116),
+                            constraints: const BoxConstraints(maxWidth: 116),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.start,
