@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rune/messages/system.pb.dart';
 import 'package:rune/utils/api/system_info.dart';
+import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/playback_controller/controllor_placeholder.dart';
@@ -20,18 +21,19 @@ class SettingsAboutPage extends StatelessWidget {
       children: [
         const NavigationBarPlaceholder(),
         Expanded(
-          child: SingleChildScrollView(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LogoSection(),
-                FutureBuilder<SystemInfoResponse>(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              _LogoSection(),
+              Expanded(
+                child: FutureBuilder<SystemInfoResponse>(
                   future: systemInfo(),
                   builder: (context, snapshot) =>
                       _InfoSection(data: snapshot.data),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
         const ControllerPlaceholder()
@@ -70,34 +72,45 @@ class _InfoSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _InfoTable(
-          title: "Player",
-          rows: [
-            ["Build Hash", data?.buildSha.substring(0, 8) ?? ""],
-            ["Build Date", data?.buildDate ?? ""],
-            ["Commit Date", data?.buildCommitTimestamp.split("T")[0] ?? ""],
-            ["Rustc version", data?.buildRustcSemver ?? ""],
-          ],
+    return SmoothHorizontalScroll(builder: (context, controller) {
+      return SingleChildScrollView(
+        controller: controller,
+        scrollDirection: Axis.horizontal,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 12),
+          child: Wrap(
+            direction: Axis.vertical,
+            spacing: 8,
+            runSpacing: 24,
+            children: [
+              _InfoTable(
+                title: "Player",
+                rows: [
+                  ["Build Hash", data?.buildSha.substring(0, 8) ?? ""],
+                  ["Build Date", data?.buildDate ?? ""],
+                  [
+                    "Commit Date",
+                    data?.buildCommitTimestamp.split("T")[0] ?? ""
+                  ],
+                  ["Rustc version", data?.buildRustcSemver ?? ""],
+                ],
+              ),
+              _InfoTable(
+                title: "System",
+                rows: [
+                  ["Operating system", data?.systemName ?? ""],
+                  ["System Version", data?.systemOsVersion ?? ""],
+                  ["Kernel Version", data?.systemKernelVersion ?? ""],
+                  ["Host Name", data?.systemHostName ?? ""],
+                ],
+              ),
+              _ActivationInfo(),
+              _CopyrightInfo(),
+            ],
+          ),
         ),
-        const SizedBox(height: 8),
-        _InfoTable(
-          title: "System",
-          rows: [
-            ["Operating system", data?.systemName ?? ""],
-            ["System Version", data?.systemOsVersion ?? ""],
-            ["Kernel Version", data?.systemKernelVersion ?? ""],
-            ["Host Name", data?.systemHostName ?? ""],
-          ],
-        ),
-        const SizedBox(height: 8),
-        _ActivationInfo(),
-        const SizedBox(height: 8),
-        _CopyrightInfo(),
-      ],
-    );
+      );
+    });
   }
 }
 
@@ -111,6 +124,7 @@ class _InfoTable extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(title, style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
@@ -144,6 +158,7 @@ class _ActivationInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text("Activation", style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
@@ -169,6 +184,7 @@ class _CopyrightInfo extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text("Copyright", style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
