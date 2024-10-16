@@ -1,17 +1,25 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-class TextStyleSheet {
+class FlipTextPositions {
   final BuildContext context;
   final Offset position;
-  final double scale;
-  final double fontWeight;
-  final Color color;
 
-  TextStyleSheet({
+  FlipTextPositions({
     required this.context,
     required this.position,
+  });
+}
+
+class FlipTextStyles {
+  double scale;
+  double? fontWeight;
+  Color? color;
+  double? alpha;
+
+  FlipTextStyles({
     required this.scale,
     required this.fontWeight,
     required this.color,
+    required this.alpha,
   });
 }
