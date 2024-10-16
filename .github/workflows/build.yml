@@ -341,7 +341,23 @@ jobs:
         with:
           ndk-version: r27b
           local-cache: true
-          
+
+      - name: Build OpenSSL
+        id: build-openssl
+        run: |
+          git clone https://github.com/Rachel030219/openssl_for_android.git
+          cd openssl_for_android
+          wget https://github.com/openssl/openssl/releases/download/openssl-3.3.2/openssl-3.3.2.tar.gz
+          tar -zxvf openssl-3.3.2.tar.gz
+          bash openssl_build.sh 21 armeabi-v7a && bash openssl_build.sh 21 arm64-v8a && bash openssl_build.sh 21 x86 && bash openssl_build.sh 21 x86_64
+          echo "OPENSSL_ARMEABI_V7A=$(pwd)/openssl-3.3.2_armeabi-v7a\n" >> $GITHUB_OUTPUT
+          echo "OPENSSL_ARM64_V8A=$(pwd)/openssl-3.3.2_arm64-v8a\n" >> $GITHUB_OUTPUT
+          echo "OPENSSL_X86=$(pwd)/openssl-3.3.2_x86\n" >> $GITHUB_OUTPUT
+          echo "OPENSSL_X86_64=$(pwd)/openssl-3.3.2_x86_64\n" >> $GITHUB_OUTPUT
+          cd ..
+        env:
+          ANDROID_NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+
       # This is temporary disabled since Android version is not ready to release yet
       # - name: Setup Android keystore
       #   run: |
@@ -360,9 +376,8 @@ jobs:
       - name: Generate message files
         run: rinf message
 
-      - name: Build android apks
+      - name: Build Android apks
         run: |
-          sudo ln -s /usr/include/x86_64-linux-gnu/openssl/opensslconf.h /usr/include/openssl/opensslconf.h
           flutter build apk --release --split-per-abi
           cd build/app/outputs/flutter-apk
           mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
@@ -371,9 +386,12 @@ jobs:
         env:
           PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          OPENSSL_DIR: "/usr"
+          ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_ARMEABI_V7A }}"
+          AARCH64_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_ARM64_V8A }}"
+          I686_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_X86 }}"
+          X86_64_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_X86_64 }}"
 
-      - name: Upload artifact android apks
+      - name: Upload artifact Android apks
         uses: actions/upload-artifact@v4
         with:
           path: "build/app/outputs/flutter-apk/Rune-*.apk"
