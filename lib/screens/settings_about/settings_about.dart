@@ -2,15 +2,15 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:rune/messages/system.pb.dart';
-import 'package:rune/providers/responsive_providers.dart';
-import 'package:rune/utils/api/system_info.dart';
-import 'package:rune/utils/settings_page_padding.dart';
-import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 
+import '../../utils/settings_page_padding.dart';
+import '../../utils/api/system_info.dart';
 import '../../widgets/tile/fancy_cover.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../widgets/playback_controller/controllor_placeholder.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../messages/system.pb.dart';
+import '../../providers/responsive_providers.dart';
 
 const size = 400.0;
 
