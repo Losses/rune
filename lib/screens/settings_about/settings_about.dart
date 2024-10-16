@@ -3,7 +3,9 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:rune/messages/system.pb.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/utils/api/system_info.dart';
+import 'package:rune/utils/settings_page_padding.dart';
 import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
@@ -21,19 +23,48 @@ class SettingsAboutPage extends StatelessWidget {
       children: [
         const NavigationBarPlaceholder(),
         Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              _LogoSection(),
-              Expanded(
-                child: FutureBuilder<SystemInfoResponse>(
-                  future: systemInfo(),
-                  builder: (context, snapshot) =>
-                      _InfoSection(data: snapshot.data),
-                ),
-              ),
-            ],
+          child: SmallerOrEqualTo(
+            breakpoint: DeviceType.tablet,
+            builder: (context, isMini) {
+              if (isMini) {
+                return SingleChildScrollView(
+                  child: SettingsPagePadding(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _LogoSection(),
+                          FutureBuilder<SystemInfoResponse>(
+                            future: systemInfo(),
+                            builder: (context, snapshot) =>
+                                _InfoSection(data: snapshot.data),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }
+
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(48, 0, 24, 0),
+                    child: _LogoSection(),
+                  ),
+                  Expanded(
+                    child: FutureBuilder<SystemInfoResponse>(
+                      future: systemInfo(),
+                      builder: (context, snapshot) =>
+                          _InfoSection(data: snapshot.data),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
         const ControllerPlaceholder()
@@ -45,22 +76,30 @@ class SettingsAboutPage extends StatelessWidget {
 class _LogoSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Transform.scale(
-      scale: 0.7,
-      child: Column(
-        children: [
-          const Device(),
-          const SizedBox(height: 28),
-          SvgPicture.asset(
-            'assets/mono_color_logo.svg',
-            width: 180,
-            colorFilter: ColorFilter.mode(
-              FluentTheme.of(context).inactiveColor,
-              BlendMode.srcIn,
+    return SmallerOrEqualTo(
+      breakpoint: DeviceType.tablet,
+      builder: (context, isMini) {
+        return Column(
+          crossAxisAlignment:
+              isMini ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 220),
+              child: const Device(),
             ),
-          )
-        ],
-      ),
+            const SizedBox(height: 24),
+            SvgPicture.asset(
+              'assets/mono_color_logo.svg',
+              width: 128,
+              colorFilter: ColorFilter.mode(
+                FluentTheme.of(context).inactiveColor,
+                BlendMode.srcIn,
+              ),
+            ),
+            const SizedBox(height: 28),
+          ],
+        );
+      },
     );
   }
 }
@@ -72,45 +111,87 @@ class _InfoSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SmoothHorizontalScroll(builder: (context, controller) {
-      return SingleChildScrollView(
-        controller: controller,
-        scrollDirection: Axis.horizontal,
-        child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          child: Wrap(
-            direction: Axis.vertical,
-            spacing: 8,
-            runSpacing: 24,
-            children: [
-              _InfoTable(
-                title: "Player",
-                rows: [
-                  ["Build Hash", data?.buildSha.substring(0, 8) ?? ""],
-                  ["Build Date", data?.buildDate ?? ""],
-                  [
-                    "Commit Date",
-                    data?.buildCommitTimestamp.split("T")[0] ?? ""
+    return SmoothHorizontalScroll(
+      builder: (context, controller) {
+        return SmallerOrEqualTo(
+          breakpoint: DeviceType.tablet,
+          builder: (context, isMini) {
+            if (isMini) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _BuildInfo(data: data),
+                  SystemInfo(data: data),
+                  _ActivationInfo(),
+                  _CopyrightInfo(),
+                ],
+              );
+            }
+            return SingleChildScrollView(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Wrap(
+                  direction: Axis.vertical,
+                  spacing: 8,
+                  runSpacing: 24,
+                  children: [
+                    _BuildInfo(data: data),
+                    SystemInfo(data: data),
+                    _ActivationInfo(),
+                    _CopyrightInfo(),
                   ],
-                  ["Rustc version", data?.buildRustcSemver ?? ""],
-                ],
+                ),
               ),
-              _InfoTable(
-                title: "System",
-                rows: [
-                  ["Operating system", data?.systemName ?? ""],
-                  ["System Version", data?.systemOsVersion ?? ""],
-                  ["Kernel Version", data?.systemKernelVersion ?? ""],
-                  ["Host Name", data?.systemHostName ?? ""],
-                ],
-              ),
-              _ActivationInfo(),
-              _CopyrightInfo(),
-            ],
-          ),
-        ),
-      );
-    });
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class SystemInfo extends StatelessWidget {
+  const SystemInfo({
+    super.key,
+    required this.data,
+  });
+
+  final SystemInfoResponse? data;
+
+  @override
+  Widget build(BuildContext context) {
+    return _InfoTable(
+      title: "System",
+      rows: [
+        ["Operating system", data?.systemName ?? ""],
+        ["System Version", data?.systemOsVersion ?? ""],
+        ["Kernel Version", data?.systemKernelVersion ?? ""],
+        ["Host Name", data?.systemHostName ?? ""],
+      ],
+    );
+  }
+}
+
+class _BuildInfo extends StatelessWidget {
+  const _BuildInfo({
+    required this.data,
+  });
+
+  final SystemInfoResponse? data;
+
+  @override
+  Widget build(BuildContext context) {
+    return _InfoTable(
+      title: "Player",
+      rows: [
+        ["Build Hash", data?.buildSha.substring(0, 8) ?? ""],
+        ["Build Date", data?.buildDate ?? ""],
+        ["Commit Date", data?.buildCommitTimestamp.split("T")[0] ?? ""],
+        ["Rustc version", data?.buildRustcSemver ?? ""],
+      ],
+    );
   }
 }
 
@@ -222,38 +303,44 @@ class _DeviceState extends State<Device> {
         });
       },
       child: FocusableActionDetector(
+        child: AspectRatio(
+          aspectRatio: (5360 / 2814),
           child: Stack(
-        alignment: Alignment.center,
-        children: [
-          SvgPicture.asset(
-            'assets/device-layer-1.svg',
-            width: size,
-            colorFilter: ColorFilter.mode(
-              theme.accentColor.normal,
-              BlendMode.srcIn,
-            ),
+            alignment: Alignment.center,
+            children: [
+              SvgPicture.asset(
+                'assets/device-layer-1.svg',
+                width: size,
+                colorFilter: ColorFilter.mode(
+                  theme.accentColor.normal,
+                  BlendMode.srcIn,
+                ),
+              ),
+              SvgPicture.asset(
+                'assets/device-layer-2.svg',
+                width: size,
+              ),
+              LayoutBuilder(builder: (context, constraints) {
+                return FancyCover(
+                  size: constraints.maxWidth * 0.41,
+                  ratio: 9 / 16,
+                  texts: (
+                    "Rune Player",
+                    "Axiom Design",
+                    "Version 0.0.5-dev",
+                  ),
+                  colorHash: colorHash,
+                  configIndex: configIndex,
+                );
+              }),
+              SvgPicture.asset(
+                'assets/device-layer-3.svg',
+                width: size,
+              ),
+            ],
           ),
-          SvgPicture.asset(
-            'assets/device-layer-2.svg',
-            width: size,
-          ),
-          FancyCover(
-            size: 135,
-            ratio: 9 / 16,
-            texts: (
-              "Rune Player",
-              "Axiom Design",
-              "Version 0.0.5-dev",
-            ),
-            colorHash: colorHash,
-            configIndex: configIndex,
-          ),
-          SvgPicture.asset(
-            'assets/device-layer-3.svg',
-            width: size,
-          ),
-        ],
-      )),
+        ),
+      ),
     );
   }
 }
