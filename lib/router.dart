@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:rune/widgets/navigation_bar/navigation_bar_placeholder.dart';
+import 'package:rune/widgets/playback_controller/constants/playback_controller_height.dart';
 
 import 'utils/navigation/utils/navigation_backward.dart';
 
@@ -194,6 +196,7 @@ final router = GoRouter(
   initialLocation: "/library",
   routes: [
     ShellRoute(
+      routes: routes,
       navigatorKey: _shellNavigatorKey,
       builder: (context, state, child) {
         final library = Provider.of<LibraryPathProvider>(context);
@@ -207,30 +210,54 @@ final router = GoRouter(
         }
 
         return FlipAnimationContext(
-          child: Stack(
-            alignment: Alignment.bottomCenter,
-            children: [
-              SizedBox.expand(
-                child: RouterFrame(
-                  shellContext: _shellNavigatorKey.currentContext,
-                  appTheme: appTheme,
-                  child: child,
-                ),
-              ),
-              const PlaybackController(),
-              SmallerOrEqualTo(
-                breakpoint: DeviceType.band,
-                builder: (context, isBand) {
-                  if (!isBand) return const NavigationBar();
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final r = Provider.of<ResponsiveProvider>(context);
+              final isBand = r.smallerOrEqualTo(DeviceType.band);
+              final viewInset = MediaQuery.viewInsetsOf(context);
+              final topInset = viewInset.top;
+              final bottomInset = viewInset.bottom;
 
-                  return const BackButton();
-                },
-              ),
-            ],
+              final topArea = isBand
+                  ? bandNavigationBarHeight + topInset
+                  : fullNavigationBarHeight + topInset;
+
+              final bottomArea = isBand
+                  ? constraints.maxWidth / 3 + bottomInset
+                  : playbackControllerHeight + bottomInset;
+
+              return Stack(
+                alignment: Alignment.bottomCenter,
+                children: [
+                  SmallerOrEqualTo(
+                    breakpoint: DeviceType.band,
+                    builder: (context, isBand) {
+                      if (!isBand) return const NavigationBar();
+
+                      return const BackButton();
+                    },
+                  ),
+                  Positioned(
+                    top: topArea,
+                    left: 0,
+                    child: Container(
+                      width: constraints.maxWidth,
+                      height: constraints.maxHeight - topArea - bottomArea,
+                      color: Colors.red,
+                      child: RouterFrame(
+                        shellContext: _shellNavigatorKey.currentContext,
+                        appTheme: appTheme,
+                        child: child,
+                      ),
+                    ),
+                  ),
+                  const PlaybackController(),
+                ],
+              );
+            },
           ),
         );
       },
-      routes: routes,
     ),
   ],
 );

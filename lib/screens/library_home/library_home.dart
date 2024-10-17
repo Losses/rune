@@ -37,43 +37,26 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: Column(
-        children: [
-          SmallerOrEqualTo(
-              breakpoint: DeviceType.band,
-              builder: (context, isBand) {
-                if (isBand) return const SizedBox();
-                return const NavigationBarPlaceholder();
-              }),
-          Expanded(
-            child: BreakpointBuilder(
-              breakpoints: const [
-                DeviceType.band,
-                DeviceType.zune,
-                DeviceType.tv
-              ],
-              builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.band) {
-                  return BandScreenLibraryHomeListView(
-                    layoutManager: _layoutManager,
-                  );
-                }
+      child: BreakpointBuilder(
+        breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
+        builder: (context, activeBreakpoint) {
+          if (activeBreakpoint == DeviceType.band) {
+            return BandScreenLibraryHomeListView(
+              layoutManager: _layoutManager,
+            );
+          }
 
-                if (activeBreakpoint == DeviceType.zune) {
-                  return SmallScreenLibraryHomeListView(
-                    layoutManager: _layoutManager,
-                  );
-                }
+          if (activeBreakpoint == DeviceType.zune) {
+            return SmallScreenLibraryHomeListView(
+              layoutManager: _layoutManager,
+            );
+          }
 
-                return LargeScreenLibraryHomeListView(
-                  libraryPath: libraryPath,
-                  layoutManager: _layoutManager,
-                );
-              },
-            ),
-          ),
-          const ControllerPlaceholder()
-        ],
+          return LargeScreenLibraryHomeListView(
+            libraryPath: libraryPath,
+            layoutManager: _layoutManager,
+          );
+        },
       ),
     );
   }
