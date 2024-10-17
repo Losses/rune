@@ -1,5 +1,6 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/navigation_bar/utils/activate_link_action.dart';
 
 import '../../widgets/ax_pressure.dart';
@@ -59,50 +60,56 @@ class _LinkTurntileState extends State<LinkTurntile> {
 
     final blurRadius = _isFocused ? 10.0 : 0.0;
 
-    return AxPressure(
-      child: GestureDetector(
-        onTap: onPressed,
-        child: FocusableActionDetector(
-          onShowFocusHighlight: _handleFocusHighlight,
-          onShowHoverHighlight: _handleHoverHighlight,
-          actions: {
-            ActivateIntent: ActivateLinkAction(context, onPressed),
-          },
-          child: TweenAnimationBuilder(
-            tween: ColorTween(
-              begin: color.withAlpha(alpha),
-              end: color.withAlpha(alpha),
-            ),
-            duration: theme.fastAnimationDuration,
-            builder: (BuildContext context, Color? color, Widget? child) {
-              return TweenAnimationBuilder(
-                tween: Tween<double>(
-                  begin: blurRadius,
-                  end: blurRadius,
+    return SmallerOrEqualToScreenSize(
+      maxWidth: 160,
+      builder: (context, isMini) {
+        return AxPressure(
+          child: GestureDetector(
+            onTap: onPressed,
+            child: FocusableActionDetector(
+              onShowFocusHighlight: _handleFocusHighlight,
+              onShowHoverHighlight: _handleHoverHighlight,
+              actions: {
+                ActivateIntent: ActivateLinkAction(context, onPressed),
+              },
+              child: TweenAnimationBuilder(
+                tween: ColorTween(
+                  begin: color.withAlpha(alpha),
+                  end: color.withAlpha(alpha),
                 ),
                 duration: theme.fastAnimationDuration,
-                builder:
-                    (BuildContext context, double blurRadius, Widget? child) {
-                  return Text(
-                    widget.title,
-                    textAlign: TextAlign.start,
-                    style: theme.typography.title?.apply(
-                      fontWeightDelta: -100,
-                      color: color,
-                      shadows: [
-                        Shadow(
-                          color: theme.accentColor,
-                          blurRadius: blurRadius,
-                        ),
-                      ],
+                builder: (BuildContext context, Color? color, Widget? child) {
+                  return TweenAnimationBuilder(
+                    tween: Tween<double>(
+                      begin: blurRadius,
+                      end: blurRadius,
                     ),
+                    duration: theme.fastAnimationDuration,
+                    builder: (BuildContext context, double blurRadius,
+                        Widget? child) {
+                      return Text(
+                        widget.title,
+                        textAlign: TextAlign.start,
+                        style: theme.typography.title?.apply(
+                          fontWeightDelta: -100,
+                          fontSizeFactor: isMini ? 0.69 : 1,
+                          color: color,
+                          shadows: [
+                            Shadow(
+                              color: theme.accentColor,
+                              blurRadius: blurRadius,
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   );
                 },
-              );
-            },
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
