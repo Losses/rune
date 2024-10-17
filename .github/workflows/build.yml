@@ -325,9 +325,6 @@ jobs:
         with:
           version: "26.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
       
       - name: Setup Java toolchain
         uses: actions/setup-java@v4
