@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/navigation_bar/utils/activate_link_action.dart';
+
 class Tile extends StatefulWidget {
   const Tile({
     super.key,
@@ -39,10 +41,9 @@ class TileState extends State<Tile> {
     final theme = FluentTheme.of(context);
     Color borderColor;
     List<BoxShadow>? boxShadow;
+    double borderWidth = widget.borderWidth ?? 1;
 
-    if (_isHovered) {
-      borderColor = theme.resources.controlStrokeColorDefault;
-    } else if (_isFocused) {
+    if (_isFocused) {
       borderColor = theme.accentColor;
       boxShadow = [
         BoxShadow(
@@ -51,6 +52,9 @@ class TileState extends State<Tile> {
           spreadRadius: 2,
         ),
       ];
+      borderWidth *= 2;
+    } else if (_isHovered) {
+      borderColor = theme.resources.controlStrokeColorDefault;
     } else {
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
@@ -60,6 +64,9 @@ class TileState extends State<Tile> {
       child: FocusableActionDetector(
         onShowFocusHighlight: _handleFocusHighlight,
         onShowHoverHighlight: _handleHoverHighlight,
+        actions: {
+          ActivateIntent: ActivateLinkAction(context, widget.onPressed),
+        },
         child: AnimatedContainer(
           duration: theme.fastAnimationDuration,
           width: double.infinity,
@@ -67,7 +74,7 @@ class TileState extends State<Tile> {
           decoration: BoxDecoration(
             border: Border.all(
               color: borderColor,
-              width: widget.borderWidth ?? 1,
+              width: borderWidth,
             ),
             borderRadius: BorderRadius.circular(widget.radius),
             boxShadow: _isFocused ? boxShadow : null,
