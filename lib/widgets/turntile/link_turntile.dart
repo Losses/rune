@@ -49,9 +49,15 @@ class _LinkTurntileState extends State<LinkTurntile> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    final color = (_isHovered || _isFocused)
-        ? theme.accentColor.withAlpha(255)
-        : theme.typography.title!.color!.withAlpha(180);
+    final color = _isFocused
+        ? theme.brightness == Brightness.dark
+            ? theme.accentColor.lighter
+            : theme.accentColor.darker
+        : theme.typography.title!.color!;
+
+    final alpha = (_isHovered || _isFocused) ? 255 : 180;
+
+    final blurRadius = _isFocused ? 10.0 : 0.0;
 
     return AxPressure(
       child: GestureDetector(
@@ -64,15 +70,15 @@ class _LinkTurntileState extends State<LinkTurntile> {
           },
           child: TweenAnimationBuilder(
             tween: ColorTween(
-              begin: color,
-              end: color,
+              begin: color.withAlpha(alpha),
+              end: color.withAlpha(alpha),
             ),
             duration: theme.fastAnimationDuration,
             builder: (BuildContext context, Color? color, Widget? child) {
               return TweenAnimationBuilder(
                 tween: Tween<double>(
-                  begin: 0.0,
-                  end: 0.0,
+                  begin: blurRadius,
+                  end: blurRadius,
                 ),
                 duration: theme.fastAnimationDuration,
                 builder:

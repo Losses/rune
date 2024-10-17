@@ -71,8 +71,12 @@ class _SlibingLinkState extends State<SlibingLink> {
 
   @override
   Widget build(BuildContext context) {
-    final accentColor = FluentTheme.of(context).accentColor;
     final childFlipKey = 'child:${widget.route.path}';
+
+    final theme = FluentTheme.of(context);
+    final contentColor = theme.brightness == Brightness.dark
+        ? theme.accentColor.lighter
+        : theme.accentColor.darker;
 
     return Padding(
       padding: const EdgeInsets.only(right: 24),
@@ -93,8 +97,8 @@ class _SlibingLinkState extends State<SlibingLink> {
               flipKey: childFlipKey,
               text: widget.route.title,
               scale: 1.2,
-              color: _isFocus ? accentColor : null,
-              glowColor: accentColor,
+              color: _isFocus ? contentColor : null,
+              glowColor: contentColor,
               glowRadius: _isFocus ? 10 : 0,
               alpha: widget.isSelected || _isFocus
                   ? 255
