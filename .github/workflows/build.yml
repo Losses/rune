@@ -346,8 +346,7 @@ jobs:
           cd openssl_for_android
           wget https://github.com/openssl/openssl/releases/download/openssl-3.3.2/openssl-3.3.2.tar.gz
           tar -zxf openssl-3.3.2.tar.gz
-          echo "NDK path: ${{ steps.setup-ndk.outputs.ndk-path }}"
-          tree ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains
+          echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
           bash openssl_build.sh 21 armeabi-v7a && bash openssl_build.sh 21 arm64-v8a && bash openssl_build.sh 21 x86 && bash openssl_build.sh 21 x86_64
           echo "OPENSSL_ARMEABI_V7A=$(pwd)/openssl-3.3.2_armeabi-v7a\n" >> $GITHUB_OUTPUT
           echo "OPENSSL_ARM64_V8A=$(pwd)/openssl-3.3.2_arm64-v8a\n" >> $GITHUB_OUTPUT
