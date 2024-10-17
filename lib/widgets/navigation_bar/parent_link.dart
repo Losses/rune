@@ -6,13 +6,13 @@ import 'utils/activate_link_action.dart';
 class ParentLink extends StatefulWidget {
   final String titleFlipKey;
   final String text;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
 
   const ParentLink({
     super.key,
     required this.titleFlipKey,
     required this.text,
-    required this.onTap,
+    required this.onPressed,
   });
 
   @override
@@ -29,7 +29,7 @@ class ParentLinkState extends State<ParentLink> {
     });
   }
 
-  void _handleHoveHighlight(bool value) {
+  void _handleHoverHighlight(bool value) {
     setState(() {
       _alpha = value ? 100 : 80;
     });
@@ -42,12 +42,12 @@ class ParentLinkState extends State<ParentLink> {
     return Padding(
       padding: const EdgeInsets.only(right: 12),
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: widget.onPressed,
         child: FocusableActionDetector(
           onShowFocusHighlight: _handleFocusHighlight,
-          onShowHoverHighlight: _handleHoveHighlight,
+          onShowHoverHighlight: _handleHoverHighlight,
           actions: {
-            ActivateIntent: ActivateLinkAction(context, widget.onTap),
+            ActivateIntent: ActivateLinkAction(context, widget.onPressed),
           },
           child: SizedBox(
             height: 80,
