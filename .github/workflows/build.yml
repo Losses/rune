@@ -308,7 +308,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libssl-dev tree
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libssl-dev
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -339,29 +339,6 @@ jobs:
           ndk-version: r27b
           local-cache: true
 
-      - name: Add NDK to PATH
-        run: |
-          echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-          echo "Current GitHub Path: $GITHUB_PATH"
-          echo "Current PATH: $PATH"
-
-      - name: Build OpenSSL
-        id: build-openssl
-        run: |
-          git clone https://github.com/Rachel030219/openssl_for_android.git
-          cd openssl_for_android
-          wget https://github.com/openssl/openssl/releases/download/openssl-3.3.2/openssl-3.3.2.tar.gz
-          tar -zxf openssl-3.3.2.tar.gz
-          echo "Current PATH: $PATH"
-          bash openssl_build.sh 21 armeabi-v7a && bash openssl_build.sh 21 arm64-v8a && bash openssl_build.sh 21 x86 && bash openssl_build.sh 21 x86_64
-          echo "OPENSSL_ARMEABI_V7A=$(pwd)/openssl-3.3.2_armeabi-v7a" >> $GITHUB_OUTPUT
-          echo "OPENSSL_ARM64_V8A=$(pwd)/openssl-3.3.2_arm64-v8a" >> $GITHUB_OUTPUT
-          echo "OPENSSL_X86=$(pwd)/openssl-3.3.2_x86" >> $GITHUB_OUTPUT
-          echo "OPENSSL_X86_64=$(pwd)/openssl-3.3.2_x86_64" >> $GITHUB_OUTPUT
-          cd ..
-        env:
-          ANDROID_NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
-
       # This is temporary disabled since Android version is not ready to release yet
       # - name: Setup Android keystore
       #   run: |
@@ -390,10 +367,10 @@ jobs:
         env:
           PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
           PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_ARMEABI_V7A }}"
-          AARCH64_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_ARM64_V8A }}"
-          I686_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_X86 }}"
-          X86_64_LINUX_ANDROID_OPENSSL_DIR: "${{ steps.build-openssl.outputs.OPENSSL_X86_64 }}"
+          ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/armeabi-v7a"
+          AARCH64_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/arm64-v8a"
+          I686_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/x86"
+          X86_64_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/x86_64"
 
       - name: Upload artifact Android apks
         uses: actions/upload-artifact@v4
