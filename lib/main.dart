@@ -129,17 +129,14 @@ class Rune extends StatelessWidget {
           themeMode: appTheme.mode,
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
-          shortcuts: shortcuts,
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
-            focusTheme: const FocusThemeData(glowFactor: 2.0),
           ),
           theme: FluentThemeData(
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
-            focusTheme: const FocusThemeData(glowFactor: 2.0),
           ),
           locale: appTheme.locale,
           routerDelegate: router.routerDelegate,
@@ -154,7 +151,7 @@ class Rune extends StatelessWidget {
                   : Colors.transparent,
               child: Directionality(
                 textDirection: appTheme.textDirection,
-                child: child!,
+                child: Shortcuts(shortcuts: shortcuts, child: child!),
               ),
             );
           },

@@ -33,7 +33,12 @@ class StartGroup<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _buildStartGroupLayout(context, _buildStartGroupItems());
+    return FocusTraversalGroup(
+      child: _buildStartGroupLayout(
+        context,
+        _buildStartGroupItems(),
+      ),
+    );
   }
 
   Widget _buildStartGroupLayout(BuildContext context, Widget child) {

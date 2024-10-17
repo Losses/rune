@@ -12,42 +12,6 @@ import 'navigation_intent.dart';
 
 Map<SingleActivator, Intent> buildShortcuts() {
   final shortcuts = <SingleActivator, Intent>{
-    const SingleActivator(LogicalKeyboardKey.space): const PrioritizedIntents(
-      orderedIntents: <Intent>[
-        ActivateIntent(),
-        ScrollIntent(
-            direction: AxisDirection.down, type: ScrollIncrementType.page),
-      ],
-    ),
-    // On the web, enter activates buttons, but not other controls.
-    const SingleActivator(LogicalKeyboardKey.enter):
-        const ButtonActivateIntent(),
-    const SingleActivator(LogicalKeyboardKey.numpadEnter):
-        const ButtonActivateIntent(),
-
-    // Dismissal
-    // const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
-
-    // Keyboard traversal.
-    const SingleActivator(LogicalKeyboardKey.tab): const NextFocusIntent(),
-    const SingleActivator(LogicalKeyboardKey.tab, shift: true):
-        const PreviousFocusIntent(),
-
-    // Scrolling
-    const SingleActivator(LogicalKeyboardKey.arrowUp):
-        const ScrollIntent(direction: AxisDirection.up),
-    const SingleActivator(LogicalKeyboardKey.arrowDown):
-        const ScrollIntent(direction: AxisDirection.down),
-    const SingleActivator(LogicalKeyboardKey.arrowLeft):
-        const ScrollIntent(direction: AxisDirection.left),
-    const SingleActivator(LogicalKeyboardKey.arrowRight):
-        const ScrollIntent(direction: AxisDirection.right),
-    const SingleActivator(LogicalKeyboardKey.pageUp): const ScrollIntent(
-        direction: AxisDirection.up, type: ScrollIncrementType.page),
-    const SingleActivator(LogicalKeyboardKey.pageDown): const ScrollIntent(
-        direction: AxisDirection.down, type: ScrollIncrementType.page),
-
-    // Rune specific logic
     const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
     const SingleActivator(LogicalKeyboardKey.escape): const EscapeIntent(),
     const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
