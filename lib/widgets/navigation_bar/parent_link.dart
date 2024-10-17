@@ -23,6 +23,14 @@ class ParentLinkState extends State<ParentLink> {
   double _alpha = 80;
   bool _isFocus = false;
 
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Parent Link');
+
+  @override
+  void dispose() {
+    super.dispose();
+    _focusNode.dispose();
+  }
+
   void _handleFocusHighlight(bool value) {
     setState(() {
       _isFocus = value;
@@ -44,6 +52,7 @@ class ParentLinkState extends State<ParentLink> {
       child: GestureDetector(
         onTap: widget.onPressed,
         child: FocusableActionDetector(
+          focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoverHighlight,
           actions: {

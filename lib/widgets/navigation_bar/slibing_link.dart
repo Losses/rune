@@ -32,6 +32,8 @@ class _SlibingLinkState extends State<SlibingLink> {
   bool _isHovered = false;
   bool _isFocus = false;
 
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Slibing Link');
+
   @override
   void initState() {
     super.initState();
@@ -55,6 +57,7 @@ class _SlibingLinkState extends State<SlibingLink> {
     super.dispose();
 
     timer?.cancel();
+    _focusNode.dispose();
   }
 
   void _handleFocusHighlight(bool value) {
@@ -83,6 +86,7 @@ class _SlibingLinkState extends State<SlibingLink> {
       child: GestureDetector(
         onTap: widget.onTap,
         child: FocusableActionDetector(
+          focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoveHighlight,
           actions: {

@@ -24,6 +24,14 @@ class TileState extends State<Tile> {
   bool _isHovered = false;
   bool _isFocused = false;
 
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Tile');
+
+  @override
+  void dispose() {
+    super.dispose();
+    _focusNode.dispose();
+  }
+
   void _handleFocusHighlight(bool value) {
     setState(() {
       _isFocused = value;
@@ -62,6 +70,7 @@ class TileState extends State<Tile> {
     return GestureDetector(
       onTap: widget.onPressed,
       child: FocusableActionDetector(
+        focusNode: _focusNode,
         onShowFocusHighlight: _handleFocusHighlight,
         onShowHoverHighlight: _handleHoverHighlight,
         actions: {
