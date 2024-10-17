@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'flip_text.dart';
+import 'utils/activate_link_action.dart';
 
 class ParentLink extends StatefulWidget {
   final String titleFlipKey;
@@ -20,11 +21,11 @@ class ParentLink extends StatefulWidget {
 
 class ParentLinkState extends State<ParentLink> {
   double _alpha = 80;
-  double _glowRadius = 0;
+  bool _isFocus = false;
 
   void _handleFocusHighlight(bool value) {
     setState(() {
-      _glowRadius = value ? 20 : 0;
+      _isFocus = value;
     });
   }
 
@@ -36,6 +37,8 @@ class ParentLinkState extends State<ParentLink> {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = FluentTheme.of(context).accentColor;
+
     return Padding(
       padding: const EdgeInsets.only(right: 12),
       child: GestureDetector(
@@ -43,6 +46,9 @@ class ParentLinkState extends State<ParentLink> {
         child: FocusableActionDetector(
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoveHighlight,
+          actions: {
+            ActivateIntent: ActivateLinkAction(context, widget.onTap),
+          },
           child: SizedBox(
             height: 80,
             width: 320,
@@ -51,9 +57,10 @@ class ParentLinkState extends State<ParentLink> {
               flipKey: widget.titleFlipKey,
               text: widget.text,
               scale: 6,
-              alpha: _alpha,
-              glowColor: Colors.red,
-              glowRadius: _glowRadius,
+              alpha: _isFocus ? 255 : _alpha,
+              color: _isFocus ? accentColor : null,
+              glowColor: accentColor,
+              glowRadius: _isFocus ? 10 : 0,
             ),
           ),
         ),

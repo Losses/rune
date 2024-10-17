@@ -160,13 +160,15 @@ class NavigationBarState extends State<NavigationBar> {
             if (isZune || !isSearch)
               Transform.translate(
                 offset: const Offset(0, -40),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    parentWidget,
-                    childrenWidget,
-                  ],
+                child: FocusTraversalGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      parentWidget,
+                      childrenWidget,
+                    ],
+                  ),
                 ),
               ),
             if (!isZune)

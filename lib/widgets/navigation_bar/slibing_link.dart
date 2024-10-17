@@ -4,7 +4,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/navigation/navigation_item.dart';
 
-import './flip_text.dart';
+import 'flip_text.dart';
+import 'utils/activate_link_action.dart';
 
 class SlibingLink extends StatefulWidget {
   final NavigationItem route;
@@ -29,7 +30,7 @@ class _SlibingLinkState extends State<SlibingLink> {
   late double _entryAnimationOpacity;
 
   bool _isHovered = false;
-  double _glowRadius = 0;
+  bool _isFocus = false;
 
   @override
   void initState() {
@@ -58,7 +59,7 @@ class _SlibingLinkState extends State<SlibingLink> {
 
   void _handleFocusHighlight(bool value) {
     setState(() {
-      _glowRadius = value ? 20 : 0;
+      _isFocus = value;
     });
   }
 
@@ -70,6 +71,7 @@ class _SlibingLinkState extends State<SlibingLink> {
 
   @override
   Widget build(BuildContext context) {
+    final accentColor = FluentTheme.of(context).accentColor;
     final childFlipKey = 'child:${widget.route.path}';
 
     return Padding(
@@ -79,6 +81,9 @@ class _SlibingLinkState extends State<SlibingLink> {
         child: FocusableActionDetector(
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoveHighlight,
+          actions: {
+            ActivateIntent: ActivateLinkAction(context, widget.onTap),
+          },
           child: AnimatedOpacity(
             key: Key('animation-$childFlipKey'),
             opacity: _entryAnimationOpacity,
@@ -88,9 +93,10 @@ class _SlibingLinkState extends State<SlibingLink> {
               flipKey: childFlipKey,
               text: widget.route.title,
               scale: 1.2,
-              glowColor: Colors.red,
-              glowRadius: _glowRadius,
-              alpha: widget.isSelected
+              color: _isFocus ? accentColor : null,
+              glowColor: accentColor,
+              glowRadius: _isFocus ? 10 : 0,
+              alpha: widget.isSelected || _isFocus
                   ? 255
                   : _isHovered
                       ? 200
@@ -102,4 +108,3 @@ class _SlibingLinkState extends State<SlibingLink> {
     );
   }
 }
-
