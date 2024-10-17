@@ -347,14 +347,17 @@ jobs:
           wget https://github.com/openssl/openssl/releases/download/openssl-3.3.2/openssl-3.3.2.tar.gz
           tar -zxf openssl-3.3.2.tar.gz
           echo "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          echo "$GITHUB_PATH"
+          echo "$PATH"
           bash openssl_build.sh 21 armeabi-v7a && bash openssl_build.sh 21 arm64-v8a && bash openssl_build.sh 21 x86 && bash openssl_build.sh 21 x86_64
-          echo "OPENSSL_ARMEABI_V7A=$(pwd)/openssl-3.3.2_armeabi-v7a\n" >> $GITHUB_OUTPUT
-          echo "OPENSSL_ARM64_V8A=$(pwd)/openssl-3.3.2_arm64-v8a\n" >> $GITHUB_OUTPUT
-          echo "OPENSSL_X86=$(pwd)/openssl-3.3.2_x86\n" >> $GITHUB_OUTPUT
-          echo "OPENSSL_X86_64=$(pwd)/openssl-3.3.2_x86_64\n" >> $GITHUB_OUTPUT
+          echo "OPENSSL_ARMEABI_V7A=$(pwd)/openssl-3.3.2_armeabi-v7a" >> $GITHUB_OUTPUT
+          echo "OPENSSL_ARM64_V8A=$(pwd)/openssl-3.3.2_arm64-v8a" >> $GITHUB_OUTPUT
+          echo "OPENSSL_X86=$(pwd)/openssl-3.3.2_x86" >> $GITHUB_OUTPUT
+          echo "OPENSSL_X86_64=$(pwd)/openssl-3.3.2_x86_64" >> $GITHUB_OUTPUT
           cd ..
         env:
           ANDROID_NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+          PATH: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
       # This is temporary disabled since Android version is not ready to release yet
       # - name: Setup Android keystore
