@@ -203,12 +203,24 @@ final router = GoRouter(
           return const welcome.ScanningPage();
         }
 
+        final mainContent = FocusTraversalOrder(
+          order: const NumericFocusOrder(2),
+          child: RouterFrame(
+            shellContext: _shellNavigatorKey.currentContext,
+            appTheme: appTheme,
+            child: child,
+          ),
+        );
+
+        final path = GoRouterState.of(context).fullPath ?? "/";
+
         return FlipAnimationContext(
           child: FocusTraversalGroup(
             policy: OrderedTraversalPolicy(),
             child: RuneStack(
               alignment: Alignment.bottomCenter,
               children: [
+                if (path == '/cover_wall') mainContent,
                 const FocusTraversalOrder(
                   order: NumericFocusOrder(3),
                   child: PlaybackController(),
@@ -224,14 +236,7 @@ final router = GoRouter(
                     },
                   ),
                 ),
-                FocusTraversalOrder(
-                  order: const NumericFocusOrder(2),
-                  child: RouterFrame(
-                    shellContext: _shellNavigatorKey.currentContext,
-                    appTheme: appTheme,
-                    child: child,
-                  ),
-                ),
+                if (path != '/cover_wall') mainContent,
               ],
             ),
           ),
