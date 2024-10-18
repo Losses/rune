@@ -211,6 +211,42 @@ class ResponsiveProvider extends ChangeNotifier {
         .name;
   }
 
+  DeviceType getActiveBreakpoint(List<DeviceType> breakpoints) {
+    final verticalBreakpoints = breakpoints
+        .where((bp) => _getOrientation(bp) == DeviceOrientation.vertical)
+        .toList();
+    final horizontalBreakpoints = breakpoints
+        .where((bp) => _getOrientation(bp) == DeviceOrientation.horizontal)
+        .toList();
+
+    DeviceType? verticalActive = _getActiveForOrientation(
+        verticalBreakpoints, _currentVerticalBreakpoint);
+    DeviceType? horizontalActive = _getActiveForOrientation(
+        horizontalBreakpoints, _currentHorizontalBreakpoint);
+
+    if (verticalActive != null && horizontalActive != null) {
+      return devicePriority[verticalActive]! >=
+              devicePriority[horizontalActive]!
+          ? verticalActive
+          : horizontalActive;
+    } else if (verticalActive != null) {
+      return verticalActive;
+    } else if (horizontalActive != null) {
+      return horizontalActive;
+    } else {
+      return breakpoints.last;
+    }
+  }
+
+  DeviceType? _getActiveForOrientation(
+      List<DeviceType> breakpoints, DeviceType currentBreakpoint) {
+    if (breakpoints.isEmpty) return null;
+    return breakpoints.lastWhere(
+      (bp) => devicePriority[currentBreakpoint]! >= devicePriority[bp]!,
+      orElse: () => breakpoints.first,
+    );
+  }
+
   bool smallerOrEqualTo(DeviceType breakpointName) {
     final orientation = _getOrientation(breakpointName);
     final currentBreakpoint = orientation == DeviceOrientation.vertical
@@ -303,10 +339,7 @@ class BreakpointBuilder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Selector<ResponsiveProvider, DeviceType>(
-      selector: (_, provider) => breakpoints.firstWhere(
-        (bp) => provider.smallerOrEqualTo(bp),
-        orElse: () => breakpoints.last,
-      ),
+      selector: (_, provider) => provider.getActiveBreakpoint(breakpoints),
       builder: (context, activeBreakpoint, child) =>
           builder(context, activeBreakpoint),
     );
