@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';

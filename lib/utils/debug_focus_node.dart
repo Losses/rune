@@ -8,7 +8,7 @@ void printFocusNodes() {
   buffer.writeln('Current Node: ${primaryFocus?.hashCode}');
   buffer.writeln('');
   _collectFocusNodeTree(rootScope, 0, buffer);
-  print(buffer.toString());
+  debugPrint(buffer.toString());
 }
 
 void _collectFocusNodeTree(FocusNode node, int depth, StringBuffer buffer) {

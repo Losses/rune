@@ -7,9 +7,8 @@ import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/collection.pb.dart';
@@ -217,70 +216,72 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     );
 
     if (widget.deviceType == DeviceType.tablet) {
-      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: mediumScreenLayoutManager,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
-              child: autoSuggestBox,
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                child: MediumScreenSearchTrackList(
-                  items: items,
+      return PageContentFrame(
+        top: false,
+        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
+          value: mediumScreenLayoutManager,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
+                child: autoSuggestBox,
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: MediumScreenSearchTrackList(
+                    items: items,
+                  ),
                 ),
               ),
-            ),
-            const ControllerPlaceholder(),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     if (widget.deviceType == DeviceType.band) {
-      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: bandScreenLayoutManager,
-        child: Column(
-          children: [
-            const NavigationBarPlaceholder(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 2),
-              child: autoSuggestBox,
-            ),
-            const SizedBox(height: 2),
-            Expanded(
-              child: SingleChildScrollView(
-                child: BandScreenSearchTrackList(
-                  items: items,
+      return PageContentFrame(
+        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
+          value: bandScreenLayoutManager,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2),
+                child: autoSuggestBox,
+              ),
+              const SizedBox(height: 2),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: BandScreenSearchTrackList(
+                    items: items,
+                  ),
                 ),
               ),
-            ),
-            const ControllerPlaceholder(),
-          ],
+            ],
+          ),
         ),
       );
     }
 
     if (widget.deviceType == DeviceType.zune) {
-      return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-        value: smallScreenLayoutManager,
-        child: Column(
-          children: [
-            const NavigationBarPlaceholder(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: autoSuggestBox,
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                child: SmallScreenSearchTrackList(
-                  items: items,
+      return PageContentFrame(
+        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
+          value: smallScreenLayoutManager,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: autoSuggestBox,
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SmallScreenSearchTrackList(
+                    items: items,
+                  ),
                 ),
               ),
-            ),
-            const ControllerPlaceholder(),
-          ],
+            ],
+          ),
         ),
       );
     }
