@@ -55,7 +55,7 @@ class SmallScreenPlayingTrack extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SmallerOrEqualToScreenSize(
-                maxWidth: 340,
+                maxSize: 340,
                 builder: (context, isSmaller) {
                   if (isSmaller) return Container();
                   return Container(
@@ -83,7 +83,7 @@ class SmallScreenPlayingTrack extends StatelessWidget {
                 },
               ),
               SmallerOrEqualToScreenSize(
-                  maxWidth: 340,
+                  maxSize: 340,
                   builder: (context, isSmaller) {
                     if (isSmaller) return Container();
 

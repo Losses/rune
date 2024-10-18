@@ -61,7 +61,7 @@ class _LinkTurntileState extends State<LinkTurntile> {
     final blurRadius = _isFocused ? 10.0 : 0.0;
 
     return SmallerOrEqualToScreenSize(
-      maxWidth: 160,
+      maxSize: 160,
       builder: (context, isMini) {
         return AxPressure(
           child: GestureDetector(

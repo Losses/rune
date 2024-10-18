@@ -2,15 +2,53 @@ import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-enum DeviceType { dock, zune, phone, mobile, tablet, desktop, tv }
+enum DeviceOrientation {
+  vertical,
+  horizontal,
+}
+
+enum DeviceType {
+  // Vertical
+  dock,
+  zune,
+  phone,
+  mobile,
+  tablet,
+  desktop,
+  tv,
+  // Horizontal
+  band,
+  fish,
+  car,
+  station,
+}
+
+const Map<DeviceType, int> devicePriority = {
+  DeviceType.band: 4,
+  DeviceType.fish: 4,
+  DeviceType.car: 2,
+  DeviceType.station: 0,
+  DeviceType.dock: 3,
+  DeviceType.zune: 3,
+  DeviceType.phone: 1,
+  DeviceType.mobile: 1,
+  DeviceType.tablet: 1,
+  DeviceType.desktop: 1,
+  DeviceType.tv: 1,
+};
 
 class ResponsiveBreakpoint {
   final double start;
   final double end;
   final DeviceType name;
+  final DeviceOrientation orientation;
 
-  const ResponsiveBreakpoint(
-      {required this.start, required this.end, required this.name});
+  const ResponsiveBreakpoint({
+    required this.start,
+    required this.end,
+    required this.name,
+    required this.orientation,
+  });
 }
 
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
@@ -64,50 +102,143 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
 class ResponsiveProvider extends ChangeNotifier {
   static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.dock),
-    ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
-    ResponsiveBreakpoint(start: 321, end: 480, name: DeviceType.phone),
-    ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),
-    ResponsiveBreakpoint(start: 651, end: 800, name: DeviceType.tablet),
-    ResponsiveBreakpoint(start: 801, end: 1920, name: DeviceType.desktop),
     ResponsiveBreakpoint(
-        start: 1921, end: double.infinity, name: DeviceType.tv),
+      start: 0,
+      end: 120,
+      name: DeviceType.dock,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 121,
+      end: 320,
+      name: DeviceType.zune,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 321,
+      end: 480,
+      name: DeviceType.phone,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 481,
+      end: 650,
+      name: DeviceType.mobile,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 651,
+      end: 800,
+      name: DeviceType.tablet,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 801,
+      end: 1920,
+      name: DeviceType.desktop,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 1921,
+      end: double.infinity,
+      name: DeviceType.tv,
+      orientation: DeviceOrientation.vertical,
+    ),
+    ResponsiveBreakpoint(
+      start: 0,
+      end: 120,
+      name: DeviceType.band,
+      orientation: DeviceOrientation.horizontal,
+    ),
+    ResponsiveBreakpoint(
+      start: 121,
+      end: 320,
+      name: DeviceType.fish,
+      orientation: DeviceOrientation.horizontal,
+    ),
+    ResponsiveBreakpoint(
+      start: 321,
+      end: 650,
+      name: DeviceType.car,
+      orientation: DeviceOrientation.horizontal,
+    ),
+    ResponsiveBreakpoint(
+      start: 651,
+      end: double.infinity,
+      name: DeviceType.station,
+      orientation: DeviceOrientation.horizontal,
+    ),
   ];
 
-  DeviceType _currentBreakpoint = DeviceType.desktop;
+  DeviceType _currentVerticalBreakpoint = DeviceType.desktop;
+  DeviceType _currentHorizontalBreakpoint = DeviceType.station;
 
   ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
-    screenSizeProvider.addListener(_updateBreakpoint);
-    _updateBreakpoint();
+    screenSizeProvider.addListener(_updateBreakpoints);
+    _updateBreakpoints();
   }
 
-  DeviceType get currentBreakpoint => _currentBreakpoint;
+  DeviceType get currentBreakpoint {
+    final verticalPriority = devicePriority[_currentVerticalBreakpoint] ?? 0;
+    final horizontalPriority =
+        devicePriority[_currentHorizontalBreakpoint] ?? 0;
+    return verticalPriority >= horizontalPriority
+        ? _currentVerticalBreakpoint
+        : _currentHorizontalBreakpoint;
+  }
 
-  void _updateBreakpoint() {
-    final width = ScreenSizeProvider().screenSize.width;
-    final newBreakpoint = breakpoints
+  void _updateBreakpoints() {
+    final size = ScreenSizeProvider().screenSize;
+    final width = size.width;
+    final height = size.height;
+
+    _currentVerticalBreakpoint =
+        _getBreakpoint(width, DeviceOrientation.vertical);
+    _currentHorizontalBreakpoint =
+        _getBreakpoint(height, DeviceOrientation.horizontal);
+
+    notifyListeners();
+  }
+
+  DeviceType _getBreakpoint(double size, DeviceOrientation orientation) {
+    return breakpoints
+        .where((bp) => bp.orientation == orientation)
         .firstWhere(
-          (bp) => width >= bp.start && width <= bp.end,
-          orElse: () => breakpoints.last,
+          (bp) => size >= bp.start && size <= bp.end,
+          orElse: () => breakpoints.firstWhere((bp) =>
+              bp.orientation == orientation && bp.end == double.infinity),
         )
         .name;
-
-    if (newBreakpoint != _currentBreakpoint) {
-      _currentBreakpoint = newBreakpoint;
-      notifyListeners();
-    }
   }
 
   bool smallerOrEqualTo(DeviceType breakpointName) {
-    return _currentBreakpoint.index <= breakpointName.index;
+    final orientation = _getOrientation(breakpointName);
+    final currentBreakpoint = orientation == DeviceOrientation.vertical
+        ? _currentVerticalBreakpoint
+        : _currentHorizontalBreakpoint;
+    return devicePriority[currentBreakpoint]! <=
+        devicePriority[breakpointName]!;
   }
 
   bool largerOrEqualTo(DeviceType breakpointName) {
-    return _currentBreakpoint.index >= breakpointName.index;
+    final orientation = _getOrientation(breakpointName);
+    final currentBreakpoint = orientation == DeviceOrientation.vertical
+        ? _currentVerticalBreakpoint
+        : _currentHorizontalBreakpoint;
+    return devicePriority[currentBreakpoint]! >=
+        devicePriority[breakpointName]!;
   }
 
   bool equalTo(DeviceType breakpointName) {
-    return _currentBreakpoint == breakpointName;
+    final orientation = _getOrientation(breakpointName);
+    final currentBreakpoint = orientation == DeviceOrientation.vertical
+        ? _currentVerticalBreakpoint
+        : _currentHorizontalBreakpoint;
+    return currentBreakpoint == breakpointName;
+  }
+
+  DeviceOrientation _getOrientation(DeviceType deviceType) {
+    return breakpoints.firstWhere((bp) => bp.name == deviceType).orientation;
   }
 }
 
@@ -183,41 +314,53 @@ class BreakpointBuilder extends StatelessWidget {
 }
 
 class SmallerOrEqualToScreenSize extends StatelessWidget {
-  final double maxWidth;
+  final double maxSize;
+  final DeviceOrientation orientation;
   final Widget Function(BuildContext context, bool isSmaller) builder;
 
   const SmallerOrEqualToScreenSize({
     super.key,
-    required this.maxWidth,
+    required this.maxSize,
+    this.orientation = DeviceOrientation.vertical,
     required this.builder,
   });
 
   @override
   Widget build(BuildContext context) {
     return Selector<ScreenSizeProvider, bool>(
-      selector: (_, screenSizeProvider) =>
-          screenSizeProvider.screenSize.width <= maxWidth,
+      selector: (_, screenSizeProvider) {
+        final size = orientation == DeviceOrientation.vertical
+            ? screenSizeProvider.screenSize.width
+            : screenSizeProvider.screenSize.height;
+        return size <= maxSize;
+      },
       builder: (context, isSmaller, child) => builder(context, isSmaller),
     );
   }
 }
 
 class GreaterOrEqualToScreenSize extends StatelessWidget {
-  final double minWidth;
-  final Widget Function(BuildContext context, bool isSmaller) builder;
+  final double minSize;
+  final DeviceOrientation orientation;
+  final Widget Function(BuildContext context, bool isGreater) builder;
 
   const GreaterOrEqualToScreenSize({
     super.key,
-    required this.minWidth,
+    required this.minSize,
+    this.orientation = DeviceOrientation.vertical,
     required this.builder,
   });
 
   @override
   Widget build(BuildContext context) {
     return Selector<ScreenSizeProvider, bool>(
-      selector: (_, screenSizeProvider) =>
-          screenSizeProvider.screenSize.width >= minWidth,
-      builder: (context, isSmaller, child) => builder(context, isSmaller),
+      selector: (_, screenSizeProvider) {
+        final size = orientation == DeviceOrientation.vertical
+            ? screenSizeProvider.screenSize.width
+            : screenSizeProvider.screenSize.height;
+        return size >= minSize;
+      },
+      builder: (context, isGreater, child) => builder(context, isGreater),
     );
   }
 }

@@ -36,7 +36,7 @@ class PlaybackControllerState extends State<PlaybackController> {
     final largeLayout = isCoverArtWall && r.smallerOrEqualTo(DeviceType.phone);
 
     return SmallerOrEqualToScreenSize(
-      maxWidth: 340,
+      maxSize: 340,
       builder: (context, isSmaller) {
         if (isSmaller) return const CoverArtDisk();
 

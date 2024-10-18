@@ -24,7 +24,7 @@ class SettingsTileTitle extends StatelessWidget {
     final theme = FluentTheme.of(context);
 
     return SmallerOrEqualToScreenSize(
-        maxWidth: 212,
+        maxSize: 212,
         builder: (context, isMini) {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.center,
