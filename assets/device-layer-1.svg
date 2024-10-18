@@ -1,1 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2" viewBox="0 0 6400 2814"><g transform="translate(0 -1796.01)"><path d="M0 1796.01h6400v2814H0z" style="fill:none"/><clipPath id="a"><path d="M0 1796.01h6400v2814H0z"/></clipPath><g clip-path="url(#a)"><path d="M1750.03 523.011h2814v5360h-2814z" style="fill:maroon" transform="rotate(-90 3178.52 3181.53)"/></g></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" width="100%" height="100%" fill-rule="evenodd" stroke-linejoin="round" stroke-miterlimit="2" clip-rule="evenodd" version="1.1" viewBox="0 0 5360 2814">
+  <path fill="maroon" d="M.001 2814.01V.01h5360v2814z"/>
+</svg>

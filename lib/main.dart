@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
-import 'package:window_manager/window_manager.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
@@ -37,9 +36,7 @@ import 'router.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!Platform.isAndroid) {
-    await windowManager.ensureInitialized();
-  }
+
   await FullScreen.ensureInitialized();
   await GetStorage.init();
   await GetStorage.init(MacSecureManager.storageName);
@@ -132,21 +129,14 @@ class Rune extends StatelessWidget {
           themeMode: appTheme.mode,
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
-          shortcuts: shortcuts,
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
-            focusTheme: FocusThemeData(
-              glowFactor: is10footScreen(context) ? 2.0 : 0.0,
-            ),
           ),
           theme: FluentThemeData(
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
-            focusTheme: FocusThemeData(
-              glowFactor: is10footScreen(context) ? 2.0 : 0.0,
-            ),
           ),
           locale: appTheme.locale,
           routerDelegate: router.routerDelegate,
@@ -161,7 +151,7 @@ class Rune extends StatelessWidget {
                   : Colors.transparent,
               child: Directionality(
                 textDirection: appTheme.textDirection,
-                child: child!,
+                child: Shortcuts(shortcuts: shortcuts, child: child!),
               ),
             );
           },

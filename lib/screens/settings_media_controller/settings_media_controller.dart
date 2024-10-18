@@ -3,6 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/settings_page_padding.dart';
+import '../../utils/settings_body_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
@@ -29,11 +31,9 @@ class _SettingsMediaControllerPageState
       const NavigationBarPlaceholder(),
       Expanded(
         child: UnavailablePageOnBand(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: SettingsPagePadding(
             child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: SettingsBodyPadding(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/navigation_bar/utils/activate_link_action.dart';
+
 class Tile extends StatefulWidget {
   const Tile({
     super.key,
@@ -20,28 +22,46 @@ class Tile extends StatefulWidget {
 
 class TileState extends State<Tile> {
   bool _isHovered = false;
-  final FocusNode _focusNode = FocusNode();
+  bool _isFocused = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _focusNode.addListener(() {
-      setState(() {});
-    });
-  }
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Tile');
 
   @override
   void dispose() {
-    _focusNode.dispose();
     super.dispose();
+    _focusNode.dispose();
+  }
+
+  void _handleFocusHighlight(bool value) {
+    setState(() {
+      _isFocused = value;
+    });
+  }
+
+  void _handleHoverHighlight(bool value) {
+    setState(() {
+      _isHovered = value;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     Color borderColor;
+    List<BoxShadow>? boxShadow;
+    double borderWidth = widget.borderWidth ?? 1;
 
-    if (_isHovered || _focusNode.hasFocus) {
+    if (_isFocused) {
+      borderColor = theme.accentColor;
+      boxShadow = [
+        BoxShadow(
+          color: theme.accentColor.withOpacity(0.5),
+          blurRadius: 10,
+          spreadRadius: 2,
+        ),
+      ];
+      borderWidth *= 2;
+    } else if (_isHovered) {
       borderColor = theme.resources.controlStrokeColorDefault;
     } else {
       borderColor = theme.resources.controlStrokeColorSecondary;
@@ -49,26 +69,28 @@ class TileState extends State<Tile> {
 
     return GestureDetector(
       onTap: widget.onPressed,
-      child: MouseRegion(
-        onEnter: (_) => setState(() => _isHovered = true),
-        onExit: (_) => setState(() => _isHovered = false),
-        child: FocusableActionDetector(
-          focusNode: _focusNode,
-          child: AnimatedContainer(
-            duration: theme.fastAnimationDuration,
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: borderColor,
-                width: widget.borderWidth ?? 1,
-              ),
-              borderRadius: BorderRadius.circular(widget.radius),
+      child: FocusableActionDetector(
+        focusNode: _focusNode,
+        onShowFocusHighlight: _handleFocusHighlight,
+        onShowHoverHighlight: _handleHoverHighlight,
+        actions: {
+          ActivateIntent: ActivateLinkAction(context, widget.onPressed),
+        },
+        child: AnimatedContainer(
+          duration: theme.fastAnimationDuration,
+          width: double.infinity,
+          height: double.infinity,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: borderColor,
+              width: borderWidth,
             ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(widget.radius - 1),
-              child: widget.child,
-            ),
+            borderRadius: BorderRadius.circular(widget.radius),
+            boxShadow: _isFocused ? boxShadow : null,
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(widget.radius - 1),
+            child: widget.child,
           ),
         ),
       ),

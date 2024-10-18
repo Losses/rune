@@ -1,10 +1,10 @@
-import 'package:rune/providers/status.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/format_time.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/cover_wall_button.dart';
+import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'conrtoller_progress_bar.dart';

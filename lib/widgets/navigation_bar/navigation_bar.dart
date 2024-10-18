@@ -1,7 +1,5 @@
-import 'dart:async';
-
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/navigation/navigation_item.dart';
@@ -10,8 +8,9 @@ import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../providers/responsive_providers.dart';
 
-import './flip_text.dart';
-import './flip_animation_manager.dart';
+import 'parent_link.dart';
+import 'slibing_link.dart';
+import 'flip_animation_manager.dart';
 
 const List<NavigationItem> emptySlibings = [];
 
@@ -85,29 +84,6 @@ class NavigationBarState extends State<NavigationBar> {
     await flipAnimation?.flipAnimation(from, to);
   }
 
-  List<Timer> _slibingAnimationFutures = [];
-  List<double> _slibingOpacities = [];
-  NavigationItem? _lastParent;
-  bool? _lastIsZune;
-
-  @override
-  void dispose() {
-    super.dispose();
-
-    _disposeAnimations();
-  }
-
-  _disposeAnimations() {
-    for (final x in _slibingAnimationFutures) {
-      x.cancel();
-    }
-  }
-
-  _resetAnimations() {
-    _slibingAnimationFutures = [];
-    _slibingOpacities = [];
-  }
-
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
@@ -126,20 +102,13 @@ class NavigationBarState extends State<NavigationBar> {
         final Widget parentWidget = parent != null
             ? Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: GestureDetector(
-                  onTap: () async {
-                    _onHeaderTap(context, parent);
-                  },
-                  child: SizedBox(
-                    height: 80,
-                    width: 320,
-                    child: FlipText(
-                      key: Key(titleFlipKey),
-                      flipKey: titleFlipKey,
-                      text: parent.title,
-                      scale: 6,
-                      alpha: 80,
-                    ),
+                child: SizedBox(
+                  height: 80,
+                  width: 320,
+                  child: ParentLink(
+                    titleFlipKey: titleFlipKey,
+                    text: parent.title,
+                    onPressed: () => _onHeaderTap(context, parent),
                   ),
                 ),
               )
@@ -150,35 +119,8 @@ class NavigationBarState extends State<NavigationBar> {
             ? baseSlibings
             : baseSlibings.where((x) => !x.zuneOnly).toList();
 
-        if (parent != _lastParent || isZune != _lastIsZune) {
-          _lastParent = parent;
-          _lastIsZune = isZune;
-          _disposeAnimations();
-          _resetAnimations();
-
-          int itemIndex = validSlibings.indexWhere((route) => route == item);
-
-          validSlibings.asMap().entries.forEach((entry) {
-            final index = entry.key;
-            final isCurrent = itemIndex == index;
-
-            if (!isCurrent) {
-              final delay = ((index - itemIndex - 1).abs() * 100);
-              _slibingOpacities.add(0);
-
-              final timer = Timer(Duration(milliseconds: delay), () {
-                if (mounted) {
-                  setState(() {
-                    _slibingOpacities[index] = 1;
-                  });
-                }
-              });
-              _slibingAnimationFutures.add(timer);
-            } else {
-              _slibingOpacities.add(1);
-            }
-          });
-        }
+        final int currentItemIndex =
+            validSlibings.indexWhere((route) => route == item);
 
         final childrenWidget = SmoothHorizontalScroll(
           builder: (context, scrollController) => SingleChildScrollView(
@@ -190,27 +132,20 @@ class NavigationBarState extends State<NavigationBar> {
               children: validSlibings.toList().asMap().entries.map(
                 (entry) {
                   final route = entry.value;
-                  final childFlipKey = 'child:${route.path}';
 
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 24),
-                    child: GestureDetector(
-                      onTap: () async {
-                        _onRouteSelected(route);
-                      },
-                      child: AnimatedOpacity(
-                        key: Key('animation-$childFlipKey'),
-                        opacity: _slibingOpacities[entry.key],
-                        duration: const Duration(milliseconds: 300),
-                        child: FlipText(
-                          key: Key(childFlipKey),
-                          flipKey: childFlipKey,
-                          text: route.title,
-                          scale: 1.2,
-                          alpha: route == item ? 255 : 100,
-                        ),
-                      ),
-                    ),
+                  final index = entry.key;
+                  final isCurrent = currentItemIndex == index;
+
+                  final int? delay = !isCurrent
+                      ? ((index - currentItemIndex).abs() * 100)
+                      : null;
+
+                  return SlibingLink(
+                    key: ValueKey('${parent?.path}/${route.path}'),
+                    route: route,
+                    isSelected: route == item,
+                    delay: delay,
+                    onTap: () => _onRouteSelected(route),
                   );
                 },
               ).toList(),
@@ -225,13 +160,15 @@ class NavigationBarState extends State<NavigationBar> {
             if (isZune || !isSearch)
               Transform.translate(
                 offset: const Offset(0, -40),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    parentWidget,
-                    childrenWidget,
-                  ],
+                child: FocusTraversalGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      parentWidget,
+                      childrenWidget,
+                    ],
+                  ),
                 ),
               ),
             if (!isZune)

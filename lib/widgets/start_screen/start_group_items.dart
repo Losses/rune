@@ -36,14 +36,14 @@ class StartGroupItems<T> extends StatelessWidget {
 
   static Dimensions _defaultDimensionCalculator(
       double containerHeight, double cellSize, double gapSize, List items) {
-    final int rows = (containerHeight / (cellSize + gapSize)).floor();
+    final int rows = (containerHeight / (cellSize + gapSize)).floor().clamp(1, 0x7FFFFFFFFFFFFFFF);
     final int columns = (items.length / rows).ceil();
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
   static Dimensions _squareDimensionCalculator(
       double containerHeight, double cellSize, double gapSize, List items) {
-    final int rows = (containerHeight / (cellSize + gapSize)).floor();
+    final int rows = (containerHeight / (cellSize + gapSize)).floor().clamp(1, 0x7FFFFFFFFFFFFFFF);
     final int maxItems =
         min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
     final int columns = min((maxItems / rows).ceil(), rows);

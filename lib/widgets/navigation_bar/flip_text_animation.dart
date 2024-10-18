@@ -7,13 +7,17 @@ import '../../utils/lerp_controller.dart';
 import './utils/text_style_sheet.dart';
 
 class FlipTextAnimation extends StatefulWidget {
-  final TextStyleSheet fromStyles;
-  final TextStyleSheet toStyles;
+  final FlipTextPositions fromPositions;
+  final FlipTextPositions toPositions;
+  final FlipTextStyles fromStyles;
+  final FlipTextStyles toStyles;
   final String text;
   final VoidCallback onAnimationComplete;
 
   const FlipTextAnimation({
     super.key,
+    required this.fromPositions,
+    required this.toPositions,
     required this.fromStyles,
     required this.toStyles,
     required this.text,
@@ -42,11 +46,12 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
   void initState() {
     super.initState();
 
-    x = widget.fromStyles.position.dx;
-    y = widget.fromStyles.position.dy;
+    x = widget.fromPositions.position.dx;
+    y = widget.fromPositions.position.dy;
     scale = widget.fromStyles.scale;
-    alpha = widget.fromStyles.color.alpha.toDouble();
-    fontWeight = widget.fromStyles.fontWeight;
+    alpha = widget.fromStyles.alpha?.toDouble() ?? 255.0;
+    fontWeight =
+        widget.fromStyles.fontWeight ?? FontWeight.normal.value.toDouble();
 
     _positionXController = LerpController(
       initialValue: x,
@@ -103,11 +108,12 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
 
   Future<void> _startAnimation() async {
     List<Future<void>> futures = [
-      _positionXController.lerp(widget.toStyles.position.dx),
-      _positionYController.lerp(widget.toStyles.position.dy),
+      _positionXController.lerp(widget.toPositions.position.dx),
+      _positionYController.lerp(widget.toPositions.position.dy),
       _scaleController.lerp(widget.toStyles.scale),
-      _alphaController.lerp(widget.toStyles.color.alpha.toDouble()),
-      _fontWeightController.lerp(widget.toStyles.fontWeight),
+      _alphaController.lerp(widget.toStyles.alpha?.toDouble() ?? 255),
+      _fontWeightController.lerp(
+          widget.toStyles.fontWeight ?? FontWeight.normal.value.toDouble()),
     ];
 
     await Future.wait(futures);
@@ -131,17 +137,16 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
       left: x,
       top: y,
       child: Transform.scale(
-          scale: scale,
-          alignment: Alignment.topLeft,
-          child: Text(
-            widget.text,
-            style: TextStyle(
-              fontVariations: <FontVariation>[
-                FontVariation('wght', fontWeight)
-              ],
-              color: widget.toStyles.color.withAlpha(alpha.toInt()),
-            ),
-          )),
+        scale: scale,
+        alignment: Alignment.topLeft,
+        child: Text(
+          widget.text,
+          style: TextStyle(
+            fontVariations: <FontVariation>[FontVariation('wght', fontWeight)],
+            color: (widget.toStyles.color ?? widget.fromStyles.color)?.withAlpha(alpha.toInt()),
+          ),
+        ),
+      ),
     );
   }
 }

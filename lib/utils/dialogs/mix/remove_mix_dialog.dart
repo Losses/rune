@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../api/remove_mix.dart';
 
-import '../unavailable_dialog_on_band.dart';
+import '../remove_dialog_on_band.dart';
 
 Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
   final result = await showDialog<bool>(
@@ -28,9 +28,21 @@ class RemoveMixDialog extends StatefulWidget {
 class _RemoveMixDialogState extends State<RemoveMixDialog> {
   bool isLoading = false;
 
+  void _onConfirm() async {
+    setState(() {
+      isLoading = true;
+    });
+    await removeMix(widget.mixId);
+
+    if (!mounted) return;
+
+    Navigator.pop(context, true);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return UnavailableDialogOnBand(
+    return RemoveDialogOnBand(
+      onConfirm: _onConfirm,
       child: ContentDialog(
         title: const Column(
           children: [
@@ -43,18 +55,7 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
         ),
         actions: [
           Button(
-            onPressed: isLoading
-                ? null
-                : () async {
-                    setState(() {
-                      isLoading = true;
-                    });
-                    await removeMix(widget.mixId);
-
-                    if (!context.mounted) return;
-
-                    Navigator.pop(context, true);
-                  },
+            onPressed: isLoading ? null : _onConfirm,
             child: const Text('Delete'),
           ),
           FilledButton(

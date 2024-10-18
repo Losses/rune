@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/providers/responsive_providers.dart';
+
+import '../../providers/responsive_providers.dart';
 
 class UnavailableDialogOnBand extends StatelessWidget {
   const UnavailableDialogOnBand({
