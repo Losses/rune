@@ -274,7 +274,7 @@ class ResponsiveProvider extends ChangeNotifier {
     final a = breakpoints[currentBreakpoint]!;
     final b = breakpoints[breakpointName]!;
 
-    return a.end <= b.start;
+    return a.start <= b.start;
   }
 
   bool largerOrEqualTo(DeviceType breakpointName) {
@@ -286,7 +286,7 @@ class ResponsiveProvider extends ChangeNotifier {
     final a = breakpoints[currentBreakpoint]!;
     final b = breakpoints[breakpointName]!;
 
-    return a.start >= b.end;
+    return a.end >= b.end;
   }
 
   bool equalTo(DeviceType breakpointName) {
