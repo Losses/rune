@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:provider/provider.dart';
+import 'package:rune/widgets/navigation_bar/page_content_frame.dart';
 
 import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
@@ -54,40 +55,35 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     return Consumer<LibraryPathProvider>(builder: (context, provider, child) {
-      return Column(
-        children: [
-          const NavigationBarPlaceholder(),
-          Expanded(
-            child: Center(
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (provider.currentPath != null)
-                      Text('Current Path: ${provider.currentPath}'),
-                    if (provider.currentPath == null)
-                      Button(
-                        onPressed: () async {
-                          final result = await getDirectoryPath();
+      return PageContentFrame(
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (provider.currentPath != null)
+                Text('Current Path: ${provider.currentPath}'),
+              if (provider.currentPath == null)
+                Button(
+                  onPressed: () async {
+                    final result = await getDirectoryPath();
 
-                          if (result == null) {
-                            return;
-                          }
-                          await provider.setLibraryPath(result);
-                        },
-                        child: const Text("Create Library"),
-                      ),
-                    if (provider.currentPath == null)
-                      Button(
-                        onPressed: () async {
-                          await showHistoryDialog(context, provider);
-                        },
-                        child: const Text("Select from History"),
-                      ),
-                  ]),
-            ),
+                    if (result == null) {
+                      return;
+                    }
+                    await provider.setLibraryPath(result);
+                  },
+                  child: const Text("Create Library"),
+                ),
+              if (provider.currentPath == null)
+                Button(
+                  onPressed: () async {
+                    await showHistoryDialog(context, provider);
+                  },
+                  child: const Text("Select from History"),
+                ),
+            ],
           ),
-          const ControllerPlaceholder(),
-        ],
+        ),
       );
     });
   }

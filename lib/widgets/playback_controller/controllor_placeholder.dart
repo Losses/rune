@@ -10,17 +10,20 @@ class ControllerPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return SmallerOrEqualTo(
-      breakpoint: DeviceType.band,
-      builder: (context, isBand) {
-        if (isBand) {
-          return LayoutBuilder(builder: (context, constraints) {
-            return SizedBox(height: constraints.maxWidth / 3 + bottomInset);
-          });
-        } else {
-          return SizedBox(height: playbackControllerHeight + bottomInset);
-        }
-      },
+    return IgnorePointer(
+      ignoring: true,
+      child: SmallerOrEqualTo(
+        breakpoint: DeviceType.band,
+        builder: (context, isBand) {
+          if (isBand) {
+            return LayoutBuilder(builder: (context, constraints) {
+              return SizedBox(height: constraints.maxWidth / 3 + bottomInset);
+            });
+          } else {
+            return SizedBox(height: playbackControllerHeight + bottomInset);
+          }
+        },
+      ),
     );
   }
 }
