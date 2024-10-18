@@ -125,6 +125,23 @@ Widget buildTrackItemContextMenu(
             instantlyPlay: true,
             replacePlaylist: true,
             fallbackFileIds: [],
+            nextPlay: false,
+          );
+        },
+      ),
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.playlist_add),
+        text: const Text('Add to Next'),
+        onPressed: () async {
+          operatePlaybackWithMixQuery(
+            queries: QueryList(queries),
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: 0,
+            instantlyPlay: false,
+            replacePlaylist: false,
+            fallbackFileIds: [],
+            nextPlay: true,
           );
         },
       ),
@@ -140,6 +157,7 @@ Widget buildTrackItemContextMenu(
             instantlyPlay: false,
             replacePlaylist: false,
             fallbackFileIds: [],
+            nextPlay: false,
           );
         },
       ),
@@ -278,6 +296,25 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           instantlyPlay: true,
           replacePlaylist: true,
           fallbackFileIds: [],
+          nextPlay: false,
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Add to Next',
+        child: Icon(Symbols.playlist_add),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+          fallbackFileIds: [],
+          nextPlay: true,
         );
       },
     ),
@@ -295,6 +332,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           instantlyPlay: false,
           replacePlaylist: false,
           fallbackFileIds: [],
+          nextPlay: false,
         );
       },
     ),

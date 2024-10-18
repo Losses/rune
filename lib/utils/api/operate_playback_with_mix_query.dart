@@ -13,6 +13,7 @@ Future<List<int>> operatePlaybackWithMixQuery({
   required bool instantlyPlay,
   required bool replacePlaylist,
   required List<int> fallbackFileIds,
+  required bool nextPlay,
 }) async {
   OperatePlaybackWithMixQueryRequest(
     queries: queries.toQueryList(),
@@ -22,6 +23,7 @@ Future<List<int>> operatePlaybackWithMixQuery({
     instantlyPlay: instantlyPlay,
     replacePlaylist: replacePlaylist,
     fallbackMediaFileIds: fallbackFileIds,
+    nextPlay: nextPlay,
   ).sendSignalToRust();
 
   final rustSignal =
@@ -51,6 +53,7 @@ Future<List<int>> safeOperatePlaybackWithMixQuery({
     instantlyPlay: instantlyPlay,
     replacePlaylist: replacePlaylist,
     fallbackFileIds: fallbackFileIds,
+    nextPlay: false,
   );
 
   if (result.isEmpty && hasRecommendation && context.mounted) {
