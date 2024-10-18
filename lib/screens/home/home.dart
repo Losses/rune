@@ -1,10 +1,8 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:provider/provider.dart';
-import 'package:rune/widgets/navigation_bar/page_content_frame.dart';
 
-import '../../widgets/playback_controller/controllor_placeholder.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 
 class HomePage extends StatefulWidget {
