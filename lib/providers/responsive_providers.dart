@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -40,13 +41,11 @@ const Map<DeviceType, int> devicePriority = {
 class ResponsiveBreakpoint {
   final double start;
   final double end;
-  final DeviceType name;
   final DeviceOrientation orientation;
 
   const ResponsiveBreakpoint({
     required this.start,
     required this.end,
-    required this.name,
     required this.orientation,
   });
 }
@@ -101,74 +100,63 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 }
 
 class ResponsiveProvider extends ChangeNotifier {
-  static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(
+  static const Map<DeviceType, ResponsiveBreakpoint> breakpoints = {
+    DeviceType.dock: ResponsiveBreakpoint(
       start: 0,
       end: 120,
-      name: DeviceType.dock,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.zune: ResponsiveBreakpoint(
       start: 121,
       end: 320,
-      name: DeviceType.zune,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.phone: ResponsiveBreakpoint(
       start: 321,
       end: 480,
-      name: DeviceType.phone,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.mobile: ResponsiveBreakpoint(
       start: 481,
       end: 650,
-      name: DeviceType.mobile,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.tablet: ResponsiveBreakpoint(
       start: 651,
       end: 800,
-      name: DeviceType.tablet,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.desktop: ResponsiveBreakpoint(
       start: 801,
       end: 1920,
-      name: DeviceType.desktop,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.tv: ResponsiveBreakpoint(
       start: 1921,
       end: double.infinity,
-      name: DeviceType.tv,
       orientation: DeviceOrientation.vertical,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.band: ResponsiveBreakpoint(
       start: 0,
       end: 120,
-      name: DeviceType.band,
       orientation: DeviceOrientation.horizontal,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.fish: ResponsiveBreakpoint(
       start: 121,
       end: 320,
-      name: DeviceType.fish,
       orientation: DeviceOrientation.horizontal,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.car: ResponsiveBreakpoint(
       start: 321,
       end: 650,
-      name: DeviceType.car,
       orientation: DeviceOrientation.horizontal,
     ),
-    ResponsiveBreakpoint(
+    DeviceType.station: ResponsiveBreakpoint(
       start: 651,
       end: double.infinity,
-      name: DeviceType.station,
       orientation: DeviceOrientation.horizontal,
     ),
-  ];
+  };
 
   DeviceType _currentVerticalBreakpoint = DeviceType.desktop;
   DeviceType _currentHorizontalBreakpoint = DeviceType.station;
@@ -201,28 +189,33 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   DeviceType _getBreakpoint(double size, DeviceOrientation orientation) {
-    return breakpoints
-        .where((bp) => bp.orientation == orientation)
+    return breakpoints.entries
+        .where((entry) => entry.value.orientation == orientation)
         .firstWhere(
-          (bp) => size >= bp.start && size <= bp.end,
-          orElse: () => breakpoints.firstWhere((bp) =>
-              bp.orientation == orientation && bp.end == double.infinity),
+          (entry) => size >= entry.value.start && size <= entry.value.end,
+          orElse: () => breakpoints.entries.firstWhere((entry) =>
+              entry.value.orientation == orientation &&
+              entry.value.end == double.infinity),
         )
-        .name;
+        .key;
   }
 
   DeviceType getActiveBreakpoint(List<DeviceType> breakpoints) {
     final verticalBreakpoints = breakpoints
-        .where((bp) => _getOrientation(bp) == DeviceOrientation.vertical)
+        .where((bp) => getOrientation(bp) == DeviceOrientation.vertical)
         .toList();
     final horizontalBreakpoints = breakpoints
-        .where((bp) => _getOrientation(bp) == DeviceOrientation.horizontal)
+        .where((bp) => getOrientation(bp) == DeviceOrientation.horizontal)
         .toList();
 
     DeviceType? verticalActive = _getActiveForOrientation(
-        verticalBreakpoints, _currentVerticalBreakpoint);
+      verticalBreakpoints,
+      _currentVerticalBreakpoint,
+    );
     DeviceType? horizontalActive = _getActiveForOrientation(
-        horizontalBreakpoints, _currentHorizontalBreakpoint);
+      horizontalBreakpoints,
+      _currentHorizontalBreakpoint,
+    );
 
     if (verticalActive != null && horizontalActive != null) {
       return devicePriority[verticalActive]! >=
@@ -239,88 +232,135 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   DeviceType? _getActiveForOrientation(
-      List<DeviceType> breakpoints, DeviceType currentBreakpoint) {
-    if (breakpoints.isEmpty) return null;
-    return breakpoints.lastWhere(
-      (bp) => devicePriority[currentBreakpoint]! >= devicePriority[bp]!,
-      orElse: () => breakpoints.first,
-    );
+    List<DeviceType> x,
+    DeviceType currentBreakpoint,
+  ) {
+    if (x.isEmpty) return null;
+
+    // Filter the breakpoints to only include those in the list `x`
+    final filteredBreakpoints =
+        breakpoints.entries.where((entry) => x.contains(entry.key)).toList();
+
+    // If no breakpoints match, return null
+    if (filteredBreakpoints.isEmpty) return null;
+
+    // Find the last breakpoint where a.end <= b.start
+    DeviceType? result;
+    for (final entry in filteredBreakpoints.reversed) {
+      final a = breakpoints[currentBreakpoint]!;
+      final b = entry.value;
+
+      if (a.start > b.start) {
+        return result;
+      }
+
+      result = entry.key;
+    }
+
+    // Return null if no suitable breakpoint is found
+    return filteredBreakpoints[0].key;
+  }
+
+  static DeviceOrientation getOrientation(DeviceType deviceType) {
+    return breakpoints[deviceType]!.orientation;
   }
 
   bool smallerOrEqualTo(DeviceType breakpointName) {
-    final orientation = _getOrientation(breakpointName);
+    final orientation = getOrientation(breakpointName);
     final currentBreakpoint = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
-    return devicePriority[currentBreakpoint]! <=
-        devicePriority[breakpointName]!;
+
+    final a = breakpoints[currentBreakpoint]!;
+    final b = breakpoints[breakpointName]!;
+
+    return a.end <= b.start;
   }
 
   bool largerOrEqualTo(DeviceType breakpointName) {
-    final orientation = _getOrientation(breakpointName);
+    final orientation = getOrientation(breakpointName);
     final currentBreakpoint = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
-    return devicePriority[currentBreakpoint]! >=
-        devicePriority[breakpointName]!;
+
+    final a = breakpoints[currentBreakpoint]!;
+    final b = breakpoints[breakpointName]!;
+
+    return a.start >= b.end;
   }
 
   bool equalTo(DeviceType breakpointName) {
-    final orientation = _getOrientation(breakpointName);
+    final orientation = getOrientation(breakpointName);
     final currentBreakpoint = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
-    return currentBreakpoint == breakpointName;
-  }
 
-  DeviceOrientation _getOrientation(DeviceType deviceType) {
-    return breakpoints.firstWhere((bp) => bp.name == deviceType).orientation;
+    final a = breakpoints[currentBreakpoint];
+    final b = breakpoints[breakpointName];
+
+    return a == b;
   }
 }
 
 class SmallerOrEqualTo extends StatelessWidget {
   final DeviceType breakpoint;
-  final Widget Function(BuildContext context, bool isTrue) builder;
+  final Widget Function(BuildContext context, bool matches) builder;
 
-  const SmallerOrEqualTo(
-      {super.key, required this.breakpoint, required this.builder});
+  const SmallerOrEqualTo({
+    super.key,
+    required this.breakpoint,
+    required this.builder,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Selector<ResponsiveProvider, bool>(
-      selector: (_, provider) => provider.smallerOrEqualTo(breakpoint),
-      builder: (context, isTrue, child) => builder(context, isTrue),
+      selector: (_, provider) {
+        return provider.smallerOrEqualTo(breakpoint);
+      },
+      builder: (context, matches, child) => builder(context, matches),
     );
   }
 }
 
 class LargerOrEqualTo extends StatelessWidget {
   final DeviceType breakpoint;
-  final Widget Function(BuildContext context, bool isTrue) builder;
+  final Widget Function(BuildContext context, bool matches) builder;
 
-  const LargerOrEqualTo(
-      {super.key, required this.breakpoint, required this.builder});
+  const LargerOrEqualTo({
+    super.key,
+    required this.breakpoint,
+    required this.builder,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Selector<ResponsiveProvider, bool>(
-      selector: (_, provider) => provider.largerOrEqualTo(breakpoint),
-      builder: (context, isTrue, child) => builder(context, isTrue),
+      selector: (_, provider) {
+        return provider.largerOrEqualTo(breakpoint);
+      },
+      builder: (context, matches, child) => builder(context, matches),
     );
   }
 }
 
 class EqualTo extends StatelessWidget {
   final DeviceType breakpoint;
-  final Widget Function(BuildContext context, bool isTrue) builder;
+  final Widget Function(BuildContext context, bool matches) builder;
 
-  const EqualTo({super.key, required this.breakpoint, required this.builder});
+  const EqualTo({
+    super.key,
+    required this.breakpoint,
+    required this.builder,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Selector<ResponsiveProvider, bool>(
-      selector: (_, provider) => provider.equalTo(breakpoint),
-      builder: (context, isTrue, child) => builder(context, isTrue),
+      selector: (_, provider) {
+        return provider.equalTo(breakpoint);
+      },
+      builder: (context, matches, child) => builder(context, matches),
     );
   }
 }
