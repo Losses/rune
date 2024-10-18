@@ -1,21 +1,19 @@
 import 'dart:io';
 
-import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
-import 'package:rune/widgets/playback_controller/cover_art_disk.dart';
-import 'package:rune/widgets/rune_stack.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
 
 import 'routes/welcome.dart' as welcome;
 
+import 'widgets/rune_stack.dart';
+import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/navigation_bar/back_button.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
-import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
 import 'providers/library_path.dart';
