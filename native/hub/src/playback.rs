@@ -247,9 +247,15 @@ pub async fn operate_playback_with_mix_query_request(
 
     let mut file_ids: Vec<i32> = tracks.iter().map(|x| x.id).collect();
 
+    if request.next_play {
+        player.add_to_next(files_to_playback_request(&lib_path, tracks));
+        OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
+        return Ok(());
+    }
+
     // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
-        player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+        player.add_to_playlist(files_to_playback_request(&lib_path, tracks), None);
         OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
         return Ok(());
     }
@@ -271,7 +277,7 @@ pub async fn operate_playback_with_mix_query_request(
     let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
 
     // Add to playlist
-    player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+    player.add_to_playlist(files_to_playback_request(&lib_path, tracks), None);
     OperatePlaybackWithMixQueryResponse {
         file_ids: file_ids.clone(),
     }

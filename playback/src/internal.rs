@@ -59,6 +59,10 @@ pub enum PlayerCommand {
     Seek(f64),
     AddToPlaylist {
         tracks: Vec<(i32, std::path::PathBuf)>,
+        index: Option<usize>,
+    },
+    AddToNext {
+        tracks: Vec<(i32, std::path::PathBuf)>,
     },
     RemoveFromPlaylist {
         index: usize,
@@ -219,7 +223,8 @@ impl PlayerInternal {
                         PlayerCommand::Previous => self.previous(),
                         PlayerCommand::Switch(index) => self.switch(index),
                         PlayerCommand::Seek(position) => self.seek(position),
-                        PlayerCommand::AddToPlaylist{ tracks } => self.add_to_playlist(tracks).await,
+                        PlayerCommand::AddToPlaylist{ tracks, index } => self.add_to_playlist(tracks, index).await,
+                        PlayerCommand::AddToNext{ tracks } => self.add_to_next(tracks).await,
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                         PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await,
@@ -502,14 +507,50 @@ impl PlayerInternal {
         }
     }
 
-    async fn add_to_playlist(&mut self, tracks: Vec<(i32, std::path::PathBuf)>) {
+    // async fn add_to_playlist(&mut self, tracks: Vec<(i32, std::path::PathBuf)>) {
+    //     debug!("Adding tracks to playlist");
+    //     for track in tracks {
+    //         self.playlist.push(PlaylistItem {
+    //             id: track.0,
+    //             path: track.1,
+    //         });
+    //     }
+    //     self.update_random_map();
+    //     self.schedule_playlist_update();
+    // }
+
+    async fn add_to_next(&mut self, tracks: Vec<(i32, std::path::PathBuf)>) {
         debug!("Adding tracks to playlist");
-        for track in tracks {
-            self.playlist.push(PlaylistItem {
-                id: track.0,
-                path: track.1,
-            });
+        let current_index = self.current_track_index.unwrap_or(0);
+        self.add_to_playlist(tracks, Some(current_index + 1)).await;
+    }
+
+    async fn add_to_playlist(
+        &mut self,
+        tracks: Vec<(i32, std::path::PathBuf)>,
+        index: Option<usize>,
+    ) {
+        debug!("Adding tracks to playlist");
+
+        // print index
+        warn!("Index: {:?}", index);
+        warn!("Playlist: {:?}", self.playlist.len());
+
+        let mut insert_position = index.unwrap_or(self.playlist.len());
+
+        if insert_position > self.playlist.len() {
+            warn!("Specified index is out of bounds, appending to the end");
+            insert_position = self.playlist.len();
         }
+
+        let new_items: Vec<PlaylistItem> = tracks
+            .into_iter()
+            .map(|(id, path)| PlaylistItem { id, path })
+            .collect();
+
+        self.playlist
+            .splice(insert_position..insert_position, new_items);
+
         self.update_random_map();
         self.schedule_playlist_update();
     }

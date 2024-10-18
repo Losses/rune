@@ -49,6 +49,7 @@ class TrackSearchItem extends SearchCard {
       replacePlaylist: true,
       instantlyPlay: true,
       fallbackFileIds: fallbackFileIds,
+      nextPlay: false,
     );
   }
 

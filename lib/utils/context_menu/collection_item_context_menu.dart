@@ -185,6 +185,24 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           instantlyPlay: true,
           replacePlaylist: true,
           fallbackFileIds: fallbackFileIds,
+          nextPlay: false,
+        );
+      },
+    ),
+    MenuFlyoutItem(
+      leading: const Icon(Symbols.playlist_add),
+      text: const Text('Add to Next'),
+      onPressed: () async {
+        print(queries);
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+          fallbackFileIds: [],
+          nextPlay: true,
         );
       },
     ),
@@ -200,6 +218,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           instantlyPlay: false,
           replacePlaylist: false,
           fallbackFileIds: [],
+          nextPlay: false,
         );
       },
     ),
@@ -312,6 +331,25 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
           instantlyPlay: true,
           replacePlaylist: true,
           fallbackFileIds: fallbackFileIds,
+          nextPlay: false,
+        );
+      },
+    ),
+    CommandBarButton(
+      icon: const Tooltip(
+        message: 'Add to Next',
+        child: Icon(Symbols.playlist_add),
+      ),
+      onPressed: () async {
+        operatePlaybackWithMixQuery(
+          queries: QueryList(queries),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: 0,
+          instantlyPlay: false,
+          replacePlaylist: false,
+          fallbackFileIds: [],
+          nextPlay: true,
         );
       },
     ),
@@ -329,6 +367,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
           instantlyPlay: false,
           replacePlaylist: false,
           fallbackFileIds: [],
+          nextPlay: false,
         );
       },
     ),

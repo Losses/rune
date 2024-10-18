@@ -92,6 +92,7 @@ message OperatePlaybackWithMixQueryRequest {
     int32 hint_position = 3;
     int32 initial_playback_id = 4;
     bool instantly_play = 5;
+    bool next_play = 8; // this flag will be override by instantly_play
     bool replace_playlist = 6;
     repeated int32 fallback_media_file_ids = 7;
 }
