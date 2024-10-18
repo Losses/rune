@@ -1,8 +1,9 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
-import 'package:rune/providers/responsive_providers.dart';
-import 'package:rune/widgets/navigation_bar/navigation_bar_placeholder.dart';
-import 'package:rune/widgets/playback_controller/constants/playback_controller_height.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
+import '../../widgets/navigation_bar/constants/navigation_bar_height.dart';
+import '../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../providers/responsive_providers.dart';
 
 class PageContentFrame extends StatefulWidget {
   const PageContentFrame({
