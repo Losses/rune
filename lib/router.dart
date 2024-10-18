@@ -228,9 +228,9 @@ final router = GoRouter(
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
                   child: SmallerOrEqualTo(
-                    breakpoint: DeviceType.band,
-                    builder: (context, isBand) {
-                      if (!isBand) return const NavigationBar();
+                    breakpoint: DeviceType.dock,
+                    builder: (context, isDock) {
+                      if (!isDock) return const NavigationBar();
 
                       return const BackButton();
                     },

@@ -16,9 +16,9 @@ class _CoverWallPageState extends State<CoverWallPage> {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.band,
-      builder: (context, isBand) {
-        if (isBand) {
+      breakpoint: DeviceType.dock,
+      builder: (context, isDock) {
+        if (isDock) {
           return const BandScreenCoverWallView();
         }
 

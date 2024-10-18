@@ -16,9 +16,9 @@ class UnavailableDialogOnBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.band,
-      builder: (context, isBand) {
-        if (isBand) {
+      breakpoint: DeviceType.dock,
+      builder: (context, isDock) {
+        if (isDock) {
           return Column(
             mainAxisSize: MainAxisSize.max,
             mainAxisAlignment: MainAxisAlignment.center,

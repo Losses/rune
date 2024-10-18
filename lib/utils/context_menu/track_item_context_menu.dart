@@ -44,10 +44,10 @@ void openTrackItemContextMenu(
 
   if (!context.mounted) return;
 
-  final isBand = Provider.of<ResponsiveProvider>(context, listen: false)
-      .smallerOrEqualTo(DeviceType.band);
+  final isDock = Provider.of<ResponsiveProvider>(context, listen: false)
+      .smallerOrEqualTo(DeviceType.dock);
 
-  if (isBand) {
+  if (isDock) {
     contextController.showFlyout(
       position: position,
       builder: (context) {

@@ -36,7 +36,7 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     return BreakpointBuilder(
       breakpoints: const [
-        DeviceType.band,
+        DeviceType.dock,
         DeviceType.zune,
         DeviceType.tablet,
         DeviceType.tv
@@ -239,7 +239,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       );
     }
 
-    if (widget.deviceType == DeviceType.band) {
+    if (widget.deviceType == DeviceType.dock) {
       return PageContentFrame(
         child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
           value: bandScreenLayoutManager,

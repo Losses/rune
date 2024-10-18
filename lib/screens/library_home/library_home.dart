@@ -37,18 +37,18 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
       child: SmallerOrEqualTo(
-        breakpoint: DeviceType.band,
-        builder: (context, isBand) {
+        breakpoint: DeviceType.dock,
+        builder: (context, isDock) {
           return PageContentFrame(
-            top: !isBand,
+            top: !isDock,
             child: BreakpointBuilder(
               breakpoints: const [
-                DeviceType.band,
+                DeviceType.dock,
                 DeviceType.zune,
                 DeviceType.tv
               ],
               builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.band) {
+                if (activeBreakpoint == DeviceType.dock) {
                   return BandScreenLibraryHomeListView(
                     layoutManager: _layoutManager,
                   );

@@ -35,8 +35,8 @@ class FlipTile extends StatelessWidget {
     return Tile(
       onPressed: onPressed,
       child: SmallerOrEqualTo(
-        breakpoint: DeviceType.band,
-        builder: (context, isBand) {
+        breakpoint: DeviceType.dock,
+        builder: (context, isDock) {
           final coverArts = paths != null
               ? paths!.isNotEmpty
                   ? FastFlipCoverGrid(
@@ -52,7 +52,7 @@ class FlipTile extends StatelessWidget {
                     )
               : Container();
 
-          if (isBand) return coverArts;
+          if (isDock) return coverArts;
 
           return Stack(
             alignment: Alignment.bottomLeft,

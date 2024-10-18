@@ -73,9 +73,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   @override
   Widget build(BuildContext context) {
     return BreakpointBuilder(
-      breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
+      breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
       builder: (context, activeBreakpoint) {
-        if (activeBreakpoint == DeviceType.band) {
+        if (activeBreakpoint == DeviceType.dock) {
           return BandScreenTrackList(
             pagingController: _pagingController,
             queries: widget.queries,

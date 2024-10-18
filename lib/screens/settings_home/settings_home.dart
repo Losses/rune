@@ -31,9 +31,9 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
       value: _layoutManager,
       child: PageContentFrame(
         child: BreakpointBuilder(
-          breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
+          breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
           builder: (context, activeBreakpoint) {
-            if (activeBreakpoint == DeviceType.band) {
+            if (activeBreakpoint == DeviceType.dock) {
               return BandScreenLibraryHomeListView(
                   layoutManager: _layoutManager);
             }

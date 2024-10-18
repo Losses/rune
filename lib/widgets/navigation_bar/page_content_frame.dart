@@ -38,7 +38,7 @@ class PageContentFrameState extends State<PageContentFrame> {
     final screen = Provider.of<ScreenSizeProvider>(context);
 
     if (widget.top) {
-      if (responsive.smallerOrEqualTo(DeviceType.band)) {
+      if (responsive.smallerOrEqualTo(DeviceType.dock)) {
         top = bandNavigationBarHeight + inset.top;
       } else {
         top = fullNavigationBarHeight + inset.top;
@@ -46,7 +46,7 @@ class PageContentFrameState extends State<PageContentFrame> {
     }
 
     if (widget.bottom) {
-      if (responsive.smallerOrEqualTo(DeviceType.band)) {
+      if (responsive.smallerOrEqualTo(DeviceType.dock)) {
         bottom = screen.screenSize.width / 3 + inset.bottom;
       } else {
         bottom = playbackControllerHeight + inset.bottom;

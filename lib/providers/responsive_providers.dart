@@ -2,7 +2,7 @@ import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-enum DeviceType { band, zune, phone, mobile, tablet, desktop, tv }
+enum DeviceType { dock, zune, phone, mobile, tablet, desktop, tv }
 
 class ResponsiveBreakpoint {
   final double start;
@@ -64,7 +64,7 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
 class ResponsiveProvider extends ChangeNotifier {
   static const List<ResponsiveBreakpoint> breakpoints = [
-    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.band),
+    ResponsiveBreakpoint(start: 0, end: 120, name: DeviceType.dock),
     ResponsiveBreakpoint(start: 121, end: 320, name: DeviceType.zune),
     ResponsiveBreakpoint(start: 321, end: 480, name: DeviceType.phone),
     ResponsiveBreakpoint(start: 481, end: 650, name: DeviceType.mobile),

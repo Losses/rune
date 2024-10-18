@@ -95,7 +95,7 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       focusNode: searchFocusNode,
       controller: widget.controller,
       unfocusedColor: Colors.transparent,
-      style: widget.deviceType == DeviceType.band
+      style: widget.deviceType == DeviceType.dock
           ? theme.typography.caption
           : null,
       items: suggestions.map((suggestion) {
@@ -110,10 +110,10 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
         );
       }).toList(),
       clearButtonEnabled: widget.deviceType != DeviceType.tablet &&
-          widget.deviceType != DeviceType.band,
+          widget.deviceType != DeviceType.dock,
       leadingIcon: widget.deviceType == DeviceType.tablet ? icon : null,
       trailingIcon: widget.deviceType == DeviceType.tablet ||
-              widget.deviceType == DeviceType.band
+              widget.deviceType == DeviceType.dock
           ? null
           : icon,
     );
