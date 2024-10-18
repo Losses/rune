@@ -35,7 +35,7 @@ class PageContentFrameState extends State<PageContentFrame> {
 
     final inset = MediaQuery.viewInsetsOf(context);
     final responsive = Provider.of<ResponsiveProvider>(context);
-    final screen = Provider.of<ScreenSizeProvider>(context);
+    final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
 
     if (widget.top) {
       if (responsive.smallerOrEqualTo(DeviceType.dock)) {
@@ -47,9 +47,16 @@ class PageContentFrameState extends State<PageContentFrame> {
 
     if (widget.bottom) {
       if (responsive.smallerOrEqualTo(DeviceType.dock)) {
-        bottom = screen.screenSize.width / 3 + inset.bottom;
+        bottom = screen.width / 3 + inset.bottom;
       } else {
         bottom = playbackControllerHeight + inset.bottom;
+      }
+    }
+
+    if (widget.right) {
+      if (responsive.currentBreakpoint == DeviceType.car) {
+        bottom = 0;
+        right = screen.height / 3 + inset.right;
       }
     }
 

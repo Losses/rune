@@ -172,19 +172,28 @@ class ResponsiveProvider extends ChangeNotifier {
     final width = size.width;
     final height = size.height;
 
-    _currentVerticalBreakpoint =
-        _getBreakpoint(width, DeviceOrientation.vertical);
-    _currentHorizontalBreakpoint =
-        _getBreakpoint(height, DeviceOrientation.horizontal);
+    final oldV = _currentVerticalBreakpoint;
+    final oldH = _currentHorizontalBreakpoint;
+    final oldA = currentBreakpoint;
 
     final verticalPriority = devicePriority[_currentVerticalBreakpoint] ?? 0;
     final horizontalPriority =
         devicePriority[_currentHorizontalBreakpoint] ?? 0;
-    currentBreakpoint = verticalPriority >= horizontalPriority
+
+    final newV = _getBreakpoint(width, DeviceOrientation.vertical);
+    final newH = _getBreakpoint(height, DeviceOrientation.horizontal);
+    final newA = verticalPriority >= horizontalPriority
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
 
-    notifyListeners();
+    _currentVerticalBreakpoint = newV;
+    _currentHorizontalBreakpoint = newH;
+
+    currentBreakpoint = newA;
+
+    if (oldA != newA || oldV != newV || oldH != newH) {
+      notifyListeners();
+    }
   }
 
   DeviceType _getBreakpoint(double size, DeviceOrientation orientation) {
@@ -265,10 +274,10 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   bool smallerOrEqualTo(DeviceType breakpointName,
-      [bool strictOrientation = true]) {
+      [bool autoOrientation = true]) {
     final orientation = getOrientation(breakpointName);
 
-    if (!strictOrientation) {
+    if (!autoOrientation) {
       final activeOrientation = getOrientation(currentBreakpoint);
       if (activeOrientation != orientation) return false;
     }
