@@ -138,21 +138,21 @@ class ResponsiveProvider extends ChangeNotifier {
     ),
     DeviceType.band: ResponsiveBreakpoint(
       start: 0,
-      end: 120,
+      end: 44,
       orientation: DeviceOrientation.horizontal,
     ),
     DeviceType.fish: ResponsiveBreakpoint(
-      start: 121,
-      end: 320,
+      start: 45,
+      end: 120,
       orientation: DeviceOrientation.horizontal,
     ),
     DeviceType.car: ResponsiveBreakpoint(
-      start: 321,
-      end: 650,
+      start: 121,
+      end: 340,
       orientation: DeviceOrientation.horizontal,
     ),
     DeviceType.station: ResponsiveBreakpoint(
-      start: 651,
+      start: 341,
       end: double.infinity,
       orientation: DeviceOrientation.horizontal,
     ),
@@ -160,19 +160,11 @@ class ResponsiveProvider extends ChangeNotifier {
 
   DeviceType _currentVerticalBreakpoint = DeviceType.desktop;
   DeviceType _currentHorizontalBreakpoint = DeviceType.station;
+  DeviceType currentBreakpoint = DeviceType.desktop;
 
   ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
     screenSizeProvider.addListener(_updateBreakpoints);
     _updateBreakpoints();
-  }
-
-  DeviceType get currentBreakpoint {
-    final verticalPriority = devicePriority[_currentVerticalBreakpoint] ?? 0;
-    final horizontalPriority =
-        devicePriority[_currentHorizontalBreakpoint] ?? 0;
-    return verticalPriority >= horizontalPriority
-        ? _currentVerticalBreakpoint
-        : _currentHorizontalBreakpoint;
   }
 
   void _updateBreakpoints() {
@@ -184,6 +176,13 @@ class ResponsiveProvider extends ChangeNotifier {
         _getBreakpoint(width, DeviceOrientation.vertical);
     _currentHorizontalBreakpoint =
         _getBreakpoint(height, DeviceOrientation.horizontal);
+
+    final verticalPriority = devicePriority[_currentVerticalBreakpoint] ?? 0;
+    final horizontalPriority =
+        devicePriority[_currentHorizontalBreakpoint] ?? 0;
+    currentBreakpoint = verticalPriority >= horizontalPriority
+        ? _currentVerticalBreakpoint
+        : _currentHorizontalBreakpoint;
 
     notifyListeners();
   }
@@ -265,37 +264,57 @@ class ResponsiveProvider extends ChangeNotifier {
     return breakpoints[deviceType]!.orientation;
   }
 
-  bool smallerOrEqualTo(DeviceType breakpointName) {
+  bool smallerOrEqualTo(DeviceType breakpointName,
+      [bool strictOrientation = true]) {
     final orientation = getOrientation(breakpointName);
-    final currentBreakpoint = orientation == DeviceOrientation.vertical
+
+    if (!strictOrientation) {
+      final activeOrientation = getOrientation(currentBreakpoint);
+      if (activeOrientation != orientation) return false;
+    }
+
+    final selectedCompareTarget = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
 
-    final a = breakpoints[currentBreakpoint]!;
+    final a = breakpoints[selectedCompareTarget]!;
     final b = breakpoints[breakpointName]!;
 
     return a.start <= b.start;
   }
 
-  bool largerOrEqualTo(DeviceType breakpointName) {
+  bool largerOrEqualTo(DeviceType breakpointName,
+      [bool strictOrientation = true]) {
     final orientation = getOrientation(breakpointName);
-    final currentBreakpoint = orientation == DeviceOrientation.vertical
+
+    if (!strictOrientation) {
+      final activeOrientation = getOrientation(currentBreakpoint);
+      if (activeOrientation != orientation) return false;
+    }
+
+    final selectedCompareTarget = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
 
-    final a = breakpoints[currentBreakpoint]!;
+    final a = breakpoints[selectedCompareTarget]!;
     final b = breakpoints[breakpointName]!;
 
     return a.end >= b.end;
   }
 
-  bool equalTo(DeviceType breakpointName) {
+  bool equalTo(DeviceType breakpointName, [bool strictOrientation = true]) {
     final orientation = getOrientation(breakpointName);
-    final currentBreakpoint = orientation == DeviceOrientation.vertical
+
+    if (!strictOrientation) {
+      final activeOrientation = getOrientation(currentBreakpoint);
+      if (activeOrientation != orientation) return false;
+    }
+
+    final selectedCompareTarget = orientation == DeviceOrientation.vertical
         ? _currentVerticalBreakpoint
         : _currentHorizontalBreakpoint;
 
-    final a = breakpoints[currentBreakpoint];
+    final a = breakpoints[selectedCompareTarget];
     final b = breakpoints[breakpointName];
 
     return a == b;
