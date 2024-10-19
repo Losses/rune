@@ -138,16 +138,16 @@ class ResponsiveProvider extends ChangeNotifier {
     ),
     DeviceType.band: ResponsiveBreakpoint(
       start: 0,
-      end: 44,
-      orientation: DeviceOrientation.horizontal,
-    ),
-    DeviceType.fish: ResponsiveBreakpoint(
-      start: 45,
       end: 120,
       orientation: DeviceOrientation.horizontal,
     ),
-    DeviceType.car: ResponsiveBreakpoint(
+    DeviceType.fish: ResponsiveBreakpoint(
       start: 121,
+      end: 300,
+      orientation: DeviceOrientation.horizontal,
+    ),
+    DeviceType.car: ResponsiveBreakpoint(
+      start: 301,
       end: 340,
       orientation: DeviceOrientation.horizontal,
     ),
