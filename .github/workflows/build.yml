@@ -242,29 +242,14 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ steps.short-sha.outputs.sha }}
 
       - name: Replace System Dylib
         run: |
           otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
           install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
         working-directory: build/macos/Build/Products/Release
-
-      - name: Code Signing
-        run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime Rune.app -v
-        working-directory: build/macos/Build/Products/Release
-        env:
-          DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
-
-      - name: Create DMG
-        run: |
-          create-dmg \
-            --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
-            --window-pos 200 120 \
-            --window-size 800 450 \
-            --icon-size 100 \
-            --app-drop-link 600 185 \
-            Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-            build/macos/Build/Products/Release/Rune.app
           
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
