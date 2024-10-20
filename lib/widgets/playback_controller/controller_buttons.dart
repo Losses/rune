@@ -2,9 +2,9 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/providers/status.dart';
 
 import '../../widgets/playback_controller/constants/controller_items.dart';
+import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
