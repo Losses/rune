@@ -202,8 +202,6 @@ final router = GoRouter(
 
         final showDisk = isZune || isCar;
 
-        print(showDisk);
-
         if (library.currentPath == null) {
           return const welcome.WelcomePage();
         }
