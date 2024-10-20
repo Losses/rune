@@ -1,6 +1,7 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/widgets/navigation_bar/navigation_back_button.dart';
 
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
@@ -99,20 +100,38 @@ class NavigationBarState extends State<NavigationBar> {
 
         final titleFlipKey = 'title:${parent?.path}';
 
-        final Widget parentWidget = parent != null
-            ? Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: SizedBox(
-                  height: 80,
-                  width: 320,
-                  child: ParentLink(
-                    titleFlipKey: titleFlipKey,
-                    text: parent.title,
-                    onPressed: () => _onHeaderTap(context, parent),
+        late Widget parentWidget = SmallerOrEqualTo(
+            breakpoint: DeviceType.fish,
+            builder: (context, isFish) {
+              if (isFish) {
+                return const Padding(
+                  padding: EdgeInsetsDirectional.only(top: 20),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 60,
+                      height: 60,
+                      child: NavigationBackButton(),
+                    ),
                   ),
-                ),
-              )
-            : Container();
+                );
+              }
+
+              return parent != null
+                  ? Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: SizedBox(
+                        height: 80,
+                        width: 320,
+                        child: ParentLink(
+                          titleFlipKey: titleFlipKey,
+                          text: parent.title,
+                          onPressed: () => _onHeaderTap(context, parent),
+                        ),
+                      ),
+                    )
+                  : Container();
+            });
 
         final baseSlibings = (slibings ?? emptySlibings);
         final validSlibings = isZune
@@ -122,35 +141,42 @@ class NavigationBarState extends State<NavigationBar> {
         final int currentItemIndex =
             validSlibings.indexWhere((route) => route == item);
 
-        final childrenWidget = SmoothHorizontalScroll(
-          builder: (context, scrollController) => SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            controller: scrollController,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.start,
-              children: validSlibings.toList().asMap().entries.map(
-                (entry) {
-                  final route = entry.value;
+        final childrenWidget = SmallerOrEqualTo(
+          breakpoint: DeviceType.fish,
+          builder: (context, isFish) {
+            return SmoothHorizontalScroll(
+              builder: (context, scrollController) => SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                controller: scrollController,
+                padding: isFish
+                    ? const EdgeInsets.symmetric(horizontal: 20, vertical: 0)
+                    : const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: validSlibings.toList().asMap().entries.map(
+                    (entry) {
+                      final route = entry.value;
 
-                  final index = entry.key;
-                  final isCurrent = currentItemIndex == index;
+                      final index = entry.key;
+                      final isCurrent = currentItemIndex == index;
 
-                  final int? delay = !isCurrent
-                      ? ((index - currentItemIndex).abs() * 100)
-                      : null;
+                      final int? delay = !isCurrent
+                          ? ((index - currentItemIndex).abs() * 100)
+                          : null;
 
-                  return SlibingLink(
-                    key: ValueKey('${parent?.path}/${route.path}'),
-                    route: route,
-                    isSelected: route == item,
-                    delay: delay,
-                    onTap: () => _onRouteSelected(route),
-                  );
-                },
-              ).toList(),
-            ),
-          ),
+                      return SlibingLink(
+                        key: ValueKey('${parent?.path}/${route.path}'),
+                        route: route,
+                        isSelected: route == item,
+                        delay: delay,
+                        onTap: () => _onRouteSelected(route),
+                      );
+                    },
+                  ).toList(),
+                ),
+              ),
+            );
+          },
         );
 
         final isSearch = path == '/search';

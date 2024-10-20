@@ -54,9 +54,10 @@ class PageContentFrameState extends State<PageContentFrame> {
     }
 
     if (widget.right) {
-      if (responsive.currentBreakpoint == DeviceType.car) {
+      if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
         bottom = 0;
         right = screen.height / 3 + inset.right;
+        top = carNavigationBarHeight + inset.top;
       }
     }
 

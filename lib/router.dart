@@ -11,7 +11,7 @@ import 'routes/welcome.dart' as welcome;
 
 import 'widgets/rune_stack.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
-import 'widgets/navigation_bar/back_button.dart';
+import 'widgets/navigation_bar/navigation_back_button.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
 import 'widgets/playback_controller/playback_controller.dart';
@@ -232,7 +232,11 @@ final router = GoRouter(
                     builder: (context, isDock) {
                       if (!isDock) return const NavigationBar();
 
-                      return const BackButton();
+                      return const Positioned(
+                        top: -12,
+                        left: -12,
+                        child: NavigationBackButton(),
+                      );
                     },
                   ),
                 ),
