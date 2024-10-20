@@ -91,8 +91,7 @@ class AxPressureState extends State<AxPressure> {
       onPanEnd: (_) => setState(() => _resetTransform()),
       onPanCancel: () => setState(() => _resetTransform()),
       onTapUp: (details) => setState(() => _resetTransform()),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 50),
+      child: Container(
         transform: _transform,
         transformAlignment: Alignment.center,
         child: widget.child,

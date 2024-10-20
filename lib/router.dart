@@ -14,6 +14,7 @@ import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/navigation_bar/navigation_back_button.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
+import 'widgets/playback_controller/cover_art_disk.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
 import 'providers/library_path.dart';
@@ -194,6 +195,14 @@ final router = GoRouter(
       navigatorKey: _shellNavigatorKey,
       builder: (context, state, child) {
         final library = Provider.of<LibraryPathProvider>(context);
+        final r = Provider.of<ResponsiveProvider>(context);
+
+        final isCar = r.smallerOrEqualTo(DeviceType.car, false);
+        final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
+
+        final showDisk = isZune || isCar;
+
+        print(showDisk);
 
         if (library.currentPath == null) {
           return const welcome.WelcomePage();
@@ -220,11 +229,12 @@ final router = GoRouter(
             child: RuneStack(
               alignment: Alignment.bottomCenter,
               children: [
-                if (path == '/cover_wall') mainContent,
-                const FocusTraversalOrder(
-                  order: NumericFocusOrder(3),
-                  child: PlaybackController(),
-                ),
+                if (path == '/cover_wall' && !showDisk) mainContent,
+                if (!showDisk)
+                  const FocusTraversalOrder(
+                    order: NumericFocusOrder(3),
+                    child: PlaybackController(),
+                  ),
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
                   child: SmallerOrEqualTo(
@@ -240,7 +250,12 @@ final router = GoRouter(
                     },
                   ),
                 ),
-                if (path != '/cover_wall') mainContent,
+                if (!(path == '/cover_wall' && !showDisk)) mainContent,
+                if (showDisk)
+                  const FocusTraversalOrder(
+                    order: NumericFocusOrder(4),
+                    child: CoverArtDisk(),
+                  ),
               ],
             ),
           ),

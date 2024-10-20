@@ -8,7 +8,6 @@ import 'constants/playback_controller_height.dart';
 
 import 'now_playing.dart';
 import 'fft_visualize.dart';
-import 'cover_art_disk.dart';
 import 'controller_buttons.dart';
 
 class PlaybackController extends StatefulWidget {
@@ -29,42 +28,30 @@ class PlaybackControllerState extends State<PlaybackController> {
 
     final largeLayout = isCoverArtWall && r.smallerOrEqualTo(DeviceType.phone);
 
-    return SmallerOrEqualToScreenSize(
-      maxSize: 340,
-      builder: (context, isSmaller) {
-        final isCar = r.smallerOrEqualTo(DeviceType.car, false);
-
-        if (isSmaller || isCar) {
-          return const CoverArtDisk();
-        }
-
-        return SizedBox(
-          height: playbackControllerHeight,
-          child: Stack(
-            fit: StackFit.expand,
-            alignment: Alignment.centerRight,
-            children: <Widget>[
-              SizedBox.expand(
-                child: Center(
-                  child: Container(
-                    constraints:
-                        const BoxConstraints(minWidth: 1200, maxWidth: 1600),
-                    child: Transform(
-                      transform: Matrix4.identity()
-                        ..scale(1.0, scaleY)
-                        ..translate(0.0, (1 - scaleY) * 100),
-                      child: const FFTVisualize(),
-                    ),
-                  ),
+    return SizedBox(
+      height: playbackControllerHeight,
+      child: Stack(
+        fit: StackFit.expand,
+        alignment: Alignment.centerRight,
+        children: <Widget>[
+          SizedBox.expand(
+            child: Center(
+              child: Container(
+                constraints:
+                    const BoxConstraints(minWidth: 1200, maxWidth: 1600),
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..scale(1.0, scaleY)
+                    ..translate(0.0, (1 - scaleY) * 100),
+                  child: const FFTVisualize(),
                 ),
               ),
-              if (!largeLayout) const NowPlaying(),
-              const ControllerButtons(),
-            ],
+            ),
           ),
-        );
-      },
+          if (!largeLayout) const NowPlaying(),
+          const ControllerButtons(),
+        ],
+      ),
     );
   }
 }
-

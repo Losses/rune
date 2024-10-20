@@ -34,11 +34,11 @@ class _NavigationBackButtonState extends State<NavigationBackButton> {
     }
 
     return AxPressure(
-      child: GestureDetector(
-        onTap: () {
-          navigateBackwardWithPop(context);
-        },
-        child: HoverOpacity(
+      child: HoverOpacity(
+        child: GestureDetector(
+          onTap: () {
+            navigateBackwardWithPop(context);
+          },
           child: FocusableActionDetector(
             focusNode: _focusNode,
             child: SvgPicture.asset(

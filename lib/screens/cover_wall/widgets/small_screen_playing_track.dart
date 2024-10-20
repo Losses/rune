@@ -54,8 +54,8 @@ class SmallScreenPlayingTrack extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              SmallerOrEqualToScreenSize(
-                maxSize: 340,
+              SmallerOrEqualTo(
+                breakpoint: DeviceType.zune,
                 builder: (context, isSmaller) {
                   if (isSmaller) return Container();
                   return Container(
@@ -82,8 +82,8 @@ class SmallScreenPlayingTrack extends StatelessWidget {
                   );
                 },
               ),
-              SmallerOrEqualToScreenSize(
-                  maxSize: 340,
+              SmallerOrEqualTo(
+                  breakpoint: DeviceType.zune,
                   builder: (context, isSmaller) {
                     if (isSmaller) return Container();
 

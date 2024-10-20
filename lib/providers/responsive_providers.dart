@@ -108,11 +108,11 @@ class ResponsiveProvider extends ChangeNotifier {
     ),
     DeviceType.zune: ResponsiveBreakpoint(
       start: 121,
-      end: 320,
+      end: 340,
       orientation: DeviceOrientation.vertical,
     ),
     DeviceType.phone: ResponsiveBreakpoint(
-      start: 321,
+      start: 341,
       end: 480,
       orientation: DeviceOrientation.vertical,
     ),
