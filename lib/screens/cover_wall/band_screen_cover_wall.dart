@@ -1,12 +1,14 @@
 import 'dart:async';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../providers/status.dart';
+import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
 
 class BandScreenCoverWallView extends StatefulWidget {
@@ -38,6 +40,8 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
   @override
   Widget build(BuildContext context) {
     final controllers = Provider.of<PlaybackControllerProvider>(context);
+    Provider.of<PlaybackStatusProvider>(context);
+    Provider.of<VolumeProvider>(context);
 
     return PageContentFrame(
       child: SingleChildScrollView(
@@ -60,7 +64,7 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
                           fn(context);
                         }
                       },
-                      icon: item.icon,
+                      icon: item.icon(context),
                     ),
                   ),
                 ),

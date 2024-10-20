@@ -25,7 +25,7 @@ import '../playback_mode_button.dart';
 
 class ControllerEntry {
   final String id;
-  final IconData icon;
+  final IconData Function(BuildContext context) icon;
   final String title;
   final String subtitle;
   final Widget Function(BuildContext context) controllerButtonBuilder;
@@ -45,10 +45,10 @@ class ControllerEntry {
   });
 }
 
-var controllerItems = [
+final controllerItems = [
   ControllerEntry(
     id: 'previous',
-    icon: Symbols.skip_previous,
+    icon: (context) => Symbols.skip_previous,
     title: "Previous",
     subtitle: "Go to the previous track",
     shortcuts: [
@@ -92,7 +92,16 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'toggle',
-    icon: Symbols.play_arrow,
+    icon: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+
+      if (statusProvider.playbackStatus?.state == "Playing") {
+        return Symbols.pause;
+      } else {
+        return Symbols.play_arrow;
+      }
+    },
     title: "Play/Pause",
     subtitle: "Toggle between play and pause",
     shortcuts: [
@@ -148,7 +157,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'next',
-    icon: Symbols.skip_next,
+    icon: (context) => Symbols.skip_next,
     title: "Next",
     subtitle: "Go to the next track",
     shortcuts: [
@@ -195,7 +204,15 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'volume',
-    icon: Symbols.volume_up,
+    icon: (context) {
+      final volumeProvider = Provider.of<VolumeProvider>(context);
+
+      return volumeProvider.volume > 0.3
+          ? Symbols.volume_up
+          : volumeProvider.volume > 0
+              ? Symbols.volume_down
+              : Symbols.volume_mute;
+    },
     title: "Volume",
     subtitle: "Adjust the volume",
     shortcuts: [],
@@ -242,7 +259,16 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'mode',
-    icon: Symbols.east,
+    icon: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+
+      final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
+        statusProvider.playbackStatus?.playbackMode ?? 0,
+      );
+
+      return modeToIcon(currentMode);
+    },
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
     controllerButtonBuilder: (context) => const PlaybackModeButton(),
@@ -293,7 +319,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'playlist',
-    icon: Symbols.list_alt,
+    icon: (context) => Symbols.list_alt,
     title: "Playlist",
     subtitle: "View the playback queue",
     shortcuts: [
@@ -322,7 +348,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'hidden',
-    icon: Symbols.hide_source,
+    icon: (context) => Symbols.hide_source,
     title: "Hidden",
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
@@ -338,7 +364,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'cover_wall',
-    icon: Symbols.photo,
+    icon: (context) => Symbols.photo,
     title: "Cover Wall",
     subtitle: "Display cover art for a unique ambience",
     shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
@@ -365,7 +391,13 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'fullscreen',
-    icon: Symbols.fullscreen,
+    icon: (context) {
+      final fullScreen = Provider.of<FullScreenProvider>(context);
+
+      return fullScreen.isFullScreen
+          ? Symbols.fullscreen_exit
+          : Symbols.fullscreen;
+    },
     title: "Fullscreen",
     subtitle: "Enter or exit fullscreen mode",
     shortcuts: [
