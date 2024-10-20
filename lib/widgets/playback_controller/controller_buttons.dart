@@ -2,6 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/providers/status.dart';
 
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../providers/playback_controller.dart';
@@ -42,40 +43,45 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 
-    return Row(
-      mainAxisAlignment: coverArtWallLayout
-          ? MainAxisAlignment.spaceAround
-          : MainAxisAlignment.end,
-      children: [
-        if (coverArtWallLayout) const SizedBox(width: 8),
-        for (var entry in (miniLayout && !coverArtWallLayout)
-            ? miniEntries
-            : visibleEntries)
-          entry.controllerButtonBuilder(context),
-        if (hiddenEntries.isNotEmpty)
-          FlyoutTarget(
-            controller: menuController,
-            child: IconButton(
-              icon: const Icon(Symbols.more_vert),
-              onPressed: () {
-                menuController.showFlyout(
-                  builder: (context) {
-                    return Container(
-                      constraints: const BoxConstraints(maxWidth: 200),
-                      child: MenuFlyout(
-                        items: [
-                          for (var entry in hiddenEntries)
-                            entry.flyoutEntryBuilder(context),
-                        ],
-                      ),
+    return Selector<PlaybackStatusProvider, bool>(
+      selector: (context, value) => value.notReady,
+      builder: (context, value, child) {
+        return Row(
+          mainAxisAlignment: coverArtWallLayout
+              ? MainAxisAlignment.spaceAround
+              : MainAxisAlignment.end,
+          children: [
+            if (coverArtWallLayout) const SizedBox(width: 8),
+            for (final entry in (miniLayout && !coverArtWallLayout)
+                ? miniEntries
+                : visibleEntries)
+              entry.controllerButtonBuilder(context),
+            if (hiddenEntries.isNotEmpty)
+              FlyoutTarget(
+                controller: menuController,
+                child: IconButton(
+                  icon: const Icon(Symbols.more_vert),
+                  onPressed: () {
+                    menuController.showFlyout(
+                      builder: (context) {
+                        return Container(
+                          constraints: const BoxConstraints(maxWidth: 200),
+                          child: MenuFlyout(
+                            items: [
+                              for (final entry in hiddenEntries)
+                                entry.flyoutEntryBuilder(context),
+                            ],
+                          ),
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
-          ),
-        const SizedBox(width: 8),
-      ],
+                ),
+              ),
+            const SizedBox(width: 8),
+          ],
+        );
+      },
     );
   }
 }
