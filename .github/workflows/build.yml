@@ -89,7 +89,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: false
 
   build-linux:
     runs-on: ubuntu-latest
@@ -176,7 +176,7 @@ jobs:
           artifacts: "artifacts/*.zip"
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: false
     
   build-macos:
     runs-on: macos-latest
@@ -302,4 +302,4 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: false
