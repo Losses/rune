@@ -1,14 +1,15 @@
+// volume_provider.dart
 import 'dart:async';
 
 import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 
+import '../utils/settings_manager.dart';
 import '../messages/playback.pb.dart';
 
 class VolumeProvider with ChangeNotifier {
-  static const String storageKey = 'volume_level';
-  final GetStorage _storage = GetStorage();
+  static const String _volumeSettingsKey = 'volume_level';
+  final SettingsManager _settingsManager = SettingsManager();
   late StreamSubscription<RustSignal<VolumeResponse>> _subscription;
 
   double _volume = 1;
@@ -21,8 +22,8 @@ class VolumeProvider with ChangeNotifier {
   }
 
   Future<void> _initVolume() async {
-    await GetStorage.init();
-    double? storedVolume = _storage.read<double>(storageKey);
+    double? storedVolume =
+        await _settingsManager.getValue<double>(_volumeSettingsKey);
     if (storedVolume != null) {
       _updateVolume(storedVolume, notify: false, save: false);
       VolumeRequest(volume: storedVolume).sendSignalToRust();
@@ -39,8 +40,8 @@ class VolumeProvider with ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  void _saveVolume() {
-    _storage.write(storageKey, _volume);
+  Future<void> _saveVolume() async {
+    await _settingsManager.setValue(_volumeSettingsKey, _volume);
   }
 
   void updateVolume(double volume) {

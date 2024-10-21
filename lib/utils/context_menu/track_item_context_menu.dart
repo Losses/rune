@@ -1,10 +1,11 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/router_extra.dart';
+import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/api/get_all_playlists.dart';
@@ -16,6 +17,7 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
 import '../../messages/mix.pbserver.dart';
 import '../../messages/media_file.pb.dart';
+import '../../messages/playback.pb.dart';
 import '../../messages/playlist.pbserver.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -123,7 +125,7 @@ Widget buildTrackItemContextMenu(
             hintPosition: -1,
             initialPlaybackId: 0,
             instantlyPlay: true,
-            replacePlaylist: true,
+            operateMode: PlaylistOperateMode.Replace,
             fallbackFileIds: [],
           );
         },
@@ -138,7 +140,7 @@ Widget buildTrackItemContextMenu(
             hintPosition: -1,
             initialPlaybackId: 0,
             instantlyPlay: false,
-            replacePlaylist: false,
+            operateMode: await getNonReplaceOperateMode(),
             fallbackFileIds: [],
           );
         },
@@ -164,7 +166,7 @@ Widget buildTrackItemContextMenu(
               hintPosition: -1,
               initialPlaybackId: 0,
               instantlyPlay: true,
-              replacePlaylist: true,
+              operateMode: PlaylistOperateMode.Replace,
               fallbackFileIds: [],
             );
           }
@@ -276,7 +278,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: true,
-          replacePlaylist: true,
+          operateMode: PlaylistOperateMode.Replace,
           fallbackFileIds: [],
         );
       },
@@ -293,7 +295,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: false,
-          replacePlaylist: false,
+          operateMode: await getNonReplaceOperateMode(),
           fallbackFileIds: [],
         );
       },
@@ -318,7 +320,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
             hintPosition: -1,
             initialPlaybackId: 0,
             instantlyPlay: true,
-            replacePlaylist: true,
+            operateMode: PlaylistOperateMode.Replace,
             fallbackFileIds: [],
           );
         }

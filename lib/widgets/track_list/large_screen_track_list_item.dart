@@ -7,6 +7,7 @@ import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../messages/playback.pb.dart';
 
 import '../tile/cover_art.dart';
 
@@ -54,7 +55,7 @@ class LargeScreenTrackListItem extends StatelessWidget {
               playbackMode: mode,
               hintPosition: index,
               initialPlaybackId: item.id,
-              replacePlaylist: true,
+              operateMode: PlaylistOperateMode.Replace,
               instantlyPlay: true,
               fallbackFileIds: fallbackFileIds,
             );
@@ -70,7 +71,11 @@ class LargeScreenTrackListItem extends StatelessWidget {
                   CoverArt(
                     path: coverArtPath,
                     size: size,
-                    hint: (item.album, item.artist, 'Total Time ${formatTime(item.duration)}'),
+                    hint: (
+                      item.album,
+                      item.artist,
+                      'Total Time ${formatTime(item.duration)}'
+                    ),
                   ),
                   Expanded(
                     child: Padding(

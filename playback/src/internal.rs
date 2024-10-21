@@ -4,15 +4,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use log::{debug, error, info, warn};
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::realtime_fft::RealTimeFFT;
+use crate::strategies::{
+    AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy, ShuffleStrategy, UpdateReason
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PlaybackMode {
@@ -59,6 +59,7 @@ pub enum PlayerCommand {
     Seek(f64),
     AddToPlaylist {
         tracks: Vec<(i32, std::path::PathBuf)>,
+        mode: AddMode,
     },
     RemoveFromPlaylist {
         index: usize,
@@ -128,30 +129,6 @@ enum InternalPlaybackState {
     Stopped,
 }
 
-/// Generates a random sequence from 1 to max_value and returns the nth value
-///
-/// # Parameters
-///
-/// * `seed` - The seed for the random number generator
-/// * `max_value` - The maximum value of the sequence
-/// * `n` - The nth value to return (1-based index)
-///
-/// # Returns
-///
-/// Returns the nth value, or None if n is out of range
-fn get_random_sequence(seed: u64, max_value: usize) -> Vec<usize> {
-    // Create a sequence from 1 to max_value
-    let mut values: Vec<usize> = (1..=max_value).collect();
-
-    // Create a random number generator with the given seed
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    // Shuffle the sequence
-    values.shuffle(&mut rng);
-
-    values
-}
-
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
@@ -166,7 +143,7 @@ pub(crate) struct PlayerInternal {
     debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
     playback_mode: PlaybackMode,
-    random_map: Vec<usize>,
+    playback_strategy: Box<dyn PlaybackStrategy>,
     volume: f32,
 }
 
@@ -190,7 +167,7 @@ impl PlayerInternal {
             debounce_timer: None,
             cancellation_token,
             playback_mode: PlaybackMode::Sequential,
-            random_map: [].to_vec(),
+            playback_strategy: Box::new(SequentialStrategy),
             volume: 1.0,
         }
     }
@@ -219,7 +196,9 @@ impl PlayerInternal {
                         PlayerCommand::Previous => self.previous(),
                         PlayerCommand::Switch(index) => self.switch(index),
                         PlayerCommand::Seek(position) => self.seek(position),
-                        PlayerCommand::AddToPlaylist{ tracks } => self.add_to_playlist(tracks).await,
+                        PlayerCommand::AddToPlaylist { tracks, mode } => {
+                            self.add_to_playlist(tracks, mode).await;
+                        }
                         PlayerCommand::RemoveFromPlaylist { index } => self.remove_from_playlist(index).await,
                         PlayerCommand::ClearPlaylist => self.clear_playlist().await,
                         PlayerCommand::MovePlayListItem {old_index, new_index} => self.move_playlist_item(old_index, new_index).await,
@@ -404,32 +383,17 @@ impl PlayerInternal {
 
     fn next(&mut self) {
         if let Some(index) = self.current_track_index {
-            match self.playback_mode {
-                PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
-                    if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1), true);
-                    } else {
-                        info!("End of playlist reached");
-                        self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
-                        self.state = InternalPlaybackState::Stopped;
+            if let Some(next_index) = self.playback_strategy.next(index, self.playlist.len()) {
+                self.load(Some(next_index), true);
+            } else {
+                info!("End of playlist reached");
+                self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
+                self.state = InternalPlaybackState::Stopped;
 
-                        self.load(Some(0), false);
-                    }
-                }
-                PlaybackMode::RepeatAll => {
-                    if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1), true);
-                    } else {
-                        self.load(Some(0), true);
-                    }
-                }
-                PlaybackMode::Shuffle => {
-                    if index + 1 < self.playlist.len() {
-                        self.load(Some(index + 1), true);
-                    } else {
-                        self.update_random_map();
-                        self.load(Some(0), true);
-                    }
+                if let Some(start_index) =
+                    self.playback_strategy.on_playlist_end(self.playlist.len())
+                {
+                    self.load(Some(start_index), false);
                 }
             }
         }
@@ -437,29 +401,10 @@ impl PlayerInternal {
 
     fn previous(&mut self) {
         if let Some(index) = self.current_track_index {
-            match self.playback_mode {
-                PlaybackMode::Sequential | PlaybackMode::RepeatOne => {
-                    if index > 0 {
-                        self.load(Some(index - 1), true);
-                    } else {
-                        info!("Begining of playlist reached");
-                    }
-                }
-                PlaybackMode::RepeatAll => {
-                    if index > 0 {
-                        self.load(Some(index - 1), true);
-                    } else {
-                        self.load(Some(self.playlist.len() - 1), true);
-                    }
-                }
-                PlaybackMode::Shuffle => {
-                    if index > 0 {
-                        self.load(Some(index - 1), true);
-                    } else {
-                        self.update_random_map();
-                        self.load(Some(self.playlist.len() - 1), true);
-                    }
-                }
+            if let Some(prev_index) = self.playback_strategy.previous(index, self.playlist.len()) {
+                self.load(Some(prev_index), true);
+            } else {
+                info!("Beginning of playlist reached");
             }
         }
     }
@@ -502,15 +447,44 @@ impl PlayerInternal {
         }
     }
 
-    async fn add_to_playlist(&mut self, tracks: Vec<(i32, std::path::PathBuf)>) {
-        debug!("Adding tracks to playlist");
-        for track in tracks {
-            self.playlist.push(PlaylistItem {
-                id: track.0,
-                path: track.1,
-            });
+    async fn add_to_playlist(&mut self, tracks: Vec<(i32, std::path::PathBuf)>, mode: AddMode) {
+        debug!("Adding tracks to playlist with mode: {:?}", mode);
+        let insert_index = match mode {
+            AddMode::PlayNext => {
+                if let Some(current_index) = self.current_track_index {
+                    Some(current_index + 1)
+                } else {
+                    Some(self.playlist.len())
+                }
+            }
+            AddMode::AppendToEnd => None,
+        };
+
+        if let Some(index) = insert_index {
+            for (i, track) in tracks.into_iter().enumerate() {
+                self.playlist.insert(
+                    index + i,
+                    PlaylistItem {
+                        id: track.0,
+                        path: track.1,
+                    },
+                );
+            }
+        } else {
+            self.playlist
+                .extend(tracks.into_iter().map(|track| PlaylistItem {
+                    id: track.0,
+                    path: track.1,
+                }));
         }
-        self.update_random_map();
+
+        self.playback_strategy.on_playlist_updated(
+            self.playlist.len(),
+            UpdateReason::AddToPlaylist {
+                mode,
+                index: insert_index,
+            },
+        );
         self.schedule_playlist_update();
     }
 
@@ -518,7 +492,10 @@ impl PlayerInternal {
         if index < self.playlist.len() {
             debug!("Removing from playlist at index: {}", index);
             self.playlist.remove(index);
-            self.update_random_map();
+            self.playback_strategy.on_playlist_updated(
+                self.playlist.len(),
+                UpdateReason::RemoveFromPlaylist { index },
+            );
             self.schedule_playlist_update();
         } else {
             error!(
@@ -530,7 +507,8 @@ impl PlayerInternal {
 
     async fn clear_playlist(&mut self) {
         self.playlist.clear();
-        self.update_random_map();
+        self.playback_strategy
+            .on_playlist_updated(0, UpdateReason::ClearPlaylist);
         self.current_track_index = None;
         self.sink = None;
         self._stream = None;
@@ -542,28 +520,19 @@ impl PlayerInternal {
 
     fn set_playback_mode(&mut self, mode: PlaybackMode) {
         self.playback_mode = mode;
-        if mode == PlaybackMode::Shuffle {
-            self.update_random_map();
-        }
+        self.playback_strategy = match mode {
+            PlaybackMode::Sequential => Box::new(SequentialStrategy),
+            PlaybackMode::RepeatOne => Box::new(RepeatOneStrategy),
+            PlaybackMode::RepeatAll => Box::new(RepeatAllStrategy),
+            PlaybackMode::Shuffle => Box::new(ShuffleStrategy::new(self.playlist.len())),
+        };
         self.send_progress();
         info!("Playback mode set to {:?}", mode);
     }
 
-    fn update_random_map(&mut self) {
-        let shuffle_seed = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        self.random_map = get_random_sequence(shuffle_seed, self.playlist.len());
-    }
-
-    fn get_mapped_track_index(&mut self, index: usize) -> usize {
-        if self.playback_mode == PlaybackMode::Shuffle {
-            self.random_map[index]
-        } else {
-            index
-        }
+    fn get_mapped_track_index(&self, index: usize) -> usize {
+        self.playback_strategy
+            .get_mapped_track_index(index, self.playlist.len())
     }
 
     fn send_progress(&mut self) {
@@ -633,9 +602,17 @@ impl PlayerInternal {
 
         let item = self.playlist.remove(old_index);
         self.playlist.insert(new_index, item);
-        self.update_random_map();
 
-        // Adjust current track index if necessary
+        // Update the playback strategy to reflect changes in the playlist
+        self.playback_strategy.on_playlist_updated(
+            self.playlist.len(),
+            UpdateReason::MovePlaylistItem {
+                old_index,
+                new_index,
+            },
+        );
+
+        // Adjust the current track index if necessary
         if let Some(current_index) = self.current_track_index {
             if old_index == current_index {
                 // The currently playing track was moved

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/messages/playback.pb.dart';
 
 import '../../../utils/query_list.dart';
 import '../../../utils/format_time.dart';
@@ -46,7 +47,7 @@ class TrackSearchItem extends SearchCard {
       playbackMode: 99,
       hintPosition: 0,
       initialPlaybackId: item.id,
-      replacePlaylist: true,
+      operateMode: PlaylistOperateMode.Replace,
       instantlyPlay: true,
       fallbackFileIds: fallbackFileIds,
     );

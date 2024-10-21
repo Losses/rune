@@ -8,6 +8,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
@@ -308,8 +309,8 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, tracks: Vec<(i32, std::path::PathBuf)>) {
-        self.command(PlayerCommand::AddToPlaylist { tracks });
+    pub fn add_to_playlist(&self, tracks: Vec<(i32, std::path::PathBuf)>, mode: AddMode) {
+        self.command(PlayerCommand::AddToPlaylist { tracks, mode });
     }
 
     pub fn remove_from_playlist(&self, index: usize) {

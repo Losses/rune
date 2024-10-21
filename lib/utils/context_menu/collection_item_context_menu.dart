@@ -1,14 +1,13 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/messages/collection.pb.dart';
-import 'package:rune/providers/responsive_providers.dart';
-import 'package:rune/utils/api/fetch_mix_queries_by_mix_id.dart';
-import 'package:rune/utils/build_collection_query.dart';
-import 'package:provider/provider.dart';
 
 import '../../utils/query_list.dart';
+import '../../utils/build_collection_query.dart';
+import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
+import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
@@ -16,7 +15,11 @@ import '../../utils/dialogs/mix/remove_mix_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 
+import '../../messages/playback.pb.dart';
 import '../../messages/mix.pbserver.dart';
+import '../../messages/collection.pb.dart';
+
+import '../../providers/responsive_providers.dart';
 
 final Map<CollectionType, String> typeToOperator = {
   CollectionType.Album: "lib::album",
@@ -183,7 +186,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: true,
-          replacePlaylist: true,
+          operateMode: PlaylistOperateMode.Replace,
           fallbackFileIds: fallbackFileIds,
         );
       },
@@ -198,7 +201,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: false,
-          replacePlaylist: false,
+          operateMode: await getNonReplaceOperateMode(),
           fallbackFileIds: [],
         );
       },
@@ -221,7 +224,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             hintPosition: -1,
             initialPlaybackId: 0,
             instantlyPlay: true,
-            replacePlaylist: true,
+            operateMode: PlaylistOperateMode.Replace,
             fallbackFileIds: [],
           );
         }
@@ -310,7 +313,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: true,
-          replacePlaylist: true,
+          operateMode: PlaylistOperateMode.Replace,
           fallbackFileIds: fallbackFileIds,
         );
       },
@@ -327,7 +330,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
           hintPosition: -1,
           initialPlaybackId: 0,
           instantlyPlay: false,
-          replacePlaylist: false,
+          operateMode: await getNonReplaceOperateMode(),
           fallbackFileIds: [],
         );
       },
@@ -352,7 +355,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
             hintPosition: -1,
             initialPlaybackId: 0,
             instantlyPlay: true,
-            replacePlaylist: true,
+            operateMode: PlaylistOperateMode.Replace,
             fallbackFileIds: [],
           );
         }

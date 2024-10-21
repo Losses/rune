@@ -1,5 +1,8 @@
 mod internal;
 mod realtime_fft;
+
+pub mod strategies;
+
 #[cfg(target_os = "android")]
 mod dummy_souvlaki;
 
