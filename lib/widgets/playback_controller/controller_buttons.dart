@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/fetch_flyout_items.dart';
+import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../providers/status.dart';
 import '../../providers/playback_controller.dart';
@@ -16,6 +18,30 @@ class ControllerButtons extends StatefulWidget {
 }
 
 class _ControllerButtonsState extends State<ControllerButtons> {
+  Map<String, MenuFlyoutItem> flyoutItems = {};
+  bool initialized = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    _fetchFlyoutItems();
+  }
+
+  Future<void> _fetchFlyoutItems() async {
+    if (initialized) return;
+    initialized = true;
+
+    final Map<String, MenuFlyoutItem> itemMap = await fetchFlyoutItems(context);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      flyoutItems = itemMap;
+    });
+  }
+
   final menuController = FlyoutController();
 
   @override
@@ -32,9 +58,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final controllerProvider = Provider.of<PlaybackControllerProvider>(context);
     final entries = controllerProvider.entries;
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
-    final visibleEntries =
+    final List<ControllerEntry> visibleEntries =
         hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
-    final hiddenEntries =
+    final List<ControllerEntry> hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
     final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
@@ -67,10 +93,12 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                         return Container(
                           constraints: const BoxConstraints(maxWidth: 200),
                           child: MenuFlyout(
-                            items: [
-                              for (final entry in hiddenEntries)
-                                entry.flyoutEntryBuilder(context),
-                            ],
+                            items: hiddenEntries
+                                .map(
+                                  (x) =>
+                                      flyoutItems[x.id] ?? unavailableMenuEntry,
+                                )
+                                .toList(),
                           ),
                         );
                       },

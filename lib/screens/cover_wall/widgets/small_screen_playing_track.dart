@@ -4,6 +4,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/format_time.dart';
+import '../../../utils/fetch_flyout_items.dart';
+import '../../../utils/unavailable_menu_entry.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/controller_items.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
@@ -20,9 +22,6 @@ class SmallScreenPlayingTrack extends StatefulWidget {
   SmallScreenPlayingTrackState createState() => SmallScreenPlayingTrackState();
 }
 
-final unavailable =
-    MenuFlyoutItem(text: const Text('Unavailable'), onPressed: () {});
-
 class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
   Map<String, MenuFlyoutItem> flyoutItems = {};
   bool initialized = false;
@@ -36,19 +35,8 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
   Future<void> _fetchFlyoutItems() async {
     if (initialized) return;
     initialized = true;
-    final entries =
-        Provider.of<PlaybackControllerProvider>(context, listen: false).entries;
 
-    final Map<String, MenuFlyoutItem> itemMap = {};
-
-    for (var entry in entries) {
-      if (!context.mounted) {
-        break;
-      }
-
-      final item = await entry.flyoutEntryBuilder(context);
-      itemMap[entry.id] = item;
-    }
+    final Map<String, MenuFlyoutItem> itemMap = await fetchFlyoutItems(context);
 
     if (!context.mounted) {
       return;
@@ -179,7 +167,7 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
                               if (item != null) {
                                 return item;
                               }
-                              return unavailable;
+                              return unavailableMenuEntry;
                             }
 
                             throw "Unacceptable entry type";
