@@ -1,6 +1,4 @@
-use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AddMode {
@@ -8,6 +6,7 @@ pub enum AddMode {
     AppendToEnd,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UpdateReason {
     AddToPlaylist { mode: AddMode, index: Option<usize> },
     RemoveFromPlaylist { index: usize },
@@ -30,28 +29,28 @@ pub struct ShuffleStrategy {
     random_map: Vec<usize>,
 }
 
-/// Generates a random sequence from 1 to max_value and returns the nth value
+/// Generates a random sequence from 0 to max_value, keeping 0 at the first position
 ///
 /// # Parameters
 ///
 /// * `seed` - The seed for the random number generator
-/// * `max_value` - The maximum value of the sequence
-/// * `n` - The nth value to return (1-based index)
+/// * `max_value` - The maximum value of the sequence (exclusive)
 ///
 /// # Returns
 ///
-/// Returns the nth value, or None if n is out of range
-pub fn get_random_sequence(seed: u64, max_value: usize) -> Vec<usize> {
-    // Create a sequence from 1 to max_value
-    let mut values: Vec<usize> = (0..=(max_value - 1)).collect();
+/// Returns a Vec<usize> with a randomized sequence, 0 always at the first position
+pub fn get_random_sequence(max_value: usize) -> Vec<usize> {
+    if max_value == 0 {
+        return vec![];
+    }
 
-    // Create a random number generator with the given seed
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    // Shuffle the sequence
+    let mut values: Vec<usize> = (1..max_value).collect();
+    let mut rng = rand::thread_rng();
     values.shuffle(&mut rng);
 
-    values
+    let mut result: Vec<usize> = vec![0];
+    result.extend(values);
+    result
 }
 
 impl PlaybackStrategy for SequentialStrategy {
@@ -133,14 +132,22 @@ impl ShuffleStrategy {
 
     fn update_random_map(&mut self, playlist_len: usize) {
         if playlist_len > 0 {
-            let shuffle_seed = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            self.random_map = get_random_sequence(shuffle_seed, playlist_len);
+            self.random_map = get_random_sequence(playlist_len - 1);
         } else {
             self.random_map.clear();
         }
+    }
+
+    fn insert_randomized(&mut self, start: usize, count: usize) {
+        let new_tracks: Vec<usize> = (start..start + count).collect();
+        let mut rng = rand::thread_rng();
+        let mut shuffled = new_tracks[1..].to_vec();
+        shuffled.shuffle(&mut rng);
+
+        let mut to_insert = vec![new_tracks[0]];
+        to_insert.extend(shuffled);
+
+        self.random_map.splice(start..start, to_insert);
     }
 }
 
@@ -174,20 +181,27 @@ impl PlaybackStrategy for ShuffleStrategy {
             UpdateReason::AddToPlaylist { mode, index } => match mode {
                 AddMode::PlayNext => {
                     if let Some(insert_index) = index {
+                        // Shift existing indices
                         for i in 0..self.random_map.len() {
                             if self.random_map[i] >= insert_index {
                                 self.random_map[i] += 1;
                             }
                         }
-                        self.random_map.insert(insert_index, insert_index);
+                        // Insert new randomized tracks
+                        self.insert_randomized(insert_index, 1);
                     }
                 }
                 AddMode::AppendToEnd => {
-                    self.update_random_map(playlist_len);
+                    let new_tracks_count = playlist_len - self.random_map.len();
+                    self.insert_randomized(self.random_map.len(), new_tracks_count);
                 }
             },
             _ => {
-                self.update_random_map(playlist_len);
+                self.random_map = get_random_sequence(if playlist_len == 0 {
+                    0
+                } else {
+                    playlist_len - 1
+                });
             }
         }
     }

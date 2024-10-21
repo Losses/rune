@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:rune/widgets/track_list/band_screen_track_list.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/query_mix_tracks.dart';
 import '../../config/animation.dart';
+import '../../widgets/track_list/band_screen_track_list.dart';
 import '../../widgets/track_list/large_screen_track_list.dart';
 import '../../widgets/track_list/small_screen_track_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';

@@ -388,7 +388,7 @@ impl PlayerInternal {
             } else {
                 info!("End of playlist reached");
                 self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
-                self.state = InternalPlaybackState::Stopped;
+                self.state = InternalPlaybackState::Paused;
 
                 if let Some(start_index) =
                     self.playback_strategy.on_playlist_end(self.playlist.len())
