@@ -43,7 +43,7 @@ pub struct ShuffleStrategy {
 /// Returns the nth value, or None if n is out of range
 pub fn get_random_sequence(seed: u64, max_value: usize) -> Vec<usize> {
     // Create a sequence from 1 to max_value
-    let mut values: Vec<usize> = (1..=max_value).collect();
+    let mut values: Vec<usize> = (0..=(max_value - 1)).collect();
 
     // Create a random number generator with the given seed
     let mut rng = StdRng::seed_from_u64(seed);
