@@ -44,7 +44,7 @@ pub fn get_random_sequence(max_value: usize) -> Vec<usize> {
         return vec![];
     }
 
-    let mut values: Vec<usize> = (1..max_value).collect();
+    let mut values: Vec<usize> = (1..(max_value + 1)).collect();
     let mut rng = rand::thread_rng();
     values.shuffle(&mut rng);
 
@@ -197,11 +197,11 @@ impl PlaybackStrategy for ShuffleStrategy {
                 }
             },
             _ => {
-                self.random_map = get_random_sequence(if playlist_len == 0 {
-                    0
+                if playlist_len > 0 {
+                    self.random_map = get_random_sequence(playlist_len - 1);
                 } else {
-                    playlist_len - 1
-                });
+                    self.random_map.clear();
+                }
             }
         }
     }

@@ -11,7 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::realtime_fft::RealTimeFFT;
 use crate::strategies::{
-    AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy, ShuffleStrategy, UpdateReason
+    AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
+    ShuffleStrategy, UpdateReason,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -188,7 +189,7 @@ impl PlayerInternal {
 
                     debug!("Received command: {:?}", cmd);
                     match cmd {
-                        PlayerCommand::Load { index } => self.load(Some(index), false),
+                        PlayerCommand::Load { index } => self.load(Some(index), false, true),
                         PlayerCommand::Play => self.play(),
                         PlayerCommand::Pause => self.pause(),
                         PlayerCommand::Stop => self.stop(),
@@ -234,10 +235,14 @@ impl PlayerInternal {
         }
     }
 
-    fn load(&mut self, index: Option<usize>, play: bool) {
+    fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) {
         if let Some(index) = index {
             debug!("Loading track at index: {}", index);
-            let mapped_index = self.get_mapped_track_index(index);
+            let mapped_index = if mapped {
+                self.get_mapped_track_index(index)
+            } else {
+                index
+            };
             let item = &self.playlist[mapped_index];
             let file = File::open(item.path.clone());
             match file {
@@ -344,7 +349,7 @@ impl PlayerInternal {
             self.state = InternalPlaybackState::Playing;
         } else {
             info!("Loading the first track");
-            self.load(Some(0), true);
+            self.load(Some(0), true, true);
             self.play();
         }
     }
@@ -384,7 +389,7 @@ impl PlayerInternal {
     fn next(&mut self) {
         if let Some(index) = self.current_track_index {
             if let Some(next_index) = self.playback_strategy.next(index, self.playlist.len()) {
-                self.load(Some(next_index), true);
+                self.load(Some(next_index), true, true);
             } else {
                 info!("End of playlist reached");
                 self.event_sender.send(PlayerEvent::EndOfPlaylist).unwrap();
@@ -393,7 +398,7 @@ impl PlayerInternal {
                 if let Some(start_index) =
                     self.playback_strategy.on_playlist_end(self.playlist.len())
                 {
-                    self.load(Some(start_index), false);
+                    self.load(Some(start_index), false, true);
                 }
             }
         }
@@ -402,7 +407,7 @@ impl PlayerInternal {
     fn previous(&mut self) {
         if let Some(index) = self.current_track_index {
             if let Some(prev_index) = self.playback_strategy.previous(index, self.playlist.len()) {
-                self.load(Some(prev_index), true);
+                self.load(Some(prev_index), true, true);
             } else {
                 info!("Beginning of playlist reached");
             }
@@ -410,12 +415,14 @@ impl PlayerInternal {
     }
 
     fn switch(&mut self, index: usize) {
-        if index > 0 || index < self.playlist.len() {
-            self.current_track_index = Some(index);
-            debug!("Moving to previous track: {}", index);
-            self.load(Some(index), true);
+        if index < self.playlist.len() {
+            debug!("Switching to track at index: {}", index);
+            self.load(Some(index), true, false);
         } else {
-            warn!("Previous command received but already at the first track");
+            warn!(
+                "Switch command received but index {} is out of bounds",
+                index
+            );
         }
     }
 
