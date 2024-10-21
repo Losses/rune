@@ -57,7 +57,7 @@ final controllerItems = [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
@@ -65,13 +65,13 @@ final controllerItems = [
       playPrevious();
     },
     controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return PreviousButton(disabled: notReady);
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(

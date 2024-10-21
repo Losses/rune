@@ -8,7 +8,6 @@ import '../../utils/settings_body_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/settings_button.dart';
-import '../../providers/status.dart';
 import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
 
@@ -27,7 +26,6 @@ class _SettingsMediaControllerPageState
     final theme = FluentTheme.of(context);
 
     final playbackController = Provider.of<PlaybackControllerProvider>(context);
-    Provider.of<PlaybackStatusProvider>(context);
     Provider.of<VolumeProvider>(context);
 
     return PageContentFrame(
