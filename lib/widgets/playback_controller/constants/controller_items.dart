@@ -9,6 +9,7 @@ import '../../../utils/api/play_next.dart';
 import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_previous.dart';
 import '../../../utils/dialogs/play_queue_dialog.dart';
+import '../../../utils/settings_manager.dart';
 import '../../../widgets/playback_controller/fullscreen_button.dart';
 import '../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../providers/status.dart';
@@ -29,7 +30,8 @@ class ControllerEntry {
   final String title;
   final String subtitle;
   final Widget Function(BuildContext context) controllerButtonBuilder;
-  final MenuFlyoutItem Function(BuildContext context) flyoutEntryBuilder;
+  final Future<MenuFlyoutItem> Function(BuildContext context)
+      flyoutEntryBuilder;
   final List<SingleActivator>? shortcuts;
   final void Function(BuildContext context)? onShortcut;
 
@@ -68,7 +70,7 @@ final controllerItems = [
 
       return PreviousButton(disabled: notReady);
     },
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final statusProvider = Provider.of<PlaybackStatusProvider>(context);
       final notReady = statusProvider.notReady;
 
@@ -132,7 +134,7 @@ final controllerItems = [
         state: status?.state ?? "Stopped",
       );
     },
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
@@ -179,7 +181,7 @@ final controllerItems = [
 
       return NextButton(disabled: notReady);
     },
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
@@ -218,7 +220,7 @@ final controllerItems = [
     shortcuts: [],
     onShortcut: null,
     controllerButtonBuilder: (context) => const VolumeButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final volumeProvider =
           Provider.of<VolumeProvider>(context, listen: false);
 
@@ -274,7 +276,7 @@ final controllerItems = [
     controllerButtonBuilder: (context) => const PlaybackModeButton(),
     shortcuts: [],
     onShortcut: null,
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       Typography typography = FluentTheme.of(context).typography;
       Color accentColor = Color.alphaBlend(
         FluentTheme.of(context).inactiveColor.withAlpha(100),
@@ -288,15 +290,33 @@ final controllerItems = [
       final currentMode =
           PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
 
+      // Retrieve disabled modes
+      List<dynamic>? storedDisabledModes = await SettingsManager()
+          .getValue<List<dynamic>>('disabledPlaybackModes');
+      List<PlaybackMode> disabledModes = storedDisabledModes != null
+          ? storedDisabledModes
+              .map((index) => PlaybackMode.values[index])
+              .toList()
+          : [];
+
+      // Filter available modes
+      List<PlaybackMode> availableModes = PlaybackMode.values
+          .where((mode) => !disabledModes.contains(mode))
+          .toList();
+
+      // Ensure at least sequential mode is available
+      if (availableModes.isEmpty) {
+        availableModes.add(PlaybackMode.sequential);
+      }
+
       return MenuFlyoutSubItem(
         leading: Icon(
           modeToIcon(currentMode),
         ),
         text: const Text('Mode'),
-        items: (_) => PlaybackMode.values.map(
+        items: (_) => availableModes.map(
           (x) {
             final isCurrent = x == currentMode;
-
             final color = isCurrent ? accentColor : null;
             return MenuFlyoutItem(
               text: Text(
@@ -329,7 +349,7 @@ final controllerItems = [
       showPlayQueueDialog(context);
     },
     controllerButtonBuilder: (context) => QueueButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
         text: const Row(
@@ -354,7 +374,7 @@ final controllerItems = [
     shortcuts: [],
     onShortcut: null,
     controllerButtonBuilder: (context) => Container(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.hide),
         text: const Text('Hidden'),
@@ -372,7 +392,7 @@ final controllerItems = [
       showCoverArtWall(context);
     },
     controllerButtonBuilder: (context) => const CoverWallButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
         text: const Row(
@@ -410,7 +430,7 @@ final controllerItems = [
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
     controllerButtonBuilder: (context) => const FullScreenButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final fullScreen =
           Provider.of<FullScreenProvider>(context, listen: false);
 

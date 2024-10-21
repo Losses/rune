@@ -1,20 +1,63 @@
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/providers/playback_controller.dart';
-import 'package:rune/providers/volume.dart';
-import 'package:rune/widgets/playback_controller/constants/controller_items.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/format_time.dart';
 import '../../../widgets/tile/cover_art.dart';
+import '../../../widgets/playback_controller/constants/controller_items.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../../providers/status.dart';
+import '../../../providers/volume.dart';
+import '../../../providers/playback_controller.dart';
 import '../../../providers/responsive_providers.dart';
 
-class SmallScreenPlayingTrack extends StatelessWidget {
+class SmallScreenPlayingTrack extends StatefulWidget {
   const SmallScreenPlayingTrack({super.key});
+
+  @override
+  SmallScreenPlayingTrackState createState() => SmallScreenPlayingTrackState();
+}
+
+final unavailable =
+    MenuFlyoutItem(text: const Text('Unavailable'), onPressed: () {});
+
+class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
+  Map<String, MenuFlyoutItem> flyoutItems = {};
+  bool initialized = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    _fetchFlyoutItems();
+  }
+
+  Future<void> _fetchFlyoutItems() async {
+    if (initialized) return;
+    initialized = true;
+    final entries =
+        Provider.of<PlaybackControllerProvider>(context, listen: false).entries;
+
+    final Map<String, MenuFlyoutItem> itemMap = {};
+
+    for (var entry in entries) {
+      if (!context.mounted) {
+        break;
+      }
+
+      final item = await entry.flyoutEntryBuilder(context);
+      itemMap[entry.id] = item;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    setState(() {
+      flyoutItems = itemMap;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -132,7 +175,11 @@ class SmallScreenPlayingTrack extends StatelessWidget {
                           isCompact: true,
                           overflowMenuItemBuilder: (context, entry) {
                             if (entry is PrimaryCommandBarItem) {
-                              return entry.entry.flyoutEntryBuilder(context);
+                              final item = flyoutItems[entry.entry.id];
+                              if (item != null) {
+                                return item;
+                              }
+                              return unavailable;
                             }
 
                             throw "Unacceptable entry type";

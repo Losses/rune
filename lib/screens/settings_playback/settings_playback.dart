@@ -28,12 +28,12 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
 
   Future<void> _loadSettings() async {
     // Load disabled playback modes
-    List<int>? storedDisabledModes =
-        await SettingsManager().getValue<List<int>>('disabledPlaybackModes');
+    List<dynamic>? storedDisabledModes = await SettingsManager()
+        .getValue<List<dynamic>>('disabledPlaybackModes');
     if (storedDisabledModes != null) {
       setState(() {
         disabledModes = storedDisabledModes
-            .map((index) => PlaybackMode.values[index])
+            .map((index) => PlaybackMode.values[index as int])
             .toList();
       });
     }

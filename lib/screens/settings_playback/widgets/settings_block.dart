@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/screens/settings_playback/widgets/settings_block_title.dart';
+
+import 'settings_block_title.dart';
 
 class SettingsBlock extends StatefulWidget {
   const SettingsBlock({
