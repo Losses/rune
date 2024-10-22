@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../../widgets/directory/directory_tree.dart';
 
@@ -28,16 +29,18 @@ class DirectoryPickerDialog extends StatelessWidget {
           ],
         ),
         actions: [
-          FilledButton(
-            child: const Text('Confirm'),
-            onPressed: () {
-              Navigator.pop(context, controller.value);
-              // Delete file here
-            },
-          ),
-          Button(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context, null),
+          ResponsiveDialogActions(
+            FilledButton(
+              child: const Text('Confirm'),
+              onPressed: () {
+                Navigator.pop(context, controller.value);
+                // Delete file here
+              },
+            ),
+            Button(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(context, null),
+            ),
           ),
         ],
       ),

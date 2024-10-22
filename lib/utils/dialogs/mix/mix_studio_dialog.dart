@@ -1,5 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
@@ -252,13 +253,15 @@ class _MixStudioDialogImplementationState
                 ),
         ),
         actions: [
-          FilledButton(
-            onPressed: isLoading ? null : () => saveMix(context),
-            child: Text(widget.mixId != null ? 'Save' : 'Create'),
-          ),
-          Button(
-            onPressed: isLoading ? null : () => Navigator.pop(context, null),
-            child: const Text('Cancel'),
+          ResponsiveDialogActions(
+            FilledButton(
+              onPressed: isLoading ? null : () => saveMix(context),
+              child: Text(widget.mixId != null ? 'Save' : 'Create'),
+            ),
+            Button(
+              onPressed: isLoading ? null : () => Navigator.pop(context, null),
+              child: const Text('Cancel'),
+            ),
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../messages/mix.pb.dart';
 import '../../../messages/collection.pb.dart';
@@ -94,48 +95,50 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
           ],
         ),
         actions: [
-          FilledButton(
-            onPressed: isLoading
-                ? null
-                : () async {
-                    setState(() {
-                      isLoading = true;
-                    });
+          ResponsiveDialogActions(
+            FilledButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      setState(() {
+                        isLoading = true;
+                      });
 
-                    final operator = widget.operator;
+                      final operator = widget.operator;
 
-                    Mix? response;
-                    if (widget.mixId != null) {
-                      response = await updateMix(
-                        widget.mixId!,
-                        titleController.text,
-                        groupController.text,
-                        false,
-                        99,
-                        operator == null ? [] : [operator],
-                      );
-                    } else {
-                      response = await createMix(
-                        titleController.text,
-                        groupController.text,
-                        false,
-                        99,
-                        operator == null ? [] : [operator],
-                      );
-                    }
+                      Mix? response;
+                      if (widget.mixId != null) {
+                        response = await updateMix(
+                          widget.mixId!,
+                          titleController.text,
+                          groupController.text,
+                          false,
+                          99,
+                          operator == null ? [] : [operator],
+                        );
+                      } else {
+                        response = await createMix(
+                          titleController.text,
+                          groupController.text,
+                          false,
+                          99,
+                          operator == null ? [] : [operator],
+                        );
+                      }
 
-                    setState(() {
-                      isLoading = false;
-                    });
+                      setState(() {
+                        isLoading = false;
+                      });
 
-                    if (!context.mounted) return;
-                    Navigator.pop(context, response);
-                  },
-            child: Text(widget.mixId != null ? 'Save' : 'Create'),
-          ),
-          Button(
-            onPressed: isLoading ? null : () => Navigator.pop(context, null),
-            child: const Text('Cancel'),
+                      if (!context.mounted) return;
+                      Navigator.pop(context, response);
+                    },
+              child: Text(widget.mixId != null ? 'Save' : 'Create'),
+            ),
+            Button(
+              onPressed: isLoading ? null : () => Navigator.pop(context, null),
+              child: const Text('Cancel'),
+            ),
           ),
         ],
       ),
