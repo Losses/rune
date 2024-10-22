@@ -16,9 +16,15 @@ class CollectionPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: BreakpointBuilder(
-        breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
+        breakpoints: const [
+          DeviceType.dock,
+          DeviceType.band,
+          DeviceType.zune,
+          DeviceType.tv
+        ],
         builder: (context, activeBreakpoint) {
-          if (activeBreakpoint == DeviceType.dock) {
+          if (activeBreakpoint == DeviceType.dock ||
+              activeBreakpoint == DeviceType.band) {
             return BandScreenCollectionListView(
               collectionType: collectionType,
             );

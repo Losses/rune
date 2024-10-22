@@ -54,6 +54,8 @@ class TurntileScreenState extends State<TurntileScreen> {
     cursor += 1;
     final (newItems, newIsLastPage) = await widget.fetchPage(thisCursor);
 
+    if (!context.mounted) return;
+
     setState(() {
       isLoading = false;
       isLastPage = newIsLastPage;
