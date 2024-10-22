@@ -69,7 +69,12 @@ jobs:
         with:
           pattern: Rune-*-windows
           path: artifacts
-
+          
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+          
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
@@ -83,6 +88,8 @@ jobs:
           artifacts: "artifacts/*.zip"
           allowUpdates: true
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
 
   build-linux:
     runs-on: ubuntu-latest
@@ -149,6 +156,11 @@ jobs:
         with:
           pattern: Rune-*-linux
           path: artifacts
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
           
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
@@ -160,9 +172,11 @@ jobs:
       - name: Release
         uses: ncipollo/release-action@v1
         with:
-          artifacts: "artifacts/*.zip"
           allowUpdates: true
+          artifacts: "artifacts/*.zip"
           replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
     
   build-macos:
     runs-on: macos-latest
@@ -171,16 +185,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-
-      - name: TEST
-        working-directory: macos/liblmdb-0.9.33/lib/
-        run: file liblmdb.dylib
-        
-        
-      - name: Install dependencies
-        run: |
-          brew install CocoaPods lmdb create-dmg
-          brew info lmdb
           
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -198,31 +202,10 @@ jobs:
           version: "26.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
         
-      - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
-      - name: Activate Protobuf
-        run: flutter pub global activate protoc_plugin
-        
-      - name: Flutter pub get
-        run: flutter pub get
-        
-      - name: Generate message files
-        run: rinf message 
-        
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
-          
-      - name: Build macOS 
-        run: |
-          cd macos
-          pod update
-          cd ..
-          flutter build macos --release
-          chmod -R +x build/macos/Build/Products/Release/player.app
-          xattr -cr build/macos/Build/Products/Release/player.app
 
       - name: Install certificates
         env:
@@ -232,7 +215,7 @@ jobs:
         run: |
           # create variables
           DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH=$RUNNER_TEMP/build_developerID_application_certificate.p12
-          KEYCHAIN_PATH=$RUNNER_TEMP/pg-signing.keychain-db
+          KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
 
           # import certificate and provisioning profile from secrets
           echo -n "$DEVELOPER_ID_APPLICATION_P12_BASE64_MAC" | base64 --decode --output $DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH
@@ -248,34 +231,41 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-      - name: Replace System Dylib
+      - name: All 
         run: |
-          otool -L player.app/Contents/MacOS/player | grep lmdb
-          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib player.app/Contents/MacOS/player
-        working-directory: build/macos/Build/Products/Release
-
-      - name: Code Signing
-        run: /usr/bin/codesign --deep --force -s "$DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY" --options runtime player.app -v
-        working-directory: build/macos/Build/Products/Release
+          brew install just
+          just macos-ci-all
         env:
           DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY: ${{ secrets.DEVELOPER_ID_APPLICATION_SIGNING_IDENTITY }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ steps.short-sha.outputs.sha }}
 
-      - name: Create DMG
+      - name: Replace System Dylib
         run: |
-          create-dmg \
-            --volname "Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS" \
-            --window-pos 200 120 \
-            --window-size 800 450 \
-            --icon-size 100 \
-            --app-drop-link 600 185 \
-            Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS.dmg \
-            build/macos/Build/Products/Release/player.app
+          otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
+          install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
+        working-directory: build/macos/Build/Products/Release
           
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          path: "*.dmg"
+          path: "temp_macos/*.dmg"
           name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          just macos-ci-clean
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
 
   release-macos:
     permissions:
@@ -296,103 +286,5 @@ jobs:
           artifacts: "artifacts/**/*.dmg"
           allowUpdates: true
           replacesArtifacts: false
-
-  build-android:
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libssl-dev
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        
-      - uses: Swatinem/rust-cache@v2
-      
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "26.x"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Setup Java toolchain
-        uses: actions/setup-java@v4
-        with:
-          distribution: "zulu"
-          java-version: "17"
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r27b
-          local-cache: true
-
-      # This is temporary disabled since Android version is not ready to release yet
-      # - name: Setup Android keystore
-      #   run: |
-      #     echo "${{ secrets.SIGNING_KEY_STORE_BASE64 }}" | base64 -di > android/app/upload-keystore.jks
-      #     echo "${{ secrets.SIGNING_KEY_PROPERTIES }}" > android/key.properties
-
-      - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
-      - name: Activate Protobuf
-        run: flutter pub global activate protoc_plugin
-
-      - name: Flutter pub get
-        run: flutter pub get
-        
-      - name: Generate message files
-        run: rinf message
-
-      - name: Build Android apks
-        run: |
-          chmod +x android/build.sh
-          android/build.sh
-          cd build/app/outputs/flutter-apk
-          mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
-          mv app-armeabi-v7a-release.apk Rune-${{ github.ref_name }}-android-armeabi-v7a.apk
-          mv app-x86_64-release.apk Rune-${{ github.ref_name }}-android-x86_64.apk
-        env:
-          ANDROID_NDK_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}"
-
-      - name: Upload artifact Android apks
-        uses: actions/upload-artifact@v4
-        with:
-          path: "build/app/outputs/flutter-apk/Rune-*.apk"
-
-  release-android:
-    permissions:
-      contents: write
-    needs: build-android
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*.apk
-          path: artifacts
-
-      - name: Release Android apks
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "artifacts/Rune-*.apk"
-          allowUpdates: true
-          replacesArtifacts: false
-
+          omitBodyDuringUpdate: true
+          makeLatest: true
