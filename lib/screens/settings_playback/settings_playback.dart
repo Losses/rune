@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
+import '../../utils/get_non_replace_operate_mode.dart';
 import '../../screens/settings_playback/widgets/settings_block.dart';
 import '../../screens/settings_playback/widgets/settings_block_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
@@ -58,14 +59,14 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
     });
     List<int> modeIndexes =
         disabledModes.map((mode) => modeToInt(mode)).toList();
-    await SettingsManager().setValue('disabledPlaybackModes', modeIndexes);
+    await SettingsManager().setValue('disabled_playback_modes', modeIndexes);
   }
 
   Future<void> _updateQueueSetting(String newSetting) async {
     setState(() {
       queueSetting = newSetting;
     });
-    await SettingsManager().setValue('queueSetting', newSetting);
+    await SettingsManager().setValue(nonReplaceOperateModeKey, newSetting);
   }
 
   @override
