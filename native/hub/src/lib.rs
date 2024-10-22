@@ -21,10 +21,8 @@ use std::sync::Arc;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::fmt;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::{fmt, Layer, Registry};
 
 pub use tokio;
 
@@ -198,38 +196,40 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
 
-    let stdout_filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
-    );
-
-    if enable_log {
+    let _guard = if enable_log {
         let file_filter = EnvFilter::new("debug");
         let now = chrono::Local::now();
         let file_name = format!("{}.rune.log", now.format("%Y-%m-%d_%H-%M-%S"));
         let file_appender = tracing_appender::rolling::never(".", file_name);
-        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+        let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-        let file_layer = fmt::layer()
+        tracing_subscriber::fmt()
+            .with_env_filter(file_filter)
             .with_writer(non_blocking)
             .with_timer(fmt::time::ChronoLocal::rfc_3339())
-            .with_span_events(fmt::format::FmtSpan::CLOSE)
-            .with_filter(file_filter);
-
-        // Combine the layers
-        Registry::default().with(file_layer).init();
+            .init();
 
         info!("Logging is enabled");
+        Some(guard)
     } else {
+        let stdout_filter = EnvFilter::new(
+            "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
+        );
+
         tracing_subscriber::fmt()
             .with_env_filter(stdout_filter)
-            .with_test_writer()
             .init();
-    }
+        None
+    };
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(player_loop).await {
         error!("Failed to receive media library path: {}", e);
     }
-
+    
     rinf::dart_shutdown().await;
+
+    if let Some(guard) = _guard {
+        drop(guard);
+    }
 }
