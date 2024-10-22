@@ -6,9 +6,8 @@ import 'package:flutter_svg/flutter_svg.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
 import '../../widgets/tile/fancy_cover.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/system.pb.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -19,56 +18,50 @@ class SettingsAboutPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const NavigationBarPlaceholder(),
-        Expanded(
-          child: SmallerOrEqualTo(
-            breakpoint: DeviceType.tablet,
-            builder: (context, isMini) {
-              if (isMini) {
-                return SingleChildScrollView(
-                  child: SettingsPagePadding(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _LogoSection(),
-                          FutureBuilder<SystemInfoResponse>(
-                            future: systemInfo(),
-                            builder: (context, snapshot) =>
-                                _InfoSection(data: snapshot.data),
-                          ),
-                        ],
+    return PageContentFrame(
+      child: SmallerOrEqualTo(
+        breakpoint: DeviceType.tablet,
+        builder: (context, isMini) {
+          if (isMini) {
+            return SingleChildScrollView(
+              child: SettingsPagePadding(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _LogoSection(),
+                      FutureBuilder<SystemInfoResponse>(
+                        future: systemInfo(),
+                        builder: (context, snapshot) =>
+                            _InfoSection(data: snapshot.data),
                       ),
-                    ),
+                    ],
                   ),
-                );
-              }
+                ),
+              ),
+            );
+          }
 
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.max,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(48, 0, 24, 0),
-                    child: _LogoSection(),
-                  ),
-                  Expanded(
-                    child: FutureBuilder<SystemInfoResponse>(
-                      future: systemInfo(),
-                      builder: (context, snapshot) =>
-                          _InfoSection(data: snapshot.data),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-        const ControllerPlaceholder()
-      ],
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(48, 0, 24, 0),
+                child: _LogoSection(),
+              ),
+              Expanded(
+                child: FutureBuilder<SystemInfoResponse>(
+                  future: systemInfo(),
+                  builder: (context, snapshot) =>
+                      _InfoSection(data: snapshot.data),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }

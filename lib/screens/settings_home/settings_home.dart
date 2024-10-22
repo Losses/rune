@@ -1,10 +1,9 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../screens/settings_home/band_screen_settings_home_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../screens/settings_home/band_screen_settings_home_list.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'large_screen_settings_home_list.dart';
@@ -30,35 +29,26 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: Column(
-        children: [
-          const NavigationBarPlaceholder(),
-          Expanded(
-            child: BreakpointBuilder(
-                breakpoints: const [
-                  DeviceType.band,
-                  DeviceType.zune,
-                  DeviceType.tv
-                ],
-                builder: (context, activeBreakpoint) {
-                  if (activeBreakpoint == DeviceType.band) {
-                    return BandScreenLibraryHomeListView(
-                        layoutManager: _layoutManager);
-                  }
+      child: PageContentFrame(
+        child: BreakpointBuilder(
+          breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
+          builder: (context, activeBreakpoint) {
+            if (activeBreakpoint == DeviceType.dock) {
+              return BandScreenLibraryHomeListView(
+                  layoutManager: _layoutManager);
+            }
 
-                  if (activeBreakpoint == DeviceType.zune) {
-                    return SmallScreenSettingsHomeListView(
-                      layoutManager: _layoutManager,
-                    );
-                  }
+            if (activeBreakpoint == DeviceType.zune) {
+              return SmallScreenSettingsHomeListView(
+                layoutManager: _layoutManager,
+              );
+            }
 
-                  return LargeScreenSettingsHomeListView(
-                    layoutManager: _layoutManager,
-                  );
-                }),
-          ),
-          const ControllerPlaceholder()
-        ],
+            return LargeScreenSettingsHomeListView(
+              layoutManager: _layoutManager,
+            );
+          },
+        ),
       ),
     );
   }

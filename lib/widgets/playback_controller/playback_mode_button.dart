@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/play_mode.dart';
+import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
 
@@ -61,6 +62,31 @@ PlaybackMode nextMode(PlaybackMode mode) {
 class PlaybackModeButton extends StatelessWidget {
   const PlaybackModeButton({super.key});
 
+  Future<PlaybackMode> getNextEnabledMode(PlaybackMode currentMode) async {
+    // Retrieve disabled modes
+    List<dynamic>? storedDisabledModes = await SettingsManager()
+        .getValue<List<dynamic>>('disabledPlaybackModes');
+    List<PlaybackMode> disabledModes = storedDisabledModes != null
+        ? storedDisabledModes
+            .map((index) => PlaybackMode.values[index])
+            .toList()
+        : [];
+
+    // Check if all modes are disabled
+    if (disabledModes.length >= PlaybackMode.values.length - 1) {
+      return PlaybackMode.sequential; // Default to sequential mode
+    }
+
+    PlaybackMode next = currentMode;
+
+    // Find the next enabled mode
+    do {
+      next = nextMode(next);
+    } while (disabledModes.contains(next));
+
+    return next;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer<PlaybackStatusProvider>(
@@ -69,8 +95,8 @@ class PlaybackModeButton extends StatelessWidget {
             playbackStatusProvider.playbackStatus?.playbackMode ?? 0);
 
         return IconButton(
-          onPressed: () {
-            final next = nextMode(currentMode);
+          onPressed: () async {
+            final next = await getNextEnabledMode(currentMode);
             playMode(next.toValue());
           },
           icon: Icon(modeToIcon(currentMode)),

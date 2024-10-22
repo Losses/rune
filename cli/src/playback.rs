@@ -31,6 +31,7 @@ pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) 
                 )
             })
             .collect(),
+        playback::strategies::AddMode::AppendToEnd,
     );
 
     player.lock().unwrap().play();

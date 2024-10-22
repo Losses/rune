@@ -9,10 +9,12 @@ import 'config/routes.dart';
 
 import 'routes/welcome.dart' as welcome;
 
-import 'widgets/navigation_bar/back_button.dart';
+import 'widgets/rune_stack.dart';
+import 'widgets/shortcuts/router_actions_manager.dart';
+import 'widgets/navigation_bar/navigation_back_button.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
-import 'widgets/shortcuts/router_actions_manager.dart';
+import 'widgets/playback_controller/cover_art_disk.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
 import 'providers/library_path.dart';
@@ -193,6 +195,12 @@ final router = GoRouter(
       navigatorKey: _shellNavigatorKey,
       builder: (context, state, child) {
         final library = Provider.of<LibraryPathProvider>(context);
+        final r = Provider.of<ResponsiveProvider>(context);
+
+        final isCar = r.smallerOrEqualTo(DeviceType.car, false);
+        final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
+
+        final showDisk = isZune || isCar;
 
         if (library.currentPath == null) {
           return const welcome.WelcomePage();
@@ -202,36 +210,56 @@ final router = GoRouter(
           return const welcome.ScanningPage();
         }
 
+        final mainContent = FocusTraversalOrder(
+          order: const NumericFocusOrder(2),
+          child: RouterFrame(
+            shellContext: _shellNavigatorKey.currentContext,
+            appTheme: appTheme,
+            child: child,
+          ),
+        );
+
+        final path = GoRouterState.of(context).fullPath ?? "/";
+
         return FlipAnimationContext(
           child: FocusTraversalGroup(
             policy: OrderedTraversalPolicy(),
-            child: Stack(
+            child: RuneStack(
               alignment: Alignment.bottomCenter,
               children: [
-                SizedBox.expand(
-                  child: FocusTraversalOrder(
-                      order: const NumericFocusOrder(2),
-                      child: RouterFrame(
-                        shellContext: _shellNavigatorKey.currentContext,
-                        appTheme: appTheme,
-                        child: child,
-                      )),
-                ),
-                const FocusTraversalOrder(
-                  order: NumericFocusOrder(3),
-                  child: PlaybackController(),
-                ),
+                if (path == '/cover_wall' && !showDisk) mainContent,
+                if (!showDisk)
+                  const FocusTraversalOrder(
+                    order: NumericFocusOrder(3),
+                    child: PlaybackController(),
+                  ),
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
-                  child: SmallerOrEqualTo(
-                    breakpoint: DeviceType.band,
-                    builder: (context, isBand) {
-                      if (!isBand) return const NavigationBar();
+                  child: BreakpointBuilder(
+                    breakpoints: const [
+                      DeviceType.band,
+                      DeviceType.dock,
+                      DeviceType.tv
+                    ],
+                    builder: (context, activeBreakpoint) {
+                      final isSmallView = activeBreakpoint == DeviceType.band || activeBreakpoint == DeviceType.dock;
 
-                      return const BackButton();
+                      if (!isSmallView) return const NavigationBar();
+
+                      return const Positioned(
+                        top: -12,
+                        left: -12,
+                        child: NavigationBackButton(),
+                      );
                     },
                   ),
                 ),
+                if (!(path == '/cover_wall' && !showDisk)) mainContent,
+                if (showDisk)
+                  const FocusTraversalOrder(
+                    order: NumericFocusOrder(4),
+                    child: CoverArtDisk(),
+                  ),
               ],
             ),
           ),

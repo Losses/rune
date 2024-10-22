@@ -11,6 +11,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
+import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
@@ -34,8 +35,14 @@ import 'providers/transition_calculation.dart';
 import 'theme.dart';
 import 'router.dart';
 
-void main() async {
+void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  String? profile = arguments.contains('--profile')
+      ? arguments[arguments.indexOf('--profile') + 1]
+      : null;
+
+  StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();
   await GetStorage.init();

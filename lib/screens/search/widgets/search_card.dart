@@ -28,9 +28,9 @@ abstract class SearchCard extends StatelessWidget {
       onContextMenu: (position) => onContextMenu(context, position),
       child: AxPressure(
         child: BreakpointBuilder(
-          breakpoints: const [DeviceType.band, DeviceType.zune, DeviceType.tv],
+          breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
           builder: (context, deviceType) {
-            if (deviceType == DeviceType.band) {
+            if (deviceType == DeviceType.dock) {
               return Padding(
                 padding: const EdgeInsets.symmetric(
                   vertical: 1,

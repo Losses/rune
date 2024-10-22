@@ -9,6 +9,7 @@ import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
+import '../../messages/playback.pb.dart';
 
 import '../tile/cover_art.dart';
 
@@ -63,7 +64,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
       playbackMode: widget.mode,
       hintPosition: widget.index,
       initialPlaybackId: widget.item.id,
-      replacePlaylist: true,
+      operateMode: PlaylistOperateMode.Replace,
       instantlyPlay: true,
       fallbackFileIds: widget.fallbackFileIds,
     );
@@ -116,10 +117,12 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
 
               return TweenAnimationBuilder<double>(
                 duration: theme.fastAnimationDuration,
-                tween: Tween<double>(begin: 0, end: _isHovered || _isFocused ? 1 : 0),
+                tween: Tween<double>(
+                    begin: 0, end: _isHovered || _isFocused ? 1 : 0),
                 builder: (context, hoverValue, child) {
                   final titleAlpha = lerpDouble(204, 255, hoverValue)!.toInt();
-                  final subtitleAlpha = lerpDouble(94, 117, hoverValue)!.toInt();
+                  final subtitleAlpha =
+                      lerpDouble(94, 117, hoverValue)!.toInt();
 
                   final List<Shadow> textShadows = [
                     Shadow(
@@ -142,7 +145,8 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: theme.accentColor.withOpacity(0.5 * focusValue),
+                                color: theme.accentColor
+                                    .withOpacity(0.5 * focusValue),
                                 blurRadius: focusValue * 4,
                                 spreadRadius: focusValue * 2,
                               ),
@@ -177,7 +181,8 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                                 Text(
                                   widget.item.artist,
                                   style: typography.caption?.apply(
-                                    color: contentColor.withAlpha(subtitleAlpha),
+                                    color:
+                                        contentColor.withAlpha(subtitleAlpha),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),

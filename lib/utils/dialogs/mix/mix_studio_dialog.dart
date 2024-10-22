@@ -1,10 +1,11 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../../widgets/navigation_bar/navigation_bar_placeholder.dart';
+import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';
@@ -252,13 +253,15 @@ class _MixStudioDialogImplementationState
                 ),
         ),
         actions: [
-          FilledButton(
-            onPressed: isLoading ? null : () => saveMix(context),
-            child: Text(widget.mixId != null ? 'Save' : 'Create'),
-          ),
-          Button(
-            onPressed: isLoading ? null : () => Navigator.pop(context, null),
-            child: const Text('Cancel'),
+          ResponsiveDialogActions(
+            FilledButton(
+              onPressed: isLoading ? null : () => saveMix(context),
+              child: Text(widget.mixId != null ? 'Save' : 'Create'),
+            ),
+            Button(
+              onPressed: isLoading ? null : () => Navigator.pop(context, null),
+              child: const Text('Cancel'),
+            ),
           ),
         ],
       ),

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../widgets/library_task_button.dart';
 
@@ -32,10 +33,12 @@ Future<String?> showNoAnalysisDialog(
           ],
         ),
         actions: [
-          const AnalyseLibraryButton(),
-          Button(
-            child: const Text('Cancel'),
-            onPressed: () => Navigator.pop(context, 'Cancel'),
+          ResponsiveDialogActions(
+            const AnalyseLibraryButton(),
+            Button(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.pop(context, 'Cancel'),
+            ),
           ),
         ],
       ),

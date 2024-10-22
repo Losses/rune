@@ -3,6 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 const List<(String, String, IconData, bool)> firstColumn = [
   ('Library', '/settings/library', Symbols.video_library, false),
+  ('Playback', '/settings/playback', Symbols.playlist_add_check_circle, false),
   ('Controller', '/settings/media_controller', Symbols.tune, false),
   ('About', '/settings/about', Symbols.info, false),
 ];

@@ -4,8 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../screens/library_home/band_screen_library_home_list.dart';
 import '../../screens/library_home/small_screen_library_home_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -37,23 +36,21 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: Column(
-        children: [
-          SmallerOrEqualTo(
-              breakpoint: DeviceType.band,
-              builder: (context, isBand) {
-                if (isBand) return const SizedBox();
-                return const NavigationBarPlaceholder();
-              }),
-          Expanded(
+      child: SmallerOrEqualTo(
+        breakpoint: DeviceType.dock,
+        builder: (context, isDock) {
+          return PageContentFrame(
+            top: !isDock,
             child: BreakpointBuilder(
               breakpoints: const [
                 DeviceType.band,
+                DeviceType.dock,
                 DeviceType.zune,
                 DeviceType.tv
               ],
               builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.band) {
+                if (activeBreakpoint == DeviceType.dock ||
+                    activeBreakpoint == DeviceType.band) {
                   return BandScreenLibraryHomeListView(
                     layoutManager: _layoutManager,
                   );
@@ -71,9 +68,8 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                 );
               },
             ),
-          ),
-          const ControllerPlaceholder()
-        ],
+          );
+        },
       ),
     );
   }

@@ -11,6 +11,7 @@ import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../messages/playback.pb.dart';
 
 import '../context_menu_wrapper.dart';
 import '../tile/cover_art.dart';
@@ -112,7 +113,7 @@ class BandViewTrackItem extends StatelessWidget {
                     playbackMode: mode,
                     hintPosition: index,
                     initialPlaybackId: item.id,
-                    replacePlaylist: true,
+                    operateMode: PlaylistOperateMode.Replace,
                     instantlyPlay: true,
                     fallbackFileIds:
                         pagingController.itemList?.map((x) => x.id).toList() ??

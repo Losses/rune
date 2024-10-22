@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use dunce::canonicalize;
+use playback::strategies::AddMode;
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 
@@ -15,6 +16,7 @@ use playback::player::Player;
 
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::OperatePlaybackWithMixQueryResponse;
+use crate::PlaylistOperateMode;
 use crate::VolumeRequest;
 use crate::VolumeResponse;
 use crate::{
@@ -234,12 +236,19 @@ pub async fn operate_playback_with_mix_query_request(
 
     let mut player = player.lock().await;
 
+    let operate_mode = PlaylistOperateMode::try_from(request.operate_mode)?;
     // Clear the playlist if requested
-    if request.replace_playlist {
+    if operate_mode == PlaylistOperateMode::Replace {
         player.clear_playlist();
     }
 
-    let playlist_len = if request.replace_playlist {
+    let add_mode = if operate_mode == PlaylistOperateMode::PlayNext {
+        AddMode::PlayNext
+    } else {
+        AddMode::AppendToEnd
+    };
+
+    let playlist_len = if operate_mode == PlaylistOperateMode::Replace {
         0
     } else {
         player.get_playlist().len()
@@ -249,7 +258,7 @@ pub async fn operate_playback_with_mix_query_request(
 
     // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
-        player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+        player.add_to_playlist(files_to_playback_request(&lib_path, tracks), add_mode);
         OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
         return Ok(());
     }
@@ -271,7 +280,7 @@ pub async fn operate_playback_with_mix_query_request(
     let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
 
     // Add to playlist
-    player.add_to_playlist(files_to_playback_request(&lib_path, tracks));
+    player.add_to_playlist(files_to_playback_request(&lib_path, tracks), add_mode);
     OperatePlaybackWithMixQueryResponse {
         file_ids: file_ids.clone(),
     }

@@ -7,16 +7,16 @@ import '../../utils/navigation/utils/navigation_backward.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/hover_opacity.dart';
 
-class BackButton extends StatefulWidget {
-  const BackButton({
+class NavigationBackButton extends StatefulWidget {
+  const NavigationBackButton({
     super.key,
   });
 
   @override
-  State<BackButton> createState() => _BackButtonState();
+  State<NavigationBackButton> createState() => _NavigationBackButtonState();
 }
 
-class _BackButtonState extends State<BackButton> {
+class _NavigationBackButtonState extends State<NavigationBackButton> {
   final FocusNode _focusNode = FocusNode(debugLabel: 'Back Button');
 
   @override
@@ -33,24 +33,20 @@ class _BackButtonState extends State<BackButton> {
       return Container();
     }
 
-    return Positioned(
-      top: -12,
-      left: -12,
-      child: AxPressure(
+    return AxPressure(
+      child: HoverOpacity(
         child: GestureDetector(
           onTap: () {
             navigateBackwardWithPop(context);
           },
-          child: HoverOpacity(
-            child: FocusableActionDetector(
-              focusNode: _focusNode,
-              child: SvgPicture.asset(
-                'assets/arrow-circle-left-solid.svg',
-                width: 56,
-                colorFilter: ColorFilter.mode(
-                  FluentTheme.of(context).inactiveColor,
-                  BlendMode.srcIn,
-                ),
+          child: FocusableActionDetector(
+            focusNode: _focusNode,
+            child: SvgPicture.asset(
+              'assets/arrow-circle-left-solid.svg',
+              width: 56,
+              colorFilter: ColorFilter.mode(
+                FluentTheme.of(context).inactiveColor,
+                BlendMode.srcIn,
               ),
             ),
           ),

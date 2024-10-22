@@ -9,6 +9,7 @@ import '../../../utils/api/play_next.dart';
 import '../../../utils/api/play_pause.dart';
 import '../../../utils/api/play_previous.dart';
 import '../../../utils/dialogs/play_queue_dialog.dart';
+import '../../../utils/settings_manager.dart';
 import '../../../widgets/playback_controller/fullscreen_button.dart';
 import '../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../providers/status.dart';
@@ -25,11 +26,12 @@ import '../playback_mode_button.dart';
 
 class ControllerEntry {
   final String id;
-  final IconData icon;
+  final IconData Function(BuildContext context) icon;
   final String title;
   final String subtitle;
   final Widget Function(BuildContext context) controllerButtonBuilder;
-  final MenuFlyoutItem Function(BuildContext context) flyoutEntryBuilder;
+  final Future<MenuFlyoutItem> Function(BuildContext context)
+      flyoutEntryBuilder;
   final List<SingleActivator>? shortcuts;
   final void Function(BuildContext context)? onShortcut;
 
@@ -45,17 +47,17 @@ class ControllerEntry {
   });
 }
 
-var controllerItems = [
+final controllerItems = [
   ControllerEntry(
     id: 'previous',
-    icon: Symbols.skip_previous,
+    icon: (context) => Symbols.skip_previous,
     title: "Previous",
     subtitle: "Go to the previous track",
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
@@ -63,13 +65,13 @@ var controllerItems = [
       playPrevious();
     },
     controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return PreviousButton(disabled: notReady);
     },
-    flyoutEntryBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context);
+    flyoutEntryBuilder: (context) async {
+      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
@@ -92,7 +94,16 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'toggle',
-    icon: Symbols.play_arrow,
+    icon: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+
+      if (statusProvider.playbackStatus?.state == "Playing") {
+        return Symbols.pause;
+      } else {
+        return Symbols.play_arrow;
+      }
+    },
     title: "Play/Pause",
     subtitle: "Toggle between play and pause",
     shortcuts: [
@@ -123,7 +134,7 @@ var controllerItems = [
         state: status?.state ?? "Stopped",
       );
     },
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
@@ -148,7 +159,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'next',
-    icon: Symbols.skip_next,
+    icon: (context) => Symbols.skip_next,
     title: "Next",
     subtitle: "Go to the next track",
     shortcuts: [
@@ -170,7 +181,7 @@ var controllerItems = [
 
       return NextButton(disabled: notReady);
     },
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
@@ -195,13 +206,21 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'volume',
-    icon: Symbols.volume_up,
+    icon: (context) {
+      final volumeProvider = Provider.of<VolumeProvider>(context);
+
+      return volumeProvider.volume > 0.3
+          ? Symbols.volume_up
+          : volumeProvider.volume > 0
+              ? Symbols.volume_down
+              : Symbols.volume_mute;
+    },
     title: "Volume",
     subtitle: "Adjust the volume",
     shortcuts: [],
     onShortcut: null,
     controllerButtonBuilder: (context) => const VolumeButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final volumeProvider =
           Provider.of<VolumeProvider>(context, listen: false);
 
@@ -242,13 +261,22 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'mode',
-    icon: Symbols.east,
+    icon: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+
+      final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
+        statusProvider.playbackStatus?.playbackMode ?? 0,
+      );
+
+      return modeToIcon(currentMode);
+    },
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
     controllerButtonBuilder: (context) => const PlaybackModeButton(),
     shortcuts: [],
     onShortcut: null,
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       Typography typography = FluentTheme.of(context).typography;
       Color accentColor = Color.alphaBlend(
         FluentTheme.of(context).inactiveColor.withAlpha(100),
@@ -262,15 +290,33 @@ var controllerItems = [
       final currentMode =
           PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
 
+      // Retrieve disabled modes
+      List<dynamic>? storedDisabledModes = await SettingsManager()
+          .getValue<List<dynamic>>('disabledPlaybackModes');
+      List<PlaybackMode> disabledModes = storedDisabledModes != null
+          ? storedDisabledModes
+              .map((index) => PlaybackMode.values[index])
+              .toList()
+          : [];
+
+      // Filter available modes
+      List<PlaybackMode> availableModes = PlaybackMode.values
+          .where((mode) => !disabledModes.contains(mode))
+          .toList();
+
+      // Ensure at least sequential mode is available
+      if (availableModes.isEmpty) {
+        availableModes.add(PlaybackMode.sequential);
+      }
+
       return MenuFlyoutSubItem(
         leading: Icon(
           modeToIcon(currentMode),
         ),
         text: const Text('Mode'),
-        items: (_) => PlaybackMode.values.map(
+        items: (_) => availableModes.map(
           (x) {
             final isCurrent = x == currentMode;
-
             final color = isCurrent ? accentColor : null;
             return MenuFlyoutItem(
               text: Text(
@@ -293,7 +339,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'playlist',
-    icon: Symbols.list_alt,
+    icon: (context) => Symbols.list_alt,
     title: "Playlist",
     subtitle: "View the playback queue",
     shortcuts: [
@@ -303,7 +349,7 @@ var controllerItems = [
       showPlayQueueDialog(context);
     },
     controllerButtonBuilder: (context) => QueueButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
         text: const Row(
@@ -322,13 +368,13 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'hidden',
-    icon: Symbols.hide_source,
+    icon: (context) => Symbols.hide_source,
     title: "Hidden",
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
     onShortcut: null,
     controllerButtonBuilder: (context) => Container(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.hide),
         text: const Text('Hidden'),
@@ -338,7 +384,7 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'cover_wall',
-    icon: Symbols.photo,
+    icon: (context) => Symbols.photo,
     title: "Cover Wall",
     subtitle: "Display cover art for a unique ambience",
     shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
@@ -346,7 +392,7 @@ var controllerItems = [
       showCoverArtWall(context);
     },
     controllerButtonBuilder: (context) => const CoverWallButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
         text: const Row(
@@ -365,7 +411,13 @@ var controllerItems = [
   ),
   ControllerEntry(
     id: 'fullscreen',
-    icon: Symbols.fullscreen,
+    icon: (context) {
+      final fullScreen = Provider.of<FullScreenProvider>(context);
+
+      return fullScreen.isFullScreen
+          ? Symbols.fullscreen_exit
+          : Symbols.fullscreen;
+    },
     title: "Fullscreen",
     subtitle: "Enter or exit fullscreen mode",
     shortcuts: [
@@ -378,7 +430,7 @@ var controllerItems = [
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
     controllerButtonBuilder: (context) => const FullScreenButton(),
-    flyoutEntryBuilder: (context) {
+    flyoutEntryBuilder: (context) async {
       final fullScreen =
           Provider.of<FullScreenProvider>(context, listen: false);
 

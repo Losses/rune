@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../api/remove_playlist.dart';
 
@@ -55,13 +56,15 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
           'If you delete this playlist, you won\'t be able to recover it. Do you want to delete it?',
         ),
         actions: [
-          Button(
-            onPressed: isLoading ? null : _onConfirm,
-            child: const Text('Delete'),
-          ),
-          FilledButton(
-            onPressed: isLoading ? null : () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+          ResponsiveDialogActions(
+            Button(
+              onPressed: isLoading ? null : _onConfirm,
+              child: const Text('Delete'),
+            ),
+            FilledButton(
+              onPressed: isLoading ? null : () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
           ),
         ],
       ),

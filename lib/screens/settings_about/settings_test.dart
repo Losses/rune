@@ -1,10 +1,9 @@
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/ax_pressure.dart';
 
-import '../../widgets/navigation_bar/navigation_bar_placeholder.dart';
-import '../../widgets/playback_controller/controllor_placeholder.dart';
+import '../../widgets/ax_pressure.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 
 class SettingsTestPage extends StatefulWidget {
   const SettingsTestPage({super.key});
@@ -20,9 +19,8 @@ const doubleSize = 160.0;
 class _SettingsTestPageState extends State<SettingsTestPage> {
   @override
   Widget build(BuildContext context) {
-    return Column(children: [
-      const NavigationBarPlaceholder(),
-      SizedBox(
+    return PageContentFrame(
+      child: SizedBox(
         width: 320,
         child: TurnstileAnimation(
           tiles: [
@@ -99,8 +97,7 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
           duration: const Duration(milliseconds: 1000),
         ),
       ),
-      const ControllerPlaceholder(),
-    ]);
+    );
   }
 }
 

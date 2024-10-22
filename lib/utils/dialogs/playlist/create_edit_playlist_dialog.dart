@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
@@ -94,40 +95,42 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
           ],
         ),
         actions: [
-          FilledButton(
-            onPressed: isLoading
-                ? null
-                : () async {
-                    setState(() {
-                      isLoading = true;
-                    });
+          ResponsiveDialogActions(
+            FilledButton(
+              onPressed: isLoading
+                  ? null
+                  : () async {
+                      setState(() {
+                        isLoading = true;
+                      });
 
-                    Playlist? response;
-                    if (widget.playlistId != null) {
-                      response = await updatePlaylist(
-                        widget.playlistId!,
-                        titleController.text,
-                        groupController.text,
-                      );
-                    } else {
-                      response = await createPlaylist(
-                        titleController.text,
-                        groupController.text,
-                      );
-                    }
+                      Playlist? response;
+                      if (widget.playlistId != null) {
+                        response = await updatePlaylist(
+                          widget.playlistId!,
+                          titleController.text,
+                          groupController.text,
+                        );
+                      } else {
+                        response = await createPlaylist(
+                          titleController.text,
+                          groupController.text,
+                        );
+                      }
 
-                    setState(() {
-                      isLoading = false;
-                    });
+                      setState(() {
+                        isLoading = false;
+                      });
 
-                    if (!context.mounted) return;
-                    Navigator.pop(context, response);
-                  },
-            child: Text(widget.playlistId != null ? 'Save' : 'Create'),
-          ),
-          Button(
-            onPressed: isLoading ? null : () => Navigator.pop(context, null),
-            child: const Text('Cancel'),
+                      if (!context.mounted) return;
+                      Navigator.pop(context, response);
+                    },
+              child: Text(widget.playlistId != null ? 'Save' : 'Create'),
+            ),
+            Button(
+              onPressed: isLoading ? null : () => Navigator.pop(context, null),
+              child: const Text('Cancel'),
+            ),
           ),
         ],
       ),
