@@ -7,9 +7,17 @@ if [ -z "$ANDROID_NDK_PATH" ]; then
     exit 1
 fi
 
+# Use NDK toolchain corresponding to OS
+OS_TYPE=$(uname -s)
+if [ "$OS_TYPE" = "Darwin" ]; then
+    PLATFORM="darwin-x86_64"
+else
+    PLATFORM="linux-x86_64"
+fi
+
 # Set env variables
-export PKG_CONFIG_PATH="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin"
-export PKG_CONFIG_SYSROOT_DIR="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+export PKG_CONFIG_PATH="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/$PLATFORM/bin"
+export PKG_CONFIG_SYSROOT_DIR="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/$PLATFORM/sysroot"
 export ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR="$WORK_DIR/openssl/armeabi-v7a"
 export AARCH64_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/arm64-v8a"
 export I686_LINUX_ANDROID_OPENSSL_DIR="$WORK_DIR/openssl/x86"

@@ -332,6 +332,9 @@ jobs:
           distribution: "zulu"
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup NDK
         uses: nttld/setup-ndk@v1
         id: setup-ndk
@@ -359,18 +362,14 @@ jobs:
 
       - name: Build Android apks
         run: |
-          flutter build apk --release --split-per-abi
+          chmod +x android/build.sh
+          android/build.sh
           cd build/app/outputs/flutter-apk
           mv app-arm64-v8a-release.apk Rune-${{ github.ref_name }}-android-arm64-v8a.apk
           mv app-armeabi-v7a-release.apk Rune-${{ github.ref_name }}-android-armeabi-v7a.apk
           mv app-x86_64-release.apk Rune-${{ github.ref_name }}-android-x86_64.apk
         env:
-          PKG_CONFIG_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          PKG_CONFIG_SYSROOT_DIR: "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-          ARMV7_LINUX_ANDROIDEABI_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/armeabi-v7a"
-          AARCH64_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/arm64-v8a"
-          I686_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/x86"
-          X86_64_LINUX_ANDROID_OPENSSL_DIR: "${{ github.workspace }}/android/openssl/x86_64"
+          ANDROID_NDK_PATH: "${{ steps.setup-ndk.outputs.ndk-path }}"
 
       - name: Upload artifact Android apks
         uses: actions/upload-artifact@v4
