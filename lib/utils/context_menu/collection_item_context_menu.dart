@@ -109,10 +109,14 @@ void openCollectionItemContextMenu(
 
   if (!context.mounted) return;
 
-  final isDock = Provider.of<ResponsiveProvider>(context, listen: false)
-      .smallerOrEqualTo(DeviceType.dock);
+  final r = Provider.of<ResponsiveProvider>(context, listen: false);
 
-  if (isDock) {
+  final isDock = r.smallerOrEqualTo(DeviceType.dock, false);
+  final isBand = r.smallerOrEqualTo(DeviceType.band, false);
+
+  final isMini = isDock || isBand;
+
+  if (isMini) {
     contextController.showFlyout(
       position: position,
       builder: (context) {
@@ -121,6 +125,7 @@ void openCollectionItemContextMenu(
           type,
           id,
           queries,
+          isBand,
         );
       },
     );
@@ -297,7 +302,8 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
-  List<(String, String)> queries, [
+  List<(String, String)> queries,
+  bool isBand, [
   List<int> fallbackFileIds = const [],
 ]) {
   List<CommandBarButton> items = [
@@ -365,10 +371,10 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
 
   return FlyoutContent(
     child: Container(
-      constraints: const BoxConstraints(maxHeight: 96),
+      constraints: const BoxConstraints(maxHeight: 96, maxWidth: 96),
       child: CommandBar(
         primaryItems: items,
-        direction: Axis.vertical,
+        direction: isBand ? Axis.horizontal : Axis.vertical,
         overflowBehavior: CommandBarOverflowBehavior.scrolling,
       ),
     ),

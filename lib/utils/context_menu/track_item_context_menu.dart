@@ -46,16 +46,21 @@ void openTrackItemContextMenu(
 
   if (!context.mounted) return;
 
-  final isDock = Provider.of<ResponsiveProvider>(context, listen: false)
-      .smallerOrEqualTo(DeviceType.dock);
+  final r = Provider.of<ResponsiveProvider>(context, listen: false);
 
-  if (isDock) {
+  final isDock = r.smallerOrEqualTo(DeviceType.dock, false);
+  final isBand = r.smallerOrEqualTo(DeviceType.band, false);
+
+  final isMini = isDock || isBand;
+
+  if (isMini) {
     contextController.showFlyout(
       position: position,
       builder: (context) {
         return buildBandScreenTrackItemContextMenu(
           context,
           parsedMediaFile,
+          isBand,
         );
       },
     );
@@ -262,6 +267,7 @@ Widget buildTrackItemContextMenu(
 FlyoutContent buildBandScreenTrackItemContextMenu(
   BuildContext context,
   FetchParsedMediaFileResponse item,
+  bool isBand,
 ) {
   final queries = QueryList([("lib::track", item.file.id.toString())]);
 
@@ -330,10 +336,10 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
 
   return FlyoutContent(
     child: Container(
-      constraints: const BoxConstraints(maxHeight: 96),
+      constraints: const BoxConstraints(maxHeight: 96, maxWidth: 96),
       child: CommandBar(
         primaryItems: items,
-        direction: Axis.vertical,
+        direction: isBand ? Axis.horizontal : Axis.vertical,
         overflowBehavior: CommandBarOverflowBehavior.scrolling,
       ),
     ),
