@@ -38,16 +38,22 @@ class PageContentFrameState extends State<PageContentFrame> {
     final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
 
     if (widget.top) {
-      if (responsive.smallerOrEqualTo(DeviceType.dock)) {
+      if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
         top = bandNavigationBarHeight + inset.top;
+      } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
+        top = inset.top;
+      } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
+        top = carNavigationBarHeight + inset.top;
       } else {
         top = fullNavigationBarHeight + inset.top;
       }
     }
 
     if (widget.bottom) {
-      if (responsive.smallerOrEqualTo(DeviceType.dock)) {
+      if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
         bottom = screen.width / 3 + inset.bottom;
+      } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
+        bottom = inset.bottom;
       } else {
         bottom = playbackControllerHeight + inset.bottom;
       }
@@ -56,13 +62,8 @@ class PageContentFrameState extends State<PageContentFrame> {
     if (widget.right) {
       if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
         bottom = 0;
-
         if (widget.right) {
           right = screen.height / 3 + inset.right;
-        }
-
-        if (widget.top) {
-          top = carNavigationBarHeight + inset.top;
         }
       }
     }

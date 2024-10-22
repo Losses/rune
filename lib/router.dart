@@ -235,10 +235,16 @@ final router = GoRouter(
                   ),
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
-                  child: SmallerOrEqualTo(
-                    breakpoint: DeviceType.dock,
-                    builder: (context, isDock) {
-                      if (!isDock) return const NavigationBar();
+                  child: BreakpointBuilder(
+                    breakpoints: const [
+                      DeviceType.band,
+                      DeviceType.dock,
+                      DeviceType.tv
+                    ],
+                    builder: (context, activeBreakpoint) {
+                      final isSmallView = activeBreakpoint == DeviceType.band || activeBreakpoint == DeviceType.dock;
+
+                      if (!isSmallView) return const NavigationBar();
 
                       return const Positioned(
                         top: -12,

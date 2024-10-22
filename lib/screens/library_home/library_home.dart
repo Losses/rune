@@ -43,12 +43,14 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
             top: !isDock,
             child: BreakpointBuilder(
               breakpoints: const [
+                DeviceType.band,
                 DeviceType.dock,
                 DeviceType.zune,
                 DeviceType.tv
               ],
               builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.dock) {
+                if (activeBreakpoint == DeviceType.dock ||
+                    activeBreakpoint == DeviceType.band) {
                   return BandScreenLibraryHomeListView(
                     layoutManager: _layoutManager,
                   );
