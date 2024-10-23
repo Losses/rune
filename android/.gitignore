@@ -13,3 +13,6 @@ key.properties
 **/*.jks
 
 !app/src/debug/
+
+# Ignore prebuilt OpenSSL
+openssl/

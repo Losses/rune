@@ -15,6 +15,16 @@ else
     PLATFORM="linux-x86_64"
 fi
 
+# Setup OpenSSL
+source "$WORK_DIR/setup-openssl.sh"
+download_openssl
+if [ $? -eq 0 ]; then
+    echo "OpenSSL downloaded successfully (or exists already)"
+else
+    echo "OpenSSL download failed, please check output above for details"
+    exit 1
+fi
+
 # Set env variables
 export PKG_CONFIG_PATH="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/$PLATFORM/bin"
 export PKG_CONFIG_SYSROOT_DIR="$ANDROID_NDK_PATH/toolchains/llvm/prebuilt/$PLATFORM/sysroot"
