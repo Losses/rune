@@ -107,6 +107,10 @@ flutter:
     - assets/device-layer-1.svg
     - assets/device-layer-2.svg
     - assets/device-layer-3.svg
+    - assets/box.svg
+    - assets/disk-color.svg
+    - assets/disk-border.svg
+    - assets/disk-center.svg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
