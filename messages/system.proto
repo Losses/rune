@@ -17,3 +17,8 @@ message SystemInfoResponse {
   string system_host_name = 8;
   repeated string users = 9; 
 }
+
+// [RUST-SIGNAL]
+message ErrorResponse {
+  string detail = 1;
+}

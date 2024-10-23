@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use log::{debug, error};
+use log::{debug, error, warn};
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::sync::CancellationToken;
 
@@ -54,6 +54,7 @@ pub struct Player {
     playlist_sender: broadcast::Sender<PlaylistStatus>,
     played_through_sender: broadcast::Sender<i32>,
     realtime_fft_sender: broadcast::Sender<Vec<f32>>,
+    crash_sender: broadcast::Sender<String>,
     cancellation_token: CancellationToken,
 }
 
@@ -78,11 +79,11 @@ impl Player {
         let (playlist_sender, _) = broadcast::channel(16);
         // Create a broadcast channel for realtime FFT updates
         let (realtime_fft_sender, _) = broadcast::channel(32);
+        // Create a broadcast channel player crash report
+        let (crash_sender, _) = broadcast::channel(16);
+
         // Create a cancellation token
-        let cancellation_token = match cancellation_token {
-            Some(cancellation_token) => cancellation_token,
-            _none => CancellationToken::new(),
-        };
+        let cancellation_token = cancellation_token.unwrap_or_default();
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
@@ -106,6 +107,7 @@ impl Player {
             playlist_sender: playlist_sender.clone(),
             played_through_sender: played_through_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
+            crash_sender: crash_sender.clone(),
             cancellation_token: cancellation_token.clone(),
         };
 
@@ -118,7 +120,13 @@ impl Player {
             // Create a new Tokio runtime for asynchronous tasks
             let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
             // Run the main loop of PlayerInternal within the Tokio runtime
-            runtime.block_on(internal.run());
+            if let Err(e) = runtime.block_on(internal.run()) {
+                error!("PlayerInternal runtime error: {:?}", e);
+
+                if let Err(e) = crash_sender.send(format!("{:#?}", e)) {
+                    error!("Failed to send error report: {:?}", e);
+                }
+            }
         });
 
         // Start a new thread to handle events and update the status
@@ -196,7 +204,9 @@ impl Player {
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        played_through_sender.send(id).unwrap();
+                        if let Err(e) = played_through_sender.send(id) {
+                            warn!("Failed to send played through update: {:?}", e);
+                        }
                     }
                     PlayerEvent::Error {
                         id,
@@ -204,8 +214,7 @@ impl Player {
                         path,
                         error,
                     } => {
-                        // Handle error event, possibly log it
-                        eprintln!("Error at index {}({}): {:?} - {}", index, id, path, error);
+                        error!("Error at index {}({}): {:?} - {}", index, id, path, error);
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.playlist = playlist.clone();
@@ -219,23 +228,20 @@ impl Player {
                         }
                     }
                     PlayerEvent::RealtimeFFT(data) => {
-                        match realtime_fft_sender_clone.send(data) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                error!("Unable to send realtime FFT data: {:?}", e);
-                            }
-                        };
+                        if let Err(e) = realtime_fft_sender_clone.send(data) {
+                            error!("Unable to send realtime FFT data: {:?}", e);
+                        }
                     }
                     PlayerEvent::VolumeUpdate(value) => {
                         status.volume = value;
                     }
                 }
-                // Send the updated status to all subscribers
-                status_sender_clone.send(status.clone()).unwrap();
+                if let Err(e) = status_sender_clone.send(status.clone()) {
+                    warn!("Failed to send status update: {:?}", e);
+                }
             }
         });
 
-        // Return the Player instance
         player
     }
 
@@ -263,11 +269,19 @@ impl Player {
         self.realtime_fft_sender.subscribe()
     }
 
+    pub fn subscribe_crash(&self) -> broadcast::Receiver<String> {
+        self.crash_sender.subscribe()
+    }
+
     // Send a command to the internal player
     pub fn command(&self, cmd: PlayerCommand) {
         // Acquire the lock and send the command
         if let Ok(commands) = self.commands.lock() {
-            commands.send(cmd).unwrap();
+            if let Err(e) = commands.send(cmd) {
+                error!("Failed to send command: {:?}", e);
+            }
+        } else {
+            error!("Failed to lock commands for sending");
         }
     }
 
@@ -309,7 +323,7 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, tracks: Vec<(i32, std::path::PathBuf)>, mode: AddMode) {
+    pub fn add_to_playlist(&self, tracks: Vec<(i32, PathBuf)>, mode: AddMode) {
         self.command(PlayerCommand::AddToPlaylist { tracks, mode });
     }
 
@@ -325,14 +339,14 @@ impl Player {
         self.command(PlayerCommand::MovePlayListItem {
             old_index,
             new_index,
-        })
+        });
     }
 
     pub fn set_playback_mode(&mut self, mode: PlaybackMode) {
-        self.command(PlayerCommand::SetPlaybackMode(mode))
+        self.command(PlayerCommand::SetPlaybackMode(mode));
     }
 
     pub fn set_volume(&mut self, volume: f32) {
-        self.command(PlayerCommand::SetVolume(volume))
+        self.command(PlayerCommand::SetVolume(volume));
     }
 }

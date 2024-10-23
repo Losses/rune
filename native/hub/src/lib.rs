@@ -69,7 +69,11 @@ macro_rules! select_signal {
                                 debug!("Processing signal: {}", stringify!($type));
 
                                 if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await {
-                                    error!("{:?}", e)
+                                    error!("{:?}", e);
+                                    ErrorResponse {
+                                        detail: format!("{:?}", e),
+                                    }
+                                    .send_signal_to_dart();
                                 };
                             }
                         }
@@ -91,6 +95,10 @@ async fn player_loop(path: String) {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to main DB: {}", e);
+                ErrorResponse {
+                    detail: format!("{:?}", e),
+                }
+                .send_signal_to_dart();
                 return;
             }
         };
@@ -99,6 +107,10 @@ async fn player_loop(path: String) {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to recommendation DB: {}", e);
+                ErrorResponse {
+                    detail: format!("{:?}", e),
+                }
+                .send_signal_to_dart();
                 return;
             }
         };
@@ -107,6 +119,10 @@ async fn player_loop(path: String) {
             Ok(db) => Arc::new(Mutex::new(db)),
             Err(e) => {
                 error!("Failed to connect to search DB: {}", e);
+                ErrorResponse {
+                    detail: format!("{:?}", e),
+                }
+                .send_signal_to_dart();
                 return;
             }
         };
@@ -226,7 +242,7 @@ async fn main() {
     if let Err(e) = receive_media_library_path(player_loop).await {
         error!("Failed to receive media library path: {}", e);
     }
-    
+
     rinf::dart_shutdown().await;
 
     if let Some(guard) = _guard {
