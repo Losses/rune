@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_shaders/flutter_shaders.dart';
 
 class LensFlareEffect extends StatefulWidget {
-  const LensFlareEffect({super.key});
+  const LensFlareEffect({super.key, required this.child});
+
+  final Widget child;
 
   @override
   State<LensFlareEffect> createState() => _LensFlareEffectState();
@@ -79,9 +81,13 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
             final fragmentShader = shader.fragmentShader();
 
             fragmentShader
-              ..setFloat(0, _time)
-              ..setFloat(1, size.width)
-              ..setFloat(2, size.height)
+              ..setImageSampler(0, image)
+              // resolution
+              ..setFloat(0, size.width)
+              ..setFloat(1, size.height)
+              // u_time
+              ..setFloat(2, _time)
+              // u_mouse
               ..setFloat(3, _mousePosition.dx)
               ..setFloat(4, _mousePosition.dy);
 
@@ -91,7 +97,7 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
             );
           },
           key: _containerKey,
-          child: Container(),
+          child: widget.child,
         );
       },
     );

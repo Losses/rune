@@ -18,6 +18,10 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
   @override
   Widget build(BuildContext context) {
     return const PageContentFrame(
+      top: false,
+      bottom: false,
+      left: false,
+      right: false,
       child: StaggerDemo(),
     );
   }
@@ -109,67 +113,70 @@ class StaggerAnimation extends StatelessWidget {
   Widget _buildAnimation(BuildContext context, Widget? child) {
     final theme = FluentTheme.of(context);
 
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        const LensFlareEffect(),
-        SizedBox(
-          width: 360,
-          height: 360,
-          child: ImageFiltered(
-            imageFilter: ImageFilter.blur(
-                sigmaX: diskBlur.value, sigmaY: diskBlur.value),
-            child: Transform(
-              transform: Matrix4.identity()
-                ..setEntry(3, 2, 0.001)
-                ..scale(diskSize.value)
-                ..rotateZ(diskRotation.value),
-              alignment: Alignment.center,
-              child: Opacity(
-                opacity: diskOpacity.value,
-                child: Stack(
-                  children: [
-                    SvgPicture.asset(
-                      'assets/disk-border.svg',
-                      colorFilter: ColorFilter.mode(
-                        theme.accentColor,
-                        BlendMode.srcIn,
-                      ),
+    return LensFlareEffect(
+      child: Center(
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            SizedBox(
+              width: 360,
+              height: 360,
+              child: ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                    sigmaX: diskBlur.value, sigmaY: diskBlur.value),
+                child: Transform(
+                  transform: Matrix4.identity()
+                    ..setEntry(3, 2, 0.001)
+                    ..scale(diskSize.value)
+                    ..rotateZ(diskRotation.value),
+                  alignment: Alignment.center,
+                  child: Opacity(
+                    opacity: diskOpacity.value,
+                    child: Stack(
+                      children: [
+                        SvgPicture.asset(
+                          'assets/disk-border.svg',
+                          colorFilter: ColorFilter.mode(
+                            theme.accentColor,
+                            BlendMode.srcIn,
+                          ),
+                        ),
+                        SvgPicture.asset('assets/disk-center.svg'),
+                      ],
                     ),
-                    SvgPicture.asset('assets/disk-center.svg'),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
-        SizedBox(
-          width: 300,
-          height: 300,
-          child: Transform(
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..translate(boxTranslate.value),
-            alignment: Alignment.center,
-            child: Opacity(
-              opacity: boxOpacity.value,
-              child: ShaderMask(
-                blendMode: BlendMode.dstIn,
-                shaderCallback: (Rect bounds) {
-                  return LinearGradient(
-                    colors: <Color>[
-                      Colors.black.withAlpha(240),
-                      Colors.black,
-                      Colors.black
-                    ],
-                  ).createShader(bounds);
-                },
-                child: SvgPicture.asset('assets/box.svg'),
+            SizedBox(
+              width: 300,
+              height: 300,
+              child: Transform(
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.001)
+                  ..translate(boxTranslate.value),
+                alignment: Alignment.center,
+                child: Opacity(
+                  opacity: boxOpacity.value,
+                  child: ShaderMask(
+                    blendMode: BlendMode.dstIn,
+                    shaderCallback: (Rect bounds) {
+                      return LinearGradient(
+                        colors: <Color>[
+                          Colors.black.withAlpha(240),
+                          Colors.black,
+                          Colors.black
+                        ],
+                      ).createShader(bounds);
+                    },
+                    child: SvgPicture.asset('assets/box.svg'),
+                  ),
+                ),
               ),
             ),
-          ),
+          ],
         ),
-      ],
+      ),
     );
   }
 
