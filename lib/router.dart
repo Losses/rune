@@ -242,7 +242,8 @@ final router = GoRouter(
                       DeviceType.tv
                     ],
                     builder: (context, activeBreakpoint) {
-                      final isSmallView = activeBreakpoint == DeviceType.band || activeBreakpoint == DeviceType.dock;
+                      final isSmallView = activeBreakpoint == DeviceType.band ||
+                          activeBreakpoint == DeviceType.dock;
 
                       if (!isSmallView) return const NavigationBar();
 

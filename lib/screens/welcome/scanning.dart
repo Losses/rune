@@ -59,6 +59,14 @@ class _ScanningPageState extends State<ScanningPage>
     final theme = FluentTheme.of(context);
     final typography = theme.typography;
 
+    final libraryPath = Provider.of<LibraryPathProvider>(context);
+    final libraryManager = Provider.of<LibraryManagerProvider>(context);
+
+    final count = libraryManager
+            .getScanTaskProgress(libraryPath.currentPath ?? "")
+            ?.progress ??
+        0;
+
     return AnimatedMeshGradient(
       colors: [
         theme.accentColor.darker.darken(0.1),
@@ -74,13 +82,19 @@ class _ScanningPageState extends State<ScanningPage>
         children: [
           Text(
             "This might take a few minutes.",
-            style: typography.title
-                ?.apply(fontWeightDelta: -50, color: Colors.white),
+            style: typography.title?.apply(
+              fontWeightDelta: -20,
+              color: Colors.white,
+            ),
+            textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
           Text(
-            "Sit back and relax",
-            style: typography.bodyLarge?.apply(color: Colors.white),
+            count > 1 ? "$count tracks found" : "Sit back and relax",
+            style: typography.bodyLarge?.apply(
+              color: Colors.white,
+              fontWeightDelta: -50,
+            ),
           )
         ],
       ),

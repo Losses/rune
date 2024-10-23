@@ -210,7 +210,7 @@ class RandomGridState extends State<RandomGrid> {
                       path: widget.paths[coverIndex],
                       size: 1 * gridSize,
                     ),
-                ),
+                  ),
                 ),
               );
             }

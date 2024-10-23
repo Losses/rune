@@ -123,10 +123,11 @@ class LibraryManagerProvider with ChangeNotifier {
       _scanTasks[path]!.status = status;
     } else {
       _scanTasks[path] = ScanTaskProgress(
-          path: path,
-          progress: progress,
-          status: status,
-          initialize: initialize);
+        path: path,
+        progress: progress,
+        status: status,
+        initialize: initialize,
+      );
     }
     notifyListeners();
   }
@@ -139,11 +140,12 @@ class LibraryManagerProvider with ChangeNotifier {
       _analyseTasks[path]!.status = status;
     } else {
       _analyseTasks[path] = AnalyseTaskProgress(
-          path: path,
-          progress: progress,
-          total: total,
-          status: status,
-          initialize: initialize);
+        path: path,
+        progress: progress,
+        total: total,
+        status: status,
+        initialize: initialize,
+      );
     }
     notifyListeners();
   }
