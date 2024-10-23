@@ -93,13 +93,14 @@ class RandomGridState extends State<RandomGrid> {
             coverArtWall,
             Container(
                 decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                  colors: [
-                    shadowColor.withAlpha(isDark ? 20 : 140),
-                    shadowColor.withAlpha(isDark ? 255 : 255),
-                  ],
-                  radius: 1.5,
-                )),
+                  gradient: RadialGradient(
+                    colors: [
+                      shadowColor.withAlpha(isDark ? 20 : 140),
+                      shadowColor.withAlpha(isDark ? 255 : 255),
+                    ],
+                    radius: 1.5,
+                  ),
+                ),
                 height: (mainAxisCount * gridSize).toDouble()),
             const PlayingTrack(),
             Container(
@@ -201,14 +202,15 @@ class RandomGridState extends State<RandomGrid> {
                   crossAxisCellCount: 1,
                   mainAxisCellCount: 1,
                   child: GridTile(
-                      index: coverIndex,
-                      row: row,
-                      col: col,
-                      size: 1,
-                      child: CoverArt(
-                        path: widget.paths[coverIndex],
-                        size: 1 * gridSize,
-                      )),
+                    index: coverIndex,
+                    row: row,
+                    col: col,
+                    size: 1,
+                    child: CoverArt(
+                      path: widget.paths[coverIndex],
+                      size: 1 * gridSize,
+                    ),
+                ),
                 ),
               );
             }
