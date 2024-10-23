@@ -99,6 +99,7 @@ flutter:
 
   shaders:
     - lib/shaders/gradient.frag
+    - lib/shaders/lens_flare.frag
 
   # To add assets to your application, add an assets section, like this:
   assets:

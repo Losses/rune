@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/svg.dart';
 
+import '../../screens/settings_test/lens_flare.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
 class SettingsTestPage extends StatefulWidget {
@@ -111,50 +112,60 @@ class StaggerAnimation extends StatelessWidget {
     return Stack(
       alignment: Alignment.center,
       children: [
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(sigmaX: diskBlur.value, sigmaY: diskBlur.value),
-          child: Transform(
-            transform: Matrix4.identity()
-              ..setEntry(3, 2, 0.001)
-              ..scale(diskSize.value)
-              ..rotateZ(diskRotation.value),
-            alignment: Alignment.center,
-            child: Opacity(
-              opacity: diskOpacity.value,
-              child: Stack(
-                children: [
-                  SvgPicture.asset(
-                    'assets/disk-border.svg',
-                    colorFilter: ColorFilter.mode(
-                      theme.accentColor,
-                      BlendMode.srcIn,
+        const LensFlareEffect(),
+        SizedBox(
+          width: 360,
+          height: 360,
+          child: ImageFiltered(
+            imageFilter: ImageFilter.blur(
+                sigmaX: diskBlur.value, sigmaY: diskBlur.value),
+            child: Transform(
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..scale(diskSize.value)
+                ..rotateZ(diskRotation.value),
+              alignment: Alignment.center,
+              child: Opacity(
+                opacity: diskOpacity.value,
+                child: Stack(
+                  children: [
+                    SvgPicture.asset(
+                      'assets/disk-border.svg',
+                      colorFilter: ColorFilter.mode(
+                        theme.accentColor,
+                        BlendMode.srcIn,
+                      ),
                     ),
-                  ),
-                  SvgPicture.asset('assets/disk-center.svg'),
-                ],
+                    SvgPicture.asset('assets/disk-center.svg'),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-        Transform(
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..translate(boxTranslate.value),
-          alignment: Alignment.center,
-          child: Opacity(
-            opacity: boxOpacity.value,
-            child: ShaderMask(
-              blendMode: BlendMode.dstIn,
-              shaderCallback: (Rect bounds) {
-                return LinearGradient(
-                  colors: <Color>[
-                    Colors.black.withAlpha(240),
-                    Colors.black,
-                    Colors.black
-                  ],
-                ).createShader(bounds);
-              },
-              child: SvgPicture.asset('assets/box.svg'),
+        SizedBox(
+          width: 300,
+          height: 300,
+          child: Transform(
+            transform: Matrix4.identity()
+              ..setEntry(3, 2, 0.001)
+              ..translate(boxTranslate.value),
+            alignment: Alignment.center,
+            child: Opacity(
+              opacity: boxOpacity.value,
+              child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (Rect bounds) {
+                  return LinearGradient(
+                    colors: <Color>[
+                      Colors.black.withAlpha(240),
+                      Colors.black,
+                      Colors.black
+                    ],
+                  ).createShader(bounds);
+                },
+                child: SvgPicture.asset('assets/box.svg'),
+              ),
             ),
           ),
         ),
@@ -216,11 +227,7 @@ class _StaggerDemoState extends State<StaggerDemo>
         _playAnimation();
       },
       child: Center(
-        child: SizedBox(
-          width: 300,
-          height: 300,
-          child: StaggerAnimation(controller: _controller.view),
-        ),
+        child: StaggerAnimation(controller: _controller.view),
       ),
     );
   }
