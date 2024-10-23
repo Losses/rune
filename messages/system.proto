@@ -19,6 +19,6 @@ message SystemInfoResponse {
 }
 
 // [RUST-SIGNAL]
-message ErrorResponse {
+message CrashResponse {
   string detail = 1;
 }

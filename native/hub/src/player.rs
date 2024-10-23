@@ -3,26 +3,26 @@ use std::sync::Arc;
 
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
-use database::actions::cover_art::{bake_cover_art_by_cover_art_ids, bake_cover_art_by_file_ids};
 use log::{debug, error, info};
 use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio::task;
 
+use database::actions::cover_art::{bake_cover_art_by_cover_art_ids, bake_cover_art_by_file_ids};
 use database::actions::metadata::get_metadata_summary_by_file_id;
 use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::metadata::MetadataSummary;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
-use playback::controller::{get_default_cover_art_path, handle_media_control_event};
 use playback::controller::MediaControlManager;
+use playback::controller::{get_default_cover_art_path, handle_media_control_event};
 use playback::player::Player;
 use playback::player::PlaylistStatus;
 use playback::MediaMetadata;
 use playback::MediaPlayback;
 use playback::MediaPosition;
 
-use crate::{PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
+use crate::{CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
 
 pub async fn initialize_player(
     main_db: Arc<MainDbConnection>,
@@ -32,6 +32,7 @@ pub async fn initialize_player(
     let mut played_through_receiver = player.lock().await.subscribe_played_through();
     let mut playlist_receiver = player.lock().await.subscribe_playlist();
     let mut realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
+    let mut crash_receiver = player.lock().await.subscribe_crash();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
@@ -212,6 +213,12 @@ pub async fn initialize_player(
                     .skip(1)
                     .for_each(|cause| eprintln!("because: {}", cause));
             };
+        }
+    });
+
+    task::spawn(async move {
+        while let Ok(value) = crash_receiver.recv().await {
+            CrashResponse { detail: value }.send_signal_to_dart();
         }
     });
 

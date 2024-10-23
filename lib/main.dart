@@ -4,6 +4,7 @@ import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:rune/providers/crash.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:device_info_plus/device_info_plus.dart';
@@ -16,9 +17,8 @@ import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
 import 'config/app_title.dart';
-import 'config/navigation.dart';
-
 import 'config/shortcuts.dart';
+import 'config/navigation.dart';
 
 import 'messages/generated.dart';
 
@@ -107,6 +107,7 @@ void main(List<String> arguments) async {
           update: (context, screenSizeProvider, previous) =>
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
+        ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),

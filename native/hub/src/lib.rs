@@ -18,6 +18,7 @@ mod utils;
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -68,10 +69,10 @@ macro_rules! select_signal {
                             if let Some(dart_signal) = dart_signal {
                                 debug!("Processing signal: {}", stringify!($type));
 
-                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await {
+                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await.with_context(|| format!("Processing signal: {}", stringify!($type))) {
                                     error!("{:?}", e);
-                                    ErrorResponse {
-                                        detail: format!("{:?}", e),
+                                    CrashResponse {
+                                        detail: format!("{:#?}", e),
                                     }
                                     .send_signal_to_dart();
                                 };
@@ -91,36 +92,43 @@ async fn player_loop(path: String) {
     tokio::spawn(async move {
         info!("Initializing database");
 
-        let main_db = match connect_main_db(&path).await {
+        let main_db = match connect_main_db(&path)
+            .await
+            .with_context(|| "Failed to connect to main DB")
+        {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to main DB: {}", e);
-                ErrorResponse {
-                    detail: format!("{:?}", e),
+                CrashResponse {
+                    detail: format!("{:#?}", e),
                 }
                 .send_signal_to_dart();
                 return;
             }
         };
 
-        let recommend_db = match connect_recommendation_db(&path) {
+        let recommend_db = match connect_recommendation_db(&path)
+            .with_context(|| "Failed to connect to recommendation DB")
+        {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to recommendation DB: {}", e);
-                ErrorResponse {
-                    detail: format!("{:?}", e),
+                CrashResponse {
+                    detail: format!("{:#?}", e),
                 }
                 .send_signal_to_dart();
                 return;
             }
         };
 
-        let search_db = match connect_search_db(&path) {
+        let search_db = match connect_search_db(&path)
+            .with_context(|| "Failed to connect to search DB")
+        {
             Ok(db) => Arc::new(Mutex::new(db)),
             Err(e) => {
                 error!("Failed to connect to search DB: {}", e);
-                ErrorResponse {
-                    detail: format!("{:?}", e),
+                CrashResponse {
+                    detail: format!("{:#?}", e),
                 }
                 .send_signal_to_dart();
                 return;

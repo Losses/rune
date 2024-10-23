@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:rune/providers/crash.dart';
+import 'package:rune/screens/bsod/bsod.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
@@ -11,9 +13,9 @@ import 'routes/welcome.dart' as welcome;
 
 import 'widgets/rune_stack.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
-import 'widgets/navigation_bar/navigation_back_button.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
+import 'widgets/navigation_bar/navigation_back_button.dart';
 import 'widgets/playback_controller/cover_art_disk.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
@@ -196,6 +198,7 @@ final router = GoRouter(
       builder: (context, state, child) {
         final library = Provider.of<LibraryPathProvider>(context);
         final r = Provider.of<ResponsiveProvider>(context);
+        final crash = Provider.of<CrashProvider>(context);
 
         final isCar = r.smallerOrEqualTo(DeviceType.car, false);
         final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
@@ -208,6 +211,10 @@ final router = GoRouter(
 
         if (library.scanning) {
           return const welcome.ScanningPage();
+        }
+
+        if (crash.report != null) {
+          return Bsod(report: crash.report!);
         }
 
         final mainContent = FocusTraversalOrder(

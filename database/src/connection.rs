@@ -1,8 +1,7 @@
-use anyhow::{bail, Context, Result};
-use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 
+use anyhow::{bail, Context, Result};
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
@@ -104,7 +103,7 @@ pub struct SearchDbConnection {
     pub index: Index,
 }
 
-pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection, Box<dyn Error>> {
+pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection> {
     let path: PathBuf = [lib_path, ".rune", ".search"].iter().collect();
     let exists = path.exists();
 
