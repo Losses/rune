@@ -41,7 +41,11 @@
           inherit system;
         };
 
-        androidCustomPackage = android-nixpkgs.sdk.${system} (
+        androidPkgs = import android-nixpkgs {
+          inherit system;
+        };
+
+        androidSdk = android-nixpkgs.sdk.${system} (
           sdkPkgs: with sdkPkgs; [
             cmdline-tools-latest
             build-tools-30-0-3
@@ -56,6 +60,7 @@
             platforms-android-32
             platforms-android-33
             platforms-android-34
+            ndk-27-1-12297006
           ]
         );
 
@@ -64,7 +69,7 @@
         rust-bin = rust-overlay.lib.mkRustBin { } pkgs.buildPackages;
       in {
         devShells.default = import ./default.devshell.nix {
-          inherit pkgs masterPkgs androidCustomPackage pinnedJDK rust-bin;
+          inherit pkgs masterPkgs androidSdk androidPkgs rust-bin;
         };
 
         devShells.cross = import ./cross.devshell.nix {

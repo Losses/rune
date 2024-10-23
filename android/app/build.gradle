@@ -79,7 +79,7 @@ android {
                     def libcSoDest = file("$jniLibsDir/$abi/libc++_shared.so")
                     if (libcSoDest.exists()) {
                         println "Deleting $libcSoDest"
-                        libcSoDest.delete()
+                        libcSoDest.delete() // Cleanup files before building
                     }
                 }
             }
