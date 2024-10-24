@@ -66,15 +66,14 @@ vec4 cc(vec4 color, float factor, float factor2) {
 
 void main() {
     vec2 coord = FlutterFragCoord();
+
     vec2 uv = coord / resolution.xy;
+    uv -= 0.5;
     uv.x *= resolution.x / resolution.y;
-    uv.x -= 1;
-    uv.y -= 0.5;
 
     vec2 mouse = u_mouse.xy / resolution.xy;
+    mouse -= 0.5;
     mouse.x *= resolution.x / resolution.y;
-    mouse.x -= 1;
-    mouse.y -= 0.5;
 
     vec4 color = vec4(1.4, 1.2, 1.0, 1.0) * lensflare(uv, mouse);
 
