@@ -27,10 +27,10 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
   }
 }
 
-const frame1 = 2.5 / 4.5;
-const frame2 = 3.0 / 4.5;
-const frame3 = 3.5 / 4.5;
-const frame4 = 4.0 / 4.5;
+const frame1 = 2.5 / 4.5; // 0.0 ~ 2.5, Rotating disk
+const frame2 = 3.0 / 4.5; // 2.5 ~ 3.0, Box appearing
+const frame3 = 3.5 / 4.5; // 3.0 ~ 3.5, Zoom out and text fade in
+const frame4 = 4.0 / 4.5; // 4.0 ~ 4.5, Logo fade out
 const frame5 = 4.5 / 4.5;
 
 double mapFlareAlpha(double x, double a) {
@@ -154,8 +154,8 @@ class StaggerAnimation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame3 - 0.1,
-              frame4,
+              frame2,
+              frame3,
               curve: Curves.ease,
             ),
           ),
@@ -164,7 +164,27 @@ class StaggerAnimation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame3 - 0.1,
+              frame2,
+              frame3,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        totalOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame3,
+              frame4,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        totalSize = Tween<double>(begin: 1, end: 0.9).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame3,
               frame4,
               curve: Curves.ease,
             ),
@@ -183,106 +203,114 @@ class StaggerAnimation extends StatelessWidget {
   final Animation<double> logoTranslate;
   final Animation<double> textOpacity;
   final Animation<double> textTranslate;
+  final Animation<double> totalOpacity;
+  final Animation<double> totalSize;
 
   Widget _buildAnimation(BuildContext context, Widget? child) {
     final theme = FluentTheme.of(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        return LensFlareEffect(
-          alpha: mapFlareAlpha((flareX.value + 1) / 2, 0.1),
-          flarePosition: Offset(
-            constraints.maxWidth / 2 + 160 * flareX.value,
-            constraints.maxHeight / 2,
-          ),
-          child: Center(
-            child: Stack(
-              children: [
-                Transform(
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.001)
-                    ..scale(logoSize.value)
-                    ..translate(0.0, logoTranslate.value, 0.0),
-                  alignment: Alignment.center,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      SizedBox(
-                        width: 360,
-                        height: 360,
-                        child: ImageFiltered(
-                          imageFilter: ImageFilter.blur(
-                            sigmaX: diskBlur.value,
-                            sigmaY: diskBlur.value,
-                          ),
-                          child: Transform(
-                            transform: Matrix4.identity()
-                              ..setEntry(3, 2, 0.001)
-                              ..scale(diskSize.value)
-                              ..rotateZ(diskRotation.value),
-                            alignment: Alignment.center,
-                            child: Opacity(
-                              opacity: diskOpacity.value,
-                              child: Stack(
-                                children: [
-                                  SvgPicture.asset(
-                                    'assets/disk-border.svg',
-                                    colorFilter: ColorFilter.mode(
-                                      theme.accentColor,
-                                      BlendMode.srcIn,
-                                    ),
+        return Opacity(
+          opacity: totalOpacity.value,
+          child: Transform.scale(
+            scale: totalSize.value,
+            child: LensFlareEffect(
+              alpha: mapFlareAlpha((flareX.value + 1) / 2, 0.1),
+              flarePosition: Offset(
+                constraints.maxWidth / 2 + 160 * flareX.value,
+                constraints.maxHeight / 2,
+              ),
+              child: Center(
+                child: Stack(
+                  children: [
+                    Transform(
+                      transform: Matrix4.identity()
+                        ..setEntry(3, 2, 0.001)
+                        ..scale(logoSize.value)
+                        ..translate(0.0, logoTranslate.value, 0.0),
+                      alignment: Alignment.center,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          SizedBox(
+                            width: 360,
+                            height: 360,
+                            child: ImageFiltered(
+                              imageFilter: ImageFilter.blur(
+                                sigmaX: diskBlur.value,
+                                sigmaY: diskBlur.value,
+                              ),
+                              child: Transform(
+                                transform: Matrix4.identity()
+                                  ..setEntry(3, 2, 0.001)
+                                  ..scale(diskSize.value)
+                                  ..rotateZ(diskRotation.value),
+                                alignment: Alignment.center,
+                                child: Opacity(
+                                  opacity: diskOpacity.value,
+                                  child: Stack(
+                                    children: [
+                                      SvgPicture.asset(
+                                        'assets/disk-border.svg',
+                                        colorFilter: ColorFilter.mode(
+                                          theme.accentColor,
+                                          BlendMode.srcIn,
+                                        ),
+                                      ),
+                                      SvgPicture.asset('assets/disk-center.svg'),
+                                    ],
                                   ),
-                                  SvgPicture.asset('assets/disk-center.svg'),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 300,
-                        height: 300,
-                        child: Transform(
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.001)
-                            ..translate(boxTranslate.value),
-                          alignment: Alignment.center,
-                          child: Opacity(
-                            opacity: boxOpacity.value,
-                            child: ShaderMask(
-                              blendMode: BlendMode.dstIn,
-                              shaderCallback: (Rect bounds) {
-                                return LinearGradient(
-                                  colors: <Color>[
-                                    Colors.black.withAlpha(240),
-                                    Colors.black,
-                                    Colors.black
-                                  ],
-                                ).createShader(bounds);
-                              },
-                              child: SvgPicture.asset('assets/box.svg'),
+                          SizedBox(
+                            width: 300,
+                            height: 300,
+                            child: Transform(
+                              transform: Matrix4.identity()
+                                ..setEntry(3, 2, 0.001)
+                                ..translate(boxTranslate.value),
+                              alignment: Alignment.center,
+                              child: Opacity(
+                                opacity: boxOpacity.value,
+                                child: ShaderMask(
+                                  blendMode: BlendMode.dstIn,
+                                  shaderCallback: (Rect bounds) {
+                                    return LinearGradient(
+                                      colors: <Color>[
+                                        Colors.black.withAlpha(240),
+                                        Colors.black,
+                                        Colors.black
+                                      ],
+                                    ).createShader(bounds);
+                                  },
+                                  child: SvgPicture.asset('assets/box.svg'),
+                                ),
+                              ),
                             ),
                           ),
-                        ),
-                      ),
-                      Opacity(
-                        opacity: textOpacity.value,
-                        child: Transform.translate(
-                          offset: Offset(0, textTranslate.value),
-                          child: SvgPicture.asset(
-                            'assets/branding-text.svg',
-                            width: 160,
-                            colorFilter: ColorFilter.mode(
-                              FluentTheme.of(context).inactiveColor,
-                              BlendMode.srcIn,
+                          Opacity(
+                            opacity: textOpacity.value,
+                            child: Transform.translate(
+                              offset: Offset(0, textTranslate.value),
+                              child: SvgPicture.asset(
+                                'assets/branding-text.svg',
+                                width: 160,
+                                colorFilter: ColorFilter.mode(
+                                  FluentTheme.of(context).inactiveColor,
+                                  BlendMode.srcIn,
+                                ),
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         );
