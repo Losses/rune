@@ -3,8 +3,10 @@
 
 out vec4 fragColor;
 
-uniform vec2 resolution;
 uniform sampler2D image;
+
+uniform vec2 resolution;
+uniform float u_alpha;
 
 uniform float u_time;
 uniform vec2 u_mouse;
@@ -75,14 +77,14 @@ void main() {
     mouse -= 0.5;
     mouse.x *= resolution.x / resolution.y;
 
-    vec4 color = vec4(1.4, 1.2, 1.0, 1.0) * lensflare(uv, mouse);
+    vec4 flareColor = vec4(1.4, 1.2, 1.0, 1.0) * lensflare(uv, mouse);
 
     float n = noise(coord) * 0.015;
-    color -= vec4(n, n, n, 0.0);
-    color = cc(color, 0.5, 0.1);
+    flareColor -= vec4(n, n, n, 0.0);
+    flareColor = cc(flareColor, 0.5, 0.1);
 
     vec2 fragCoord = (FlutterFragCoord().xy / resolution.xy);
     vec4 imageColor = texture(image, fragCoord);
 
-    fragColor = color + imageColor;
+    fragColor = flareColor * u_alpha + imageColor;
 }

@@ -5,8 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_shaders/flutter_shaders.dart';
 
 class LensFlareEffect extends StatefulWidget {
-  const LensFlareEffect({super.key, required this.child});
+  const LensFlareEffect({
+    super.key,
+    required this.flarePosition,
+    required this.alpha,
+    required this.child,
+  });
 
+  final Offset flarePosition;
+  final double alpha;
   final Widget child;
 
   @override
@@ -17,9 +24,6 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
   late Future<ui.FragmentProgram> _shaderProgram;
   late Timer _timer;
   double _time = 0.0;
-  Offset _mousePosition = Offset.zero;
-
-  final GlobalKey _containerKey = GlobalKey();
 
   @override
   void initState() {
@@ -32,9 +36,6 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
         _time += 0.016 / 10; // Increment time by 16 milliseconds
       });
     });
-
-    // Listen to mouse position updates
-    WidgetsBinding.instance.pointerRouter.addGlobalRoute(_updateMousePosition);
   }
 
   Future<ui.FragmentProgram> _loadShader() async {
@@ -45,23 +46,9 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
     }
   }
 
-  void _updateMousePosition(PointerEvent event) {
-    final currentContext = _containerKey.currentContext;
-
-    if (currentContext == null) return;
-
-    final RenderBox renderBox = currentContext.findRenderObject() as RenderBox;
-    final Offset localPosition = renderBox.globalToLocal(event.position);
-    setState(() {
-      _mousePosition = localPosition;
-    });
-  }
-
   @override
   void dispose() {
     _timer.cancel();
-    WidgetsBinding.instance.pointerRouter
-        .removeGlobalRoute(_updateMousePosition);
     super.dispose();
   }
 
@@ -85,18 +72,19 @@ class _LensFlareEffectState extends State<LensFlareEffect> {
               // resolution
               ..setFloat(0, size.width)
               ..setFloat(1, size.height)
+              // u_alpha
+              ..setFloat(2, widget.alpha)
               // u_time
-              ..setFloat(2, _time)
+              ..setFloat(3, _time)
               // u_mouse
-              ..setFloat(3, _mousePosition.dx)
-              ..setFloat(4, _mousePosition.dy);
+              ..setFloat(4, widget.flarePosition.dx)
+              ..setFloat(5, widget.flarePosition.dy);
 
             canvas.drawRect(
               Offset.zero & size,
               Paint()..shader = fragmentShader,
             );
           },
-          key: _containerKey,
           child: widget.child,
         );
       },
