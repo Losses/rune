@@ -27,6 +27,12 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
   }
 }
 
+const frame1 = 2.5 / 4.5;
+const frame2 = 3.0 / 4.5;
+const frame3 = 3.5 / 4.5;
+const frame4 = 4.0 / 4.5;
+const frame5 = 4.5 / 4.5;
+
 class StaggerAnimation extends StatelessWidget {
   StaggerAnimation({super.key, required this.controller})
       : diskOpacity = Tween<double>(
@@ -37,7 +43,7 @@ class StaggerAnimation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              0.5,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -50,7 +56,7 @@ class StaggerAnimation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              0.7,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -63,7 +69,7 @@ class StaggerAnimation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              0.7,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -73,7 +79,7 @@ class StaggerAnimation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              0.7,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -85,8 +91,8 @@ class StaggerAnimation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              0.6,
-              1.0,
+              frame1 - 0.1,
+              frame2,
               curve: Curves.ease,
             ),
           ),
@@ -95,8 +101,48 @@ class StaggerAnimation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              0.6,
-              1.0,
+              frame1 - 0.1,
+              frame2,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        logoSize = Tween<double>(begin: 1.0, end: 0.75).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame2 - 0.1,
+              frame3,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        logoTranslate = Tween<double>(begin: 0, end: -60).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame2 - 0.1,
+              frame3,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame3 - 0.1,
+              frame4,
+              curve: Curves.ease,
+            ),
+          ),
+        ),
+        textTranslate = Tween<double>(begin: 190, end: 170).animate(
+          CurvedAnimation(
+            parent: controller,
+            curve: const Interval(
+              frame3 - 0.1,
+              frame4,
               curve: Curves.ease,
             ),
           ),
@@ -109,6 +155,10 @@ class StaggerAnimation extends StatelessWidget {
   final Animation<double> diskRotation;
   final Animation<double> boxOpacity;
   final Animation<double> boxTranslate;
+  final Animation<double> logoSize;
+  final Animation<double> logoTranslate;
+  final Animation<double> textOpacity;
+  final Animation<double> textTranslate;
 
   Widget _buildAnimation(BuildContext context, Widget? child) {
     final theme = FluentTheme.of(context);
@@ -116,62 +166,87 @@ class StaggerAnimation extends StatelessWidget {
     return LensFlareEffect(
       child: Center(
         child: Stack(
-          alignment: Alignment.center,
           children: [
-            SizedBox(
-              width: 360,
-              height: 360,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                    sigmaX: diskBlur.value, sigmaY: diskBlur.value),
-                child: Transform(
-                  transform: Matrix4.identity()
-                    ..setEntry(3, 2, 0.001)
-                    ..scale(diskSize.value)
-                    ..rotateZ(diskRotation.value),
-                  alignment: Alignment.center,
-                  child: Opacity(
-                    opacity: diskOpacity.value,
-                    child: Stack(
-                      children: [
-                        SvgPicture.asset(
-                          'assets/disk-border.svg',
-                          colorFilter: ColorFilter.mode(
-                            theme.accentColor,
-                            BlendMode.srcIn,
+            Transform(
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.001)
+                ..scale(logoSize.value)
+                ..translate(0.0, logoTranslate.value, 0.0),
+              alignment: Alignment.center,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox(
+                    width: 360,
+                    height: 360,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(
+                          sigmaX: diskBlur.value, sigmaY: diskBlur.value),
+                      child: Transform(
+                        transform: Matrix4.identity()
+                          ..setEntry(3, 2, 0.001)
+                          ..scale(diskSize.value)
+                          ..rotateZ(diskRotation.value),
+                        alignment: Alignment.center,
+                        child: Opacity(
+                          opacity: diskOpacity.value,
+                          child: Stack(
+                            children: [
+                              SvgPicture.asset(
+                                'assets/disk-border.svg',
+                                colorFilter: ColorFilter.mode(
+                                  theme.accentColor,
+                                  BlendMode.srcIn,
+                                ),
+                              ),
+                              SvgPicture.asset('assets/disk-center.svg'),
+                            ],
                           ),
                         ),
-                        SvgPicture.asset('assets/disk-center.svg'),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
-            ),
-            SizedBox(
-              width: 300,
-              height: 300,
-              child: Transform(
-                transform: Matrix4.identity()
-                  ..setEntry(3, 2, 0.001)
-                  ..translate(boxTranslate.value),
-                alignment: Alignment.center,
-                child: Opacity(
-                  opacity: boxOpacity.value,
-                  child: ShaderMask(
-                    blendMode: BlendMode.dstIn,
-                    shaderCallback: (Rect bounds) {
-                      return LinearGradient(
-                        colors: <Color>[
-                          Colors.black.withAlpha(240),
-                          Colors.black,
-                          Colors.black
-                        ],
-                      ).createShader(bounds);
-                    },
-                    child: SvgPicture.asset('assets/box.svg'),
+                  SizedBox(
+                    width: 300,
+                    height: 300,
+                    child: Transform(
+                      transform: Matrix4.identity()
+                        ..setEntry(3, 2, 0.001)
+                        ..translate(boxTranslate.value),
+                      alignment: Alignment.center,
+                      child: Opacity(
+                        opacity: boxOpacity.value,
+                        child: ShaderMask(
+                          blendMode: BlendMode.dstIn,
+                          shaderCallback: (Rect bounds) {
+                            return LinearGradient(
+                              colors: <Color>[
+                                Colors.black.withAlpha(240),
+                                Colors.black,
+                                Colors.black
+                              ],
+                            ).createShader(bounds);
+                          },
+                          child: SvgPicture.asset('assets/box.svg'),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
+                  Opacity(
+                    opacity: textOpacity.value,
+                    child: Transform.translate(
+                      offset: Offset(0, textTranslate.value),
+                      child: SvgPicture.asset(
+                        'assets/branding-text.svg',
+                        width: 160,
+                        colorFilter: ColorFilter.mode(
+                          FluentTheme.of(context).inactiveColor,
+                          BlendMode.srcIn,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -205,7 +280,7 @@ class _StaggerDemoState extends State<StaggerDemo>
     super.initState();
 
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 2000),
+      duration: const Duration(milliseconds: 4500),
       vsync: this,
     );
   }
