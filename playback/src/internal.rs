@@ -403,7 +403,7 @@ impl PlayerInternal {
                     .send(PlayerEvent::EndOfPlaylist)
                     .with_context(|| "Failed to send EndOfPlaylist event")?;
 
-                self.state = InternalPlaybackState::Paused;
+                self.state = InternalPlaybackState::Stopped;
 
                 if let Some(start_index) =
                     self.playback_strategy.on_playlist_end(self.playlist.len())
