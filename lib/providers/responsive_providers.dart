@@ -240,21 +240,9 @@ class ResponsiveProvider extends ChangeNotifier {
     }
   }
 
-  bool smallerOrEqualTo(DeviceType deviceType, [bool autoOrientation = true]) {
-    if (!autoOrientation &&
-        currentDeviceType.orientation != deviceType.orientation) {
-      return false;
-    }
-
-    final selectedCompareTarget =
-        deviceType.orientation == DeviceOrientation.vertical
-            ? _currentVerticalDeviceType
-            : _currentHorizontalDeviceType;
-
-    return selectedCompareTarget <= deviceType;
-  }
-
-  bool largerOrEqualTo(DeviceType deviceType, [bool strictOrientation = true]) {
+  bool _compareDeviceType(
+      DeviceType deviceType, bool Function(DeviceType, DeviceType) comparison,
+      [bool strictOrientation = true]) {
     if (!strictOrientation &&
         currentDeviceType.orientation != deviceType.orientation) {
       return false;
@@ -265,22 +253,18 @@ class ResponsiveProvider extends ChangeNotifier {
             ? _currentVerticalDeviceType
             : _currentHorizontalDeviceType;
 
-    return selectedCompareTarget >= deviceType;
+    return comparison(selectedCompareTarget, deviceType);
   }
 
-  bool equalTo(DeviceType deviceType, [bool strictOrientation = true]) {
-    if (!strictOrientation &&
-        currentDeviceType.orientation != deviceType.orientation) {
-      return false;
-    }
+  bool smallerOrEqualTo(DeviceType deviceType, [bool autoOrientation = true]) =>
+      _compareDeviceType(deviceType, (a, b) => a <= b, autoOrientation);
 
-    final selectedCompareTarget =
-        deviceType.orientation == DeviceOrientation.vertical
-            ? _currentVerticalDeviceType
-            : _currentHorizontalDeviceType;
+  bool largerOrEqualTo(DeviceType deviceType,
+          [bool strictOrientation = true]) =>
+      _compareDeviceType(deviceType, (a, b) => a >= b, strictOrientation);
 
-    return selectedCompareTarget == deviceType;
-  }
+  bool equalTo(DeviceType deviceType, [bool strictOrientation = true]) =>
+      _compareDeviceType(deviceType, (a, b) => a == b, strictOrientation);
 }
 
 class SmallerOrEqualTo extends StatelessWidget {
