@@ -73,62 +73,64 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: UnavailablePageOnBand(
-        child: SettingsPagePadding(
-          child: Column(
-            children: [
-              SettingsBlock(
-                title: "Add to Queue",
-                subtitle: "How new items to be added to the playback queue.",
-                child: ComboBox<String>(
-                  value: queueSetting,
-                  items: const [
-                    ComboBoxItem(
-                      value: "PlayNext",
-                      child: Text("Play Next"),
-                    ),
-                    ComboBoxItem(
-                      value: "AddToEnd",
-                      child: Text("Add to End"),
-                    ),
-                  ],
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      _updateQueueSetting(newValue);
-                    }
-                  },
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(4),
-                child: Expander(
-                  header: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 11),
-                    child: SettingsBlockTitle(
-                      title: "Playback Mode",
-                      subtitle:
-                          "Preferred playback mode about how your music plays.",
-                    ),
-                  ),
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: PlaybackMode.values.map((mode) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        child: Checkbox(
-                          content: Text(modeToLabel(mode)),
-                          checked: !disabledModes.contains(mode),
-                          onChanged: (isChecked) {
-                            if (isChecked != null) {
-                              _updateDisabledModes(mode, !isChecked);
-                            }
-                          },
-                        ),
-                      );
-                    }).toList(),
+        child: SingleChildScrollView(
+          child: SettingsPagePadding(
+            child: Column(
+              children: [
+                SettingsBlock(
+                  title: "Add to Queue",
+                  subtitle: "How new items to be added to the playback queue.",
+                  child: ComboBox<String>(
+                    value: queueSetting,
+                    items: const [
+                      ComboBoxItem(
+                        value: "PlayNext",
+                        child: Text("Play Next"),
+                      ),
+                      ComboBoxItem(
+                        value: "AddToEnd",
+                        child: Text("Add to End"),
+                      ),
+                    ],
+                    onChanged: (newValue) {
+                      if (newValue != null) {
+                        _updateQueueSetting(newValue);
+                      }
+                    },
                   ),
                 ),
-              )
-            ],
+                Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Expander(
+                    header: const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 11),
+                      child: SettingsBlockTitle(
+                        title: "Playback Mode",
+                        subtitle:
+                            "Preferred playback mode about how your music plays.",
+                      ),
+                    ),
+                    content: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: PlaybackMode.values.map((mode) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Checkbox(
+                            content: Text(modeToLabel(mode)),
+                            checked: !disabledModes.contains(mode),
+                            onChanged: (isChecked) {
+                              if (isChecked != null) {
+                                _updateDisabledModes(mode, !isChecked);
+                              }
+                            },
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                )
+              ],
+            ),
           ),
         ),
       ),
