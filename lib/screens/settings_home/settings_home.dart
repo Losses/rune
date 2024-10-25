@@ -1,5 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/belt_container.dart';
 
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -33,11 +34,20 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
         child: BreakpointBuilder(
           breakpoints: const [
             DeviceType.band,
+            DeviceType.belt,
             DeviceType.dock,
             DeviceType.zune,
             DeviceType.tv
           ],
           builder: (context, activeBreakpoint) {
+            if (activeBreakpoint == DeviceType.belt) {
+              return BeltContainer(
+                child: BandScreenLibraryHomeListView(
+                  layoutManager: _layoutManager,
+                ),
+              );
+            }
+
             if (activeBreakpoint == DeviceType.dock ||
                 activeBreakpoint == DeviceType.band) {
               return BandScreenLibraryHomeListView(

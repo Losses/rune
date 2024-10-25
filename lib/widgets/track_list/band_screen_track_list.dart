@@ -35,9 +35,14 @@ class BandScreenTrackList extends StatelessWidget {
     final hasRecommendation = queriesHasRecommendation(queries);
 
     return BreakpointBuilder(
-      breakpoints: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
+      breakpoints: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.tv
+      ],
       builder: (context, deviceType) {
-        if (deviceType == DeviceType.band) {
+        if (deviceType == DeviceType.band || deviceType == DeviceType.belt) {
           return SmoothHorizontalScroll(
             builder: (context, controller) {
               return buildList(hasRecommendation, controller);
@@ -55,7 +60,8 @@ class BandScreenTrackList extends StatelessWidget {
     ScrollController? scrollController,
   ) {
     return PagedListView<int, InternalMediaFile>(
-      scrollDirection: scrollController == null ? Axis.vertical : Axis.horizontal,
+      scrollDirection:
+          scrollController == null ? Axis.vertical : Axis.horizontal,
       pagingController: pagingController,
       builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
         noItemsFoundIndicatorBuilder: (context) {

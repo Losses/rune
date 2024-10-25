@@ -19,6 +19,7 @@ enum DeviceType {
   tv,
   // Horizontal
   band,
+  belt,
   fish,
   car,
   station,
@@ -26,6 +27,7 @@ enum DeviceType {
 
 const Map<DeviceType, int> devicePriority = {
   DeviceType.band: 4,
+  DeviceType.belt: 4,
   DeviceType.fish: 4,
   DeviceType.car: 2,
   DeviceType.station: 0,
@@ -141,8 +143,13 @@ class ResponsiveProvider extends ChangeNotifier {
       end: 120,
       orientation: DeviceOrientation.horizontal,
     ),
-    DeviceType.fish: ResponsiveBreakpoint(
+    DeviceType.belt: ResponsiveBreakpoint(
       start: 121,
+      end: 240,
+      orientation: DeviceOrientation.horizontal,
+    ),
+    DeviceType.fish: ResponsiveBreakpoint(
+      start: 241,
       end: 300,
       orientation: DeviceOrientation.horizontal,
     ),

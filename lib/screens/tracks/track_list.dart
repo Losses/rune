@@ -64,6 +64,7 @@ class TrackListViewState extends State<TrackListView> {
     return BreakpointBuilder(
       breakpoints: const [
         DeviceType.dock,
+        DeviceType.belt,
         DeviceType.band,
         DeviceType.zune,
         DeviceType.tv

@@ -1,12 +1,12 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/navigation_bar/navigation_back_button.dart';
 
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'parent_link.dart';
