@@ -9,7 +9,6 @@ enum DeviceOrientation {
 }
 
 enum DeviceType {
-  // Vertical
   dock(
     priority: 3,
     orientation: DeviceOrientation.vertical,
