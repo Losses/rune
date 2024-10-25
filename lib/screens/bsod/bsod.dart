@@ -13,8 +13,8 @@ class Bsod extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    return BreakpointBuilder(
-      breakpoints: const [
+    return DeviceTypeBuilder(
+      deviceType: const [
         DeviceType.band,
         DeviceType.fish,
         DeviceType.dock,

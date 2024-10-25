@@ -34,10 +34,11 @@ class FlipTile extends StatelessWidget {
 
     return Tile(
       onPressed: onPressed,
-      child: BreakpointBuilder(
-        breakpoints: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
+      child: DeviceTypeBuilder(
+        deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
         builder: (context, deviceType) {
-          final isMini = deviceType == DeviceType.band || deviceType == DeviceType.dock;
+          final isMini =
+              deviceType == DeviceType.band || deviceType == DeviceType.dock;
 
           final coverArts = paths != null
               ? paths!.isNotEmpty

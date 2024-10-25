@@ -100,8 +100,8 @@ class BandScreenState extends State<BandScreen> {
             final List<InternalCollection> flattenItems =
                 items.expand((x) => x.items).toList();
 
-            return BreakpointBuilder(
-              breakpoints: const [
+            return DeviceTypeBuilder(
+              deviceType: const [
                 DeviceType.band,
                 DeviceType.dock,
                 DeviceType.tv

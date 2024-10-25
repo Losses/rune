@@ -37,12 +37,12 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
       child: SmallerOrEqualTo(
-        breakpoint: DeviceType.dock,
+        deviceType: DeviceType.dock,
         builder: (context, isDock) {
           return PageContentFrame(
             top: !isDock,
-            child: BreakpointBuilder(
-              breakpoints: const [
+            child: DeviceTypeBuilder(
+              deviceType: const [
                 DeviceType.band,
                 DeviceType.dock,
                 DeviceType.zune,

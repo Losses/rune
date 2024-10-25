@@ -72,8 +72,8 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return BreakpointBuilder(
-      breakpoints: const [
+    return DeviceTypeBuilder(
+      deviceType: const [
         DeviceType.dock,
         DeviceType.band,
         DeviceType.zune,

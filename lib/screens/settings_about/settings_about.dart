@@ -20,7 +20,7 @@ class SettingsAboutPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: SmallerOrEqualTo(
-        breakpoint: DeviceType.tablet,
+        deviceType: DeviceType.tablet,
         builder: (context, isMini) {
           if (isMini) {
             return SingleChildScrollView(
@@ -70,7 +70,7 @@ class _LogoSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.tablet,
+      deviceType: DeviceType.tablet,
       builder: (context, isMini) {
         return Column(
           crossAxisAlignment:
@@ -107,7 +107,7 @@ class _InfoSection extends StatelessWidget {
     return SmoothHorizontalScroll(
       builder: (context, controller) {
         return SmallerOrEqualTo(
-          breakpoint: DeviceType.tablet,
+          deviceType: DeviceType.tablet,
           builder: (context, isMini) {
             if (isMini) {
               return Column(

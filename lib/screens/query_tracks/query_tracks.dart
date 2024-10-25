@@ -33,8 +33,8 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: BreakpointBuilder(
-        breakpoints: const [DeviceType.dock, DeviceType.band, DeviceType.tv],
+      child: DeviceTypeBuilder(
+        deviceType: const [DeviceType.dock, DeviceType.band, DeviceType.tv],
         builder: (context, activeBreakpoint) {
           final isMini = activeBreakpoint == DeviceType.dock ||
               activeBreakpoint == DeviceType.band;

@@ -4,11 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../providers/responsive_providers.dart';
 
 class UnavailableDialogOnBand extends StatelessWidget {
-  const UnavailableDialogOnBand({
-    super.key,
-    required this.child,
-    this.icon
-  });
+  const UnavailableDialogOnBand({super.key, required this.child, this.icon});
 
   final IconData? icon;
   final Widget child;
@@ -16,7 +12,7 @@ class UnavailableDialogOnBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.dock,
+      deviceType: DeviceType.dock,
       builder: (context, isDock) {
         if (isDock) {
           return Column(

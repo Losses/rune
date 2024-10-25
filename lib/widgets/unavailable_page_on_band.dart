@@ -10,7 +10,7 @@ class UnavailablePageOnBand extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.dock,
+      deviceType: DeviceType.dock,
       builder: (context, isDock) {
         if (isDock) {
           return Center(
