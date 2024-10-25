@@ -68,7 +68,7 @@ class Bsod extends StatelessWidget {
                     Container(
                       constraints: const BoxConstraints(maxWidth: 500),
                       child: Text(
-                        "Your player ran into a problem and needs to restart. We respect your privacy and won't collect any data.",
+                        "Your player ran into a problem and needs a restart. We respect your privacy and won't collect any data.",
                         style: theme.typography.bodyLarge
                             ?.apply(
                               fontSizeFactor: 1.15 * fontSizeFactor,
