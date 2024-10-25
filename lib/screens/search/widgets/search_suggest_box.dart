@@ -3,9 +3,9 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/providers/responsive_providers.dart';
 
 import '../../../messages/search.pb.dart';
+import '../../../providers/responsive_providers.dart';
 
 class SearchSuggestBox extends StatefulWidget {
   final DeviceType deviceType;

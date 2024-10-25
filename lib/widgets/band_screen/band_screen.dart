@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../providers/responsive_providers.dart';
 
