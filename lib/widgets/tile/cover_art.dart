@@ -58,7 +58,7 @@ class CoverArt extends StatelessWidget {
 
     int? cachedSize;
 
-    if (size != null) {
+    if (size != null && size!.isFinite) {
       cachedSize = (size! * pixelRatio).floor();
     }
 

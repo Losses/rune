@@ -113,7 +113,10 @@ enum DeviceType {
   }
 
   DeviceType? _getActiveForOrientation(List<DeviceType> filteredDeviceTypes) {
+    if (filteredDeviceTypes.isEmpty) return null;
+
     DeviceType? result;
+
     for (final entry in filteredDeviceTypes.reversed) {
       final a = this;
       final b = entry;

@@ -12,31 +12,42 @@ class SmallScreenSearchTrackListImplementation extends StatelessWidget {
   final List<SearchCard>? items;
   final int groupId;
 
+  final Axis direction;
+
   const SmallScreenSearchTrackListImplementation({
     super.key,
     required this.collectionType,
     required this.items,
     required this.groupId,
+    required this.direction,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: (items ?? defaultList).asMap().entries.map(
-        (x) {
-          final index = x.key;
-          final key = '${collectionType.toString()}-$index';
+    final list = (items ?? defaultList).asMap().entries.map(
+      (x) {
+        final index = x.key;
+        final key = '${collectionType.toString()}-$index';
 
-          return ManagedTurntileScreenItem(
-            key: Key(key),
-            prefix: collectionType.toString(),
-            groupId: groupId,
-            row: index,
-            column: 1,
-            child: x.value,
-          );
-        },
-      ).toList(),
+        return ManagedTurntileScreenItem(
+          key: Key(key),
+          prefix: collectionType.toString(),
+          groupId: groupId,
+          row: index,
+          column: 1,
+          child: x.value,
+        );
+      },
+    ).toList();
+
+    if (direction == Axis.vertical) {
+      return Column(
+        children: list,
+      );
+    }
+
+    return Row(
+      children: list,
     );
   }
 }

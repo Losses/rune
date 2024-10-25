@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
@@ -37,6 +38,7 @@ class _SearchPageState extends State<SearchPage> {
     return DeviceTypeBuilder(
       deviceType: const [
         DeviceType.dock,
+        DeviceType.band,
         DeviceType.zune,
         DeviceType.tablet,
         DeviceType.tv
@@ -255,6 +257,40 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                   child: BandScreenSearchTrackList(
                     items: items,
                   ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (widget.deviceType == DeviceType.band) {
+      return PageContentFrame(
+        child: ChangeNotifierProvider<StartScreenLayoutManager>.value(
+          value: bandScreenLayoutManager,
+          child: Row(
+            children: [
+              SizedBox(
+                width: 120,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: autoSuggestBox,
+                ),
+              ),
+              const SizedBox(width: 2),
+              Expanded(
+                child: SmoothHorizontalScroll(
+                  builder: (context, controller) {
+                    return SingleChildScrollView(
+                      controller: controller,
+                      scrollDirection: Axis.horizontal,
+                      child: BandScreenSearchTrackList(
+                        items: items,
+                        direction: Axis.horizontal,
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

@@ -110,10 +110,12 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
         );
       }).toList(),
       clearButtonEnabled: widget.deviceType != DeviceType.tablet &&
-          widget.deviceType != DeviceType.dock,
+          widget.deviceType != DeviceType.dock &&
+          widget.deviceType != DeviceType.band,
       leadingIcon: widget.deviceType == DeviceType.tablet ? icon : null,
       trailingIcon: widget.deviceType == DeviceType.tablet ||
-              widget.deviceType == DeviceType.dock
+              widget.deviceType == DeviceType.dock ||
+              widget.deviceType == DeviceType.band
           ? null
           : icon,
     );
