@@ -10,4 +10,4 @@ rinf message
 cd macos
 pod update
 cd ..
-flutter run
+flutter run -d macos
