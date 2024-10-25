@@ -112,12 +112,21 @@ enum DeviceType {
         );
   }
 
-  DeviceType? _getActiveForOrientation(List<DeviceType> filteredDeviceTypes) =>
-      filteredDeviceTypes.cast().lastWhere((type) => type >= this,
-          orElse: () => filteredDeviceTypes.firstOrNull);
+  DeviceType? _getActiveForOrientation(List<DeviceType> filteredDeviceTypes) {
+    DeviceType? result;
+    for (final entry in filteredDeviceTypes.reversed) {
+      final a = this;
+      final b = entry;
 
-  bool operator <=(DeviceType other) => start <= other.start;
-  bool operator >=(DeviceType other) => end >= other.end;
+      if (a.start > b.start) {
+        return result;
+      }
+
+      result = entry;
+    }
+
+    return filteredDeviceTypes.first;
+  }
 }
 
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
@@ -256,11 +265,13 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   bool smallerOrEqualTo(DeviceType deviceType, [bool autoOrientation = true]) =>
-      _compareDeviceType(deviceType, (a, b) => a <= b, autoOrientation);
+      _compareDeviceType(
+          deviceType, (a, b) => a.start <= b.start, autoOrientation);
 
   bool largerOrEqualTo(DeviceType deviceType,
           [bool strictOrientation = true]) =>
-      _compareDeviceType(deviceType, (a, b) => a >= b, strictOrientation);
+      _compareDeviceType(
+          deviceType, (a, b) => a.end >= b.end, strictOrientation);
 
   bool equalTo(DeviceType deviceType, [bool strictOrientation = true]) =>
       _compareDeviceType(deviceType, (a, b) => a == b, strictOrientation);
