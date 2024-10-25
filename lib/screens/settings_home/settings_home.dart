@@ -31,8 +31,8 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
       child: PageContentFrame(
-        child: BreakpointBuilder(
-          breakpoints: const [
+        child: DeviceTypeBuilder(
+          deviceType: const [
             DeviceType.band,
             DeviceType.belt,
             DeviceType.dock,

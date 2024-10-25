@@ -34,8 +34,8 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
-    return BreakpointBuilder(
-      breakpoints: const [
+    return DeviceTypeBuilder(
+      deviceType: const [
         DeviceType.dock,
         DeviceType.zune,
         DeviceType.tablet,

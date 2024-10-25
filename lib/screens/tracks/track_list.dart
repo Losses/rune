@@ -61,8 +61,8 @@ class TrackListViewState extends State<TrackListView> {
   @override
   Widget build(BuildContext context) {
     const queries = QueryList([("lib::all", "true")]);
-    return BreakpointBuilder(
-      breakpoints: const [
+    return DeviceTypeBuilder(
+      deviceType: const [
         DeviceType.dock,
         DeviceType.belt,
         DeviceType.band,

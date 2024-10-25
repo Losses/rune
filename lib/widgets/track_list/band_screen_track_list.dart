@@ -34,8 +34,8 @@ class BandScreenTrackList extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasRecommendation = queriesHasRecommendation(queries);
 
-    return BreakpointBuilder(
-      breakpoints: const [
+    return DeviceTypeBuilder(
+      deviceType: const [
         DeviceType.band,
         DeviceType.belt,
         DeviceType.dock,

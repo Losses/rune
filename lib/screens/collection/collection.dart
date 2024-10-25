@@ -16,8 +16,8 @@ class CollectionPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
-      child: BreakpointBuilder(
-        breakpoints: const [
+      child: DeviceTypeBuilder(
+        deviceType: const [
           DeviceType.belt,
           DeviceType.dock,
           DeviceType.band,

@@ -12,7 +12,7 @@ class BackButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.mobile,
+      deviceType: DeviceType.mobile,
       builder: (_, isTrue) {
         if (!isTrue) return Container();
 

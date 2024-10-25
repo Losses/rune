@@ -89,7 +89,7 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
           ),
           constraints: const BoxConstraints(maxWidth: 240),
           child: SmallerOrEqualTo(
-            breakpoint: DeviceType.zune,
+            deviceType: DeviceType.zune,
             builder: (context, isZune) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.center,

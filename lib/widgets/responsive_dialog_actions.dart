@@ -10,7 +10,7 @@ class ResponsiveDialogActions extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-        breakpoint: DeviceType.zune,
+        deviceType: DeviceType.zune,
         builder: (context, isZune) {
           if (!isZune) {
             return Row(

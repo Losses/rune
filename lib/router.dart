@@ -242,8 +242,8 @@ final router = GoRouter(
                   ),
                 FocusTraversalOrder(
                   order: const NumericFocusOrder(1),
-                  child: BreakpointBuilder(
-                    breakpoints: const [
+                  child: DeviceTypeBuilder(
+                    deviceType: const [
                       DeviceType.band,
                       DeviceType.dock,
                       DeviceType.tv

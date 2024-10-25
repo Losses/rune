@@ -88,7 +88,7 @@ class NavigationBarState extends State<NavigationBar> {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.zune,
+      deviceType: DeviceType.zune,
       builder: (context, isZune) {
         final path = GoRouterState.of(context).fullPath;
         final item = navigationQuery.getItem(path, isZune);
@@ -101,7 +101,7 @@ class NavigationBarState extends State<NavigationBar> {
         final titleFlipKey = 'title:${parent?.path}';
 
         late Widget parentWidget = SmallerOrEqualTo(
-            breakpoint: DeviceType.fish,
+            deviceType: DeviceType.fish,
             builder: (context, isFish) {
               if (isFish) {
                 return const Padding(
@@ -142,7 +142,7 @@ class NavigationBarState extends State<NavigationBar> {
             validSlibings.indexWhere((route) => route == item);
 
         final childrenWidget = SmallerOrEqualTo(
-          breakpoint: DeviceType.fish,
+          deviceType: DeviceType.fish,
           builder: (context, isFish) {
             return SmoothHorizontalScroll(
               builder: (context, scrollController) => SingleChildScrollView(

@@ -8,8 +8,8 @@ class PlayingTrack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BreakpointBuilder(
-      breakpoints: const [DeviceType.phone, DeviceType.tablet],
+    return DeviceTypeBuilder(
+      deviceType: const [DeviceType.phone, DeviceType.tablet],
       builder: (context, activeBreakpoint) {
         return activeBreakpoint == DeviceType.phone
             ? const SmallScreenPlayingTrack()
