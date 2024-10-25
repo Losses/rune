@@ -14,7 +14,7 @@ class UnavailablePageOnBand extends StatelessWidget {
       deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
       builder: (context, activeBreakpoint) {
         if (activeBreakpoint == DeviceType.band ||
-            activeBreakpoint == DeviceType.belt) {
+            activeBreakpoint == DeviceType.dock) {
           return Center(
             child: LayoutBuilder(
               builder: (context, constraint) {
