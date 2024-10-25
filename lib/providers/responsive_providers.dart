@@ -96,7 +96,7 @@ enum DeviceType {
     required this.end,
   });
 
-  static DeviceType determineDeviceType(
+  static DeviceType _determineDeviceType(
       {double? size, DeviceOrientation? orientation}) {
     assert(size != null || orientation != null,
         'At least one of size or orientation must be provided');
@@ -192,9 +192,9 @@ class ResponsiveProvider extends ChangeNotifier {
     final verticalPriority = _currentVerticalDeviceType.priority;
     final horizontalPriority = _currentHorizontalDeviceType.priority;
 
-    final newV = DeviceType.determineDeviceType(
+    final newV = DeviceType._determineDeviceType(
         size: width, orientation: DeviceOrientation.vertical);
-    final newH = DeviceType.determineDeviceType(
+    final newH = DeviceType._determineDeviceType(
         size: height, orientation: DeviceOrientation.horizontal);
     final newA = verticalPriority >= horizontalPriority
         ? _currentVerticalDeviceType
