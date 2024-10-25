@@ -35,9 +35,14 @@ class BandScreenTrackList extends StatelessWidget {
     final hasRecommendation = queriesHasRecommendation(queries);
 
     return DeviceTypeBuilder(
-      deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.tv
+      ],
       builder: (context, deviceType) {
-        if (deviceType == DeviceType.band) {
+        if (deviceType == DeviceType.band || deviceType == DeviceType.belt) {
           return SmoothHorizontalScroll(
             builder: (context, controller) {
               return buildList(hasRecommendation, controller);

@@ -103,6 +103,7 @@ class BandScreenState extends State<BandScreen> {
             return DeviceTypeBuilder(
               deviceType: const [
                 DeviceType.band,
+                DeviceType.belt,
                 DeviceType.dock,
                 DeviceType.tv
               ],
@@ -132,7 +133,7 @@ class BandScreenState extends State<BandScreen> {
     return InfiniteList(
       scrollController: scrollController,
       scrollDirection:
-          deviceType == DeviceType.band ? Axis.horizontal : Axis.vertical,
+          deviceType == DeviceType.band || deviceType == DeviceType.belt ? Axis.horizontal : Axis.vertical,
       itemCount: flattenItems.length,
       loadingBuilder: (context) => const ProgressRing(),
       centerLoading: true,

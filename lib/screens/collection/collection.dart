@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../widgets/belt_container.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';
@@ -17,12 +18,21 @@ class CollectionPage extends StatelessWidget {
     return PageContentFrame(
       child: DeviceTypeBuilder(
         deviceType: const [
+          DeviceType.belt,
           DeviceType.dock,
           DeviceType.band,
           DeviceType.zune,
           DeviceType.tv
         ],
         builder: (context, activeBreakpoint) {
+          if (activeBreakpoint == DeviceType.belt) {
+            return BeltContainer(
+              child: BandScreenCollectionListView(
+                collectionType: collectionType,
+              ),
+            );
+          }
+
           if (activeBreakpoint == DeviceType.dock ||
               activeBreakpoint == DeviceType.band) {
             return BandScreenCollectionListView(

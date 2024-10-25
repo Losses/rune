@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../screens/library_home/band_screen_library_home_list.dart';
 import '../../screens/library_home/small_screen_library_home_list.dart';
+import '../../widgets/belt_container.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
@@ -44,11 +45,20 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
             child: DeviceTypeBuilder(
               deviceType: const [
                 DeviceType.band,
+                DeviceType.belt,
                 DeviceType.dock,
                 DeviceType.zune,
                 DeviceType.tv
               ],
               builder: (context, activeBreakpoint) {
+                if (activeBreakpoint == DeviceType.belt) {
+                  return BeltContainer(
+                    child: BandScreenLibraryHomeListView(
+                      layoutManager: _layoutManager,
+                    ),
+                  );
+                }
+
                 if (activeBreakpoint == DeviceType.dock ||
                     activeBreakpoint == DeviceType.band) {
                   return BandScreenLibraryHomeListView(

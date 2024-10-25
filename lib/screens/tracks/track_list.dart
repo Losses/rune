@@ -64,6 +64,7 @@ class TrackListViewState extends State<TrackListView> {
     return DeviceTypeBuilder(
       deviceType: const [
         DeviceType.dock,
+        DeviceType.belt,
         DeviceType.band,
         DeviceType.zune,
         DeviceType.tv
