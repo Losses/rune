@@ -13,9 +13,7 @@ jobs:
         name: Install dependencies
         command: |
           sudo apt-get update
-          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev
-          libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev
-          dpkg-dev
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev
     - run:
         name: Download Flutter
         command: |
