@@ -113,8 +113,8 @@ flutter:
     - assets/disk-border.svg
     - assets/disk-center.svg
     - assets/branding-text.svg
-    - assets/startup_0.mp3
-    - assets/startup_1.mp3
+    - assets/startup_0.ogg
+    - assets/startup_1.ogg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

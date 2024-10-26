@@ -2,12 +2,12 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/svg.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:rune/utils/api/sfx_play.dart';
 
+import '../../utils/api/sfx_play.dart';
 import '../../screens/settings_test/lens_flare.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
@@ -31,7 +31,7 @@ class AssetHelper {
 }
 
 Future<File> startSfxFile =
-    AssetHelper.instance.getAudioFileFromAssets('assets/startup_1.mp3');
+    AssetHelper.instance.getAudioFileFromAssets('assets/startup_1.ogg');
 
 class SettingsTestPage extends StatefulWidget {
   const SettingsTestPage({super.key});

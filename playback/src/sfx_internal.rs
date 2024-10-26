@@ -1,12 +1,9 @@
-use std::fs::File;
-use std::io::BufReader;
-use std::path::PathBuf;
+use std::{fs::File, io::BufReader, path::PathBuf};
 
 use anyhow::{Context, Result};
 use log::{debug, error, info};
 use rodio::{Decoder, OutputStream, Sink};
 use tokio::sync::mpsc;
-use tokio::time::{sleep_until, Instant};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]
@@ -28,7 +25,6 @@ pub(crate) struct SfxPlayerInternal {
     sink: Option<Sink>,
     _stream: Option<OutputStream>,
     state: InternalSfxPlaybackState,
-    debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
     volume: f32,
 }
@@ -44,7 +40,6 @@ impl SfxPlayerInternal {
             sink: None,
             _stream: None,
             state: InternalSfxPlaybackState::Stopped,
-            debounce_timer: None,
             cancellation_token,
             volume: 1.0,
         }
@@ -58,42 +53,21 @@ impl SfxPlayerInternal {
                 }
             }
 
-            tokio::select! {
-                Some(cmd) = self.commands.recv() => {
-                    if self.cancellation_token.is_cancelled() {
-                        debug!("Cancellation token triggered, exiting run loop");
-                        if let Some(sink) = &self.sink {
-                            sink.stop();
-                        }
-                        break;
-                    }
-
-                    debug!("Received command: {:?}", cmd);
-                    match cmd {
-                        SfxPlayerCommand::Load { path } => self.load(Some(path)),
-                        SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume),
-                    }?;
-                },
-                _ = async {
-                    if let Some(timer) = self.debounce_timer {
-                        sleep_until(timer).await;
-                        true
-                    } else {
-                        false
-                    }
-                }, if self.debounce_timer.is_some() => {
-                    self.debounce_timer = None;
-                },
-                _ = self.cancellation_token.cancelled() => {
+            if let Some(cmd) = self.commands.recv().await {
+                if self.cancellation_token.is_cancelled() {
                     debug!("Cancellation token triggered, exiting run loop");
                     if let Some(sink) = &self.sink {
                         sink.stop();
                     }
                     break;
                 }
-            }
 
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                debug!("Received command: {:?}", cmd);
+                match cmd {
+                    SfxPlayerCommand::Load { path } => self.load(Some(path)),
+                    SfxPlayerCommand::SetVolume(volume) => self.set_volume(volume),
+                }?;
+            }
         }
 
         Ok(())
@@ -118,7 +92,6 @@ impl SfxPlayerInternal {
 
             sink.set_volume(self.volume);
             sink.append(source);
-            sink.play();
 
             self.sink = Some(sink);
             self._stream = Some(stream);

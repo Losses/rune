@@ -280,6 +280,7 @@ impl PlayerInternal {
                 }
             });
 
+            sink.set_volume(self.volume);
             sink.append(
                 source.periodic_access(Duration::from_millis(16), move |sample| {
                     let data: Vec<i16> = sample.take(sample.channels() as usize).collect();
@@ -289,7 +290,6 @@ impl PlayerInternal {
                 }),
             );
 
-            sink.set_volume(self.volume);
             if !play {
                 sink.pause();
             }

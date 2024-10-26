@@ -4,7 +4,6 @@ import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get_storage/get_storage.dart';
-import 'package:rune/providers/crash.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:device_info_plus/device_info_plus.dart';
@@ -22,6 +21,7 @@ import 'config/navigation.dart';
 
 import 'messages/generated.dart';
 
+import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/playlist.dart';
