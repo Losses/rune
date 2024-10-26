@@ -17,7 +17,7 @@ jobs:
     - run:
         name: Setup Flutter Environment Variables
         command: |
-          echo 'export PATH="$PATH:$HOME/flutter/bin:$PATH:$HOME/protoc/bin:$HOME/.pub-cache/bin"' >> "$BASH_ENV"
+          echo 'export PATH="$PATH:$HOME/flutter/bin:$HOME/protoc/bin:$HOME/.pub-cache/bin:$PATH"' >> "$BASH_ENV"
     - run:
         name: Download Protobuf
         command: |
