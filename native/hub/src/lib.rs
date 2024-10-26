@@ -12,6 +12,7 @@ mod playback;
 mod player;
 mod playlist;
 mod search;
+mod sfx;
 mod stat;
 mod system;
 mod utils;
@@ -20,6 +21,7 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use log::{debug, error, info};
+use ::playback::sfx_player::SfxPlayer;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::fmt;
@@ -48,6 +50,7 @@ use crate::playlist::*;
 use crate::search::*;
 use crate::stat::*;
 use crate::system::*;
+use crate::sfx::*;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -121,19 +124,18 @@ async fn player_loop(path: String) {
             }
         };
 
-        let search_db = match connect_search_db(&path)
-            .with_context(|| "Failed to connect to search DB")
-        {
-            Ok(db) => Arc::new(Mutex::new(db)),
-            Err(e) => {
-                error!("Failed to connect to search DB: {}", e);
-                CrashResponse {
-                    detail: format!("{:#?}", e),
+        let search_db =
+            match connect_search_db(&path).with_context(|| "Failed to connect to search DB") {
+                Ok(db) => Arc::new(Mutex::new(db)),
+                Err(e) => {
+                    error!("Failed to connect to search DB: {}", e);
+                    CrashResponse {
+                        detail: format!("{:#?}", e),
+                    }
+                    .send_signal_to_dart();
+                    return;
                 }
-                .send_signal_to_dart();
-                return;
-            }
-        };
+            };
 
         let lib_path = Arc::new(path);
 
@@ -142,7 +144,10 @@ async fn player_loop(path: String) {
         info!("Initializing player");
         let player = Player::new(Some(cancel_token.clone()));
         let player = Arc::new(Mutex::new(player));
-
+        
+        let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
+        let sfx_player = Arc::new(Mutex::new(sfx_player));
+        
         let cancel_token = Arc::new(cancel_token);
 
         info!("Initializing Player events");
@@ -165,6 +170,8 @@ async fn player_loop(path: String) {
             VolumeRequest => (player),
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
+
+            SfxPlayRequest => (sfx_player),
 
             IfAnalyseExistsRequest => (main_db),
             GetAnalyseCountRequest => (main_db),

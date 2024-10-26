@@ -1,11 +1,37 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:rune/utils/api/sfx_play.dart';
 
 import '../../screens/settings_test/lens_flare.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+
+class AssetHelper {
+  AssetHelper._privateConstructor();
+
+  static final AssetHelper _instance = AssetHelper._privateConstructor();
+
+  static AssetHelper get instance => _instance;
+
+  Future<File> getAudioFileFromAssets(String asset) async {
+    final byteData = await rootBundle.load(asset);
+    final tempFile = File(
+        "${(await getTemporaryDirectory()).path}/${asset.split('/').last}");
+    final file = await tempFile.writeAsBytes(
+      byteData.buffer
+          .asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+    );
+    return file;
+  }
+}
+
+Future<File> startSfxFile =
+    AssetHelper.instance.getAudioFileFromAssets('assets/startup_1.mp3');
 
 class SettingsTestPage extends StatefulWidget {
   const SettingsTestPage({super.key});
@@ -258,7 +284,8 @@ class StaggerAnimation extends StatelessWidget {
                                           BlendMode.srcIn,
                                         ),
                                       ),
-                                      SvgPicture.asset('assets/disk-center.svg'),
+                                      SvgPicture.asset(
+                                          'assets/disk-center.svg'),
                                     ],
                                   ),
                                 ),
@@ -357,8 +384,8 @@ class _StaggerDemoState extends State<StaggerDemo>
   Future<void> _playAnimation() async {
     try {
       _controller.reset();
+      sfxPlay((await startSfxFile).path);
       await _controller.forward().orCancel;
-      // await _controller.reverse().orCancel;
     } on TickerCanceled {
       // The animation got canceled, probably because we were disposed.
     }
