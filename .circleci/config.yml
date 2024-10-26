@@ -2,7 +2,6 @@
 # Stacks detected: cicd:github-actions:.github/workflows,deps:rust:.
 version: 2.1
 orbs:
-  flutter: circleci/flutter@2.0.4
   rust: circleci/rust@1.6.1
 jobs:
   build-arm:
@@ -10,8 +9,20 @@ jobs:
       image: ubuntu-2204:2023.07.1
     resource_class: arm.medium
     steps:
-    - flutter/install_sdk_and_pub:
-      version: 3.24.0
+    - run:
+        name: Download Flutter
+        command: |
+          curl -L -o flutter.tar.gz https://github.com/flutter/flutter/archive/refs/tags/3.24.4.tar.gz
+          tar -xzf flutter.tar.gz
+    - run:
+        name: Set up Flutter
+        command: |
+          export PATH="$PATH:$HOME/project/flutter/bin"
+          flutter doctor
+    - run:
+        name: Run Flutter setup
+        command: |
+          flutter --version
     - checkout
     - run:
         name: Install dependencies
