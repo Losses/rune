@@ -1,36 +1,49 @@
 # This config was automatically generated from your source code
 # Stacks detected: cicd:github-actions:.github/workflows,deps:rust:.
 version: 2.1
+orbs:
+  flutter: circleci/flutter@2.0.4
+  rust: circleci/rust@1.6.1
 jobs:
-  test-rust:
-    docker:
-      - image: cimg/rust:1.70
+  build-arm:
+    machine:
+      image: ubuntu-2204:2023.07.1
+    resource_class: arm.medium
     steps:
-      - checkout
-      - restore_cache:
-          key: cargo-{{ checksum "Cargo.lock" }}
-      - run:
-          command: cargo test
-      - save_cache:
-          key: cargo-{{ checksum "Cargo.lock" }}
-          paths:
-            - ~/.cargo
-  deploy:
-    # This is an example deploy job, not actually used by the workflow
-    docker:
-      - image: cimg/base:stable
+    - flutter/install_sdk_and_pub:
+      version: 3.24.0
+    - checkout
+    - run:
+        name: Install dependencies
+        command: |
+          sudo apt-get update
+          sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev
+          libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev
+          dpkg-dev
+    - run:
+        name: Install the Rust dependencies
+        command: cargo install "flutter_rust_bridge_codegen" rinf protoc-gen-prost
+    - run:
+        name: Activate Protobuf
+        command: flutter pub global activate protoc_plugin
+    - run:
+        name: Flutter pub get
+        command: flutter pub get
+    - run:
+        name: Generate message files
+        command: rinf message
+    - run:
+        name: Build linux
+        command: flutter build linux --release --verbose
+    - store_artifacts:
+        path: build/linux/arm64/release/bundle/
+  release-linux:
+    executor: default_image
     steps:
-      # Replace this with steps to deploy to users
-      - run:
-          name: deploy
-          command: '#e.g. ./deploy.sh'
-      - run:
-          name: found github actions config
-          command: ':'
+    - checkout
+    - store_artifacts:
+        path: artifacts
 workflows:
-  build-and-test:
+  build:
     jobs:
-      - test-rust
-    # - deploy:
-    #     requires:
-    #       - test-rust
+      - build-arm
