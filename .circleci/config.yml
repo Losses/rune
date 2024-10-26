@@ -17,7 +17,7 @@ jobs:
     - run:
         name: Download Flutter
         command: |
-          git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git ../
+          git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git ../flutter
     - run:
         name: Setup Flutter Environment Variables
         command: |
