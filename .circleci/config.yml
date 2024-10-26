@@ -21,9 +21,9 @@ jobs:
         command: |
           git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git
     - run:
-      name: Setup Flutter Environment Variables
-      command: |
-        echo 'export PATH="$PATH:$HOME/project/flutter/bin"' >> "$BASH_ENV"
+        name: Setup Flutter Environment Variables
+        command: |
+          echo 'export PATH="$PATH:$HOME/project/flutter/bin"' >> "$BASH_ENV"
     - run:
         name: Run Flutter setup
         command: |
