@@ -26,6 +26,12 @@ class _BrandingAnimationState extends State<BrandingAnimation>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _playAnimation();
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
@@ -43,32 +49,26 @@ class _BrandingAnimationState extends State<BrandingAnimation>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {
-        _playAnimation();
-      },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final scaleX = constraints.maxWidth / 1280;
-          final scaleY = constraints.maxHeight / 720;
-          final scale = scaleX < scaleY ? scaleX : scaleY;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scaleX = constraints.maxWidth / 1280;
+        final scaleY = constraints.maxHeight / 720;
+        final scale = scaleX < scaleY ? scaleX : scaleY;
 
-          return Center(
-            child: Transform.scale(
-              scale: scale,
-              child: OverflowBox(
-                maxWidth: 1280,
-                maxHeight: 720,
-                child: Center(
-                  child: BrandingAnimationImplementation(
-                      controller: _controller.view),
-                ),
+        return Center(
+          child: Transform.scale(
+            scale: scale,
+            child: OverflowBox(
+              maxWidth: 1280,
+              maxHeight: 720,
+              child: Center(
+                child: BrandingAnimationImplementation(
+                    controller: _controller.view),
               ),
             ),
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
