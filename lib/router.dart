@@ -233,7 +233,7 @@ final router = GoRouter(
           children: [
             const BrandingAnimation(),
             ScaleFadeContainer(
-              delay: const Duration(milliseconds: 4500),
+              delay: const Duration(milliseconds: 4350),
               child: FlipAnimationContext(
                 child: FocusTraversalGroup(
                   policy: OrderedTraversalPolicy(),
