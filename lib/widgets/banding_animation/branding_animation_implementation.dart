@@ -62,7 +62,7 @@ class BrandingAnimationImplementation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              frame1 + 0.1,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -72,7 +72,7 @@ class BrandingAnimationImplementation extends StatelessWidget {
             parent: controller,
             curve: const Interval(
               0.0,
-              frame1 + 0.1,
+              frame1,
               curve: Curves.ease,
             ),
           ),
@@ -84,7 +84,7 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame1 - 0.05,
+              frame1 - 0.1,
               frame2,
               curve: Curves.ease,
             ),
@@ -94,7 +94,7 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame1 - 0.05,
+              frame1 - 0.1,
               frame2,
               curve: Curves.ease,
             ),
@@ -104,8 +104,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame2,
-              frame3 + 0.1,
+              frame2 - 0.1,
+              frame3,
               curve: Curves.ease,
             ),
           ),
@@ -114,8 +114,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
-              frame2,
-              frame3 + 0.1,
+              frame2 - 0.1,
+              frame3,
               curve: Curves.ease,
             ),
           ),
@@ -124,8 +124,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
+              frame2,
               frame3,
-              frame4 + 0.1,
               curve: Curves.ease,
             ),
           ),
@@ -134,8 +134,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
+              frame2,
               frame3,
-              frame4 + 0.1,
               curve: Curves.ease,
             ),
           ),
@@ -144,8 +144,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
+              frame3,
               frame4,
-              frame5 - 0.05,
               curve: Curves.ease,
             ),
           ),
@@ -154,8 +154,8 @@ class BrandingAnimationImplementation extends StatelessWidget {
           CurvedAnimation(
             parent: controller,
             curve: const Interval(
+              frame3,
               frame4,
-              frame5 - 0.05,
               curve: Curves.ease,
             ),
           ),
