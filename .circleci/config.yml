@@ -10,26 +10,29 @@ jobs:
     resource_class: arm.medium
     steps:
     - run:
-        name: Download Flutter
-        command: |
-          git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git
-    - run:
-        name: Set up Flutter
-        command: |
-          export PATH="$PATH:$HOME/project/flutter/bin"
-          flutter doctor
-    - run:
-        name: Run Flutter setup
-        command: |
-          flutter --version
-    - checkout
-    - run:
         name: Install dependencies
         command: |
           sudo apt-get update
           sudo apt-get install liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev
           libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev
           dpkg-dev
+    - run:
+        name: Download Flutter
+        command: |
+          git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git
+    - run:
+      name: Setup Flutter Environment Variables
+      command: |
+        echo 'export PATH="$PATH:$HOME/project/flutter/bin"' >> "$BASH_ENV"
+    - run:
+        name: Run Flutter setup
+        command: |
+          flutter --version
+    - run:
+        name: Test if Flutter works
+        command: |
+          flutter doctor
+    - checkout
     - run:
         name: Install the Rust dependencies
         command: cargo install "flutter_rust_bridge_codegen" rinf protoc-gen-prost
