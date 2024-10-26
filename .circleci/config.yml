@@ -56,6 +56,7 @@ jobs:
         command: rinf message
     - run:
         name: Build linux
+        no_output_timeout: 30m
         command: flutter build linux --release --verbose
     - store_artifacts:
         path: build/linux/arm64/release/bundle/
