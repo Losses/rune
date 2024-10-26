@@ -23,7 +23,7 @@ jobs:
     - run:
         name: Setup Flutter Environment Variables
         command: |
-          echo 'export PATH="$PATH:$HOME/flutter/bin"' >> "$BASH_ENV"
+          echo 'export PATH="$PATH:$HOME/flutter/bin:$HOME/.pub-cache/bin"' >> "$BASH_ENV"
     - run:
         name: Run Flutter setup
         command: |
