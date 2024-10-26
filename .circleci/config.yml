@@ -38,7 +38,10 @@ jobs:
         command: cargo install "flutter_rust_bridge_codegen" rinf protoc-gen-prost
     - run:
         name: Activate Protobuf
-        command: flutter pub global activate protoc_plugin
+        command: |
+          flutter pub global activate protoc_plugin
+          whereis protoc
+          protoc --version
     - run:
         name: Flutter pub get
         command: flutter pub get
