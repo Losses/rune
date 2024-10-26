@@ -14,10 +14,11 @@ jobs:
         command: |
           curl -L -o flutter.tar.gz https://github.com/flutter/flutter/archive/refs/tags/3.24.4.tar.gz
           tar -xzf flutter.tar.gz
+          ls -l -a
     - run:
         name: Set up Flutter
         command: |
-          export PATH="$PATH:$HOME/project/flutter/bin"
+          export PATH="$PATH:$HOME/project/flutter-3.24.4/bin"
           flutter doctor
     - run:
         name: Run Flutter setup
