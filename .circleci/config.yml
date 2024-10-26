@@ -19,12 +19,12 @@ jobs:
         command: |
           echo 'export PATH="$PATH:$HOME/flutter/bin:$PATH:$HOME/protoc/bin:$HOME/.pub-cache/bin"' >> "$BASH_ENV"
     - run:
-      name: Download Protobuf
-      command: |
-        curl -L -o ../protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-aarch_64.zip
-        unzip ../protoc.zip -d ../protoc
-        whereis protoc
-        protoc --version
+        name: Download Protobuf
+        command: |
+          curl -L -o ../protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v28.3/protoc-28.3-linux-aarch_64.zip
+          unzip ../protoc.zip -d ../protoc
+          whereis protoc
+          protoc --version
     - rust/install:
         version: stable
     - run:
