@@ -1,11 +1,13 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/settings_manager.dart';
 import '../../../messages/search.pb.dart';
 import '../../../providers/responsive_providers.dart';
+
+final SettingsManager settingsManager = SettingsManager();
 
 class SearchSuggestBox extends StatefulWidget {
   final DeviceType deviceType;
@@ -33,20 +35,25 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
 
   List<String> suggestions = [];
 
-  final box = GetStorage();
-
   @override
   void initState() {
     super.initState();
     searchFocusNode.requestFocus();
 
-    // Load suggestions from storage
-    final storedSuggestions = box.read<List<dynamic>>('search_suggestions');
-    if (storedSuggestions != null) {
-      suggestions = List<String>.from(storedSuggestions);
-    }
-
     widget.controller.addListener(_onControllerChange);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Load suggestions from storage
+    settingsManager.getValue<List<dynamic>?>('search_suggestions').then((x) {
+      if (x != null && mounted) {
+        setState(() {
+          suggestions = List<String>.from(x);
+        });
+      }
+    });
   }
 
   @override
@@ -72,7 +79,7 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       if (suggestions.length > 64) {
         suggestions.removeAt(0); // Ensure we only keep the latest 64 queries
       }
-      box.write('search_suggestions', suggestions);
+      settingsManager.setValue('search_suggestions', suggestions);
     }
   }
 
