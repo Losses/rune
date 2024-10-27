@@ -29,12 +29,14 @@ class AnalyseTaskProgress {
 
 class ScanTaskProgress {
   final String path;
+  ScanTaskType type;
   int progress;
   TaskStatus status;
   bool initialize;
 
   ScanTaskProgress({
     required this.path,
+    required this.type,
     this.progress = 0,
     this.status = TaskStatus.working,
     this.initialize = false,
@@ -138,6 +140,7 @@ class LibraryManagerProvider with ChangeNotifier {
     } else {
       _scanTasks[path] = ScanTaskProgress(
         path: path,
+        type: taskType,
         progress: progress,
         status: status,
         initialize: initialize,

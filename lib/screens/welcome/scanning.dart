@@ -62,10 +62,11 @@ class _ScanningPageState extends State<ScanningPage>
     final libraryPath = Provider.of<LibraryPathProvider>(context);
     final libraryManager = Provider.of<LibraryManagerProvider>(context);
 
-    final count = libraryManager
-            .getScanTaskProgress(libraryPath.currentPath ?? "")
-            ?.progress ??
-        0;
+    final progress =
+        libraryManager.getScanTaskProgress(libraryPath.currentPath ?? "");
+
+    final task = progress?.type ?? ScanTaskType.IndexFiles;
+    final count = progress?.progress ?? 0;
 
     return AnimatedMeshGradient(
       colors: [
@@ -90,7 +91,11 @@ class _ScanningPageState extends State<ScanningPage>
           ),
           const SizedBox(height: 12),
           Text(
-            count > 1 ? "$count tracks found" : "Sit back and relax",
+            count > 1
+                ? task == ScanTaskType.IndexFiles
+                    ? '$count tracks found'
+                    : '$count cover arts collected'
+                : "Sit back and relax",
             style: typography.bodyLarge?.apply(
               color: Colors.white,
               fontWeightDelta: -50,
