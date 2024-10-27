@@ -17,10 +17,12 @@ use database::connection::RecommendationDbConnection;
 use database::connection::SearchDbConnection;
 
 use crate::messages::*;
+use crate::TaskTokens;
 
 pub async fn close_library_request(
     lib_path: Arc<String>,
-    cancel_token: Arc<CancellationToken>,
+    main_token: Arc<CancellationToken>,
+    task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<CloseLibraryRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
@@ -29,7 +31,15 @@ pub async fn close_library_request(
         return Ok(());
     }
 
-    cancel_token.cancel();
+    let mut tokens = task_tokens.lock().await;
+    if let Some(token) = tokens.scan_token.take() {
+        token.cancel();
+    }
+    if let Some(token) = tokens.analyse_token.take() {
+        token.cancel();
+    }
+
+    main_token.cancel();
 
     CloseLibraryResponse {
         path: request.path.clone(),
@@ -42,13 +52,23 @@ pub async fn close_library_request(
 pub async fn scan_audio_library_request(
     main_db: Arc<MainDbConnection>,
     search_db: Arc<Mutex<SearchDbConnection>>,
-    cancel_token: Arc<CancellationToken>,
+    task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<ScanAudioLibraryRequest>,
 ) -> Result<()> {
+    let mut tokens = task_tokens.lock().await;
+    // If there is scanning task
+    if let Some(token) = tokens.scan_token.take() {
+        token.cancel();
+    }
+
+    // Create a new cancel token
+    let new_token = CancellationToken::new();
+    tokens.scan_token = Some(new_token.clone());
+    drop(tokens); // Release the lock
+
     let request = dart_signal.message.clone();
     let search_db_clone = Arc::clone(&search_db);
     let main_db_clone = Arc::clone(&main_db);
-    let cancel_token_clone = Arc::clone(&cancel_token);
 
     task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -67,7 +87,7 @@ pub async fn scan_audio_library_request(
                     }
                     .send_signal_to_dart()
                 },
-                Some((*cancel_token_clone).clone()),
+                Some(new_token.clone()),
             )
             .await
             .unwrap();
@@ -107,9 +127,20 @@ pub fn determine_batch_size() -> usize {
 pub async fn analyse_audio_library_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
-    cancel_token: Arc<CancellationToken>,
+    task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<AnalyseAudioLibraryRequest>,
 ) -> Result<()> {
+    let mut tokens = task_tokens.lock().await;
+    // If there is scanning task
+    if let Some(token) = tokens.scan_token.take() {
+        token.cancel();
+    }
+
+    // Create a new cancel token
+    let new_token = CancellationToken::new();
+    tokens.analyse_token = Some(new_token.clone());
+    drop(tokens); // Release the lock
+
     let request = dart_signal.message;
 
     debug!("Analysing media files: {:#?}", request);
@@ -134,7 +165,7 @@ pub async fn analyse_audio_library_request(
                         }
                         .send_signal_to_dart()
                     },
-                    Some((*cancel_token).clone()),
+                    Some(new_token.clone()),
                 )
                 .await
                 .with_context(|| "Audio analysis failed")?;

@@ -21,7 +21,6 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use log::{debug, error, info};
-use ::playback::sfx_player::SfxPlayer;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::fmt;
@@ -33,6 +32,7 @@ use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
 use ::database::connection::connect_search_db;
 use ::playback::player::Player;
+use ::playback::sfx_player::SfxPlayer;
 
 use crate::analyse::*;
 use crate::collection::*;
@@ -48,9 +48,9 @@ use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
 use crate::search::*;
+use crate::sfx::*;
 use crate::stat::*;
 use crate::system::*;
-use crate::sfx::*;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -87,6 +87,12 @@ macro_rules! select_signal {
             }
         }
     };
+}
+
+#[derive(Default)]
+struct TaskTokens {
+    scan_token: Option<CancellationToken>,
+    analyse_token: Option<CancellationToken>,
 }
 
 async fn player_loop(path: String) {
@@ -139,27 +145,28 @@ async fn player_loop(path: String) {
 
         let lib_path = Arc::new(path);
 
-        let cancel_token = CancellationToken::new();
+        let main_cancel_token = CancellationToken::new();
+        let task_tokens = Arc::new(Mutex::new(TaskTokens::default()));
 
         info!("Initializing player");
-        let player = Player::new(Some(cancel_token.clone()));
+        let player = Player::new(Some(main_cancel_token.clone()));
         let player = Arc::new(Mutex::new(player));
-        
-        let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
+
+        let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
         let sfx_player = Arc::new(Mutex::new(sfx_player));
-        
-        let cancel_token = Arc::new(cancel_token);
+
+        let main_cancel_token = Arc::new(main_cancel_token);
 
         info!("Initializing Player events");
         tokio::spawn(initialize_player(main_db.clone(), player.clone()));
 
         info!("Initializing UI events");
         select_signal!(
-            cancel_token,
+            main_cancel_token,
 
-            CloseLibraryRequest => (lib_path, cancel_token),
-            ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
-            AnalyseAudioLibraryRequest => (main_db, recommend_db, cancel_token),
+            CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
+            ScanAudioLibraryRequest => (main_db, search_db, task_tokens),
+            AnalyseAudioLibraryRequest => (main_db, recommend_db, task_tokens),
             PlayRequest => (player),
             PauseRequest => (player),
             NextRequest => (main_db, player),
