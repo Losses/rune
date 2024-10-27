@@ -39,6 +39,7 @@ class _SettingsMediaControllerPageState
                   SizedBox(
                     width: double.maxFinite,
                     child: ReorderableColumn(
+                      needsLongPressDraggable: false,
                       onReorder: playbackController.reorder,
                       children: playbackController.entries
                           .map(
