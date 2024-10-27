@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use log::{debug, info};
+use log::debug;
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -75,15 +75,18 @@ pub async fn scan_audio_library_request(
         runtime.block_on(async move {
             let mut search_db = search_db_clone.lock().await;
 
+            let path = request.path.clone();
             let file_processed = scan_audio_library(
                 &main_db_clone,
                 &mut search_db,
-                Path::new(&request.path),
+                Path::new(&path.clone()),
                 true,
                 |progress| {
                     ScanAudioLibraryProgress {
-                        path: request.path.clone(),
+                        task: 0,
+                        path: path.clone(),
                         progress: progress.try_into().unwrap(),
+                        total: 0,
                     }
                     .send_signal_to_dart()
                 },
@@ -96,9 +99,17 @@ pub async fn scan_audio_library_request(
 
             scan_cover_arts(
                 &main_db_clone,
-                Path::new(&request.path),
+                Path::new(&path.clone()),
                 batch_size,
-                |now, total| info!("Scanning cover art: {}/{}", now, total),
+                move |now, total| {
+                    ScanAudioLibraryProgress {
+                        task: 1,
+                        path: path.clone(),
+                        progress: now.try_into().unwrap(),
+                        total: total.try_into().unwrap(),
+                    }
+                    .send_signal_to_dart()
+                },
                 None,
             )
             .await
@@ -218,9 +229,7 @@ pub async fn cancel_task_request(
                 false
             }
         }
-        _ => {
-            false
-        }
+        _ => false,
     };
 
     CancelTaskResponse {

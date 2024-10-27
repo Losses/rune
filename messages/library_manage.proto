@@ -16,10 +16,17 @@ message ScanAudioLibraryRequest {
     string path = 1;
 }
 
+enum ScanTaskType {
+  IndexFiles = 0;
+  ScanCoverArts = 1;
+}
+
 // [RUST-SIGNAL]
 message ScanAudioLibraryProgress {
     string path = 1;
     int32 progress = 2;
+    int32 total = 3;
+    ScanTaskType task = 4;
 }
 
 // [RUST-SIGNAL]

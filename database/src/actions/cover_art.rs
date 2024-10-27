@@ -253,7 +253,7 @@ pub async fn scan_cover_arts<F>(
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize>
 where
-    F: Fn(usize, usize) + Send + Sync + 'static + Copy,
+    F: Fn(usize, usize) + Send + Sync + 'static,
 {
     info!(
         "Starting cover art processing with batch size: {}",
