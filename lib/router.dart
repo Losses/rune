@@ -203,6 +203,7 @@ final router = GoRouter(
 
         final isCar = r.smallerOrEqualTo(DeviceType.car, false);
         final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
+        final diskOnRight = r.smallerOrEqualTo(DeviceType.car, false);
 
         final showDisk = isZune || isCar;
 
@@ -238,7 +239,7 @@ final router = GoRouter(
                 child: FocusTraversalGroup(
                   policy: OrderedTraversalPolicy(),
                   child: RuneStack(
-                    alignment: Alignment.bottomCenter,
+                    alignment: diskOnRight ? Alignment.centerRight : Alignment.bottomCenter,
                     children: [
                       if (path == '/cover_wall' && !showDisk) mainContent,
                       if (!showDisk)
