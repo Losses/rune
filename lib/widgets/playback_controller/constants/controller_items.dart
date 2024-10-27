@@ -57,7 +57,8 @@ final controllerItems = [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
@@ -65,13 +66,15 @@ final controllerItems = [
       playPrevious();
     },
     controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return PreviousButton(disabled: notReady);
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
@@ -86,7 +89,6 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
                 playPrevious();
               },
       );
@@ -151,7 +153,6 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
                 status?.state == "Playing" ? playPause() : playPlay();
               },
       );
@@ -198,7 +199,6 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
                 playPrevious();
               },
       );
@@ -328,7 +328,6 @@ final controllerItems = [
                 color: color,
               ),
               onPressed: () {
-                Flyout.of(context).close();
                 playMode(x.toValue());
               },
             );
@@ -360,7 +359,6 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
           showPlayQueueDialog(context);
         },
       );
@@ -403,7 +401,6 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
           showCoverArtWall(context);
         },
       );
@@ -446,7 +443,6 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
           fullScreen.setFullScreen(!fullScreen.isFullScreen);
         },
       );
