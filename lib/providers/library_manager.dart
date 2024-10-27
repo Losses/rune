@@ -67,7 +67,9 @@ class LibraryManagerProvider with ChangeNotifier {
       final scanProgress = event.message;
       _updateScanProgress(
           scanProgress.path,
+          scanProgress.task,
           scanProgress.progress,
+          scanProgress.total,
           TaskStatus.working,
           getScanTaskProgress(scanProgress.path)?.initialize ?? false);
     });
@@ -77,8 +79,14 @@ class LibraryManagerProvider with ChangeNotifier {
       final scanResult = event.message;
       final initialize =
           getScanTaskProgress(scanResult.path)?.initialize ?? false;
-      _updateScanProgress(scanResult.path, scanResult.progress,
-          TaskStatus.finished, initialize);
+      _updateScanProgress(
+        scanResult.path,
+        ScanTaskType.ScanCoverArts,
+        scanResult.progress,
+        0,
+        TaskStatus.finished,
+        initialize,
+      );
 
       if (initialize) {
         analyseLibrary(scanResult.path);
@@ -117,7 +125,13 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   void _updateScanProgress(
-      String path, int progress, TaskStatus status, bool initialize) {
+    String path,
+    ScanTaskType taskType,
+    int progress,
+    int total,
+    TaskStatus status,
+    bool initialize,
+  ) {
     if (_scanTasks.containsKey(path)) {
       _scanTasks[path]!.progress = progress;
       _scanTasks[path]!.status = status;
@@ -157,7 +171,14 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   Future<void> scanLibrary(String path, [bool initialize = false]) async {
-    _updateScanProgress(path, 0, TaskStatus.working, initialize);
+    _updateScanProgress(
+      path,
+      ScanTaskType.IndexFiles,
+      0,
+      0,
+      TaskStatus.working,
+      initialize,
+    );
     ScanAudioLibraryRequest(path: path).sendSignalToRust();
   }
 
