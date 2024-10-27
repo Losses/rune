@@ -70,7 +70,6 @@ dependencies:
   fixnum: ^1.1.0
   very_good_infinite_list: ^0.8.0
   flutter_fullscreen: ^1.0.1
-  window_manager: ^0.3.9
   device_info_plus: ^10.1.2
   macos_secure_bookmarks: ^0.2.1
 
