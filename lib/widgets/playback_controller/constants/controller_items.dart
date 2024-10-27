@@ -469,7 +469,7 @@ class ShortcutText extends StatelessWidget {
     return Text(
       text,
       style: theme.typography.caption?.apply(
-        color: theme.activeColor.withAlpha(80),
+        color: theme.resources.textFillColorPrimary.withAlpha(80),
       ),
     );
   }
