@@ -1,7 +1,8 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
-import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
 import 'package:system_theme/system_theme.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -15,6 +16,32 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
+  _getAccentColor(Color? color) {
+    if (color == null) {
+      _color = systemAccentColor;
+
+      return;
+    }
+
+    final colorScheme = Hct.fromInt(color.value);
+    final h = colorScheme.hue;
+
+    return AccentColor.swatch({
+      'darkest': Color(Hct.from(h, 43, 31).toInt()),
+      'darker': Color(Hct.from(h, 46, 35).toInt()),
+      'dark': Color(Hct.from(h, 52, 42).toInt()),
+      'normal': Color(Hct.from(h, 58, 50).toInt()),
+      'light': Color(Hct.from(h, 54, 56).toInt()),
+      'lighter': Color(Hct.from(h, 48, 63).toInt()),
+      'lightest': Color(Hct.from(h, 45, 67).toInt()),
+    });
+  }
+
+  updateThemeColor(Color? color) {
+    _color = _getAccentColor(color);
+    notifyListeners();
+  }
+
   ThemeMode _mode = ThemeMode.system;
   ThemeMode get mode => _mode;
   set mode(ThemeMode mode) {
@@ -24,8 +51,9 @@ class AppTheme extends ChangeNotifier {
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
-  WindowEffect windowEffect =
-      (Platform.isLinux || Platform.isAndroid) ? WindowEffect.solid : WindowEffect.mica;
+  WindowEffect windowEffect = (Platform.isLinux || Platform.isAndroid)
+      ? WindowEffect.solid
+      : WindowEffect.mica;
 
   TextDirection _textDirection = TextDirection.ltr;
   TextDirection get textDirection => _textDirection;

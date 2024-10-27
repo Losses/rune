@@ -120,6 +120,10 @@ final routes = <GoRoute>[
     builder: (context, state) => const settings.SettingsLibraryPage(),
   ),
   GoRoute(
+    path: '/settings/theme',
+    builder: (context, state) => const settings.SettingsTheme(),
+  ),
+  GoRoute(
     path: '/settings/playback',
     builder: (context, state) => const settings.SettingsPlayback(),
   ),

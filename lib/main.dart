@@ -20,6 +20,8 @@ import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 import 'config/navigation.dart';
 
+import 'screens/settings_theme/settings_theme.dart';
+
 import 'messages/generated.dart';
 
 import 'providers/crash.dart';
@@ -65,6 +67,13 @@ void main(List<String> arguments) async {
   }
 
   final SettingsManager settingsManager = SettingsManager();
+
+  int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+
+  if (themeColor != null) {
+    appTheme.updateThemeColor(Color(themeColor));
+  }
+
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');
   if (storedFullScreen != null) {

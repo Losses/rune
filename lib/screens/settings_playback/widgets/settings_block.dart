@@ -55,7 +55,7 @@ class SettingsBlockState extends State<SettingsBlock> {
         child: AnimatedContainer(
           constraints: const BoxConstraints(minHeight: 56),
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           duration: theme.fastAnimationDuration,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(widget.radius),
