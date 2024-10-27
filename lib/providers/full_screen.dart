@@ -1,22 +1,19 @@
 import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
+
+import '../utils/settings_manager.dart';
+
+final SettingsManager settingsManager = SettingsManager();
 
 class FullScreenProvider with ChangeNotifier, FullScreenListener {
   static const String storageKey = 'fullscreen_state';
-  final GetStorage _storage = GetStorage();
 
   bool _isFullScreen = FullScreen.isFullScreen;
   bool get isFullScreen => _isFullScreen;
 
   FullScreenProvider() {
-    _initFullScreenState();
     FullScreen.addListener(this);
-  }
-
-  Future<void> _initFullScreenState() async {
-    await GetStorage.init();
   }
 
   Future<void> setFullScreen(bool enabled, {bool notify = true}) async {
@@ -27,7 +24,7 @@ class FullScreenProvider with ChangeNotifier, FullScreenListener {
   }
 
   void _saveFullScreenState() {
-    _storage.write(storageKey, _isFullScreen);
+    settingsManager.setValue(storageKey, _isFullScreen);
   }
 
   @override

@@ -1,14 +1,15 @@
 import 'dart:convert';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 
+import '../utils/settings_manager.dart';
 import '../widgets/playback_controller/constants/controller_items.dart';
+
+final SettingsManager settingsManager = SettingsManager();
 
 class PlaybackControllerProvider extends ChangeNotifier {
   static const String storageKey = 'controller_order';
   final List<ControllerEntry> _entries = List.from(controllerItems);
-  final GetStorage _storage = GetStorage();
 
   PlaybackControllerProvider() {
     _loadEntries();
@@ -17,8 +18,8 @@ class PlaybackControllerProvider extends ChangeNotifier {
   List<ControllerEntry> get entries => List.unmodifiable(_entries);
 
   void _loadEntries() async {
-    await GetStorage.init();
-    String? storedOrderJson = _storage.read<String>(storageKey);
+    String? storedOrderJson =
+        await settingsManager.getValue<String>(storageKey);
 
     if (storedOrderJson != null) {
       List<dynamic> storedOrderDynamic = jsonDecode(storedOrderJson);
@@ -67,6 +68,6 @@ class PlaybackControllerProvider extends ChangeNotifier {
   void _saveEntries() {
     List<String> order = _entries.map((e) => e.id).toList();
     String orderJson = jsonEncode(order);
-    _storage.write(storageKey, orderJson);
+    settingsManager.setValue(storageKey, orderJson);
   }
 }

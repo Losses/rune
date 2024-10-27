@@ -11,6 +11,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
+import 'utils/settings_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 
@@ -63,8 +64,9 @@ void main(List<String> arguments) async {
     debugPrint('Device is not Windows 10, skip the patch');
   }
 
-  final storage = GetStorage();
-  bool? storedFullScreen = storage.read<bool>('fullscreen_state');
+  final SettingsManager settingsManager = SettingsManager();
+  bool? storedFullScreen =
+      await settingsManager.getValue<bool>('fullscreen_state');
   if (storedFullScreen != null) {
     FullScreen.setFullScreen(storedFullScreen);
   }

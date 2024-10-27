@@ -15,10 +15,11 @@ class LibraryPathProvider with ChangeNotifier {
     if (libraryPath.isNotEmpty) {
       setLibraryPath(libraryPath);
     } else {
-      final lastOpenedFile = _fileStorageService.getLastOpenedFile();
-      if (lastOpenedFile != null) {
-        setLibraryPath(lastOpenedFile);
-      }
+      _fileStorageService.getLastOpenedFile().then((x) {
+        if (x != null) {
+          setLibraryPath(x);
+        }
+      });
     }
   }
 
@@ -39,7 +40,7 @@ class LibraryPathProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  List<String> getAllOpenedFiles() {
+  Future<List<String>> getAllOpenedFiles() {
     return _fileStorageService.getAllOpenedFiles();
   }
 
