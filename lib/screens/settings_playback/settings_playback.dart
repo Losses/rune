@@ -10,6 +10,8 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
 
+const disabledPlaybackModesKey = 'disabled_playback_modes';
+
 class SettingsPlayback extends StatefulWidget {
   const SettingsPlayback({super.key});
 
@@ -19,7 +21,7 @@ class SettingsPlayback extends StatefulWidget {
 
 class _SettingsPlaybackState extends State<SettingsPlayback> {
   List<PlaybackMode> disabledModes = [];
-  String queueSetting = "AddToEnd";
+  String queueMode = "AddToEnd";
 
   @override
   void initState() {
@@ -30,7 +32,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
   Future<void> _loadSettings() async {
     // Load disabled playback modes
     List<dynamic>? storedDisabledModes = await SettingsManager()
-        .getValue<List<dynamic>>('disabledPlaybackModes');
+        .getValue<List<dynamic>>(disabledPlaybackModesKey);
     if (storedDisabledModes != null) {
       setState(() {
         disabledModes = storedDisabledModes
@@ -41,10 +43,10 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
 
     // Load queue setting
     String? storedQueueSetting =
-        await SettingsManager().getValue<String>('queueSetting');
+        await SettingsManager().getValue<String>(nonReplaceOperateModeKey);
     if (storedQueueSetting != null) {
       setState(() {
-        queueSetting = storedQueueSetting;
+        queueMode = storedQueueSetting;
       });
     }
   }
@@ -59,12 +61,12 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
     });
     List<int> modeIndexes =
         disabledModes.map((mode) => modeToInt(mode)).toList();
-    await SettingsManager().setValue('disabled_playback_modes', modeIndexes);
+    await SettingsManager().setValue(disabledPlaybackModesKey, modeIndexes);
   }
 
   Future<void> _updateQueueSetting(String newSetting) async {
     setState(() {
-      queueSetting = newSetting;
+      queueMode = newSetting;
     });
     await SettingsManager().setValue(nonReplaceOperateModeKey, newSetting);
   }
@@ -81,7 +83,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                   title: "Add to Queue",
                   subtitle: "How new items to be added to the playback queue.",
                   child: ComboBox<String>(
-                    value: queueSetting,
+                    value: queueMode,
                     items: const [
                       ComboBoxItem(
                         value: "PlayNext",

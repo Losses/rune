@@ -65,7 +65,7 @@ class PlaybackModeButton extends StatelessWidget {
   Future<PlaybackMode> getNextEnabledMode(PlaybackMode currentMode) async {
     // Retrieve disabled modes
     List<dynamic>? storedDisabledModes = await SettingsManager()
-        .getValue<List<dynamic>>('disabledPlaybackModes');
+        .getValue<List<dynamic>>('disabled_playback_modes');
     List<PlaybackMode> disabledModes = storedDisabledModes != null
         ? storedDisabledModes
             .map((index) => PlaybackMode.values[index])
