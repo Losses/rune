@@ -3,9 +3,6 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
-import 'package:rune/providers/crash.dart';
-import 'package:rune/screens/bsod/bsod.dart';
-import 'package:rune/widgets/banding_animation/branding_animation.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
@@ -17,9 +14,13 @@ import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/navigation_bar/flip_animation.dart';
 import 'widgets/navigation_bar/navigation_bar.dart';
 import 'widgets/navigation_bar/navigation_back_button.dart';
+import 'widgets/banding_animation/branding_animation.dart';
 import 'widgets/playback_controller/cover_art_disk.dart';
 import 'widgets/playback_controller/playback_controller.dart';
 
+import 'screens/bsod/bsod.dart';
+
+import 'providers/crash.dart';
 import 'providers/library_path.dart';
 import 'providers/responsive_providers.dart';
 import 'providers/transition_calculation.dart';
