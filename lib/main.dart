@@ -38,6 +38,8 @@ import 'providers/transition_calculation.dart';
 import 'theme.dart';
 import 'router.dart';
 
+late bool disableBrandingAnimation;
+
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -73,6 +75,10 @@ void main(List<String> arguments) async {
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));
   }
+
+  disableBrandingAnimation =
+      await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
+          false;
 
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');

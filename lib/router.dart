@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 
+import 'main.dart';
+
 import 'config/theme.dart';
 import 'config/routes.dart';
 
@@ -233,14 +235,21 @@ final router = GoRouter(
 
         return Stack(
           children: [
-            const BrandingAnimation(),
+            if (!disableBrandingAnimation) const BrandingAnimation(),
             ScaleFadeContainer(
-              delay: const Duration(milliseconds: 4350),
+              delay: disableBrandingAnimation
+                  ? const Duration(milliseconds: 0)
+                  : const Duration(milliseconds: 4350),
+              duration: disableBrandingAnimation
+                  ? const Duration(milliseconds: 200)
+                  : const Duration(milliseconds: 500),
               child: FlipAnimationContext(
                 child: FocusTraversalGroup(
                   policy: OrderedTraversalPolicy(),
                   child: RuneStack(
-                    alignment: diskOnRight ? Alignment.centerRight : Alignment.bottomCenter,
+                    alignment: diskOnRight
+                        ? Alignment.centerRight
+                        : Alignment.bottomCenter,
                     children: [
                       if (path == '/cover_wall' && !showDisk) mainContent,
                       if (!showDisk)

@@ -13,6 +13,9 @@ import '../settings_playback/widgets/settings_block.dart';
 import '../settings_playback/widgets/settings_block_title.dart';
 
 const themeColorKey = 'theme_color';
+const disableBrandingAnimationKey = 'disable_branding_animation';
+
+final settingsManager = SettingsManager();
 
 const Map<String, Color> colors = {
   "SAKURA": Color(0xFFFEDFE1),
@@ -96,6 +99,7 @@ class SettingsTheme extends StatefulWidget {
 
 class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
+  bool? disableBrandingAnimation;
 
   @override
   void initState() {
@@ -104,11 +108,14 @@ class _SettingsThemeState extends State<SettingsTheme> {
   }
 
   Future<void> _loadSettings() async {
-    int? storedTheme = await SettingsManager().getValue<int>(themeColorKey);
+    final int? storedTheme = await settingsManager.getValue<int>(themeColorKey);
+    final bool? storedDisableBrandingAnimation =
+        await settingsManager.getValue<bool>(disableBrandingAnimationKey);
 
     if (storedTheme != null) {
       setState(() {
         themeColor = Color(storedTheme);
+        disableBrandingAnimation = storedDisableBrandingAnimation;
       });
     }
   }
@@ -196,8 +203,17 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   title: "Branding Animation",
                   subtitle: "Play branding animation when Rune starts.",
                   child: ToggleSwitch(
-                    checked: false,
-                    onChanged: (value) {},
+                    checked: !(disableBrandingAnimation ?? false),
+                    onChanged: (value) {
+                      settingsManager.setValue(
+                        disableBrandingAnimationKey,
+                        !value,
+                      );
+
+                      setState(() {
+                        disableBrandingAnimation = !value;
+                      });
+                    },
                   ),
                 ),
               ],
