@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -89,6 +90,7 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
+                context.pop();
                 playPrevious();
               },
       );
@@ -153,6 +155,7 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
+                context.pop();
                 status?.state == "Playing" ? playPause() : playPlay();
               },
       );
@@ -199,6 +202,7 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
+                context.pop();
                 playPrevious();
               },
       );
@@ -328,6 +332,7 @@ final controllerItems = [
                 color: color,
               ),
               onPressed: () {
+                context.pop();
                 playMode(x.toValue());
               },
             );
@@ -359,6 +364,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
+          context.pop();
           showPlayQueueDialog(context);
         },
       );
@@ -401,6 +407,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
+          context.pop();
           showCoverArtWall(context);
         },
       );
@@ -443,6 +450,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
+          context.pop();
           fullScreen.setFullScreen(!fullScreen.isFullScreen);
         },
       );
