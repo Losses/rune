@@ -62,6 +62,7 @@ class Bsod extends StatelessWidget {
                         style: theme.typography.display?.apply(
                           fontSizeFactor: fontSizeFactor *
                               (deviceType == DeviceType.zune ? 0.6 : 1),
+                          color: Colors.white,
                         ),
                       ),
                     const SizedBox(height: 24),
@@ -73,6 +74,7 @@ class Bsod extends StatelessWidget {
                             ?.apply(
                               fontSizeFactor: 1.15 * fontSizeFactor,
                               fontWeightDelta: -5,
+                              color: Colors.white,
                             )
                             .merge(
                               const TextStyle(height: 1.4),
@@ -82,11 +84,12 @@ class Bsod extends StatelessWidget {
                     const SizedBox(height: 16),
                     Container(
                       constraints: const BoxConstraints(maxWidth: 800),
-                      child: Text(
+                      child: SelectableText(
                         report,
                         style: theme.typography.body
                             ?.apply(
                               fontSizeFactor: fontSizeFactor,
+                              color: Colors.white,
                             )
                             .merge(
                               const TextStyle(height: 1.5),
