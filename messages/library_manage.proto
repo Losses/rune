@@ -45,3 +45,21 @@ message AnalyseAudioLibraryResponse {
     string path = 1;
     int32 total = 2;
 }
+
+enum CancelTaskType {
+  AnalyseAudioLibrary = 0;
+  ScanAudioLibrary = 1;
+}
+
+// [DART-SIGNAL]
+message CancelTaskRequest {
+    string path = 1;
+    CancelTaskType type = 2;
+}
+
+// [RUST-SIGNAL]
+message CancelTaskResponse {
+    string path = 1;
+    CancelTaskType type = 2;
+    bool success = 3;
+}

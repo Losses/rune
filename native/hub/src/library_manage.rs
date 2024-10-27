@@ -193,3 +193,42 @@ pub async fn analyse_audio_library_request(
 
     Ok(())
 }
+
+pub async fn cancel_task_request(
+    task_tokens: Arc<Mutex<TaskTokens>>,
+    dart_signal: DartSignal<CancelTaskRequest>,
+) -> Result<()> {
+    let request = dart_signal.message;
+    let mut tokens = task_tokens.lock().await;
+
+    let success = match request.r#type {
+        0 => {
+            if let Some(token) = tokens.analyse_token.take() {
+                token.cancel();
+                true
+            } else {
+                false
+            }
+        }
+        1 => {
+            if let Some(token) = tokens.scan_token.take() {
+                token.cancel();
+                true
+            } else {
+                false
+            }
+        }
+        _ => {
+            false
+        }
+    };
+
+    CancelTaskResponse {
+        path: request.path.clone(),
+        r#type: request.r#type,
+        success,
+    }
+    .send_signal_to_dart();
+
+    Ok(())
+}
