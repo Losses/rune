@@ -176,15 +176,7 @@ class Rune extends StatelessWidget {
                   : Colors.transparent,
               child: Directionality(
                 textDirection: appTheme.textDirection,
-                child: Stack(
-                  children: [
-                    const ModalBarrier(
-                      dismissible: false,
-                      color: Colors.transparent,
-                    ),
-                    Shortcuts(shortcuts: shortcuts, child: child!),
-                  ],
-                ),
+                child: Shortcuts(shortcuts: shortcuts, child: child!),
               ),
             );
           },
