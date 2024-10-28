@@ -70,6 +70,11 @@ message PlaylistUpdate {
   repeated PlaylistItem items = 1;
 }
 
+// [DART-SIGNAL]
+message SetRealtimeEnabled {
+  bool enabled = 1;
+}
+
 // [RUST-SIGNAL]
 message RealtimeFFT {
   repeated float value = 1;
