@@ -27,6 +27,8 @@ class StartGroupNormalLayoutState extends State<StartGroupNormalLayout> {
       padding: const EdgeInsets.only(left: 16, right: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
           FocusableActionDetector(
             onShowFocusHighlight: (focus) {},
@@ -41,16 +43,16 @@ class StartGroupNormalLayoutState extends State<StartGroupNormalLayout> {
                   duration: const Duration(milliseconds: 100),
                   child: Padding(
                     padding: const EdgeInsets.only(bottom: 4),
-                    child: Text(widget.groupTitle,
-                        style: theme.typography.bodyLarge),
+                    child: Text(
+                      widget.groupTitle,
+                      style: theme.typography.bodyLarge,
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-          Expanded(
-            child: widget.child,
-          ),
+          widget.child,
         ],
       ),
     );

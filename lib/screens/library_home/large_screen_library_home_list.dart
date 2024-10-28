@@ -81,65 +81,74 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return const Center(child: Text('No data available'));
         } else {
-          return Container(
-            alignment: Alignment.centerLeft,
-            child: SmoothHorizontalScroll(
-              builder: (context, scrollController) => SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                controller: scrollController,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
-                  children: [
-                    StartGroup<(String, String, IconData, bool)>(
-                      groupIndex: 0,
-                      groupTitle: 'Start',
-                      items: smallScreenFirstColumn.where((x) => !x.$4).toList(),
-                      groupLayoutVariation:
-                          StartGroupGroupLayoutVariation.stacked,
-                      gridLayoutVariation:
-                          StartGroupGridLayoutVariation.initial,
-                      gapSize: 12,
-                      onTitleTap: () {},
-                      itemBuilder: (context, item) {
-                        return LinkTile(
-                          title: item.$1,
-                          path: item.$2,
-                          icon: item.$3,
-                        );
-                      },
-                    ),
-                    ...snapshot.data!.map(
-                      (item) {
-                        if (item is Group<InternalCollection>) {
-                          return StartGroup<InternalCollection>(
-                            groupIndex: item.groupTitle.hashCode,
-                            groupTitle: item.groupTitle,
-                            items: item.items,
-                            groupLayoutVariation:
-                                StartGroupGroupLayoutVariation.stacked,
-                            gridLayoutVariation:
-                                StartGroupGridLayoutVariation.square,
-                            gapSize: 12,
-                            onTitleTap: () => {
-                              context.push('/${item.groupTitle.toLowerCase()}')
-                            },
-                            itemBuilder: (context, item) {
-                              return CollectionItem(
-                                collectionType: item.collectionType,
-                                collection: item,
-                                refreshList: () {},
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              return Container(
+                alignment: Alignment.centerLeft,
+                child: SmoothHorizontalScroll(
+                  builder: (context, scrollController) => SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    controller: scrollController,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        StartGroup<(String, String, IconData, bool)>(
+                          groupIndex: 0,
+                          groupTitle: 'Start',
+                          items: smallScreenFirstColumn
+                              .where((x) => !x.$4)
+                              .toList(),
+                          constraints: constraints,
+                          groupLayoutVariation:
+                              StartGroupGroupLayoutVariation.stacked,
+                          gridLayoutVariation:
+                              StartGroupGridLayoutVariation.initial,
+                          gapSize: 12,
+                          onTitleTap: () {},
+                          itemBuilder: (context, item) {
+                            return LinkTile(
+                              title: item.$1,
+                              path: item.$2,
+                              icon: item.$3,
+                            );
+                          },
+                        ),
+                        ...snapshot.data!.map(
+                          (item) {
+                            if (item is Group<InternalCollection>) {
+                              return StartGroup<InternalCollection>(
+                                groupIndex: item.groupTitle.hashCode,
+                                groupTitle: item.groupTitle,
+                                items: item.items,
+                                constraints: constraints,
+                                groupLayoutVariation:
+                                    StartGroupGroupLayoutVariation.stacked,
+                                gridLayoutVariation:
+                                    StartGroupGridLayoutVariation.square,
+                                gapSize: 12,
+                                onTitleTap: () => {
+                                  context
+                                      .push('/${item.groupTitle.toLowerCase()}')
+                                },
+                                itemBuilder: (context, item) {
+                                  return CollectionItem(
+                                    collectionType: item.collectionType,
+                                    collection: item,
+                                    refreshList: () {},
+                                  );
+                                },
                               );
-                            },
-                          );
-                        } else {
-                          return Container();
-                        }
-                      },
-                    )
-                  ],
+                            } else {
+                              return Container();
+                            }
+                          },
+                        )
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         }
       },

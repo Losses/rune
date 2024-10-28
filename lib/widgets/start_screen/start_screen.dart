@@ -185,41 +185,46 @@ class StartScreenState extends State<StartScreen>
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            return SmoothHorizontalScroll(
-              controller: scrollController,
-              builder: (context, smoothScrollController) {
-                return InfiniteList(
-                  itemCount: items.length,
-                  scrollDirection: Axis.horizontal,
-                  scrollController: smoothScrollController,
-                  loadingBuilder: (context) => const ProgressRing(),
-                  centerLoading: true,
-                  centerEmpty: true,
-                  isLoading: isLoading,
-                  emptyBuilder: (context) => Center(
-                    child: initialized
-                        ? NoItems(
-                            title: "No collection found",
-                            hasRecommendation: false,
-                            reloadData: _reloadData,
-                            userGenerated: widget.userGenerated,
-                          )
-                        : Container(),
-                  ),
-                  onFetchData: _fetchDataAsync,
-                  hasReachedMax: isLastPage,
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    return StartGroup<InternalCollection>(
-                      key: itemKeys[item.groupTitle]!,
-                      groupIndex: index,
-                      groupTitle: item.groupTitle,
-                      items: item.items,
-                      onTitleTap: () {
-                        showGroupListDialog(context);
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                return SmoothHorizontalScroll(
+                  controller: scrollController,
+                  builder: (context, smoothScrollController) {
+                    return InfiniteList(
+                      itemCount: items.length,
+                      scrollDirection: Axis.horizontal,
+                      scrollController: smoothScrollController,
+                      loadingBuilder: (context) => const ProgressRing(),
+                      centerLoading: true,
+                      centerEmpty: true,
+                      isLoading: isLoading,
+                      emptyBuilder: (context) => Center(
+                        child: initialized
+                            ? NoItems(
+                                title: "No collection found",
+                                hasRecommendation: false,
+                                reloadData: _reloadData,
+                                userGenerated: widget.userGenerated,
+                              )
+                            : Container(),
+                      ),
+                      onFetchData: _fetchDataAsync,
+                      hasReachedMax: isLastPage,
+                      itemBuilder: (context, index) {
+                        final item = items[index];
+                        return StartGroup<InternalCollection>(
+                          key: itemKeys[item.groupTitle]!,
+                          groupIndex: index,
+                          groupTitle: item.groupTitle,
+                          items: item.items,
+                          constraints: constraints,
+                          onTitleTap: () {
+                            showGroupListDialog(context);
+                          },
+                          itemBuilder: (context, item) =>
+                              widget.itemBuilder(context, item, _reloadData),
+                        );
                       },
-                      itemBuilder: (context, item) =>
-                          widget.itemBuilder(context, item, _reloadData),
                     );
                   },
                 );

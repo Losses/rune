@@ -15,6 +15,7 @@ class StartGroup<T> extends StatelessWidget {
   final Widget Function(BuildContext, T) itemBuilder;
   final StartGroupGridLayoutVariation gridLayoutVariation;
   final StartGroupGroupLayoutVariation groupLayoutVariation;
+  final BoxConstraints constraints;
 
   final double gapSize;
   final VoidCallback? onTitleTap;
@@ -25,6 +26,7 @@ class StartGroup<T> extends StatelessWidget {
     required this.groupTitle,
     required this.items,
     required this.itemBuilder,
+    required this.constraints,
     this.gapSize = 4,
     this.onTitleTap,
     this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
@@ -67,6 +69,7 @@ class StartGroup<T> extends StatelessWidget {
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
+          constraints: constraints,
           itemBuilder: itemBuilder,
         );
       case StartGroupGridLayoutVariation.initial:
@@ -76,6 +79,7 @@ class StartGroup<T> extends StatelessWidget {
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
+          constraints: constraints,
           itemBuilder: itemBuilder,
         );
     }
