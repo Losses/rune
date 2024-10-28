@@ -16,11 +16,15 @@ class FFTVisualizerRegistry {
 
   void register(FFTVisualizeState visualizer) {
     _visualizers.add(visualizer);
+    _isWindowVisible =
+        SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _updateFFTCalculation();
   }
 
   void unregister(FFTVisualizeState visualizer) {
     _visualizers.remove(visualizer);
+    _isWindowVisible =
+        SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _updateFFTCalculation();
   }
 

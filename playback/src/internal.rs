@@ -73,6 +73,7 @@ pub enum PlayerCommand {
     },
     SetPlaybackMode(PlaybackMode),
     SetVolume(f32),
+    SetFFTEnabled(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +136,7 @@ pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
     realtime_fft: Arc<Mutex<RealTimeFFT>>,
+    fft_enabled: Arc<Mutex<bool>>,
     playlist: Vec<PlaylistItem>,
     current_track_id: Option<i32>,
     current_track_index: Option<usize>,
@@ -171,6 +173,7 @@ impl PlayerInternal {
             playback_mode: PlaybackMode::Sequential,
             playback_strategy: Box::new(SequentialStrategy),
             volume: 1.0,
+            fft_enabled: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -215,6 +218,7 @@ impl PlayerInternal {
                         },
                         PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
                         PlayerCommand::SetVolume(volume) => self.set_volume(volume),
+                        PlayerCommand::SetFFTEnabled(enabled) => self.set_fft_enabled(enabled),
                     }?;
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -272,10 +276,15 @@ impl PlayerInternal {
 
             // Create a new thread for calculating realtime FFT
             let realtime_fft = Arc::clone(&self.realtime_fft);
+            let fft_enabled = Arc::clone(&self.fft_enabled);
             tokio::spawn(async move {
                 while let Some(data) = fft_rx.recv().await {
-                    if let Ok(fft) = realtime_fft.lock() {
-                        fft.add_data(data);
+                    if let Ok(enabled) = fft_enabled.lock() {
+                        if *enabled {
+                            if let Ok(fft) = realtime_fft.lock() {
+                                fft.add_data(data);
+                            }
+                        }
                     }
                 }
             });
@@ -697,6 +706,14 @@ impl PlayerInternal {
         self.event_sender
             .send(PlayerEvent::VolumeUpdate(volume))
             .with_context(|| "Failed to send VolumeUpdate event")?;
+
+        Ok(())
+    }
+
+    fn set_fft_enabled(&mut self, x: bool) -> Result<()> {
+        if let Ok(mut enabled) = self.fft_enabled.lock() {
+            *enabled = x;
+        }
 
         Ok(())
     }
