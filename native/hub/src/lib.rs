@@ -179,6 +179,7 @@ async fn player_loop(path: String) {
             VolumeRequest => (player),
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
+            SetRealtimeFftEnabledRequest => (player),
 
             SfxPlayRequest => (sfx_player),
 

@@ -9,22 +9,23 @@ class FFTVisualizerRegistry {
   static final FFTVisualizerRegistry _instance =
       FFTVisualizerRegistry._internal();
   factory FFTVisualizerRegistry() => _instance;
-  FFTVisualizerRegistry._internal();
+
+  late final _windowObserver = _WindowVisibilityObserver(this);
+
+  FFTVisualizerRegistry._internal() {
+    WidgetsBinding.instance.addObserver(_windowObserver);
+  }
 
   final Set<FFTVisualizeState> _visualizers = {};
   bool _isWindowVisible = true;
 
   void register(FFTVisualizeState visualizer) {
     _visualizers.add(visualizer);
-    _isWindowVisible =
-        SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _updateFFTCalculation();
   }
 
   void unregister(FFTVisualizeState visualizer) {
     _visualizers.remove(visualizer);
-    _isWindowVisible =
-        SchedulerBinding.instance.lifecycleState == AppLifecycleState.resumed;
     _updateFFTCalculation();
   }
 
@@ -35,7 +36,13 @@ class FFTVisualizerRegistry {
 
   void _updateFFTCalculation() {
     final shouldCalculateFFT = _visualizers.isNotEmpty && _isWindowVisible;
-    SetRealtimeEnabled(enabled: shouldCalculateFFT).sendSignalToRust();
+
+    SetRealtimeFFTEnabledRequest(enabled: shouldCalculateFFT)
+        .sendSignalToRust();
+  }
+
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(_windowObserver);
   }
 }
 
@@ -98,8 +105,6 @@ class FFTVisualizeState extends State<FFTVisualize>
         _lerpedFftValues();
       });
     });
-
-    WidgetsBinding.instance.addObserver(_WindowVisibilityObserver(_registry));
   }
 
   @override

@@ -73,7 +73,7 @@ pub enum PlayerCommand {
     },
     SetPlaybackMode(PlaybackMode),
     SetVolume(f32),
-    SetFFTEnabled(bool),
+    SetRealtimeFFTEnabled(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -218,7 +218,7 @@ impl PlayerInternal {
                         },
                         PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
                         PlayerCommand::SetVolume(volume) => self.set_volume(volume),
-                        PlayerCommand::SetFFTEnabled(enabled) => self.set_fft_enabled(enabled),
+                        PlayerCommand::SetRealtimeFFTEnabled(enabled) => self.set_realtime_fft_enabled(enabled),
                     }?;
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -710,7 +710,7 @@ impl PlayerInternal {
         Ok(())
     }
 
-    fn set_fft_enabled(&mut self, x: bool) -> Result<()> {
+    fn set_realtime_fft_enabled(&mut self, x: bool) -> Result<()> {
         if let Ok(mut enabled) = self.fft_enabled.lock() {
             *enabled = x;
         }

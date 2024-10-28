@@ -71,7 +71,7 @@ message PlaylistUpdate {
 }
 
 // [DART-SIGNAL]
-message SetRealtimeEnabled {
+message SetRealtimeFFTEnabledRequest {
   bool enabled = 1;
 }
 

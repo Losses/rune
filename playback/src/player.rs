@@ -349,4 +349,8 @@ impl Player {
     pub fn set_volume(&mut self, volume: f32) {
         self.command(PlayerCommand::SetVolume(volume));
     }
+
+    pub fn set_realtime_fft_enabled(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetRealtimeFFTEnabled(enabled));
+    }
 }
