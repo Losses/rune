@@ -45,3 +45,7 @@ vergen-git2 = { version = "1.0.1", features = [
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
 # wasm-bindgen = "0.2.92"
+
+# Android dependencies
+[target.'cfg(target_os = "android")'.dependencies]
+tracing-logcat = "0.1.0"

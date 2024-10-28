@@ -51,6 +51,7 @@ use crate::search::*;
 use crate::sfx::*;
 use crate::stat::*;
 use crate::system::*;
+use crate::utils::init_logging;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -253,13 +254,7 @@ async fn main() {
         info!("Logging is enabled");
         Some(guard)
     } else {
-        let stdout_filter = EnvFilter::new(
-            "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
-        );
-
-        tracing_subscriber::fmt()
-            .with_env_filter(stdout_filter)
-            .init();
+        init_logging();
         None
     };
 
