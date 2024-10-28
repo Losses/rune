@@ -9,16 +9,16 @@ import '../../widgets/no_items.dart';
 
 import '../smooth_horizontal_scroll.dart';
 
+import './start_group.dart';
 import './utils/group.dart';
 import './utils/internal_collection.dart';
 import './providers/start_screen_layout_manager.dart';
 
-import './start_group.dart';
-
 class StartScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
   final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback) itemBuilder;
+  final Widget Function(BuildContext, InternalCollection, VoidCallback)
+      itemBuilder;
   final bool userGenerated;
 
   const StartScreen({
@@ -33,19 +33,62 @@ class StartScreen extends StatefulWidget {
   StartScreenState createState() => StartScreenState();
 }
 
-class StartScreenState extends State<StartScreen> {
+class StartScreenState extends State<StartScreen>
+    with SingleTickerProviderStateMixin {
   late Future<List<Group<InternalCollection>>> summary;
-
   final layoutManager = StartScreenLayoutManager();
+  late final scrollController = SmoothScrollController(vsync: this);
 
   List<Group<InternalCollection>> items = [];
-
   bool isLoading = false;
   bool isLastPage = false;
   bool initialized = false;
   int cursor = 0;
 
-  void _fetchData() async {
+  int? _findGroupIndex(String groupTitle) {
+    for (int i = 0; i < items.length; i++) {
+      if (items[i].groupTitle == groupTitle) {
+        return i;
+      }
+    }
+    return null;
+  }
+
+  Future<bool> scrollToGroup(String groupTitle) async {
+    int? index = _findGroupIndex(groupTitle);
+
+    if (index != null) {
+      await scrollController.animateTo(
+        index * 300.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+      return true;
+    }
+
+    if (isLastPage) {
+      return false;
+    }
+
+    while (!isLastPage) {
+      await _fetchDataAsync();
+      index = _findGroupIndex(groupTitle);
+      if (index != null) {
+        await scrollController.animateTo(
+          index * 300.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  Future<void> _fetchDataAsync() async {
+    if (isLoading || isLastPage) return;
+
     setState(() {
       initialized = true;
       isLoading = true;
@@ -67,9 +110,16 @@ class StartScreenState extends State<StartScreen> {
     );
   }
 
+  void _fetchData() {
+    _fetchDataAsync();
+  }
+
   void _reloadData() async {
-    cursor = 0;
-    items = [];
+    setState(() {
+      cursor = 0;
+      items = [];
+      isLastPage = false;
+    });
     _fetchData();
   }
 
@@ -81,8 +131,9 @@ class StartScreenState extends State<StartScreen> {
 
   @override
   void dispose() {
-    super.dispose();
+    scrollController.dispose();
     layoutManager.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,11 +149,12 @@ class StartScreenState extends State<StartScreen> {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
             return SmoothHorizontalScroll(
-              builder: (context, scrollController) {
+              controller: scrollController,
+              builder: (context, smoothScrollController) {
                 return InfiniteList(
                   itemCount: items.length,
                   scrollDirection: Axis.horizontal,
-                  scrollController: scrollController,
+                  scrollController: smoothScrollController,
                   loadingBuilder: (context) => const ProgressRing(),
                   centerLoading: true,
                   centerEmpty: true,
@@ -126,7 +178,8 @@ class StartScreenState extends State<StartScreen> {
                       groupIndex: index,
                       groupTitle: item.groupTitle,
                       items: item.items,
-                      itemBuilder: (context, item) => widget.itemBuilder(context, item, _reloadData),
+                      itemBuilder: (context, item) =>
+                          widget.itemBuilder(context, item, _reloadData),
                     );
                   },
                 );
