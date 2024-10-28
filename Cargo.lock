@@ -2075,6 +2075,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing-appender",
+ "tracing-logcat",
  "tracing-subscriber",
  "vergen-git2",
 ]
@@ -5364,6 +5365,17 @@ dependencies = [
  "log",
  "once_cell",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-logcat"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678d561ce3d4b33dfcfb1c6bd13c422aad89be5bf0e66e20d518a5a254345b54"
+dependencies = [
+ "rustix 0.38.35",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
