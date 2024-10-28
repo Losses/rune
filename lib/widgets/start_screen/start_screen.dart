@@ -45,42 +45,39 @@ class StartScreenState extends State<StartScreen>
   bool initialized = false;
   int cursor = 0;
 
-  int? _findGroupIndex(String groupTitle) {
-    for (int i = 0; i < items.length; i++) {
-      if (items[i].groupTitle == groupTitle) {
-        return i;
-      }
-    }
-    return null;
+  final Map<String, GlobalKey> itemKeys = {};
+
+  @override
+  void initState() {
+    super.initState();
+    summary = widget.fetchSummary();
+  }
+
+  @override
+  void dispose() {
+    scrollController.dispose();
+    layoutManager.dispose();
+    super.dispose();
   }
 
   Future<bool> scrollToGroup(String groupTitle) async {
-    int? index = _findGroupIndex(groupTitle);
-
-    if (index != null) {
+    final key = itemKeys[groupTitle];
+    if (key != null && key.currentContext != null) {
+      final RenderBox box = key.currentContext!.findRenderObject() as RenderBox;
+      final position = box.localToGlobal(Offset.zero).dx;
       await scrollController.animateTo(
-        index * 300.0,
+        position,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
       return true;
     }
 
-    if (isLastPage) {
-      return false;
-    }
+    if (isLastPage) return false;
 
     while (!isLastPage) {
       await _fetchDataAsync();
-      index = _findGroupIndex(groupTitle);
-      if (index != null) {
-        await scrollController.animateTo(
-          index * 300.0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
-        return true;
-      }
+      if (await scrollToGroup(groupTitle)) return true;
     }
 
     return false;
@@ -102,6 +99,9 @@ class StartScreenState extends State<StartScreen>
       isLoading = false;
       isLastPage = newIsLastPage;
       items.addAll(newItems);
+      for (var item in newItems) {
+        itemKeys[item.groupTitle] = GlobalKey();
+      }
     });
 
     Timer(
@@ -110,30 +110,67 @@ class StartScreenState extends State<StartScreen>
     );
   }
 
-  void _fetchData() {
-    _fetchDataAsync();
-  }
-
-  void _reloadData() async {
+  void _reloadData() {
     setState(() {
       cursor = 0;
       items = [];
       isLastPage = false;
+      itemKeys.clear();
     });
-    _fetchData();
+    _fetchDataAsync();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    summary = widget.fetchSummary();
-  }
-
-  @override
-  void dispose() {
-    scrollController.dispose();
-    layoutManager.dispose();
-    super.dispose();
+  void showGroupListDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (context) => FutureBuilder<List<Group<InternalCollection>>>(
+        future: summary,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Container();
+          } else if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          } else {
+            return ContentDialog(
+              constraints: const BoxConstraints(maxWidth: 320),
+              content: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    children: snapshot.data!
+                        .map(
+                          (x) => ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 40),
+                            child: AspectRatio(
+                              aspectRatio: 1,
+                              child: Button(
+                                child: Text(x.groupTitle),
+                                onPressed: () {
+                                  Navigator.pop(context);
+                                  scrollToGroup(x.groupTitle);
+                                },
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 24),
+                  Button(
+                    child: const Text('Cancel'),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            );
+          }
+        },
+      ),
+    );
   }
 
   @override
@@ -169,15 +206,18 @@ class StartScreenState extends State<StartScreen>
                           )
                         : Container(),
                   ),
-                  onFetchData: _fetchData,
+                  onFetchData: _fetchDataAsync,
                   hasReachedMax: isLastPage,
                   itemBuilder: (context, index) {
                     final item = items[index];
                     return StartGroup<InternalCollection>(
-                      key: Key(item.groupTitle),
+                      key: itemKeys[item.groupTitle]!,
                       groupIndex: index,
                       groupTitle: item.groupTitle,
                       items: item.items,
+                      onTitleTap: () {
+                        showGroupListDialog(context);
+                      },
                       itemBuilder: (context, item) =>
                           widget.itemBuilder(context, item, _reloadData),
                     );
