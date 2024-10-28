@@ -25,7 +25,7 @@ class StartGroupItems<T> extends StatelessWidget {
     required this.constraints,
     required this.itemBuilder,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
-  }) : dimensionCalculator = dimensionCalculator ?? _defaultDimensionCalculator;
+  }) : dimensionCalculator = dimensionCalculator ?? defaultDimensionCalculator;
 
   const StartGroupItems.square({
     super.key,
@@ -35,9 +35,9 @@ class StartGroupItems<T> extends StatelessWidget {
     required this.groupIndex,
     required this.constraints,
     required this.itemBuilder,
-  }) : dimensionCalculator = _squareDimensionCalculator;
+  }) : dimensionCalculator = squareDimensionCalculator;
 
-  static Dimensions _defaultDimensionCalculator(
+  static Dimensions defaultDimensionCalculator(
       double containerHeight, double cellSize, double gapSize, List items) {
     final int rows = ((containerHeight - 24) / (cellSize + gapSize))
         .floor()
@@ -46,7 +46,7 @@ class StartGroupItems<T> extends StatelessWidget {
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
-  static Dimensions _squareDimensionCalculator(
+  static Dimensions squareDimensionCalculator(
       double containerHeight, double cellSize, double gapSize, List items) {
     final int rows = ((containerHeight - 32) / (cellSize + gapSize))
         .floor()
@@ -55,6 +55,26 @@ class StartGroupItems<T> extends StatelessWidget {
         min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
     final int columns = min((maxItems / rows).ceil(), rows);
     return Dimensions(rows: rows, columns: columns, count: maxItems);
+  }
+
+  static (double, double) finalSizeCalculator(
+    Dimensions dimensions,
+    double cellSize,
+    double gapSize,
+  ) {
+    final double finalHeight = clampDouble(
+      dimensions.rows * (cellSize + gapSize) - gapSize,
+      0,
+      double.infinity,
+    );
+
+    final double finalWidth = clampDouble(
+      dimensions.columns * (cellSize + gapSize) - gapSize,
+      0,
+      double.infinity,
+    );
+
+    return (finalWidth, finalHeight);
   }
 
   @override
@@ -66,15 +86,10 @@ class StartGroupItems<T> extends StatelessWidget {
       items,
     );
 
-    final double finalHeight = clampDouble(
-      dimensions.rows * (cellSize + gapSize) - gapSize,
-      0,
-      double.infinity,
-    );
-    final double finalWidth = clampDouble(
-      dimensions.columns * (cellSize + gapSize) - gapSize,
-      0,
-      double.infinity,
+    final (finalWidth, finalHeight) = finalSizeCalculator(
+      dimensions,
+      cellSize,
+      gapSize,
     );
 
     return StartGroupItem<T>(
