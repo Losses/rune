@@ -194,7 +194,7 @@ pub async fn insert_extract_result(
     file: &media_files::Model,
     magic_cover_art_id: i32,
     result: Option<CoverArt>,
-) -> Result<Option<(i32, Vec<u8>)>> {
+) -> Result<()> {
     let file = file.clone();
     if let Some(cover_art) = result {
         // Check if there is a file with the same CRC in the database
@@ -211,7 +211,7 @@ pub async fn insert_extract_result(
                 .exec(main_db)
                 .await?;
 
-            Ok(Some((existing_cover_art.id, existing_cover_art.binary)))
+            Ok(())
         } else {
             // If there is no file with the same CRC, store the cover art in the database and update the file's cover_art_id
             let new_cover_art = media_cover_art::ActiveModel {
@@ -231,7 +231,7 @@ pub async fn insert_extract_result(
                 .exec(main_db)
                 .await?;
 
-            Ok(Some((new_cover_art_id, cover_art.data)))
+            Ok(())
         }
     } else {
         // update the file's cover_art_id
@@ -241,7 +241,7 @@ pub async fn insert_extract_result(
             .exec(main_db)
             .await?;
 
-        Ok(Some((magic_cover_art_id, Vec::<u8>::new())))
+        Ok(())
     }
 }
 
@@ -259,7 +259,6 @@ where
         "Starting cover art processing with batch size: {}",
         batch_size
     );
-
 
     let progress_callback = Arc::new(progress_callback);
 

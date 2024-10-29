@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, ColumnTrait, EntityTrait, QueryFilter};
 use sea_orm::{DatabaseConnection, TransactionTrait};
@@ -440,7 +441,9 @@ where
 
     let mut active_model: media_files::ActiveModel = existing_file.clone().into();
     active_model.sample_rate = ActiveValue::Set(sample_rate.try_into()?);
-    active_model.duration = ActiveValue::Set(duration_in_seconds);
+    active_model.duration = ActiveValue::Set(
+        Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
+    );
     active_model.update(db).await?;
 
     Ok(())
@@ -472,7 +475,9 @@ where
         extension: ActiveValue::Set(description.extension.clone()),
         file_hash: ActiveValue::Set(new_hash),
         sample_rate: ActiveValue::Set(sample_rate.try_into()?),
-        duration: ActiveValue::Set(duration_in_seconds),
+        duration: ActiveValue::Set(
+            Decimal::from_f64(duration_in_seconds).expect("Unable to convert track duration"),
+        ),
         last_modified: ActiveValue::Set(description.last_modified.clone()),
         ..Default::default()
     };
@@ -694,7 +699,7 @@ pub async fn get_metadata_summary_by_files(
                 .get("track_number")
                 .map(|s| s.parse::<i32>().ok())
                 .unwrap_or(None),
-            duration,
+            duration: duration.to_f64().expect("Unable to convert track duration"),
             cover_art_id: if cover_art_id == magic_cover_art_id {
                 None
             } else {

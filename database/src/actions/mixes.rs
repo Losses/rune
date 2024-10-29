@@ -94,7 +94,7 @@ pub async fn create_mix(
         name: ActiveValue::Set(name),
         group: ActiveValue::Set(group),
         scriptlet_mode: ActiveValue::Set(scriptlet_mode),
-        mode: ActiveValue::Set(mode),
+        mode: ActiveValue::Set(Some(mode)),
         locked: ActiveValue::Set(locked),
         created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
@@ -148,7 +148,7 @@ pub async fn update_mix(
             active_model.scriptlet_mode = ActiveValue::Set(scriptlet_mode);
         }
         if let Some(mode) = mode {
-            active_model.mode = ActiveValue::Set(mode);
+            active_model.mode = ActiveValue::Set(Some(mode));
         }
         if let Some(locked) = locked {
             active_model.locked = ActiveValue::Set(locked);
