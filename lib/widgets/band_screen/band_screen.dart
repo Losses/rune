@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/infinite_list_loading.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
@@ -133,9 +134,11 @@ class BandScreenState extends State<BandScreen> {
     return InfiniteList(
       scrollController: scrollController,
       scrollDirection:
-          deviceType == DeviceType.band || deviceType == DeviceType.belt ? Axis.horizontal : Axis.vertical,
+          deviceType == DeviceType.band || deviceType == DeviceType.belt
+              ? Axis.horizontal
+              : Axis.vertical,
       itemCount: flattenItems.length,
-      loadingBuilder: (context) => const ProgressRing(),
+      loadingBuilder: (context) => const InfiniteListLoading(),
       centerLoading: true,
       centerEmpty: true,
       isLoading: isLoading,

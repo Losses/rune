@@ -8,6 +8,7 @@ import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
 
+import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
 
 import 'utils/group.dart';
@@ -243,7 +244,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   itemCount: items.length,
                   scrollDirection: Axis.horizontal,
                   scrollController: smoothScrollController,
-                  loadingBuilder: (context) => const ProgressRing(),
+                  loadingBuilder: (context) => const InfiniteListLoading(),
                   centerLoading: true,
                   centerEmpty: true,
                   isLoading: isLoading,

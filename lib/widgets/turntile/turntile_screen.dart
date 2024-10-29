@@ -7,6 +7,7 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 
+import '../infinite_list_loading.dart';
 import '../start_screen/utils/group.dart';
 import '../start_screen/utils/internal_collection.dart';
 import '../start_screen/providers/start_screen_layout_manager.dart';
@@ -100,7 +101,7 @@ class TurntileScreenState extends State<TurntileScreen> {
           } else {
             return InfiniteList(
               itemCount: items.length,
-              loadingBuilder: (context) => const ProgressRing(),
+              loadingBuilder: (context) => const InfiniteListLoading(),
               centerLoading: true,
               centerEmpty: true,
               isLoading: isLoading,
