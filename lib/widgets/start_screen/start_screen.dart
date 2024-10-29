@@ -110,16 +110,17 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               StartGroupImplementation.defaultDimensionCalculator(
             widget.constraints.maxHeight,
             defaultCellSize,
-            defaultGapSize,
+            4,
             group.items,
           );
 
           final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
             dimensions,
-            defaultGapSize,
-            defaultGapSize,
+            defaultCellSize,
+            4,
           );
-          scrollPosition += groupWidth + defaultGapSize;
+
+          scrollPosition += groupWidth + defaultGapSize + 32;
         }
 
         // Step 6: Scroll to the calculated position.
