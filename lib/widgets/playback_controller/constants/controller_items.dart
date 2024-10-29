@@ -30,7 +30,8 @@ class ControllerEntry {
   final IconData Function(BuildContext context) icon;
   final String title;
   final String subtitle;
-  final Widget Function(BuildContext context) controllerButtonBuilder;
+  final Widget Function(BuildContext context, List<Shadow>? shadows)
+      controllerButtonBuilder;
   final Future<MenuFlyoutItem> Function(BuildContext context)
       flyoutEntryBuilder;
   final List<SingleActivator>? shortcuts;
@@ -66,12 +67,15 @@ final controllerItems = [
 
       playPrevious();
     },
-    controllerButtonBuilder: (context) {
+    controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
-      return PreviousButton(disabled: notReady);
+      return PreviousButton(
+        disabled: notReady,
+        shadows: shadows,
+      );
     },
     flyoutEntryBuilder: (context) async {
       final statusProvider =
@@ -127,7 +131,7 @@ final controllerItems = [
         playPlay();
       }
     },
-    controllerButtonBuilder: (context) {
+    controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
@@ -136,6 +140,7 @@ final controllerItems = [
       return PlayPauseButton(
         disabled: notReady,
         state: status?.state ?? "Stopped",
+        shadows: shadows,
       );
     },
     flyoutEntryBuilder: (context) async {
@@ -178,12 +183,15 @@ final controllerItems = [
 
       playNext();
     },
-    controllerButtonBuilder: (context) {
+    controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
-      return NextButton(disabled: notReady);
+      return NextButton(
+        disabled: notReady,
+        shadows: shadows,
+      );
     },
     flyoutEntryBuilder: (context) async {
       final statusProvider =
@@ -223,7 +231,9 @@ final controllerItems = [
     subtitle: "Adjust the volume",
     shortcuts: [],
     onShortcut: null,
-    controllerButtonBuilder: (context) => const VolumeButton(),
+    controllerButtonBuilder: (context, shadows) => VolumeButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       final volumeProvider =
           Provider.of<VolumeProvider>(context, listen: false);
@@ -277,7 +287,9 @@ final controllerItems = [
     },
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
-    controllerButtonBuilder: (context) => const PlaybackModeButton(),
+    controllerButtonBuilder: (context, shadows) => PlaybackModeButton(
+      shadows: shadows,
+    ),
     shortcuts: [],
     onShortcut: null,
     flyoutEntryBuilder: (context) async {
@@ -352,7 +364,9 @@ final controllerItems = [
     onShortcut: (context) {
       showPlayQueueDialog(context);
     },
-    controllerButtonBuilder: (context) => QueueButton(),
+    controllerButtonBuilder: (context, shadows) => QueueButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
@@ -377,7 +391,7 @@ final controllerItems = [
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
     onShortcut: null,
-    controllerButtonBuilder: (context) => Container(),
+    controllerButtonBuilder: (context, shadows) => Container(),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.hide),
@@ -395,7 +409,9 @@ final controllerItems = [
     onShortcut: (context) {
       showCoverArtWall(context);
     },
-    controllerButtonBuilder: (context) => const CoverWallButton(),
+    controllerButtonBuilder: (context, shadows) => CoverWallButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
@@ -433,7 +449,9 @@ final controllerItems = [
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
-    controllerButtonBuilder: (context) => const FullScreenButton(),
+    controllerButtonBuilder: (context, shadows) => FullScreenButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       final fullScreen =
           Provider.of<FullScreenProvider>(context, listen: false);

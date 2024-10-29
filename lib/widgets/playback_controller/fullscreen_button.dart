@@ -5,7 +5,11 @@ import 'package:provider/provider.dart';
 import '../../providers/full_screen.dart';
 
 class FullScreenButton extends StatelessWidget {
-  const FullScreenButton({super.key});
+  final List<Shadow>? shadows;
+  const FullScreenButton({
+    super.key,
+    required this.shadows,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -14,8 +18,14 @@ class FullScreenButton extends StatelessWidget {
     return IconButton(
       onPressed: () => fullScreen.setFullScreen(!fullScreen.isFullScreen),
       icon: fullScreen.isFullScreen
-          ? const Icon(Symbols.fullscreen_exit)
-          : const Icon(Symbols.fullscreen),
+          ? Icon(
+              Symbols.fullscreen_exit,
+              shadows: shadows,
+            )
+          : Icon(
+              Symbols.fullscreen,
+              shadows: shadows,
+            ),
     );
   }
 }

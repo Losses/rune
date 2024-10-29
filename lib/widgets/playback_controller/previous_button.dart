@@ -5,14 +5,19 @@ import '../../utils/api/play_previous.dart';
 
 class PreviousButton extends StatelessWidget {
   final bool disabled;
+  final List<Shadow>? shadows;
 
-  const PreviousButton({required this.disabled, super.key});
+  const PreviousButton({
+    super.key,
+    required this.disabled,
+    required this.shadows,
+  });
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: disabled ? null : playPrevious,
-      icon: const Icon(Symbols.skip_previous),
+      icon: Icon(Symbols.skip_previous, shadows: shadows),
     );
   }
 }

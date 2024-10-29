@@ -4,7 +4,12 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'queue.dart';
 
 class QueueButton extends StatelessWidget {
-  QueueButton({super.key});
+  final List<Shadow>? shadows;
+
+  QueueButton({
+    super.key,
+    required this.shadows,
+  });
 
   final contextController = FlyoutController();
 
@@ -41,7 +46,10 @@ class QueueButton extends StatelessWidget {
         onPressed: () {
           openContextMenu(context);
         },
-        icon: const Icon(Symbols.list_alt),
+        icon: Icon(
+          Symbols.list_alt,
+          shadows: shadows,
+        ),
       ),
     );
   }

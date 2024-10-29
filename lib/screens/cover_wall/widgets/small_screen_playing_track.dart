@@ -158,6 +158,7 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
                         return CoverWallCommandBar(
                           entries: entries,
                           flyoutItems: flyoutItems,
+                          shadows: shadows,
                         );
                       },
                     ),
@@ -201,10 +202,12 @@ class CoverWallCommandBar extends StatelessWidget {
     super.key,
     required this.flyoutItems,
     required this.entries,
+    required this.shadows,
   });
 
   final (List<ControllerEntry>, List<ControllerEntry>) entries;
   final Map<String, MenuFlyoutItem> flyoutItems;
+  final List<Shadow> shadows;
 
   @override
   Widget build(BuildContext context) {
@@ -232,6 +235,7 @@ class CoverWallCommandBar extends StatelessWidget {
             (x) => PrimaryCommandBarItem(
               key: ValueKey(x.id),
               entry: x,
+              shadows: shadows,
             ),
           )
           .toList(),
@@ -240,6 +244,7 @@ class CoverWallCommandBar extends StatelessWidget {
             (x) => PrimaryCommandBarItem(
               key: ValueKey(x.id),
               entry: x,
+              shadows: shadows,
             ),
           )
           .toList(),

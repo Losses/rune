@@ -21,13 +21,21 @@ void showCoverArtWall(BuildContext context) {
 }
 
 class CoverWallButton extends StatelessWidget {
-  const CoverWallButton({super.key});
+  final List<Shadow>? shadows;
+
+  const CoverWallButton({
+    super.key,
+    required this.shadows,
+  });
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: () => showCoverArtWall(context),
-      icon: const Icon(Symbols.photo_frame),
+      icon: Icon(
+        Symbols.photo_frame,
+        shadows: shadows,
+      ),
     );
   }
 }

@@ -5,14 +5,22 @@ import '../../utils/api/play_next.dart';
 
 class NextButton extends StatelessWidget {
   final bool disabled;
+  final List<Shadow>? shadows;
 
-  const NextButton({required this.disabled, super.key});
+  const NextButton({
+    super.key,
+    required this.disabled,
+    required this.shadows,
+  });
 
   @override
   Widget build(BuildContext context) {
     return IconButton(
       onPressed: disabled ? null : playNext,
-      icon: const Icon(Symbols.skip_next),
+      icon: Icon(
+        Symbols.skip_next,
+        shadows: shadows,
+      ),
     );
   }
 }
