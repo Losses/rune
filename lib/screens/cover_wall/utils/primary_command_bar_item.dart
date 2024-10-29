@@ -10,6 +10,9 @@ class PrimaryCommandBarItem extends CommandBarItem {
 
   @override
   Widget build(BuildContext context, CommandBarItemDisplayMode displayMode) {
-    return entry.controllerButtonBuilder(context, shadows);
+    return Tooltip(
+      message: entry.tooltipBuilder(context),
+      child: entry.controllerButtonBuilder(context, shadows),
+    );
   }
 }
