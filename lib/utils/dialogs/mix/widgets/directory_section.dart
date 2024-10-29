@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'package:rune/widgets/directory/directory_tree.dart';
-import 'package:rune/utils/dialogs/mix/widgets/directory_picker_dialog.dart';
+import '../../../../utils/dialogs/mix/widgets/directory_picker_dialog.dart';
+import '../../../../widgets/directory/directory_tree.dart';
 
 class DirectorySection extends StatefulWidget {
   final DirectoryTreeController? controller;

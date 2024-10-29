@@ -1,6 +1,5 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/format_time.dart';
@@ -9,6 +8,8 @@ import '../../../utils/unavailable_menu_entry.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/controller_items.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../../screens/cover_wall/utils/primary_command_bar_item.dart';
+import '../../../screens/cover_wall/utils/overflow_command_bar_item.dart';
 import '../../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
@@ -64,38 +65,47 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
 
     Provider.of<VolumeProvider>(context);
 
-    return Selector<PlaybackStatusProvider,
-        (String?, String?, String?, String?, double?, String?)>(
-      selector: (context, playbackStatusProvider) => (
-        playbackStatusProvider.playbackStatus?.coverArtPath,
-        playbackStatusProvider.playbackStatus?.artist,
-        playbackStatusProvider.playbackStatus?.album,
-        playbackStatusProvider.playbackStatus?.title,
-        playbackStatusProvider.playbackStatus?.duration,
-        playbackStatusProvider.playbackStatus?.state,
-      ),
-      builder: (context, p, child) {
-        if (p.$1 == null) return Container();
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.car,
+        DeviceType.tv,
+        DeviceType.zune,
+        DeviceType.station
+      ],
+      builder: (context, activeBreakpoint) {
+        final isZune = activeBreakpoint == DeviceType.zune;
+        final isCar = activeBreakpoint == DeviceType.car;
 
-        final artist = p.$2 ?? "Unknown Artist";
-        final album = p.$3 ?? "Unknown Album";
+        return Selector<PlaybackStatusProvider,
+            (String?, String?, String?, String?, double?, String?)>(
+          selector: playbackStatusSelector,
+          builder: (context, p, child) {
+            if (p.$1 == null) return Container();
 
-        return Container(
-          padding: const EdgeInsets.fromLTRB(
-            12,
-            12,
-            12,
-            playbackControllerHeight + 12,
-          ),
-          constraints: const BoxConstraints(maxWidth: 240),
-          child: SmallerOrEqualTo(
-            deviceType: DeviceType.zune,
-            builder: (context, isZune) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
+            final artist = p.$2 ?? "Unknown Artist";
+            final album = p.$3 ?? "Unknown Album";
+
+            final result = Container(
+              padding: isCar
+                  ? const EdgeInsets.fromLTRB(
+                      48,
+                      12,
+                      12,
+                      12,
+                    )
+                  : const EdgeInsets.fromLTRB(
+                      12, 12, 12, playbackControllerHeight + 12),
+              constraints: isCar
+                  ? const BoxConstraints(maxWidth: 240 + 34)
+                  : const BoxConstraints(maxWidth: 240),
+              child: Column(
+                crossAxisAlignment: isCar
+                    ? CrossAxisAlignment.start
+                    : CrossAxisAlignment.center,
                 mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.max,
                 children: [
-                  if (!isZune)
+                  if (!isZune && !isCar)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       child: Container(
@@ -118,7 +128,7 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
                         ),
                       ),
                     ),
-                  if (!isZune)
+                  if (!isZune && !isCar)
                     Transform.translate(
                       offset: const Offset(0, -16),
                       child: SizedBox(
@@ -139,95 +149,100 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
                         ?.apply(shadows: shadows, heightFactor: 2),
                     textAlign: TextAlign.center,
                   ),
-                  if (isZune) const SizedBox(height: 12),
-                  if (isZune)
+                  if (isZune || isCar) const SizedBox(height: 12),
+                  if (isZune || isCar)
                     Selector<PlaybackControllerProvider,
                         (List<ControllerEntry>, List<ControllerEntry>)>(
-                      selector: (context, controllerProvider) {
-                        final entries = controllerProvider.entries;
-                        final hiddenIndex =
-                            entries.indexWhere((entry) => entry.id == 'hidden');
-                        final List<ControllerEntry> visibleEntries =
-                            hiddenIndex != -1
-                                ? entries.sublist(0, hiddenIndex)
-                                : entries;
-                        final List<ControllerEntry> hiddenEntries =
-                            hiddenIndex != -1
-                                ? entries.sublist(hiddenIndex + 1)
-                                : [];
-
-                        return (visibleEntries, hiddenEntries);
-                      },
+                      selector: playbackControllerSelector,
                       builder: (context, entries, child) {
-                        return CommandBar(
-                          isCompact: true,
-                          overflowMenuItemBuilder: (context, entry) {
-                            if (entry is PrimaryCommandBarItem) {
-                              final item = flyoutItems[entry.entry.id];
-                              if (item != null) {
-                                return item;
-                              }
-                              return unavailableMenuEntry;
-                            }
-
-                            throw "Unacceptable entry type";
-                          },
-                          overflowItemBuilder: (onPressed) {
-                            return OverflowCommandBarItem(
-                              key: const ValueKey("Overflow Item"),
-                              onPressed: onPressed,
-                            );
-                          },
-                          primaryItems: entries.$1
-                              .map(
-                                (x) => PrimaryCommandBarItem(
-                                  key: ValueKey(x.id),
-                                  entry: x,
-                                ),
-                              )
-                              .toList(),
-                          secondaryItems: entries.$2
-                              .map(
-                                (x) => PrimaryCommandBarItem(
-                                  key: ValueKey(x.id),
-                                  entry: x,
-                                ),
-                              )
-                              .toList(),
+                        return CoverWallCommandBar(
+                          entries: entries,
+                          flyoutItems: flyoutItems,
                         );
                       },
-                    )
+                    ),
                 ],
-              );
-            },
-          ),
+              ),
+            );
+
+            return result;
+          },
         );
       },
     );
   }
-}
 
-class PrimaryCommandBarItem extends CommandBarItem {
-  PrimaryCommandBarItem({required super.key, required this.entry});
+  (String?, String?, String?, String?, double?, String?) playbackStatusSelector(
+          context, playbackStatusProvider) =>
+      (
+        playbackStatusProvider.playbackStatus?.coverArtPath,
+        playbackStatusProvider.playbackStatus?.artist,
+        playbackStatusProvider.playbackStatus?.album,
+        playbackStatusProvider.playbackStatus?.title,
+        playbackStatusProvider.playbackStatus?.duration,
+        playbackStatusProvider.playbackStatus?.state,
+      );
 
-  final ControllerEntry entry;
+  (List<ControllerEntry>, List<ControllerEntry>) playbackControllerSelector(
+      context, controllerProvider) {
+    final entries = controllerProvider.entries;
+    final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
+    final List<ControllerEntry> visibleEntries =
+        hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
+    final List<ControllerEntry> hiddenEntries =
+        hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
-  @override
-  Widget build(BuildContext context, CommandBarItemDisplayMode displayMode) {
-    return entry.controllerButtonBuilder(context);
+    return (visibleEntries, hiddenEntries);
   }
 }
 
-class OverflowCommandBarItem extends CommandBarItem {
-  OverflowCommandBarItem({required super.key, required this.onPressed});
+class CoverWallCommandBar extends StatelessWidget {
+  const CoverWallCommandBar({
+    super.key,
+    required this.flyoutItems,
+    required this.entries,
+  });
 
-  final VoidCallback onPressed;
+  final (List<ControllerEntry>, List<ControllerEntry>) entries;
+  final Map<String, MenuFlyoutItem> flyoutItems;
 
   @override
-  Widget build(BuildContext context, CommandBarItemDisplayMode displayMode) {
-    return IconButton(
-      icon: const Icon(Symbols.more_vert),
-      onPressed: onPressed,
+  Widget build(BuildContext context) {
+    return CommandBar(
+      isCompact: true,
+      overflowMenuItemBuilder: (context, entry) {
+        if (entry is PrimaryCommandBarItem) {
+          final item = flyoutItems[entry.entry.id];
+          if (item != null) {
+            return item;
+          }
+          return unavailableMenuEntry;
+        }
+
+        throw "Unacceptable entry type";
+      },
+      overflowItemBuilder: (onPressed) {
+        return OverflowCommandBarItem(
+          key: const ValueKey("Overflow Item"),
+          onPressed: onPressed,
+        );
+      },
+      primaryItems: entries.$1
+          .map(
+            (x) => PrimaryCommandBarItem(
+              key: ValueKey(x.id),
+              entry: x,
+            ),
+          )
+          .toList(),
+      secondaryItems: entries.$2
+          .map(
+            (x) => PrimaryCommandBarItem(
+              key: ValueKey(x.id),
+              entry: x,
+            ),
+          )
+          .toList(),
     );
   }
 }

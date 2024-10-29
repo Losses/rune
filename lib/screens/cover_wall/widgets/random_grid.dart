@@ -1,11 +1,13 @@
 import 'dart:math';
 
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../../utils/color_brightness.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
+import '../../../providers/responsive_providers.dart';
 
 import '../utils/string_to_double.dart';
 import '../utils/random_grid_config.dart';
@@ -35,6 +37,9 @@ class RandomGridState extends State<RandomGrid> {
     final theme = FluentTheme.of(context);
     final isDark = theme.brightness.isDark;
     final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
+
+    final r = Provider.of<ResponsiveProvider>(context);
+    final isMini = r.smallerOrEqualTo(DeviceType.car, false);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -85,25 +90,28 @@ class RandomGridState extends State<RandomGrid> {
               );
 
         return Stack(
-          alignment: Alignment.bottomCenter,
+          alignment: isMini
+              ? Alignment.centerLeft
+              : Alignment.bottomCenter,
           children: [
             Container(
               color: isDark ? null : theme.accentColor.lightest.lighten(0.2),
             ),
             coverArtWall,
             Container(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    colors: [
-                      shadowColor.withAlpha(isDark ? 20 : 140),
-                      shadowColor.withAlpha(isDark ? 255 : 255),
-                    ],
-                    radius: 1.5,
-                  ),
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    shadowColor.withAlpha(isDark ? 20 : 140),
+                    shadowColor.withAlpha(isDark ? 255 : 255),
+                  ],
+                  radius: 1.5,
                 ),
-                height: (mainAxisCount * gridSize).toDouble()),
+              ),
+              height: (mainAxisCount * gridSize).toDouble(),
+            ),
             const PlayingTrack(),
-            Container(
+            if (!isMini) Container(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: const Alignment(0.0, -1.0),
