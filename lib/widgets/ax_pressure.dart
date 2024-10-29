@@ -81,16 +81,32 @@ class AxPressureState extends State<AxPressure> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onPanUpdate: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onTapDown: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onPanEnd: (_) => setState(() => _resetTransform()),
-      onPanCancel: () => setState(() => _resetTransform()),
-      onTapUp: (details) => setState(() => _resetTransform()),
+    // use listener to pop event to parents widget
+    return Listener(
+      onPointerDown: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerMove: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerUp: (event) {
+        setState(() => _resetTransform());
+      },
+      onPointerPanZoomStart: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerPanZoomUpdate: (event) {
+        // Because event.localPosition will be fix in this event, and I can only get glabal pan position.
+        // So I need to calculate the real local position, by plus widget position and event.localPan.
+        // This should be the best fitting method.
+        final RenderBox box = context.findRenderObject() as RenderBox;
+        final _widgetPosition = box.localToGlobal(Offset.zero);
+        final localPosition = event.localPan + _widgetPosition;
+        _updateTransform(localPosition, context.size!);
+      },
+      onPointerPanZoomEnd: (event) {
+        setState(() => _resetTransform());
+      },
       child: Container(
         transform: _transform,
         transformAlignment: Alignment.center,
