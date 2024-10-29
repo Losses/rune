@@ -25,17 +25,18 @@ class AppTheme extends ChangeNotifier {
     }
 
     final colorScheme = Hct.fromInt(color.value);
-    final h = colorScheme.hue;
-    final c = colorScheme.chroma;
+    final double h = colorScheme.hue;
+    final double c = colorScheme.chroma;
+    final double t = colorScheme.tone.clamp(40, 70);
 
     return AccentColor.swatch({
-      'darkest': Color(Hct.from(h, c, 31).toInt()),
-      'darker': Color(Hct.from(h, c, 35).toInt()),
-      'dark': Color(Hct.from(h, c, 42).toInt()),
-      'normal': Color(Hct.from(h, c, 50).toInt()),
-      'light': Color(Hct.from(h, c, 56).toInt()),
-      'lighter': Color(Hct.from(h, c, 63).toInt()),
-      'lightest': Color(Hct.from(h, c, 67).toInt()),
+      'darkest': Color(Hct.from(h, c, t - 19).toInt()),
+      'darker': Color(Hct.from(h, c, t - 15).toInt()),
+      'dark': Color(Hct.from(h, c, t - 8).toInt()),
+      'normal': Color(Hct.from(h, c, t).toInt()),
+      'light': Color(Hct.from(h, c, t + 6).toInt()),
+      'lighter': Color(Hct.from(h, c, t + 13).toInt()),
+      'lightest': Color(Hct.from(h, c, t + 17).toInt()),
     });
   }
 
