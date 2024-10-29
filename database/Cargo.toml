@@ -12,7 +12,6 @@ path = "src/lib.rs"
 log = { version = "0.4.22" }
 sea-orm = { version="1.1.0", features = [ "sqlx-sqlite", "runtime-async-std-native-tls", "macros", "debug-print" ] }
 sea-orm-migration = "1.1.0"
-async-graphql = "7.0.10"
 migration = { path = "../migration" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
