@@ -54,15 +54,14 @@ class _DirectorySectionState extends State<DirectorySection> {
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: SizedBox(
               width: double.infinity,
-              child: Row(
-                children: [
-                  Text(value == null || value.isEmpty
-                      ? "All directories"
-                      : value.length == 1
-                          ? '1 Directory'
-                          : '${value.length} Directories'),
-                  Expanded(child: Container()),
-                ],
+              child: Text(
+                value == null || value.isEmpty
+                    ? "All directories"
+                    : value.length == 1
+                        ? '1 Directory'
+                        : '${value.length} Directories',
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.start,
               ),
             ),
           ),

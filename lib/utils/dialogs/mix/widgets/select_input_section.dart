@@ -57,7 +57,10 @@ class _SelectInputSectionState extends State<SelectInputSection> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.title),
+          Text(
+            widget.title,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 4),
           Row(
             children: [
@@ -67,19 +70,28 @@ class _SelectInputSectionState extends State<SelectInputSection> {
                   items: widget.items.map<ComboBoxItem<String>>((item) {
                     return ComboBoxItem<String>(
                       value: item.value,
-                      child: SizedBox(
-                        width: constraint.maxWidth - 48,
-                        child: Row(
-                          children: [
-                            Icon(item.icon, size: 18),
-                            const SizedBox(width: 8),
-                            Text(
-                              item.title,
-                              textAlign: TextAlign.start,
+                      child: constraint.maxWidth > 140
+                          ? SizedBox(
+                              width: constraint.maxWidth - 48,
+                              child: Row(
+                                children: [
+                                  Icon(item.icon, size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    item.title,
+                                    textAlign: TextAlign.start,
+                                  )
+                                ],
+                              ),
                             )
-                          ],
-                        ),
-                      ),
+                          : SizedBox(
+                              width: constraint.maxWidth - 48,
+                              child: Text(
+                                item.title,
+                                textAlign: TextAlign.start,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
                     );
                   }).toList(),
                   onChanged: (value) => setState(() {
