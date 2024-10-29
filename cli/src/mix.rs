@@ -2,6 +2,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use rust_decimal::prelude::ToPrimitive;
 use prettytable::{format, row, Table};
 
 use database::actions::mixes::query_mix_media_files;
@@ -142,7 +143,6 @@ fn format_time(seconds: f64) -> String {
     format!("{}:{}", minutes_str, seconds_str)
 }
 
-
 pub fn display_mixes_in_table(files: &Vec<media_files::Model>) {
     let mut table = Table::new();
     table.add_row(row!["ID", "Path", "Duration"]);
@@ -150,9 +150,12 @@ pub fn display_mixes_in_table(files: &Vec<media_files::Model>) {
 
     for file in files {
         let file_path = Path::new(&file.directory).join(&file.file_name);
-        table.add_row(row![file.id, file_path.display(), format_time(file.duration)]);
+        table.add_row(row![
+            file.id,
+            file_path.display(),
+            format_time(file.duration.to_f64().expect("Failed to convert duration"))
+        ]);
     }
 
     table.printstd();
 }
-

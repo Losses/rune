@@ -16,7 +16,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 rinf = "7.0.2"
 prost = "0.12.6"
 tokio = { version = "1.40.0", features = ["sync", "time", "rt-multi-thread"] }
-sea-orm = "0.12.15"
+sea-orm = "1.1.0"
 database = { path = "../../database" }
 playback = { path = "../../playback" }
 lazy_static = "1.5.0"

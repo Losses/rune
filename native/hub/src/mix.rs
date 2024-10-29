@@ -35,7 +35,7 @@ pub async fn fetch_all_mixes_request(
                 name: mix.name,
                 group: mix.group,
                 locked: mix.locked,
-                mode: mix.mode,
+                mode: mix.mode.expect("Mix mode not exists"),
             })
             .collect(),
     }
@@ -66,7 +66,7 @@ pub async fn create_mix_request(
             name: mix.name,
             group: mix.group,
             locked: mix.locked,
-            mode: mix.mode,
+            mode: mix.mode.expect("Mix mode not exists"),
         }),
     }
     .send_signal_to_dart();
@@ -125,7 +125,7 @@ pub async fn update_mix_request(
                 name: mix.name,
                 group: mix.group,
                 locked: mix.locked,
-                mode: mix.mode,
+                mode: mix.mode.expect("Mix mode not exists"),
             }),
         }
         .send_signal_to_dart();
@@ -193,7 +193,7 @@ pub async fn get_mix_by_id_request(
             name: mix.name,
             group: mix.group,
             locked: mix.locked,
-            mode: mix.mode,
+            mode: mix.mode.expect("Mix mode not exists"),
         }),
     }
     .send_signal_to_dart();
