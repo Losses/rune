@@ -30,6 +30,7 @@ class ControllerEntry {
   final IconData Function(BuildContext context) icon;
   final String title;
   final String subtitle;
+  final String Function(BuildContext context) tooltipBuilder;
   final Widget Function(BuildContext context, List<Shadow>? shadows)
       controllerButtonBuilder;
   final Future<MenuFlyoutItem> Function(BuildContext context)
@@ -42,6 +43,7 @@ class ControllerEntry {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.tooltipBuilder,
     required this.controllerButtonBuilder,
     required this.flyoutEntryBuilder,
     required this.shortcuts,
@@ -67,6 +69,7 @@ final controllerItems = [
 
       playPrevious();
     },
+    tooltipBuilder: (context) => "Previous",
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -131,6 +134,13 @@ final controllerItems = [
         playPlay();
       }
     },
+    tooltipBuilder: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final status = statusProvider.playbackStatus;
+
+      return status?.state == "Playing" ? "Pause" : "Play";
+    },
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -183,6 +193,7 @@ final controllerItems = [
 
       playNext();
     },
+    tooltipBuilder: (context) => "Next",
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -211,7 +222,7 @@ final controllerItems = [
             ? null
             : () {
                 context.pop();
-                playPrevious();
+                playNext();
               },
       );
     },
@@ -231,6 +242,7 @@ final controllerItems = [
     subtitle: "Adjust the volume",
     shortcuts: [],
     onShortcut: null,
+    tooltipBuilder: (context) => "Volume",
     controllerButtonBuilder: (context, shadows) => VolumeButton(
       shadows: shadows,
     ),
@@ -287,6 +299,16 @@ final controllerItems = [
     },
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
+    tooltipBuilder: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final status = statusProvider.playbackStatus;
+
+      final currentMode =
+          PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
+
+      return modeToLabel(currentMode);
+    },
     controllerButtonBuilder: (context, shadows) => PlaybackModeButton(
       shadows: shadows,
     ),
@@ -364,6 +386,7 @@ final controllerItems = [
     onShortcut: (context) {
       showPlayQueueDialog(context);
     },
+    tooltipBuilder: (context) => "Playlist",
     controllerButtonBuilder: (context, shadows) => QueueButton(
       shadows: shadows,
     ),
@@ -391,6 +414,7 @@ final controllerItems = [
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
     onShortcut: null,
+    tooltipBuilder: (context) => "Hidden",
     controllerButtonBuilder: (context, shadows) => Container(),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
@@ -409,6 +433,7 @@ final controllerItems = [
     onShortcut: (context) {
       showCoverArtWall(context);
     },
+    tooltipBuilder: (context) => "Cover Wall",
     controllerButtonBuilder: (context, shadows) => CoverWallButton(
       shadows: shadows,
     ),
@@ -449,6 +474,7 @@ final controllerItems = [
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
+    tooltipBuilder: (context) => "Fullscreen",
     controllerButtonBuilder: (context, shadows) => FullScreenButton(
       shadows: shadows,
     ),

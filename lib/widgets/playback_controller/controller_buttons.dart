@@ -82,7 +82,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
             for (final entry in (miniLayout && !coverArtWallLayout)
                 ? miniEntries
                 : visibleEntries)
-              entry.controllerButtonBuilder(context, null),
+              Tooltip(
+                  message: entry.tooltipBuilder(context),
+                  child: entry.controllerButtonBuilder(context, null)),
             if (hiddenEntries.isNotEmpty)
               FlyoutTarget(
                 controller: menuController,
