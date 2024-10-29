@@ -142,7 +142,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux-amd64
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
 
   release-linux:
     permissions:
@@ -166,7 +166,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux-amd64.zip
           directory: artifacts
           
       - name: Release
@@ -255,7 +255,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: "temp_macos/*.dmg"
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS-universal
+          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
 
       - name: Clean up
         if: ${{ always() }}
