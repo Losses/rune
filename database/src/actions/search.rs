@@ -5,7 +5,10 @@ use std::str::FromStr;
 use anyhow::Result;
 use deunicode::deunicode;
 use log::warn;
-use sea_orm::{ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, QueryFilter, Statement};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, FromQueryResult, QueryFilter,
+    Statement,
+};
 
 use crate::entities::search_index;
 
@@ -130,6 +133,13 @@ where
     Ok(())
 }
 
+#[derive(Debug, FromQueryResult)]
+pub struct SearchResult {
+    pub key: String,
+    pub entry_type: String,
+    pub doc: String,
+}
+
 pub async fn search_for(
     main_db: &DatabaseConnection,
     query_str: &str,
@@ -151,20 +161,18 @@ pub async fn search_for(
             }
         }
 
-        let top_docs = search_index::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+        let top_docs = SearchResult::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Sqlite,
-            r#"SELECT * FROM search_index WHERE doc MATCH '?' AND entry_type = '?' ORDER BY rank LIMIT ?;"#,
-            [ query_str.to_string().into(), collection_type.to_string().into(), n.to_string().into() ],
+            r#"SELECT * FROM search_index WHERE doc MATCH ? AND entry_type = ? ORDER BY rank LIMIT ?;"#,
+            [ query_str.to_string().into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
         )).all(main_db).await?;
 
         for item in top_docs {
-            if let Some(key) = item.key {
-                let id = key.parse::<i64>();
-                if let Ok(id) = id {
-                    results.entry(collection_type.clone()).or_default().push(id);
-                } else {
-                    warn!("Invalid document ID found!");
-                }
+            let id = item.key.parse::<i64>();
+            if let Ok(id) = id {
+                results.entry(collection_type.clone()).or_default().push(id);
+            } else {
+                warn!("Invalid document ID found!");
             }
         }
     }
