@@ -14,7 +14,6 @@ use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::sync_recommendation;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
-use database::connection::SearchDbConnection;
 
 use crate::messages::*;
 use crate::TaskTokens;
@@ -51,7 +50,6 @@ pub async fn close_library_request(
 
 pub async fn scan_audio_library_request(
     main_db: Arc<MainDbConnection>,
-    search_db: Arc<Mutex<SearchDbConnection>>,
     task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<ScanAudioLibraryRequest>,
 ) -> Result<()> {
@@ -67,18 +65,14 @@ pub async fn scan_audio_library_request(
     drop(tokens); // Release the lock
 
     let request = dart_signal.message.clone();
-    let search_db_clone = Arc::clone(&search_db);
     let main_db_clone = Arc::clone(&main_db);
 
     task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let mut search_db = search_db_clone.lock().await;
-
             let path = request.path.clone();
             let file_processed = scan_audio_library(
                 &main_db_clone,
-                &mut search_db,
                 Path::new(&path.clone()),
                 true,
                 |progress| {

@@ -13,3 +13,4 @@ pub use super::media_metadata::Entity as MediaMetadata;
 pub use super::mix_queries::Entity as MixQueries;
 pub use super::mixes::Entity as Mixes;
 pub use super::playlists::Entity as Playlists;
+pub use super::search_index::Entity as SearchIndex;

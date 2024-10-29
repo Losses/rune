@@ -5,12 +5,11 @@ use std::str::FromStr;
 use anyhow::Result;
 use deunicode::deunicode;
 use log::warn;
-use tantivy::collector::{FilterCollector, TopDocs};
-use tantivy::doc;
-use tantivy::query::QueryParser;
-use tantivy::schema::*;
+use sea_orm::{ColumnTrait, DatabaseConnection, DbBackend, EntityTrait, QueryFilter, Statement};
 
-use crate::connection::SearchDbConnection;
+use crate::entities::search_index;
+
+use super::utils::DatabaseExecutor;
 
 #[derive(Eq, Hash, PartialEq, Clone, Debug)]
 pub enum CollectionType {
@@ -49,6 +48,19 @@ impl FromStr for CollectionType {
     }
 }
 
+impl fmt::Display for CollectionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            CollectionType::Track => "track",
+            CollectionType::Artist => "artist",
+            CollectionType::Directory => "directory",
+            CollectionType::Album => "album",
+            CollectionType::Playlist => "playlist",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 pub fn convert_to_collection_types(input: Vec<String>) -> Vec<CollectionType> {
     input
         .into_iter()
@@ -83,57 +95,47 @@ impl TryFrom<i64> for CollectionType {
     }
 }
 
-pub fn remove_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: i32) {
-    let schema = &search_db.schema;
-    let term_tid = schema.get_field("tid").unwrap();
+pub async fn remove_term<E>(main_db: &E, entry_type: CollectionType, id: i32) -> Result<()>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    search_index::Entity::delete_many()
+        .filter(search_index::Column::Key.eq(id.to_string()))
+        .filter(search_index::Column::EntryType.eq(entry_type.to_string()))
+        .exec(main_db)
+        .await?;
 
-    let tid = format!("{:?}-{:?}", r#type, id);
-    let term = Term::from_field_text(term_tid, &tid);
-
-    search_db.w.delete_term(term);
+    Ok(())
 }
 
-pub fn add_term(search_db: &mut SearchDbConnection, r#type: CollectionType, id: i32, name: &str) {
-    let schema = &search_db.schema;
-    let term_name = schema.get_field("name").unwrap();
-    let term_latinization = schema.get_field("latinization").unwrap();
-    let term_id = schema.get_field("id").unwrap();
-    let term_type = schema.get_field("type").unwrap();
-    let term_tid = schema.get_field("tid").unwrap();
+pub async fn add_term<E>(main_db: &E, entry_type: CollectionType, id: i32, name: &str) -> Result<()>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    remove_term(main_db, entry_type.clone(), id).await?;
 
-    let tid = format!("{:?}-{:?}", term_type, term_id);
-    let term = Term::from_field_text(term_tid, &tid);
+    search_index::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        r#"INSERT INTO search_index (id, key, entry_type, doc) VALUES ('', ?, ?, ?), ('', ?, ?, ?);"#,
+        [
+            id.to_string().into(),
+            entry_type.to_string().into(),
+            name.to_string().into(),
+            id.to_string().into(),
+            entry_type.to_string().into(),
+            deunicode(name).into(),
+        ],
+    )).all(main_db).await?;
 
-    search_db.w.delete_term(term);
-
-    search_db
-        .w
-        .add_document(doc!(
-            term_name => name,
-            term_latinization => deunicode(name),
-            term_type => Into::<i64>::into(r#type),
-            term_tid => tid,
-            term_id => Into::<i64>::into(id),
-        ))
-        .unwrap();
+    Ok(())
 }
 
-pub fn search_for(
-    search_db: &mut SearchDbConnection,
+pub async fn search_for(
+    main_db: &DatabaseConnection,
     query_str: &str,
     search_fields: Option<Vec<CollectionType>>,
     n: usize,
 ) -> Result<HashMap<CollectionType, Vec<i64>>> {
-    let schema = &search_db.schema;
-    let term_name = schema.get_field("name").unwrap();
-    let term_latinization = schema.get_field("latinization").unwrap();
-    let field_id = schema.get_field("id").unwrap();
-
-    let query_parser = QueryParser::for_index(&search_db.index, vec![term_name, term_latinization]);
-    let query = query_parser.parse_query(query_str)?;
-
-    let searcher = search_db.index.reader()?.searcher();
-
     let mut results: HashMap<CollectionType, Vec<i64>> = HashMap::new();
 
     for collection_type in [
@@ -149,24 +151,20 @@ pub fn search_for(
             }
         }
 
-        let type_value = i64::from(collection_type.clone());
-        let filter_collector = FilterCollector::new(
-            "type".to_string(),
-            move |value: i64| value == type_value,
-            TopDocs::with_limit(n),
-        );
+        let top_docs = search_index::Entity::find().from_raw_sql(Statement::from_sql_and_values(
+            DbBackend::Sqlite,
+            r#"SELECT * FROM search_index WHERE doc MATCH '?' AND entry_type = '?' ORDER BY rank LIMIT ?;"#,
+            [ query_str.to_string().into(), collection_type.to_string().into(), n.to_string().into() ],
+        )).all(main_db).await?;
 
-        let top_docs = searcher.search(&query, &filter_collector)?;
-
-        for (_score, doc_address) in top_docs {
-            let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
-            if let Some(doc_id) = retrieved_doc.get_first(field_id) {
-                results
-                    .entry(collection_type.clone())
-                    .or_default()
-                    .push(doc_id.as_i64().unwrap());
-            } else {
-                warn!("Id not inserted while searching for the document");
+        for item in top_docs {
+            if let Some(key) = item.key {
+                let id = key.parse::<i64>();
+                if let Ok(id) = id {
+                    results.entry(collection_type.clone()).or_default().push(id);
+                } else {
+                    warn!("Invalid document ID found!");
+                }
             }
         }
     }

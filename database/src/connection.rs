@@ -1,4 +1,3 @@
-use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
@@ -7,8 +6,6 @@ use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
 use log::{info, LevelFilter};
 use sea_orm::{ConnectOptions, Database};
-use tantivy::{schema::*, IndexReader, TantivyError};
-use tantivy::{Index, IndexWriter, ReloadPolicy};
 
 use migration::Migrator;
 use migration::MigratorTrait;
@@ -94,47 +91,4 @@ pub fn connect_recommendation_db(lib_path: &str) -> Result<RecommendationDbConne
     wtxn.commit()?;
 
     Ok(RecommendationDbConnection { env, db })
-}
-
-pub struct SearchDbConnection {
-    pub w: IndexWriter,
-    pub r: IndexReader,
-    pub schema: Schema,
-    pub index: Index,
-}
-
-pub fn connect_search_db(lib_path: &str) -> Result<SearchDbConnection> {
-    let path: PathBuf = [lib_path, ".rune", ".search"].iter().collect();
-    let exists = path.exists();
-
-    if !exists {
-        create_dir_all(path.clone())?;
-    }
-
-    let mut schema_builder = Schema::builder();
-    schema_builder.add_text_field("name", TEXT | STORED);
-    schema_builder.add_text_field("latinization", TEXT | STORED);
-    schema_builder.add_text_field("tid", TEXT | STORED);
-    schema_builder.add_i64_field("type", INDEXED | FAST);
-    schema_builder.add_i64_field("id", INDEXED | FAST | STORED);
-
-    let schema = schema_builder.build();
-    let index =
-        Index::create_in_dir(path.clone(), schema.clone()).or_else(|error| match error {
-            TantivyError::IndexAlreadyExists => Ok(Index::open_in_dir(path.clone())?),
-            _ => Err(error),
-        })?;
-
-    let writer: IndexWriter = index.writer(15_000_000)?;
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::OnCommitWithDelay)
-        .try_into()?;
-
-    Ok(SearchDbConnection {
-        w: writer,
-        r: reader,
-        schema,
-        index,
-    })
 }

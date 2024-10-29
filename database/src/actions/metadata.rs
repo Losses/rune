@@ -17,7 +17,6 @@ use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
 use crate::actions::search::{add_term, remove_term, CollectionType};
-use crate::connection::SearchDbConnection;
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
 
@@ -56,7 +55,6 @@ pub fn read_metadata(description: &FileDescription) -> Option<FileMetadata> {
 
 pub async fn sync_file_descriptions(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<()> {
     debug!("Starting to process multiple files");
@@ -190,7 +188,7 @@ pub async fn sync_file_descriptions(
                     let file_metadata = read_metadata(description);
 
                     if let Some(ref x) = file_metadata {
-                        match insert_new_file(&txn, search_db, x, description)
+                        match insert_new_file(&txn, x, description)
                             .await
                             .with_context(|| {
                                 format!(
@@ -217,9 +215,7 @@ pub async fn sync_file_descriptions(
     txn.commit().await?;
 
     if let Some((id, name)) = search_term {
-        add_term(search_db, CollectionType::Track, id, &name);
-
-        search_db.w.commit()?;
+        add_term(main_db, CollectionType::Track, id, &name).await?;
     }
 
     debug!("Finished syncing file data");
@@ -229,15 +225,12 @@ pub async fn sync_file_descriptions(
 
 pub async fn process_files(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     descriptions: &mut [Option<FileDescription>],
 ) -> Result<()> {
     debug!("Starting to process multiple files");
 
     // Start a transaction
     let txn = main_db.begin().await?;
-
-    let mut modified = false;
 
     for description in descriptions.iter_mut() {
         match description {
@@ -334,7 +327,7 @@ pub async fn process_files(
 
                     match file_metadata {
                         Some(x) => {
-                            match insert_new_file(&txn, search_db, &x, description)
+                            match insert_new_file(&txn, &x, description)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -342,7 +335,7 @@ pub async fn process_files(
                                         description.file_name.clone(),
                                     )
                                 }) {
-                                Ok(_) => modified = true,
+                                Ok(_) => {},
                                 Err(e) => error!("{:?}", e),
                             };
                         }
@@ -357,9 +350,6 @@ pub async fn process_files(
 
     // Commit the transaction
     txn.commit().await?;
-    if modified {
-        search_db.w.commit()?;
-    }
 
     info!("Finished processing multiple files");
 
@@ -451,7 +441,6 @@ where
 
 pub async fn insert_new_file<E>(
     main_db: &E,
-    search_db: &mut SearchDbConnection,
     metadata: &FileMetadata,
     description: &mut FileDescription,
 ) -> Result<()>
@@ -489,11 +478,11 @@ where
         .find(|(key, _)| key == "track_title")
     {
         add_term(
-            search_db,
+            main_db,
             CollectionType::Track,
             inserted_file.last_insert_id,
             value,
-        );
+        ).await?;
     }
 
     let file_id = inserted_file.last_insert_id;
@@ -523,12 +512,9 @@ where
 
 async fn clean_up_database(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     root_path: &Path,
 ) -> Result<()> {
     let db_files = media_files::Entity::find().all(main_db).await?;
-
-    let mut modified = false;
 
     for db_file in db_files {
         let full_path = root_path
@@ -541,13 +527,8 @@ async fn clean_up_database(
                 .exec(main_db)
                 .await?;
 
-            modified = true;
-            remove_term(search_db, CollectionType::Track, db_file.id)
+            remove_term(main_db, CollectionType::Track, db_file.id).await?
         }
-    }
-
-    if modified {
-        search_db.w.commit()?;
     }
 
     Ok(())
@@ -557,7 +538,6 @@ pub fn empty_progress_callback(_processed: usize) {}
 
 pub async fn scan_audio_library<F>(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     lib_path: &Path,
     cleanup: bool,
     progress_callback: F,
@@ -593,7 +573,7 @@ where
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, search_db, &mut descriptions)
+        match sync_file_descriptions(main_db, &mut descriptions)
             .await
             .with_context(|| "Unable to describe the file")
         {
@@ -607,7 +587,7 @@ where
 
         let file_ids = get_file_ids_by_descriptions(main_db, &descriptions).await?;
 
-        match index_media_files(main_db, search_db, file_ids)
+        match index_media_files(main_db, file_ids)
             .await
             .with_context(|| "Unable to index files")
         {
@@ -624,7 +604,7 @@ where
 
     if cleanup {
         info!("Starting cleanup process.");
-        match clean_up_database(main_db, search_db, lib_path)
+        match clean_up_database(main_db, lib_path)
             .await
             .with_context(|| "Unable to cleanup database")
         {

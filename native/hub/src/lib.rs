@@ -30,7 +30,6 @@ pub use tokio;
 
 use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
-use ::database::connection::connect_search_db;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 
@@ -131,19 +130,6 @@ async fn player_loop(path: String) {
             }
         };
 
-        let search_db =
-            match connect_search_db(&path).with_context(|| "Failed to connect to search DB") {
-                Ok(db) => Arc::new(Mutex::new(db)),
-                Err(e) => {
-                    error!("Failed to connect to search DB: {}", e);
-                    CrashResponse {
-                        detail: format!("{:#?}", e),
-                    }
-                    .send_signal_to_dart();
-                    return;
-                }
-            };
-
         let lib_path = Arc::new(path);
 
         let main_cancel_token = CancellationToken::new();
@@ -166,7 +152,7 @@ async fn player_loop(path: String) {
             main_cancel_token,
 
             CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
-            ScanAudioLibraryRequest => (main_db, search_db, task_tokens),
+            ScanAudioLibraryRequest => (main_db, task_tokens),
             AnalyseAudioLibraryRequest => (main_db, recommend_db, task_tokens),
             CancelTaskRequest => (task_tokens),
 
@@ -201,9 +187,9 @@ async fn player_loop(path: String) {
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
 
             FetchAllPlaylistsRequest => (main_db),
-            CreatePlaylistRequest => (main_db, search_db),
-            UpdatePlaylistRequest => (main_db, search_db),
-            RemovePlaylistRequest => (main_db, search_db),
+            CreatePlaylistRequest => (main_db),
+            UpdatePlaylistRequest => (main_db),
+            RemovePlaylistRequest => (main_db),
             AddItemToPlaylistRequest => (main_db),
             ReorderPlaylistItemPositionRequest => (main_db),
             GetPlaylistByIdRequest => (main_db),
@@ -222,7 +208,7 @@ async fn player_loop(path: String) {
             GetLikedRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db, recommend_db),
-            SearchForRequest => (search_db),
+            SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
 

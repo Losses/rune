@@ -15,3 +15,4 @@ pub mod media_metadata;
 pub mod mix_queries;
 pub mod mixes;
 pub mod playlists;
+pub mod search_index;

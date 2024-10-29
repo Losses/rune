@@ -9,7 +9,7 @@ use database::actions::metadata::{
     empty_progress_callback as empty_scan_progress_callback, scan_audio_library,
 };
 use database::actions::recommendation::sync_recommendation;
-use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
+use database::connection::{connect_main_db, connect_recommendation_db};
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +25,6 @@ async fn main() {
 
     let path = ".";
     let main_db = connect_main_db(path).await.unwrap();
-    let mut search_db = connect_search_db(path).unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
@@ -36,7 +35,6 @@ async fn main() {
     // Scan the audio library
     let _ = scan_audio_library(
         &main_db,
-        &mut search_db,
         &root_path,
         true,
         empty_scan_progress_callback,

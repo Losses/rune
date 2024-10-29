@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use database::connection::MainDbConnection;
 use rinf::DartSignal;
-use tokio::sync::Mutex;
 
 use database::actions::search::convert_to_collection_types;
 use database::actions::search::search_for;
 use database::actions::search::CollectionType;
-use database::connection::SearchDbConnection;
 
 use crate::messages::*;
 
 pub async fn search_for_request(
-    search_db: Arc<Mutex<SearchDbConnection>>,
+    main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SearchForRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
@@ -20,10 +19,8 @@ pub async fn search_for_request(
     let search_fields = convert_to_collection_types(request.fields);
     let n = request.n as usize;
 
-    let mut search_db = search_db.lock().await;
-
     let results = search_for(
-        &mut search_db,
+        &main_db,
         &query_str,
         if search_fields.is_empty() {
             None
@@ -32,6 +29,7 @@ pub async fn search_for_request(
         },
         n,
     )
+    .await
     .with_context(|| format!("Search request failed: query_str={}, n={}", query_str, n))?;
 
     let mut artists: Vec<i32> = Vec::new();
