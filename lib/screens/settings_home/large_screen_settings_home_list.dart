@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -52,7 +53,7 @@ class LargeScreenSettingsHomeListViewState
                     groupLayoutVariation:
                         StartGroupGroupLayoutVariation.stacked,
                     gridLayoutVariation: StartGroupGridLayoutVariation.initial,
-                    gapSize: 12,
+                    gapSize: defaultGapSize,
                     onTitleTap: () {},
                     itemBuilder: (context, item) {
                       return LinkTile(

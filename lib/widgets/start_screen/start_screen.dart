@@ -6,15 +6,18 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
 
 import '../smooth_horizontal_scroll.dart';
 
-import './start_group.dart';
-import './utils/group.dart';
-import './utils/internal_collection.dart';
-import './providers/start_screen_layout_manager.dart';
+import 'utils/group.dart';
+import 'utils/internal_collection.dart';
+import 'providers/start_screen_layout_manager.dart';
 
-class StartScreen extends StatefulWidget {
+import 'start_group.dart';
+import 'start_group_implementation.dart';
+
+class StartScreen extends StatelessWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
   final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
   final Widget Function(BuildContext, InternalCollection, VoidCallback)
@@ -30,10 +33,43 @@ class StartScreen extends StatefulWidget {
   });
 
   @override
-  StartScreenState createState() => StartScreenState();
+  Widget build(BuildContext context) {
+    return LayoutBuilder(builder: (context, constraints) {
+      return StartScreenImplementation(
+        fetchSummary: fetchSummary,
+        fetchPage: fetchPage,
+        itemBuilder: itemBuilder,
+        userGenerated: userGenerated,
+        constraints: constraints,
+      );
+    });
+  }
 }
 
-class StartScreenState extends State<StartScreen>
+class StartScreenImplementation extends StatefulWidget {
+  final Future<List<Group<InternalCollection>>> Function() fetchSummary;
+  final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
+  final Widget Function(BuildContext, InternalCollection, VoidCallback)
+      itemBuilder;
+  final bool userGenerated;
+
+  final BoxConstraints constraints;
+
+  const StartScreenImplementation({
+    super.key,
+    required this.fetchSummary,
+    required this.fetchPage,
+    required this.itemBuilder,
+    required this.userGenerated,
+    required this.constraints,
+  });
+
+  @override
+  StartScreenImplementationState createState() =>
+      StartScreenImplementationState();
+}
+
+class StartScreenImplementationState extends State<StartScreenImplementation>
     with SingleTickerProviderStateMixin {
   late Future<List<Group<InternalCollection>>> summary;
   final layoutManager = StartScreenLayoutManager();
@@ -44,8 +80,6 @@ class StartScreenState extends State<StartScreen>
   bool isLastPage = false;
   bool initialized = false;
   int cursor = 0;
-
-  final Map<String, GlobalKey> itemKeys = {};
 
   @override
   void initState() {
@@ -60,27 +94,47 @@ class StartScreenState extends State<StartScreen>
     super.dispose();
   }
 
-  Future<bool> scrollToGroup(String groupTitle) async {
-    final key = itemKeys[groupTitle];
-    if (key != null && key.currentContext != null) {
-      final RenderBox box = key.currentContext!.findRenderObject() as RenderBox;
-      final position = box.localToGlobal(Offset.zero).dx;
-      await scrollController.animateTo(
-        position,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      return true;
-    }
-
-    if (isLastPage) return false;
-
+  Future<void> scrollToGroup(String groupTitle) async {
+    // Step 1: Check if the group already exists in the loaded items.
     while (!isLastPage) {
+      final index = items.indexWhere((group) => group.groupTitle == groupTitle);
+
+      // If found, calculate the scroll position.
+      if (index != -1) {
+        double scrollPosition = 0.0;
+
+        // Step 5: Calculate the scroll position for the target group.
+        for (int i = 0; i < index; i++) {
+          final group = items[i];
+          final dimensions =
+              StartGroupImplementation.defaultDimensionCalculator(
+            widget.constraints.maxHeight,
+            defaultCellSize,
+            defaultGapSize,
+            group.items,
+          );
+
+          final (groupWidth, _) = StartGroupImplementation.finalSizeCalculator(
+            dimensions,
+            defaultGapSize,
+            defaultGapSize,
+          );
+          scrollPosition += groupWidth + defaultGapSize;
+        }
+
+        // Step 6: Scroll to the calculated position.
+        scrollController.scrollTo(
+          scrollPosition,
+        );
+        return;
+      }
+
+      // Step 2: If not found, load the next page.
       await _fetchDataAsync();
-      if (await scrollToGroup(groupTitle)) return true;
     }
 
-    return false;
+    // Step 3: If reached here, it means we didn't find the group and reached the last page.
+    // Silent return as specified.
   }
 
   Future<void> _fetchDataAsync() async {
@@ -99,9 +153,6 @@ class StartScreenState extends State<StartScreen>
       isLoading = false;
       isLastPage = newIsLastPage;
       items.addAll(newItems);
-      for (var item in newItems) {
-        itemKeys[item.groupTitle] = GlobalKey();
-      }
     });
 
     Timer(
@@ -115,7 +166,6 @@ class StartScreenState extends State<StartScreen>
       cursor = 0;
       items = [];
       isLastPage = false;
-      itemKeys.clear();
     });
     _fetchDataAsync();
   }
@@ -185,46 +235,42 @@ class StartScreenState extends State<StartScreen>
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                return SmoothHorizontalScroll(
-                  controller: scrollController,
-                  builder: (context, smoothScrollController) {
-                    return InfiniteList(
-                      itemCount: items.length,
-                      scrollDirection: Axis.horizontal,
-                      scrollController: smoothScrollController,
-                      loadingBuilder: (context) => const ProgressRing(),
-                      centerLoading: true,
-                      centerEmpty: true,
-                      isLoading: isLoading,
-                      emptyBuilder: (context) => Center(
-                        child: initialized
-                            ? NoItems(
-                                title: "No collection found",
-                                hasRecommendation: false,
-                                reloadData: _reloadData,
-                                userGenerated: widget.userGenerated,
-                              )
-                            : Container(),
-                      ),
-                      onFetchData: _fetchDataAsync,
-                      hasReachedMax: isLastPage,
-                      itemBuilder: (context, index) {
-                        final item = items[index];
-                        return StartGroup<InternalCollection>(
-                          key: itemKeys[item.groupTitle]!,
-                          groupIndex: index,
-                          groupTitle: item.groupTitle,
-                          items: item.items,
-                          constraints: constraints,
-                          onTitleTap: () {
-                            showGroupListDialog(context);
-                          },
-                          itemBuilder: (context, item) =>
-                              widget.itemBuilder(context, item, _reloadData),
-                        );
+            return SmoothHorizontalScroll(
+              controller: scrollController,
+              builder: (context, smoothScrollController) {
+                return InfiniteList(
+                  itemCount: items.length,
+                  scrollDirection: Axis.horizontal,
+                  scrollController: smoothScrollController,
+                  loadingBuilder: (context) => const ProgressRing(),
+                  centerLoading: true,
+                  centerEmpty: true,
+                  isLoading: isLoading,
+                  emptyBuilder: (context) => Center(
+                    child: initialized
+                        ? NoItems(
+                            title: "No collection found",
+                            hasRecommendation: false,
+                            reloadData: _reloadData,
+                            userGenerated: widget.userGenerated,
+                          )
+                        : Container(),
+                  ),
+                  onFetchData: _fetchDataAsync,
+                  hasReachedMax: isLastPage,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    return StartGroup<InternalCollection>(
+                      key: ValueKey(item.groupTitle),
+                      groupIndex: index,
+                      groupTitle: item.groupTitle,
+                      items: item.items,
+                      constraints: widget.constraints,
+                      onTitleTap: () {
+                        showGroupListDialog(context);
                       },
+                      itemBuilder: (context, item) =>
+                          widget.itemBuilder(context, item, _reloadData),
                     );
                   },
                 );

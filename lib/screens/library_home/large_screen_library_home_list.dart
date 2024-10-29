@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -103,7 +104,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                               StartGroupGroupLayoutVariation.stacked,
                           gridLayoutVariation:
                               StartGroupGridLayoutVariation.initial,
-                          gapSize: 12,
+                          gapSize: defaultGapSize,
                           onTitleTap: () {},
                           itemBuilder: (context, item) {
                             return LinkTile(
@@ -125,7 +126,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                     StartGroupGroupLayoutVariation.stacked,
                                 gridLayoutVariation:
                                     StartGroupGridLayoutVariation.square,
-                                gapSize: 12,
+                                gapSize: defaultGapSize,
                                 onTitleTap: () => {
                                   context
                                       .push('/${item.groupTitle.toLowerCase()}')

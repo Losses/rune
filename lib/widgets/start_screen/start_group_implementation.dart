@@ -5,7 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import 'start_group_item.dart';
 
-class StartGroupItems<T> extends StatelessWidget {
+class StartGroupImplementation<T> extends StatelessWidget {
   final double cellSize;
   final double gapSize;
   final List<T> items;
@@ -16,7 +16,7 @@ class StartGroupItems<T> extends StatelessWidget {
   final Dimensions Function(double, double, double, List<T>)
       dimensionCalculator;
 
-  const StartGroupItems({
+  const StartGroupImplementation({
     super.key,
     required this.cellSize,
     required this.gapSize,
@@ -27,7 +27,7 @@ class StartGroupItems<T> extends StatelessWidget {
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? defaultDimensionCalculator;
 
-  const StartGroupItems.square({
+  const StartGroupImplementation.square({
     super.key,
     required this.cellSize,
     required this.gapSize,
@@ -38,19 +38,29 @@ class StartGroupItems<T> extends StatelessWidget {
   }) : dimensionCalculator = squareDimensionCalculator;
 
   static Dimensions defaultDimensionCalculator(
-      double containerHeight, double cellSize, double gapSize, List items) {
-    final int rows = ((containerHeight - 24) / (cellSize + gapSize))
-        .floor()
-        .clamp(1, 0x7FFFFFFFFFFFFFFF);
+    double containerHeight,
+    double cellSize,
+    double gapSize,
+    List items,
+  ) {
+    final int rows = max(
+      ((containerHeight - 24) / (cellSize + gapSize)).floor(),
+      1,
+    );
     final int columns = (items.length / rows).ceil();
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
   static Dimensions squareDimensionCalculator(
-      double containerHeight, double cellSize, double gapSize, List items) {
-    final int rows = ((containerHeight - 32) / (cellSize + gapSize))
-        .floor()
-        .clamp(1, 0x7FFFFFFFFFFFFFFF);
+    double containerHeight,
+    double cellSize,
+    double gapSize,
+    List items,
+  ) {
+    final int rows = max(
+      ((containerHeight - 32) / (cellSize + gapSize)).floor(),
+      1,
+    );
     final int maxItems =
         min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
     final int columns = min((maxItems / rows).ceil(), rows);

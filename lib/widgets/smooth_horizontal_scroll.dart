@@ -29,6 +29,10 @@ class SmoothScrollController extends ScrollController {
     _lerpController.lerp(targetOffset);
   }
 
+  void scrollTo(double x) {
+    _lerpController.lerp(x);
+  }
+
   @override
   void dispose() {
     _lerpController.dispose();

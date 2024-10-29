@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../screens/library_home/constants/first_column.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/turntile/link_turntile.dart';
 import '../../widgets/turntile/turntile_group.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -37,7 +38,7 @@ class LibraryHomeListState extends State<SmallScreenLibraryHomeListView> {
           groupIndex: 0,
           items: smallScreenFirstColumn,
           gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
-          gapSize: 12,
+          gapSize: defaultGapSize,
           onTitleTap: () {},
           itemBuilder: (context, item) {
             return LinkTurntile(

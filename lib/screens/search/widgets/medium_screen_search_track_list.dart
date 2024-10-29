@@ -1,8 +1,11 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../screens/search/widgets/search_card.dart';
-import 'large_screen_search_track_list_implementation.dart';
 import '../../../messages/collection.pb.dart';
+
+import 'large_screen_search_track_list_implementation.dart';
 
 class MediumScreenSearchTrackList extends StatelessWidget {
   final Map<CollectionType, List<SearchCard>> items;
@@ -27,9 +30,10 @@ class MediumScreenSearchTrackList extends StatelessWidget {
 
               const ratio = 4 / 1;
 
-              final int rows = (constraints.maxWidth / (cellSize + gapSize))
-                  .floor()
-                  .clamp(1, 0x7FFFFFFFFFFFFFFF);
+              final int rows = max(
+                (constraints.maxWidth / (cellSize + gapSize)).floor(),
+                1,
+              );
 
               return Column(
                 mainAxisAlignment: MainAxisAlignment.start,
