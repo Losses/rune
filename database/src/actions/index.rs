@@ -41,7 +41,7 @@ pub async fn index_media_files(
             } else {
                 let inserted_artist = artists::Entity::insert(artist).exec(&txn).await?;
                 add_term(
-                    main_db,
+                    &txn,
                     CollectionType::Artist,
                     inserted_artist.last_insert_id,
                     &artist_name.clone(),
@@ -88,7 +88,7 @@ pub async fn index_media_files(
         } else {
             let inserted_album = albums::Entity::insert(album).exec(&txn).await?;
             add_term(
-                main_db,
+                &txn,
                 CollectionType::Album,
                 inserted_album.last_insert_id,
                 &album_name.clone(),
