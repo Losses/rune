@@ -75,9 +75,9 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
   Widget build(BuildContext context) {
     return DeviceTypeBuilder(
       deviceType: const [
-        DeviceType.dock,
-        DeviceType.belt,
         DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
         DeviceType.zune,
         DeviceType.tv
       ],

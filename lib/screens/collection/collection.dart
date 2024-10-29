@@ -18,9 +18,9 @@ class CollectionPage extends StatelessWidget {
     return PageContentFrame(
       child: DeviceTypeBuilder(
         deviceType: const [
+          DeviceType.band,
           DeviceType.belt,
           DeviceType.dock,
-          DeviceType.band,
           DeviceType.zune,
           DeviceType.tv
         ],
