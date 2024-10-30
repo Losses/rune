@@ -335,7 +335,7 @@ pub async fn process_files(
                                         description.file_name.clone(),
                                     )
                                 }) {
-                                Ok(_) => {},
+                                Ok(_) => {}
                                 Err(e) => error!("{:?}", e),
                             };
                         }
@@ -482,7 +482,8 @@ where
             CollectionType::Track,
             inserted_file.last_insert_id,
             value,
-        ).await?;
+        )
+        .await?;
     }
 
     let file_id = inserted_file.last_insert_id;
@@ -510,10 +511,7 @@ where
     Ok(())
 }
 
-async fn clean_up_database(
-    main_db: &DatabaseConnection,
-    root_path: &Path,
-) -> Result<()> {
+async fn clean_up_database(main_db: &DatabaseConnection, root_path: &Path) -> Result<()> {
     let db_files = media_files::Entity::find().all(main_db).await?;
 
     for db_file in db_files {
@@ -626,7 +624,7 @@ pub struct MetadataSummary {
     pub artist: String,
     pub album: String,
     pub title: String,
-    pub track_number: Option<i32>,
+    pub track_number: i32,
     pub duration: f64,
     pub cover_art_id: Option<i32>,
 }
@@ -641,11 +639,15 @@ pub async fn get_metadata_summary_by_files(
 
     // Fetch all metadata entries for the given file IDs
     let metadata_entries: Vec<media_metadata::Model> = media_metadata::Entity::find()
-        .filter(
-            media_metadata::Column::FileId
-                .is_in(file_ids.clone())
-                .and(media_metadata::Column::MetaKey.is_in(["artist", "album", "track_title"])),
-        )
+        .filter(media_metadata::Column::FileId.is_in(file_ids.clone()).and(
+            media_metadata::Column::MetaKey.is_in([
+                "artist",
+                "album",
+                "track_title",
+                "disc_number",
+                "track_number",
+            ]),
+        ))
         .all(db)
         .await?;
 
@@ -668,6 +670,18 @@ pub async fn get_metadata_summary_by_files(
 
         let cover_art_id = file.cover_art_id;
 
+        let parsed_disk_number = metadata
+            .get("disc_number")
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(0);
+
+        let parsed_track_number = metadata
+            .get("track_number")
+            .and_then(|s| s.parse::<i32>().ok())
+            .unwrap_or(0);
+
+        let track_number = parsed_disk_number * 1000 + parsed_track_number;
+
         let summary = MetadataSummary {
             id: file_id,
             directory: file.directory.clone(),
@@ -675,10 +689,7 @@ pub async fn get_metadata_summary_by_files(
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
             title: metadata.get("track_title").cloned().unwrap_or_default(),
-            track_number: metadata
-                .get("track_number")
-                .map(|s| s.parse::<i32>().ok())
-                .unwrap_or(None),
+            track_number,
             duration: duration.to_f64().expect("Unable to convert track duration"),
             cover_art_id: if cover_art_id == magic_cover_art_id {
                 None

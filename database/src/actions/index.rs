@@ -107,7 +107,7 @@ pub async fn index_media_files(
             id: ActiveValue::NotSet,
             media_file_id: Set(summary.id),
             album_id: Set(album_id),
-            track_number: Set(summary.track_number),
+            track_number: Set(Some(summary.track_number)),
         };
 
         media_file_albums::Entity::insert(media_file_album)

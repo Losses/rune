@@ -189,7 +189,7 @@ async fn main() {
                             summary.artist,
                             summary.album,
                             summary.title,
-                            summary.track_number.unwrap_or_default(),
+                            summary.track_number,
                             summary.duration,
                             summary.cover_art_id.unwrap_or_default()
                         ]);
