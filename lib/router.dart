@@ -210,16 +210,16 @@ final router = GoRouter(
 
         final showDisk = isZune || isCar;
 
+        if (crash.report != null) {
+          return Bsod(report: crash.report!);
+        }
+
         if (library.currentPath == null) {
           return const welcome.WelcomePage();
         }
 
         if (library.scanning) {
           return const welcome.ScanningPage();
-        }
-
-        if (crash.report != null) {
-          return Bsod(report: crash.report!);
         }
 
         final mainContent = FocusTraversalOrder(

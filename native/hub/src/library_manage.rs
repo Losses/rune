@@ -67,55 +67,62 @@ pub async fn scan_audio_library_request(
     let request = dart_signal.message.clone();
     let main_db_clone = Arc::clone(&main_db);
 
-    task::spawn_blocking(move || {
+    let _ = task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             let path = request.path.clone();
-            let file_processed = scan_audio_library(
-                &main_db_clone,
-                Path::new(&path.clone()),
-                true,
-                |progress| {
-                    ScanAudioLibraryProgress {
-                        task: 0,
-                        path: path.clone(),
-                        progress: progress.try_into().unwrap(),
-                        total: 0,
-                    }
-                    .send_signal_to_dart()
-                },
-                Some(new_token.clone()),
-            )
-            .await
-            .unwrap();
+            let result: Result<()> = async {
+                let file_processed = scan_audio_library(
+                    &main_db_clone,
+                    Path::new(&path.clone()),
+                    true,
+                    |progress| {
+                        ScanAudioLibraryProgress {
+                            task: 0,
+                            path: path.clone(),
+                            progress: progress.try_into().unwrap(),
+                            total: 0,
+                        }
+                        .send_signal_to_dart()
+                    },
+                    Some(new_token.clone()),
+                )
+                .await?;
 
-            let batch_size = determine_batch_size();
+                let batch_size = determine_batch_size();
 
-            scan_cover_arts(
-                &main_db_clone,
-                Path::new(&path.clone()),
-                batch_size,
-                move |now, total| {
-                    ScanAudioLibraryProgress {
-                        task: 1,
-                        path: path.clone(),
-                        progress: now.try_into().unwrap(),
-                        total: total.try_into().unwrap(),
-                    }
-                    .send_signal_to_dart()
-                },
-                None,
-            )
-            .await
-            .unwrap();
+                scan_cover_arts(
+                    &main_db_clone,
+                    Path::new(&path.clone()),
+                    batch_size,
+                    move |now, total| {
+                        ScanAudioLibraryProgress {
+                            task: 1,
+                            path: path.clone(),
+                            progress: now.try_into().unwrap(),
+                            total: total.try_into().unwrap(),
+                        }
+                        .send_signal_to_dart()
+                    },
+                    None,
+                )
+                .await?;
 
-            ScanAudioLibraryResponse {
-                path: request.path.clone(),
-                progress: file_processed as i32,
+                ScanAudioLibraryResponse {
+                    path: request.path.clone(),
+                    progress: file_processed as i32,
+                }
+                .send_signal_to_dart();
+
+                Ok(())
             }
-            .send_signal_to_dart();
-        });
-    });
+            .await;
+
+            result?;
+            Ok::<(), anyhow::Error>(())
+        })
+    })
+    .await?;
 
     Ok(())
 }
