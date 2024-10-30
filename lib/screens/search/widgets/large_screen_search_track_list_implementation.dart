@@ -30,7 +30,6 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView(
-      physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: rows,
