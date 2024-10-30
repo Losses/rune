@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -39,26 +40,32 @@ class LargeScreenSettingsHomeListViewState
         builder: (context, scrollController) => SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           controller: scrollController,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              StartGroup<(String, String, IconData, bool)>(
-                groupIndex: 0,
-                groupTitle: 'Explore',
-                items: firstColumn,
-                groupLayoutVariation: StartGroupGroupLayoutVariation.stacked,
-                gridLayoutVariation: StartGroupGridLayoutVariation.initial,
-                gapSize: 12,
-                onTitleTap: () {},
-                itemBuilder: (context, item) {
-                  return LinkTile(
-                    title: item.$1,
-                    path: item.$2,
-                    icon: item.$3,
-                  );
-                },
-              ),
-            ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.start,
+                children: [
+                  StartGroup<(String, String, IconData, bool)>(
+                    groupIndex: 0,
+                    groupTitle: 'Explore',
+                    items: firstColumn,
+                    constraints: constraints,
+                    groupLayoutVariation:
+                        StartGroupGroupLayoutVariation.stacked,
+                    gridLayoutVariation: StartGroupGridLayoutVariation.initial,
+                    gapSize: defaultGapSize,
+                    onTitleTap: () {},
+                    itemBuilder: (context, item) {
+                      return LinkTile(
+                        title: item.$1,
+                        path: item.$2,
+                        icon: item.$3,
+                      );
+                    },
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),

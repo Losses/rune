@@ -1,9 +1,11 @@
-use anyhow::Result;
-use metadata::describe::FileDescription;
-use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
 use std::collections::HashMap;
 use std::path::Path;
+
+use anyhow::Result;
+use metadata::describe::FileDescription;
+use rust_decimal::prelude::ToPrimitive;
+use sea_orm::entity::prelude::*;
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
 
 use migration::{Func, SimpleExpr};
 
@@ -172,7 +174,7 @@ pub async fn get_duration_by_file_id(
         .await?;
 
     if let Some(entry) = analysis_entry {
-        Ok(entry.duration)
+        Ok(entry.duration.to_f64().unwrap())
     } else {
         Err(sea_orm::DbErr::RecordNotFound(
             "Analysis record not found".to_string(),

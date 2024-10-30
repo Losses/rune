@@ -26,7 +26,7 @@ if (flutterVersionName == null) {
 android {
     namespace = "ci.not.rune"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.1.12297006"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -56,9 +56,21 @@ android {
     // in short, we copy the libc++_shared.so from NDK to JniLibs and clean it after assembling
     afterEvaluate {
         def ndkDir = android.ndkDirectory
-        def libCppDir = "$ndkDir/sources/cxx-stl/llvm-libc++/libs"
+        def prebuiltDir = new File("$ndkDir/toolchains/llvm/prebuilt")
+        def platformFolder = prebuiltDir.listFiles().find { it.isDirectory() }?.name
+        if (platformFolder == null) {
+            throw new Exception("Unable to find prebuilt folder in NDK directory: $prebuiltDir")
+        }
+        def libCppDir = "$ndkDir/toolchains/llvm/prebuilt/$platformFolder/sysroot/usr/lib"
         def jniLibsDir = "$projectDir/src/main/jniLibs"
+        // newer NDK versions put the abi in clang target arch folders, thus we need to map the abi to the target arch
         def abis = ["armeabi-v7a", "arm64-v8a", "x86", "x86_64"]
+        def abiToTargetMap = [
+            "arm64-v8a": "aarch64-linux-android",
+            "armeabi-v7a": "arm-linux-androideabi",
+            "x86": "i686-linux-android",
+            "x86_64": "x86_64-linux-android"
+        ]
 
         // clean JniLibs before and after merge, ensuring that the libc++_shared.so is always up-to-date.
         task cleanJniLibs {
@@ -67,7 +79,7 @@ android {
                     def libcSoDest = file("$jniLibsDir/$abi/libc++_shared.so")
                     if (libcSoDest.exists()) {
                         println "Deleting $libcSoDest"
-                        libcSoDest.delete() // 构建前清理文件
+                        libcSoDest.delete() // Cleanup files before building
                     }
                 }
             }
@@ -78,7 +90,7 @@ android {
             doLast {
                 println "Now let's make libhub.so happy ;)"
                 abis.each { abi ->
-                    def libcSoSrc = file("$libCppDir/$abi/libc++_shared.so")
+                    def libcSoSrc = file("$libCppDir/${abiToTargetMap[abi]}/libc++_shared.so")
                     def libcSoDest = file("$jniLibsDir/$abi/libc++_shared.so")
                     if (libcSoSrc.exists()) {
                         println "Copying $libcSoSrc to $libcSoDest"

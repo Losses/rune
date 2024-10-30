@@ -2,11 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import './normal_layout.dart';
 import './stacked_layout.dart';
-import './start_group_items.dart';
+import 'start_group_implementation.dart';
 
 enum StartGroupGridLayoutVariation { initial, square }
 
 enum StartGroupGroupLayoutVariation { normal, stacked }
+
+const double defaultCellSize = 120;
 
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
@@ -15,6 +17,7 @@ class StartGroup<T> extends StatelessWidget {
   final Widget Function(BuildContext, T) itemBuilder;
   final StartGroupGridLayoutVariation gridLayoutVariation;
   final StartGroupGroupLayoutVariation groupLayoutVariation;
+  final BoxConstraints constraints;
 
   final double gapSize;
   final VoidCallback? onTitleTap;
@@ -25,6 +28,7 @@ class StartGroup<T> extends StatelessWidget {
     required this.groupTitle,
     required this.items,
     required this.itemBuilder,
+    required this.constraints,
     this.gapSize = 4,
     this.onTitleTap,
     this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
@@ -62,20 +66,22 @@ class StartGroup<T> extends StatelessWidget {
   Widget _buildStartGroupItems() {
     switch (gridLayoutVariation) {
       case StartGroupGridLayoutVariation.square:
-        return StartGroupItems<T>.square(
-          cellSize: 120,
+        return StartGroupImplementation<T>.square(
+          cellSize: defaultCellSize,
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
+          constraints: constraints,
           itemBuilder: itemBuilder,
         );
       case StartGroupGridLayoutVariation.initial:
       default:
-        return StartGroupItems<T>(
-          cellSize: 120,
+        return StartGroupImplementation<T>(
+          cellSize: defaultCellSize,
           gapSize: gapSize,
           items: items,
           groupIndex: groupIndex,
+          constraints: constraints,
           itemBuilder: itemBuilder,
         );
     }

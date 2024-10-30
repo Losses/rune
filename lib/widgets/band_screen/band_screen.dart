@@ -1,12 +1,15 @@
 import 'dart:async';
 
-import 'package:rune/widgets/turntile/managed_turntile_screen_item.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/infinite_list_loading.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/turntile/managed_turntile_screen_item.dart';
+import '../../providers/responsive_providers.dart';
 
 import '../start_screen/utils/group.dart';
 import '../start_screen/utils/internal_collection.dart';
@@ -98,46 +101,77 @@ class BandScreenState extends State<BandScreen> {
             final List<InternalCollection> flattenItems =
                 items.expand((x) => x.items).toList();
 
-            return InfiniteList(
-              itemCount: flattenItems.length,
-              loadingBuilder: (context) => const ProgressRing(),
-              centerLoading: true,
-              centerEmpty: true,
-              isLoading: isLoading,
-              emptyBuilder: (context) => Center(
-                child: initialized
-                    ? NoItems(
-                        title: "No collection found",
-                        hasRecommendation: false,
-                        reloadData: _reloadData,
-                        userGenerated: widget.userGenerated,
-                      )
-                    : Container(),
-              ),
-              onFetchData: _fetchData,
-              hasReachedMax: isLastPage,
-              itemBuilder: (context, index) {
-                final item = flattenItems[index];
-                return ManagedTurntileScreenItem(
-                  groupId: 0,
-                  row: index,
-                  column: 1,
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 2,
-                        vertical: 1,
-                      ),
-                      child: widget.itemBuilder(context, item, _reloadData),
-                    ),
-                  ),
-                );
+            return DeviceTypeBuilder(
+              deviceType: const [
+                DeviceType.band,
+                DeviceType.belt,
+                DeviceType.dock,
+                DeviceType.tv
+              ],
+              builder: (context, deviceType) {
+                if (deviceType == DeviceType.band) {
+                  return SmoothHorizontalScroll(
+                    builder: (context, controller) {
+                      return buildList(deviceType, flattenItems, controller);
+                    },
+                  );
+                } else {
+                  return buildList(deviceType, flattenItems, null);
+                }
               },
             );
           }
         },
       ),
+    );
+  }
+
+  InfiniteList buildList(
+    DeviceType deviceType,
+    List<InternalCollection> flattenItems,
+    ScrollController? scrollController,
+  ) {
+    return InfiniteList(
+      scrollController: scrollController,
+      scrollDirection:
+          deviceType == DeviceType.band || deviceType == DeviceType.belt
+              ? Axis.horizontal
+              : Axis.vertical,
+      itemCount: flattenItems.length,
+      loadingBuilder: (context) => const InfiniteListLoading(),
+      centerLoading: true,
+      centerEmpty: true,
+      isLoading: isLoading,
+      emptyBuilder: (context) => Center(
+        child: initialized
+            ? NoItems(
+                title: "No collection found",
+                hasRecommendation: false,
+                reloadData: _reloadData,
+                userGenerated: widget.userGenerated,
+              )
+            : Container(),
+      ),
+      onFetchData: _fetchData,
+      hasReachedMax: isLastPage,
+      itemBuilder: (context, index) {
+        final item = flattenItems[index];
+        return ManagedTurntileScreenItem(
+          groupId: 0,
+          row: index,
+          column: 1,
+          child: AspectRatio(
+            aspectRatio: 1,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 2,
+                vertical: 1,
+              ),
+              child: widget.itemBuilder(context, item, _reloadData),
+            ),
+          ),
+        );
+      },
     );
   }
 }

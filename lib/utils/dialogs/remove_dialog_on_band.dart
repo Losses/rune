@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -17,42 +19,50 @@ class RemoveDialogOnBand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SmallerOrEqualTo(
-      breakpoint: DeviceType.dock,
-      builder: (context, isDock) {
-        if (isDock) {
-          return Column(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              IconButton(
-                icon: LayoutBuilder(
-                  builder: (context, constraint) {
-                    return Icon(
-                      icon ?? Symbols.delete,
-                      color: Colors.warningPrimaryColor,
-                      size: (constraint.maxWidth * 0.8).clamp(0, 48),
-                    );
-                  },
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.dock,
+        DeviceType.belt,
+        DeviceType.tv
+      ],
+      builder: (context, activeBreakpoint) {
+        if (activeBreakpoint == DeviceType.band ||
+            activeBreakpoint == DeviceType.belt ||
+            activeBreakpoint == DeviceType.dock) {
+          return LayoutBuilder(
+            builder: (context, constraint) {
+              final size = min(constraint.maxWidth, constraint.maxHeight);
+
+              final children = [
+                IconButton(
+                  icon: Icon(
+                    icon ?? Symbols.delete,
+                    color: Colors.warningPrimaryColor,
+                    size: (size * 0.8).clamp(0, 48),
+                  ),
+                  onPressed: onConfirm,
                 ),
-                onPressed: onConfirm,
-              ),
-              LayoutBuilder(builder: (context, constraint) {
-                return SizedBox(height: constraint.maxWidth * 0.2);
-              }),
-              IconButton(
-                icon: LayoutBuilder(
-                  builder: (context, constraint) {
-                    return Icon(
-                      icon ?? Symbols.close,
-                      size: (constraint.maxWidth * 0.2).clamp(0, 32),
-                    );
-                  },
+                SizedBox(height: size * 0.2, width: size * 0.2),
+                IconButton(
+                  icon: Icon(
+                    icon ?? Symbols.close,
+                    size: (size * 0.2).clamp(0, 32),
+                  ),
+                  onPressed: () => Navigator.pop(context, null),
                 ),
-                onPressed: () => Navigator.pop(context, null),
-              ),
-            ],
+              ];
+
+              return Flex(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                direction: activeBreakpoint == DeviceType.dock
+                    ? Axis.vertical
+                    : Axis.horizontal,
+                children: children,
+              );
+            },
           );
         }
 

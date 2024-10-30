@@ -17,6 +17,7 @@ use playback::player::Player;
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::OperatePlaybackWithMixQueryResponse;
 use crate::PlaylistOperateMode;
+use crate::SetRealtimeFftEnabledRequest;
 use crate::VolumeRequest;
 use crate::VolumeResponse;
 use crate::{
@@ -167,6 +168,18 @@ pub async fn move_playlist_item_request(
         .lock()
         .await
         .move_playlist_item(old_index.try_into()?, new_index.try_into()?);
+
+    Ok(())
+}
+
+pub async fn set_realtime_fft_enabled_request(
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<SetRealtimeFftEnabledRequest>,
+) -> Result<()> {
+    let request = dart_signal.message;
+    let enabled = request.enabled;
+
+    player.lock().await.set_realtime_fft_enabled(enabled);
 
     Ok(())
 }

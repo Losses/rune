@@ -33,15 +33,17 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
-      child: SmallerOrEqualTo(
-        breakpoint: DeviceType.dock,
-        builder: (context, isDock) {
+      child: DeviceTypeBuilder(
+        deviceType: const [DeviceType.dock, DeviceType.band, DeviceType.tv],
+        builder: (context, activeBreakpoint) {
+          final isMini = activeBreakpoint == DeviceType.dock ||
+              activeBreakpoint == DeviceType.band;
           return PageContentFrame(
-            top: isDock,
+            top: isMini,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (!isDock)
+                if (!isMini)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
                     child: Transform.scale(

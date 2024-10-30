@@ -2,14 +2,13 @@ use std::collections::HashSet;
 
 use anyhow::bail;
 use anyhow::Result;
+use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
-use chrono::Utc;
 
 use crate::actions::search::CollectionType;
 use crate::actions::search::{add_term, remove_term};
-use crate::connection::SearchDbConnection;
 use crate::entities::{media_file_playlists, playlists};
 use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
 
@@ -51,7 +50,6 @@ get_first_n!(list_playlists, playlists);
 /// * `Result<Model>` - The created playlist model or an error.
 pub async fn create_playlist(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     name: String,
     group: String,
 ) -> Result<playlists::Model> {
@@ -70,13 +68,12 @@ pub async fn create_playlist(
     let inserted_playlist = new_playlist.insert(main_db).await?;
 
     add_term(
-        search_db,
+        main_db,
         CollectionType::Playlist,
         inserted_playlist.id,
         &name.clone(),
-    );
-
-    search_db.w.commit().unwrap();
+    )
+    .await?;
 
     Ok(inserted_playlist)
 }
@@ -112,7 +109,6 @@ pub async fn get_all_playlists(db: &DatabaseConnection) -> Result<Vec<playlists:
 /// * `Result<Model>` - The updated playlist model or an error.
 pub async fn update_playlist(
     main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
     playlist_id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -139,13 +135,12 @@ pub async fn update_playlist(
         let updated_playlist = active_model.update(main_db).await?;
 
         add_term(
-            search_db,
+            main_db,
             CollectionType::Playlist,
             updated_playlist.id,
             &updated_playlist.name.clone(),
-        );
-
-        search_db.w.commit().unwrap();
+        )
+        .await?;
 
         Ok(updated_playlist)
     } else {
@@ -162,11 +157,7 @@ pub async fn update_playlist(
 ///
 /// # Returns
 /// * `Result<()>` - An empty result or an error.
-pub async fn remove_playlist(
-    main_db: &DatabaseConnection,
-    search_db: &mut SearchDbConnection,
-    playlist_id: i32,
-) -> Result<()> {
+pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> Result<()> {
     use media_file_playlists::Entity as MediaFilePlaylistEntity;
     use playlists::Entity as PlaylistEntity;
 
@@ -188,9 +179,7 @@ pub async fn remove_playlist(
         .await?;
 
     // Remove the playlist term from the search database
-    remove_term(search_db, CollectionType::Playlist, playlist_id);
-
-    search_db.w.commit().unwrap();
+    remove_term(main_db, CollectionType::Playlist, playlist_id).await?;
 
     Ok(())
 }

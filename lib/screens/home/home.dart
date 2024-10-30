@@ -14,11 +14,15 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   Future<void> showHistoryDialog(
-      BuildContext context, LibraryPathProvider provider) async {
+    BuildContext context,
+    LibraryPathProvider provider,
+  ) async {
+    List<String> allOpenedFiles = await provider.getAllOpenedFiles();
+    if (!context.mounted) return;
+
     showDialog(
       context: context,
       builder: (context) {
-        List<String> allOpenedFiles = provider.getAllOpenedFiles();
         return ContentDialog(
           title: const Text('Select from History'),
           content: SizedBox(

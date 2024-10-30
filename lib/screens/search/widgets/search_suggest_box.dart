@@ -1,11 +1,16 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/providers/responsive_providers.dart';
 
+import '../../../utils/settings_manager.dart';
+import '../../../utils/navigation/back_intent.dart';
 import '../../../messages/search.pb.dart';
+import '../../../providers/responsive_providers.dart';
+
+import '../utils/backspace_action.dart';
+
+final SettingsManager settingsManager = SettingsManager();
 
 class SearchSuggestBox extends StatefulWidget {
   final DeviceType deviceType;
@@ -33,20 +38,25 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
 
   List<String> suggestions = [];
 
-  final box = GetStorage();
-
   @override
   void initState() {
     super.initState();
     searchFocusNode.requestFocus();
 
-    // Load suggestions from storage
-    final storedSuggestions = box.read<List<dynamic>>('search_suggestions');
-    if (storedSuggestions != null) {
-      suggestions = List<String>.from(storedSuggestions);
-    }
-
     widget.controller.addListener(_onControllerChange);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Load suggestions from storage
+    settingsManager.getValue<List<dynamic>?>('search_suggestions').then((x) {
+      if (x != null && mounted) {
+        setState(() {
+          suggestions = List<String>.from(x);
+        });
+      }
+    });
   }
 
   @override
@@ -72,7 +82,7 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       if (suggestions.length > 64) {
         suggestions.removeAt(0); // Ensure we only keep the latest 64 queries
       }
-      box.write('search_suggestions', suggestions);
+      settingsManager.setValue('search_suggestions', suggestions);
     }
   }
 
@@ -90,32 +100,39 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       ),
     );
 
-    return AutoSuggestBox<String>(
-      key: searchKey,
-      focusNode: searchFocusNode,
-      controller: widget.controller,
-      unfocusedColor: Colors.transparent,
-      style: widget.deviceType == DeviceType.dock
-          ? theme.typography.caption
-          : null,
-      items: suggestions.map((suggestion) {
-        return AutoSuggestBoxItem<String>(
-          value: suggestion,
-          label: suggestion,
-          onSelected: () {
-            widget.controller.text = suggestion;
-            searchFocusNode.unfocus();
-            widget.registerSearchTask();
-          },
-        );
-      }).toList(),
-      clearButtonEnabled: widget.deviceType != DeviceType.tablet &&
-          widget.deviceType != DeviceType.dock,
-      leadingIcon: widget.deviceType == DeviceType.tablet ? icon : null,
-      trailingIcon: widget.deviceType == DeviceType.tablet ||
-              widget.deviceType == DeviceType.dock
-          ? null
-          : icon,
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        BackIntent: BackSpaceAction(widget.controller),
+      },
+      child: AutoSuggestBox<String>(
+        key: searchKey,
+        focusNode: searchFocusNode,
+        controller: widget.controller,
+        unfocusedColor: Colors.transparent,
+        style: widget.deviceType == DeviceType.dock
+            ? theme.typography.caption
+            : null,
+        items: suggestions.map((suggestion) {
+          return AutoSuggestBoxItem<String>(
+            value: suggestion,
+            label: suggestion,
+            onSelected: () {
+              widget.controller.text = suggestion;
+              searchFocusNode.unfocus();
+              widget.registerSearchTask();
+            },
+          );
+        }).toList(),
+        clearButtonEnabled: widget.deviceType != DeviceType.tablet &&
+            widget.deviceType != DeviceType.dock &&
+            widget.deviceType != DeviceType.band,
+        leadingIcon: widget.deviceType == DeviceType.tablet ? icon : null,
+        trailingIcon: widget.deviceType == DeviceType.tablet ||
+                widget.deviceType == DeviceType.dock ||
+                widget.deviceType == DeviceType.band
+            ? null
+            : icon,
+      ),
     );
   }
 }

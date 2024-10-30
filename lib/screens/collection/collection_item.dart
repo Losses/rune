@@ -1,5 +1,5 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
 import '../../utils/router_name.dart';
@@ -12,20 +12,32 @@ import '../../widgets/start_screen/utils/internal_collection.dart';
 
 import '../../messages/collection.pb.dart';
 
-class CollectionItem extends StatelessWidget {
+class CollectionItem extends StatefulWidget {
   final InternalCollection collection;
   final CollectionType collectionType;
   final VoidCallback refreshList;
 
-  CollectionItem({
+  const CollectionItem({
     super.key,
     required this.collection,
     required this.collectionType,
     required this.refreshList,
   });
 
+  @override
+  State<CollectionItem> createState() => _CollectionItemState();
+}
+
+class _CollectionItemState extends State<CollectionItem> {
   final contextController = FlyoutController();
+
   final contextAttachKey = GlobalKey();
+
+  @override
+  dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
 
   List<String> filterDuplicates(List<String> input) {
     Set<String> seen = {};
@@ -59,19 +71,19 @@ class CollectionItem extends StatelessWidget {
             context,
             contextAttachKey,
             contextController,
-            collectionType,
-            collection.id,
-            refreshList,
+            widget.collectionType,
+            widget.collection.id,
+            widget.refreshList,
           );
         },
         child: FlipTile(
-          name: collection.name,
-          paths: filterDuplicates(collection.coverArtMap.values.toList()),
+          name: widget.collection.name,
+          paths: filterDuplicates(widget.collection.coverArtMap.values.toList()),
           emptyTileType: BoringAvatarType.bauhaus,
           onPressed: () {
             context.push(
-              '/${collectionTypeToRouterName(collectionType)}/${collection.id}',
-              extra: QueryTracksExtra(collection.name),
+              '/${collectionTypeToRouterName(widget.collectionType)}/${widget.collection.id}',
+              extra: QueryTracksExtra(widget.collection.name),
             );
           },
         ),

@@ -79,7 +79,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows.zip
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows-amd64.zip
           directory: artifacts
       
       - name: Release
@@ -166,7 +166,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux.zip
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux-amd64.zip
           directory: artifacts
           
       - name: Release

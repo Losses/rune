@@ -61,10 +61,14 @@ class PageContentFrameState extends State<PageContentFrame> {
 
     if (widget.right) {
       if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        bottom = 0;
-        if (widget.right) {
-          right = screen.height / 3 + inset.right;
-        }
+        bottom = inset.bottom;
+        right = screen.height / 3 + inset.right;
+      }
+    }
+
+    if (widget.left) {
+      if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
+        left = 24 + inset.left;
       }
     }
 

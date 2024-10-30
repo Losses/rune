@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use rinf::DartSignal;
-use tokio::sync::Mutex;
 
 use database::actions::playlists::add_item_to_playlist;
 use database::actions::playlists::create_playlist;
@@ -12,7 +11,6 @@ use database::actions::playlists::remove_playlist;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
 use database::connection::MainDbConnection;
-use database::connection::SearchDbConnection;
 
 use crate::RemovePlaylistRequest;
 use crate::RemovePlaylistResponse;
@@ -48,7 +46,6 @@ pub async fn fetch_all_playlists_request(
 
 pub async fn create_playlist_request(
     main_db: Arc<MainDbConnection>,
-    search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<CreatePlaylistRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
@@ -56,10 +53,7 @@ pub async fn create_playlist_request(
     let name = request.name;
     let group = request.group;
 
-    // Lock the mutex to get mutable access to the search_db
-    let mut search_db = search_db.lock().await;
-
-    let playlist = create_playlist(&main_db, &mut search_db, name.clone(), group.clone())
+    let playlist = create_playlist(&main_db, name.clone(), group.clone())
         .await
         .with_context(|| format!("Failed to create playlist: name={}, group={}", name, group))?;
 
@@ -77,7 +71,6 @@ pub async fn create_playlist_request(
 
 pub async fn update_playlist_request(
     main_db: Arc<MainDbConnection>,
-    search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<UpdatePlaylistRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
@@ -85,11 +78,8 @@ pub async fn update_playlist_request(
     let name = request.name;
     let group = request.group;
 
-    let mut search_db = search_db.lock().await;
-
     let playlist = update_playlist(
         &main_db,
-        &mut search_db,
         request.playlist_id,
         Some(name.clone()),
         Some(group.clone()),
@@ -116,14 +106,11 @@ pub async fn update_playlist_request(
 
 pub async fn remove_playlist_request(
     main_db: Arc<MainDbConnection>,
-    search_db: Arc<Mutex<SearchDbConnection>>,
     dart_signal: DartSignal<RemovePlaylistRequest>,
 ) -> Result<()> {
     let request = dart_signal.message;
 
-    let mut search_db = search_db.lock().await;
-
-    remove_playlist(&main_db, &mut search_db, request.playlist_id)
+    remove_playlist(&main_db, request.playlist_id)
         .await
         .with_context(|| format!("Removing playlist: id={}", request.playlist_id))?;
 

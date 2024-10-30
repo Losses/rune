@@ -24,8 +24,28 @@ class PlaybackStatusProvider with ChangeNotifier {
   }
 
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
-    _playbackStatus = signal.message;
-    notifyListeners();
+    final newStatus = signal.message;
+    if (_playbackStatus == null ||
+        !_isPlaybackStatusEqual(_playbackStatus!, newStatus)) {
+      _playbackStatus = newStatus;
+      notifyListeners();
+    }
+  }
+
+  bool _isPlaybackStatusEqual(
+      PlaybackStatus oldStatus, PlaybackStatus newStatus) {
+    return oldStatus.state == newStatus.state &&
+        oldStatus.progressSeconds == newStatus.progressSeconds &&
+        oldStatus.progressPercentage == newStatus.progressPercentage &&
+        oldStatus.artist == newStatus.artist &&
+        oldStatus.album == newStatus.album &&
+        oldStatus.title == newStatus.title &&
+        oldStatus.duration == newStatus.duration &&
+        oldStatus.index == newStatus.index &&
+        oldStatus.id == newStatus.id &&
+        oldStatus.playbackMode == newStatus.playbackMode &&
+        oldStatus.ready == newStatus.ready &&
+        oldStatus.coverArtPath == newStatus.coverArtPath;
   }
 
   bool get notReady {

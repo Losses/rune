@@ -70,7 +70,6 @@ dependencies:
   fixnum: ^1.1.0
   very_good_infinite_list: ^0.8.0
   flutter_fullscreen: ^1.0.1
-  window_manager: ^0.3.9
   device_info_plus: ^10.1.2
   macos_secure_bookmarks: ^0.2.1
 
@@ -99,6 +98,7 @@ flutter:
 
   shaders:
     - lib/shaders/gradient.frag
+    - lib/shaders/lens_flare.frag
 
   # To add assets to your application, add an assets section, like this:
   assets:
@@ -107,6 +107,13 @@ flutter:
     - assets/device-layer-1.svg
     - assets/device-layer-2.svg
     - assets/device-layer-3.svg
+    - assets/box.svg
+    - assets/disk-color.svg
+    - assets/disk-border.svg
+    - assets/disk-center.svg
+    - assets/branding-text.svg
+    - assets/startup_0.ogg
+    - assets/startup_1.ogg
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware

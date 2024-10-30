@@ -11,17 +11,20 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
+import 'utils/settings_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
 import 'config/app_title.dart';
+import 'config/shortcuts.dart';
 import 'config/navigation.dart';
 
-import 'config/shortcuts.dart';
+import 'screens/settings_theme/settings_theme.dart';
 
 import 'messages/generated.dart';
 
+import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/playlist.dart';
@@ -34,6 +37,8 @@ import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
 import 'router.dart';
+
+late bool disableBrandingAnimation;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -63,8 +68,20 @@ void main(List<String> arguments) async {
     debugPrint('Device is not Windows 10, skip the patch');
   }
 
-  final storage = GetStorage();
-  bool? storedFullScreen = storage.read<bool>('fullscreen_state');
+  final SettingsManager settingsManager = SettingsManager();
+
+  int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+
+  if (themeColor != null) {
+    appTheme.updateThemeColor(Color(themeColor));
+  }
+
+  disableBrandingAnimation =
+      await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
+          false;
+
+  bool? storedFullScreen =
+      await settingsManager.getValue<bool>('fullscreen_state');
   if (storedFullScreen != null) {
     FullScreen.setFullScreen(storedFullScreen);
   }
@@ -107,6 +124,7 @@ void main(List<String> arguments) async {
           update: (context, screenSizeProvider, previous) =>
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
+        ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),

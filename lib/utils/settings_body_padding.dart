@@ -9,8 +9,8 @@ class SettingsBodyPadding extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BreakpointBuilder(
-        breakpoints: const [DeviceType.phone, DeviceType.tv],
+    return DeviceTypeBuilder(
+        deviceType: const [DeviceType.phone, DeviceType.tv],
         builder: (context, deviceType) {
           return Padding(
             padding: EdgeInsets.symmetric(

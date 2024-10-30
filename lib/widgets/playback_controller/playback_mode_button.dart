@@ -60,12 +60,16 @@ PlaybackMode nextMode(PlaybackMode mode) {
 }
 
 class PlaybackModeButton extends StatelessWidget {
-  const PlaybackModeButton({super.key});
+  final List<Shadow>? shadows;
+  const PlaybackModeButton({
+    required this.shadows,
+    super.key,
+  });
 
   Future<PlaybackMode> getNextEnabledMode(PlaybackMode currentMode) async {
     // Retrieve disabled modes
     List<dynamic>? storedDisabledModes = await SettingsManager()
-        .getValue<List<dynamic>>('disabledPlaybackModes');
+        .getValue<List<dynamic>>('disabled_playback_modes');
     List<PlaybackMode> disabledModes = storedDisabledModes != null
         ? storedDisabledModes
             .map((index) => PlaybackMode.values[index])
@@ -99,7 +103,10 @@ class PlaybackModeButton extends StatelessWidget {
             final next = await getNextEnabledMode(currentMode);
             playMode(next.toValue());
           },
-          icon: Icon(modeToIcon(currentMode)),
+          icon: Icon(
+            modeToIcon(currentMode),
+            shadows: shadows,
+          ),
         );
       },
     );

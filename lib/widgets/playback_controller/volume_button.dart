@@ -6,7 +6,12 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../providers/volume.dart';
 
 class VolumeButton extends StatefulWidget {
-  const VolumeButton({super.key});
+  const VolumeButton({
+    super.key,
+    required this.shadows,
+  });
+
+  final List<Shadow>? shadows;
 
   @override
   VolumeButtonState createState() => VolumeButtonState();
@@ -41,6 +46,7 @@ class VolumeButtonState extends State<VolumeButton> {
                 : volumeProvider.volume > 0
                     ? Symbols.volume_down
                     : Symbols.volume_mute,
+            shadows: widget.shadows,
           ),
           onPressed: () {
             _flyoutController.showFlyout(

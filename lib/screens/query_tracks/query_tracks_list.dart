@@ -6,6 +6,7 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import '../../utils/query_list.dart';
 import '../../utils/api/query_mix_tracks.dart';
 import '../../config/animation.dart';
+import '../../widgets/belt_container.dart';
 import '../../widgets/track_list/band_screen_track_list.dart';
 import '../../widgets/track_list/large_screen_track_list.dart';
 import '../../widgets/track_list/small_screen_track_list.dart';
@@ -72,10 +73,27 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
 
   @override
   Widget build(BuildContext context) {
-    return BreakpointBuilder(
-      breakpoints: const [DeviceType.dock, DeviceType.zune, DeviceType.tv],
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.zune,
+        DeviceType.tv
+      ],
       builder: (context, activeBreakpoint) {
-        if (activeBreakpoint == DeviceType.dock) {
+        if (activeBreakpoint == DeviceType.belt) {
+          return BeltContainer(
+            child: BandScreenTrackList(
+              pagingController: _pagingController,
+              queries: widget.queries,
+              mode: widget.mode,
+            ),
+          );
+        }
+
+        if (activeBreakpoint == DeviceType.dock ||
+            activeBreakpoint == DeviceType.band) {
           return BandScreenTrackList(
             pagingController: _pagingController,
             queries: widget.queries,

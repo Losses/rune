@@ -16,10 +16,17 @@ message ScanAudioLibraryRequest {
     string path = 1;
 }
 
+enum ScanTaskType {
+  IndexFiles = 0;
+  ScanCoverArts = 1;
+}
+
 // [RUST-SIGNAL]
 message ScanAudioLibraryProgress {
     string path = 1;
     int32 progress = 2;
+    int32 total = 3;
+    ScanTaskType task = 4;
 }
 
 // [RUST-SIGNAL]
@@ -44,4 +51,22 @@ message AnalyseAudioLibraryProgress {
 message AnalyseAudioLibraryResponse {
     string path = 1;
     int32 total = 2;
+}
+
+enum CancelTaskType {
+  AnalyseAudioLibrary = 0;
+  ScanAudioLibrary = 1;
+}
+
+// [DART-SIGNAL]
+message CancelTaskRequest {
+    string path = 1;
+    CancelTaskType type = 2;
+}
+
+// [RUST-SIGNAL]
+message CancelTaskResponse {
+    string path = 1;
+    CancelTaskType type = 2;
+    bool success = 3;
 }

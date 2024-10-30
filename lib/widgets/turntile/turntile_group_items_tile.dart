@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/start_screen/start_group_item.dart';
@@ -30,7 +32,10 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     double gapSize,
     List items,
   ) {
-    final int columns = ((containerWidth / (cellSize + gapSize)).floor()).clamp(1, 0x7FFFFFFFFFFFFFFF);
+    final int columns = max(
+      ((containerWidth / (cellSize + gapSize)).floor()),
+      1,
+    );
     final int rows = (items.length / columns).ceil();
 
     return Dimensions(rows: rows, columns: columns, count: items.length);

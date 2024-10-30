@@ -1,9 +1,11 @@
 import 'dart:io' show Platform;
-import 'package:flutter/foundation.dart';
-import 'package:flutter_acrylic/flutter_acrylic.dart';
-import 'package:system_theme/system_theme.dart';
 
+import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:system_theme/system_theme.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:material_color_utilities/material_color_utilities.dart';
+
 
 enum NavigationIndicators { sticky, end }
 
@@ -12,6 +14,34 @@ class AppTheme extends ChangeNotifier {
   AccentColor get color => _color ?? systemAccentColor;
   set color(AccentColor color) {
     _color = color;
+    notifyListeners();
+  }
+
+  _getAccentColor(Color? color) {
+    if (color == null) {
+      _color = systemAccentColor;
+
+      return;
+    }
+
+    final colorScheme = Hct.fromInt(color.value);
+    final double h = colorScheme.hue;
+    final double c = colorScheme.chroma;
+    final double t = colorScheme.tone.clamp(40, 70);
+
+    return AccentColor.swatch({
+      'darkest': Color(Hct.from(h, c, t - 19).toInt()),
+      'darker': Color(Hct.from(h, c, t - 15).toInt()),
+      'dark': Color(Hct.from(h, c, t - 8).toInt()),
+      'normal': Color(Hct.from(h, c, t).toInt()),
+      'light': Color(Hct.from(h, c, t + 6).toInt()),
+      'lighter': Color(Hct.from(h, c, t + 13).toInt()),
+      'lightest': Color(Hct.from(h, c, t + 17).toInt()),
+    });
+  }
+
+  updateThemeColor(Color? color) {
+    _color = _getAccentColor(color);
     notifyListeners();
   }
 
@@ -24,8 +54,9 @@ class AppTheme extends ChangeNotifier {
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
-  WindowEffect windowEffect =
-      (Platform.isLinux || Platform.isAndroid) ? WindowEffect.solid : WindowEffect.mica;
+  WindowEffect windowEffect = (Platform.isLinux || Platform.isAndroid)
+      ? WindowEffect.solid
+      : WindowEffect.mica;
 
   TextDirection _textDirection = TextDirection.ltr;
   TextDirection get textDirection => _textDirection;

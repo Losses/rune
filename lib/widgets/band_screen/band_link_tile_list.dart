@@ -36,8 +36,8 @@ class BandLinkTileList extends StatelessWidget {
         )
         .toList();
 
-    return BreakpointBuilder(
-      breakpoints: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
+    return DeviceTypeBuilder(
+      deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
       builder: (context, deviceType) {
         if (deviceType == DeviceType.dock) {
           return SingleChildScrollView(

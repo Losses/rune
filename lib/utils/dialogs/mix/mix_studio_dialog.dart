@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
 
+import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../widgets/track_list/utils/internal_media_file.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../widgets/start_screen/providers/start_screen_layout_manager.dart';

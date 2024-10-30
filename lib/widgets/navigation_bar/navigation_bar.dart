@@ -1,12 +1,12 @@
 import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/navigation_bar/navigation_back_button.dart';
 
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'parent_link.dart';
@@ -88,7 +88,7 @@ class NavigationBarState extends State<NavigationBar> {
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
-      breakpoint: DeviceType.zune,
+      deviceType: DeviceType.zune,
       builder: (context, isZune) {
         final path = GoRouterState.of(context).fullPath;
         final item = navigationQuery.getItem(path, isZune);
@@ -101,7 +101,7 @@ class NavigationBarState extends State<NavigationBar> {
         final titleFlipKey = 'title:${parent?.path}';
 
         late Widget parentWidget = SmallerOrEqualTo(
-            breakpoint: DeviceType.fish,
+            deviceType: DeviceType.fish,
             builder: (context, isFish) {
               if (isFish) {
                 return const Padding(
@@ -142,7 +142,7 @@ class NavigationBarState extends State<NavigationBar> {
             validSlibings.indexWhere((route) => route == item);
 
         final childrenWidget = SmallerOrEqualTo(
-          breakpoint: DeviceType.fish,
+          deviceType: DeviceType.fish,
           builder: (context, isFish) {
             return SmoothHorizontalScroll(
               builder: (context, scrollController) => SingleChildScrollView(

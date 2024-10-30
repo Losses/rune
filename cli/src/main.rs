@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
 use database::actions::metadata::{empty_progress_callback, scan_audio_library};
-use database::connection::{connect_main_db, connect_recommendation_db, connect_search_db};
+use database::connection::{connect_main_db, connect_recommendation_db};
 use rune::analysis::*;
 use rune::playback::*;
 use rune::recommend::*;
@@ -147,37 +147,21 @@ async fn main() {
         }
     };
 
-    let mut search_db = match connect_search_db(lib_path) {
-        Ok(db) => db,
-        Err(e) => {
-            error!("Failed to connect to search database: {}", e);
-            return;
-        }
-    };
-
     match &cli.command {
         Commands::Scan => {
             let _ = scan_audio_library(
                 &main_db,
-                &mut search_db,
                 &path,
                 true,
                 empty_progress_callback,
                 None,
             )
             .await;
-            let _ = scan_cover_arts(
-                &main_db,
-                &path,
-                10,
-                |_now, _total| {},
-                None,
-            )
-            .await;
+            let _ = scan_cover_arts(&main_db, &path, 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }
         Commands::Index => {
-            index_audio_library(&main_db, &mut search_db).await;
+            index_audio_library(&main_db).await;
         }
         Commands::Analyze => {
             analyse_audio_library(&main_db, &analysis_db, &path).await;
@@ -229,7 +213,7 @@ async fn main() {
             )
             .await;
         }
-        Commands::Search { query, num } => match search_for(&mut search_db, query, None, *num) {
+        Commands::Search { query, num } => match search_for(&main_db, query, None, *num).await {
             Ok(results) => {
                 for (collection_type, ids) in results {
                     info!("{:?}: {:?}", collection_type, ids);

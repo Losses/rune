@@ -7,34 +7,21 @@ import 'small_screen_search_track_list_implementation.dart';
 
 class BandScreenSearchTrackList extends StatelessWidget {
   final Map<CollectionType, List<SearchCard>> items;
+  final Axis direction;
 
   const BandScreenSearchTrackList({
     super.key,
     required this.items,
+    this.direction = Axis.vertical,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.start,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            return Column(
-              mainAxisAlignment: MainAxisAlignment.start,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SmallScreenSearchTrackListImplementation(
-                  collectionType: CollectionType.Track,
-                  items: items[CollectionType.Track],
-                  groupId: 3,
-                ),
-              ],
-            );
-          },
-        ),
-      ],
+    return SmallScreenSearchTrackListImplementation(
+      collectionType: CollectionType.Track,
+      items: items[CollectionType.Track],
+      groupId: 3,
+      direction: direction,
     );
   }
 }

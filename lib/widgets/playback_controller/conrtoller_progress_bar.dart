@@ -28,11 +28,12 @@ class ControllerProgressBar extends StatelessWidget {
     final reduceCount = (hiddenIndex - 6).clamp(0, 5);
 
     return SmallerOrEqualTo(
-        breakpoint: DeviceType.tablet,
+        deviceType: DeviceType.tablet,
         builder: (context, isTable) {
           return Container(
-            constraints:
-                BoxConstraints(minWidth: 200, maxWidth: isTable ? 320 : 360 - reduceCount * 40),
+            constraints: BoxConstraints(
+                minWidth: 200,
+                maxWidth: isTable ? 320 : 360 - reduceCount * 40),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [

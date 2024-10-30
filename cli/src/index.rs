@@ -1,8 +1,8 @@
 use database::actions::index::index_audio_library as i;
-use database::connection::{MainDbConnection, SearchDbConnection};
+use database::connection::MainDbConnection;
 
-pub async fn index_audio_library(main_db: &MainDbConnection, search_db: &mut SearchDbConnection) {
-    match i(main_db, search_db, 50).await {
+pub async fn index_audio_library(main_db: &MainDbConnection) {
+    match i(main_db, 50).await {
         Ok(_) => {
             println!("Audio indexing completed successfully.");
         }

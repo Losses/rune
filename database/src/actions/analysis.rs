@@ -5,6 +5,8 @@ use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 use log::info;
 use paste::paste;
+use rust_decimal::prelude::FromPrimitive;
+use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
 use sea_orm::{ActiveValue, QueryOrder, QuerySelect};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
@@ -97,7 +99,7 @@ fn analysis_file(file: &media_files::Model, lib_path: &Path) -> Result<Normalize
 
     // Perform audio analysis
     let analysis_result = analyze_audio(
-        file_path.to_str().unwrap(),
+        file_path.to_str().expect("Unable to convert file path"),
         1024, // Example window size
         512,  // Example overlap size
     );
@@ -119,31 +121,31 @@ async fn insert_analysis_result(
 ) -> Result<()> {
     let mut new_analysis = media_analysis::ActiveModel {
         file_id: ActiveValue::Set(file_id),
-        rms: ActiveValue::Set(Some(result.raw.rms as f64)),
-        zcr: ActiveValue::Set(Some(result.zcr as f64)),
-        energy: ActiveValue::Set(Some(result.energy as f64)),
-        spectral_centroid: ActiveValue::Set(Some(result.spectral_centroid as f64)),
-        spectral_flatness: ActiveValue::Set(Some(result.spectral_flatness as f64)),
-        spectral_slope: ActiveValue::Set(Some(result.spectral_slope as f64)),
-        spectral_rolloff: ActiveValue::Set(Some(result.spectral_rolloff as f64)),
-        spectral_spread: ActiveValue::Set(Some(result.spectral_spread as f64)),
-        spectral_skewness: ActiveValue::Set(Some(result.spectral_skewness as f64)),
-        spectral_kurtosis: ActiveValue::Set(Some(result.spectral_kurtosis as f64)),
-        perceptual_spread: ActiveValue::Set(Some(result.raw.perceptual_spread as f64)),
-        perceptual_sharpness: ActiveValue::Set(Some(result.raw.perceptual_sharpness as f64)),
+        rms: ActiveValue::Set(Decimal::from_f32(result.raw.rms)),
+        zcr: ActiveValue::Set(Decimal::from_f32(result.zcr)),
+        energy: ActiveValue::Set(Decimal::from_f32(result.energy)),
+        spectral_centroid: ActiveValue::Set(Decimal::from_f32(result.spectral_centroid)),
+        spectral_flatness: ActiveValue::Set(Decimal::from_f32(result.spectral_flatness)),
+        spectral_slope: ActiveValue::Set(Decimal::from_f32(result.spectral_slope)),
+        spectral_rolloff: ActiveValue::Set(Decimal::from_f32(result.spectral_rolloff)),
+        spectral_spread: ActiveValue::Set(Decimal::from_f32(result.spectral_spread)),
+        spectral_skewness: ActiveValue::Set(Decimal::from_f32(result.spectral_skewness)),
+        spectral_kurtosis: ActiveValue::Set(Decimal::from_f32(result.spectral_kurtosis)),
+        perceptual_spread: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_spread)),
+        perceptual_sharpness: ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_sharpness)),
         ..Default::default()
     };
 
     seq!(N in 0..12 {
-        new_analysis.chroma~N = ActiveValue::Set(Some(result.chroma[N] as f64));
+        new_analysis.chroma~N = ActiveValue::Set(Decimal::from_f32(result.chroma[N]));
     });
 
     seq!(N in 0..24 {
-        new_analysis.perceptual_loudness~N = ActiveValue::Set(Some(result.raw.perceptual_loudness[N] as f64));
+        new_analysis.perceptual_loudness~N = ActiveValue::Set(Decimal::from_f32(result.raw.perceptual_loudness[N]));
     });
 
     seq!(N in 0..13 {
-        new_analysis.mfcc~N = ActiveValue::Set(Some(result.raw.mfcc[N] as f64));
+        new_analysis.mfcc~N = ActiveValue::Set(Decimal::from_f32(result.raw.mfcc[N]));
     });
 
     media_analysis::Entity::insert(new_analysis)
@@ -203,7 +205,7 @@ impl From<AggregatedAnalysisResult> for [f32; 61] {
 macro_rules! process_field {
     ($sum:expr, $count:expr, $result:expr, $field:ident) => {
         if let Some(value) = $result.$field {
-            $sum.$field += value;
+            $sum.$field += value.to_f64().expect("Unable to convert parameter");
             $count.$field += 1.0;
         }
     };
@@ -215,7 +217,7 @@ macro_rules! process_array {
         seq!(N in 0..$size {
             paste! {
                 if let Some(value) = $result.[<$field_prefix N>] {
-                    $sum.[<$field_prefix>][N] += value;
+                    $sum.[<$field_prefix>][N] += value.to_f64().expect("Unable to convert parameter");
                     $count.[<$field_prefix>][N] += 1.0;
                 }
             }

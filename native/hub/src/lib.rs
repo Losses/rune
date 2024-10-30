@@ -12,12 +12,14 @@ mod playback;
 mod player;
 mod playlist;
 mod search;
+mod sfx;
 mod stat;
 mod system;
 mod utils;
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -28,8 +30,8 @@ pub use tokio;
 
 use ::database::connection::connect_main_db;
 use ::database::connection::connect_recommendation_db;
-use ::database::connection::connect_search_db;
 use ::playback::player::Player;
+use ::playback::sfx_player::SfxPlayer;
 
 use crate::analyse::*;
 use crate::collection::*;
@@ -45,8 +47,10 @@ use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
 use crate::search::*;
+use crate::sfx::*;
 use crate::stat::*;
 use crate::system::*;
+use crate::utils::init_logging;
 
 macro_rules! select_signal {
     ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
@@ -68,8 +72,12 @@ macro_rules! select_signal {
                             if let Some(dart_signal) = dart_signal {
                                 debug!("Processing signal: {}", stringify!($type));
 
-                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await {
-                                    error!("{:?}", e)
+                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await.with_context(|| format!("Processing signal: {}", stringify!($type))) {
+                                    error!("{:?}", e);
+                                    CrashResponse {
+                                        detail: format!("{:#?}", e),
+                                    }
+                                    .send_signal_to_dart();
                                 };
                             }
                         }
@@ -81,56 +89,73 @@ macro_rules! select_signal {
     };
 }
 
+#[derive(Default)]
+struct TaskTokens {
+    scan_token: Option<CancellationToken>,
+    analyse_token: Option<CancellationToken>,
+}
+
 async fn player_loop(path: String) {
     info!("Media Library Received, initialize other receivers");
 
     tokio::spawn(async move {
         info!("Initializing database");
 
-        let main_db = match connect_main_db(&path).await {
+        let main_db = match connect_main_db(&path)
+            .await
+            .with_context(|| "Failed to connect to main DB")
+        {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to main DB: {}", e);
+                CrashResponse {
+                    detail: format!("{:#?}", e),
+                }
+                .send_signal_to_dart();
                 return;
             }
         };
 
-        let recommend_db = match connect_recommendation_db(&path) {
+        let recommend_db = match connect_recommendation_db(&path)
+            .with_context(|| "Failed to connect to recommendation DB")
+        {
             Ok(db) => Arc::new(db),
             Err(e) => {
                 error!("Failed to connect to recommendation DB: {}", e);
-                return;
-            }
-        };
-
-        let search_db = match connect_search_db(&path) {
-            Ok(db) => Arc::new(Mutex::new(db)),
-            Err(e) => {
-                error!("Failed to connect to search DB: {}", e);
+                CrashResponse {
+                    detail: format!("{:#?}", e),
+                }
+                .send_signal_to_dart();
                 return;
             }
         };
 
         let lib_path = Arc::new(path);
 
-        let cancel_token = CancellationToken::new();
+        let main_cancel_token = CancellationToken::new();
+        let task_tokens = Arc::new(Mutex::new(TaskTokens::default()));
 
         info!("Initializing player");
-        let player = Player::new(Some(cancel_token.clone()));
+        let player = Player::new(Some(main_cancel_token.clone()));
         let player = Arc::new(Mutex::new(player));
 
-        let cancel_token = Arc::new(cancel_token);
+        let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
+        let sfx_player = Arc::new(Mutex::new(sfx_player));
+
+        let main_cancel_token = Arc::new(main_cancel_token);
 
         info!("Initializing Player events");
         tokio::spawn(initialize_player(main_db.clone(), player.clone()));
 
         info!("Initializing UI events");
         select_signal!(
-            cancel_token,
+            main_cancel_token,
 
-            CloseLibraryRequest => (lib_path, cancel_token),
-            ScanAudioLibraryRequest => (main_db, search_db, cancel_token),
-            AnalyseAudioLibraryRequest => (main_db, recommend_db, cancel_token),
+            CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
+            ScanAudioLibraryRequest => (main_db, task_tokens),
+            AnalyseAudioLibraryRequest => (main_db, recommend_db, task_tokens),
+            CancelTaskRequest => (task_tokens),
+
             PlayRequest => (player),
             PauseRequest => (player),
             NextRequest => (main_db, player),
@@ -141,6 +166,9 @@ async fn player_loop(path: String) {
             VolumeRequest => (player),
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
+            SetRealtimeFftEnabledRequest => (player),
+
+            SfxPlayRequest => (sfx_player),
 
             IfAnalyseExistsRequest => (main_db),
             GetAnalyseCountRequest => (main_db),
@@ -159,9 +187,9 @@ async fn player_loop(path: String) {
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
 
             FetchAllPlaylistsRequest => (main_db),
-            CreatePlaylistRequest => (main_db, search_db),
-            UpdatePlaylistRequest => (main_db, search_db),
-            RemovePlaylistRequest => (main_db, search_db),
+            CreatePlaylistRequest => (main_db),
+            UpdatePlaylistRequest => (main_db),
+            RemovePlaylistRequest => (main_db),
             AddItemToPlaylistRequest => (main_db),
             ReorderPlaylistItemPositionRequest => (main_db),
             GetPlaylistByIdRequest => (main_db),
@@ -180,7 +208,7 @@ async fn player_loop(path: String) {
             GetLikedRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db, recommend_db),
-            SearchForRequest => (search_db),
+            SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
 
@@ -212,13 +240,7 @@ async fn main() {
         info!("Logging is enabled");
         Some(guard)
     } else {
-        let stdout_filter = EnvFilter::new(
-            "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,sea_orm_migration::migrator=off,info",
-        );
-
-        tracing_subscriber::fmt()
-            .with_env_filter(stdout_filter)
-            .init();
+        init_logging();
         None
     };
 
@@ -226,7 +248,7 @@ async fn main() {
     if let Err(e) = receive_media_library_path(player_loop).await {
         error!("Failed to receive media library path: {}", e);
     }
-    
+
     rinf::dart_shutdown().await;
 
     if let Some(guard) = _guard {

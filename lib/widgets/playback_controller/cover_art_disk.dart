@@ -88,8 +88,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
     final translateX = !isCar
         ? 0.0
         : notReady
-            ? screen.width / 2 + size * 1.2
-            : (screen.width / 2) + screen.height / 6;
+            ? screen.height / 2 + size * 1.2
+            : (screen.height / 2) + screen.height / 6;
 
     const radius = 512;
 
@@ -111,85 +111,85 @@ class CoverArtDiskState extends State<CoverArtDisk>
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
-    return TapRegion(
-      onTapInside: (_) {
-        showCoverArtWall(context);
-      },
-      child: AxPressure(
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, child) {
-            return TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: translateY, end: translateY),
-              duration: duration,
-              curve: Curves.easeInOut,
-              builder: (context, animatedTranslateY, child) {
-                return TweenAnimationBuilder<double>(
-                  tween: Tween<double>(begin: translateX, end: translateX),
-                  duration: duration,
-                  curve: Curves.easeInOut,
-                  builder: (context, animatedTranslateX, child) {
-                    return Transform(
-                      transform: Matrix4.identity()
-                        ..translate(animatedTranslateX, animatedTranslateY)
-                        ..scale(0.9)
-                        ..rotateZ(
-                          status?.state == 'Playing'
-                              ? _controller.value * 2 * pi
-                              : 0,
-                        ),
-                      alignment: Alignment.center,
-                      child: child,
-                    );
-                  },
-                  child: child,
-                );
-              },
-              child: FocusableActionDetector(
-                focusNode: _focusNode,
-                onShowFocusHighlight: _handleFocusHighlight,
-                onShowHoverHighlight: _handleHoverHighlight,
-                actions: {
-                  ActivateIntent: ActivateLinkAction(context, onPressed),
-                },
-                child: SizedBox(
-                  width: size,
-                  height: size,
-                  child: AspectRatio(
-                    aspectRatio: 1,
-                    child: AnimatedContainer(
-                      duration: theme.fastAnimationDuration,
-                      width: double.infinity,
-                      height: double.infinity,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: borderColor,
-                          width: 5,
-                        ),
-                        borderRadius: BorderRadius.circular(512),
-                        boxShadow: _isFocused ? boxShadow : null,
+    return AxPressure(
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return TweenAnimationBuilder<double>(
+            tween: Tween<double>(begin: translateY, end: translateY),
+            duration: duration,
+            curve: Curves.easeInOut,
+            builder: (context, animatedTranslateY, child) {
+              return TweenAnimationBuilder<double>(
+                tween: Tween<double>(begin: translateX, end: translateX),
+                duration: duration,
+                curve: Curves.easeInOut,
+                builder: (context, animatedTranslateX, child) {
+                  return Transform(
+                    transform: Matrix4.identity()
+                      ..translate(animatedTranslateX, animatedTranslateY)
+                      ..scale(0.9)
+                      ..rotateZ(
+                        status?.state == 'Playing'
+                            ? _controller.value * 2 * pi
+                            : 0,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(radius - 1),
-                        child: CoverArt(
-                          size: size,
-                          path: status?.coverArtPath,
-                          hint: status != null
-                              ? (
-                                  status.album,
-                                  status.artist,
-                                  'Total Time ${formatTime(status.duration)}'
-                                )
-                              : null,
-                        ),
+                    alignment: Alignment.center,
+                    child: TapRegion(
+                      onTapInside: (_) {
+                        showCoverArtWall(context);
+                      },
+                      child: child,
+                    ),
+                  );
+                },
+                child: child,
+              );
+            },
+            child: FocusableActionDetector(
+              focusNode: _focusNode,
+              onShowFocusHighlight: _handleFocusHighlight,
+              onShowHoverHighlight: _handleHoverHighlight,
+              actions: {
+                ActivateIntent: ActivateLinkAction(context, onPressed),
+              },
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: AnimatedContainer(
+                    duration: theme.fastAnimationDuration,
+                    width: double.infinity,
+                    height: double.infinity,
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: borderColor,
+                        width: 5,
+                      ),
+                      borderRadius: BorderRadius.circular(512),
+                      boxShadow: _isFocused ? boxShadow : null,
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(radius - 1),
+                      child: CoverArt(
+                        size: size,
+                        path: status?.coverArtPath,
+                        hint: status != null
+                            ? (
+                                status.album,
+                                status.artist,
+                                'Total Time ${formatTime(status.duration)}'
+                              )
+                            : null,
                       ),
                     ),
                   ),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        },
       ),
     );
   }

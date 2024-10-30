@@ -32,4 +32,10 @@ class SettingsManager {
     String storageKey = StorageKeyManager.getStorageKey(key);
     await _storage.write(storageKey, value);
   }
+
+  Future<void> removeValue<T>(String key) async {
+    await _initFuture;
+    String storageKey = StorageKeyManager.getStorageKey(key);
+    await _storage.remove(storageKey);
+  }
 }

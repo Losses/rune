@@ -54,6 +54,14 @@ class CoverArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+
+    int? cachedSize;
+
+    if (size != null && size!.isFinite) {
+      cachedSize = (size! * pixelRatio).floor();
+    }
+
     return path == '' || path == null
         ? hint == null
             ? EmptyCoverArt(
@@ -69,6 +77,8 @@ class CoverArt extends StatelessWidget {
             width: size ?? double.infinity,
             height: size ?? double.infinity,
             fit: BoxFit.cover,
+            cacheHeight: cachedSize,
+            cacheWidth: cachedSize,
           );
   }
 }

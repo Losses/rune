@@ -1,8 +1,50 @@
 import 'dart:ui' as ui;
-import 'package:fluent_ui/fluent_ui.dart';
+
 import 'package:flutter/scheduler.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../messages/playback.pb.dart';
+
+class FFTVisualizerRegistry {
+  static final FFTVisualizerRegistry _instance =
+      FFTVisualizerRegistry._internal();
+  factory FFTVisualizerRegistry() => _instance;
+
+  late final _windowObserver = _WindowVisibilityObserver(this);
+
+  FFTVisualizerRegistry._internal() {
+    WidgetsBinding.instance.addObserver(_windowObserver);
+  }
+
+  final Set<FFTVisualizeState> _visualizers = {};
+  bool _isWindowVisible = true;
+
+  void register(FFTVisualizeState visualizer) {
+    _visualizers.add(visualizer);
+    _updateFFTCalculation();
+  }
+
+  void unregister(FFTVisualizeState visualizer) {
+    _visualizers.remove(visualizer);
+    _updateFFTCalculation();
+  }
+
+  void setWindowVisibility(bool isVisible) {
+    _isWindowVisible = isVisible;
+    _updateFFTCalculation();
+  }
+
+  void _updateFFTCalculation() {
+    final shouldCalculateFFT = _visualizers.isNotEmpty && _isWindowVisible;
+
+    SetRealtimeFFTEnabledRequest(enabled: shouldCalculateFFT)
+        .sendSignalToRust();
+  }
+
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(_windowObserver);
+  }
+}
 
 class FFTVisualize extends StatefulWidget {
   const FFTVisualize({super.key});
@@ -19,10 +61,14 @@ class FFTVisualizeState extends State<FFTVisualize>
   Ticker? _ticker;
   bool _hasData = false;
   int _lastUpdateTime = 0;
+  final _registry = FFTVisualizerRegistry();
 
   @override
   void initState() {
     super.initState();
+
+    _registry.register(this);
+
     RealtimeFFT.rustSignalStream.listen((rustSignal) {
       if (!mounted) return;
 
@@ -65,31 +111,33 @@ class FFTVisualizeState extends State<FFTVisualize>
   Widget build(BuildContext context) {
     final color = FluentTheme.of(context).accentColor;
 
-    return LayoutBuilder(builder: (context, constraints) {
-      double parentHeight = constraints.maxHeight;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        double parentHeight = constraints.maxHeight;
 
-      return OverflowBox(
+        return OverflowBox(
           maxHeight: parentHeight * 2,
           alignment: Alignment.topCenter,
           child: SizedBox(
             height: parentHeight * 2,
             child: Opacity(
-                opacity: 0.87,
-                child: ImageFiltered(
-                  imageFilter:
-                      ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
-                  child: CustomPaint(
-                    painter: FFTPainter(_currentFftValues, color),
-                  ),
-                )),
-          ));
-    });
+              opacity: 0.87,
+              child: ImageFiltered(
+                imageFilter:
+                    ui.ImageFilter.blur(sigmaX: radius, sigmaY: radius),
+                child: CustomPaint(
+                  painter: FFTPainter(_currentFftValues, color),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _lerpedFftValues() {
-    if (_targetFftValues.isEmpty) {
-      return;
-    }
+    if (_targetFftValues.isEmpty) return;
 
     if (_currentFftValues.isEmpty) {
       _currentFftValues = List.filled(_targetFftValues.length, 0.0);
@@ -99,12 +147,8 @@ class FFTVisualizeState extends State<FFTVisualize>
       double current = _currentFftValues[i];
       double target = _targetFftValues[i];
 
-      if (!current.isFinite) {
-        current = 0.0;
-      }
-      if (!target.isFinite) {
-        target = 0.0;
-      }
+      if (!current.isFinite) current = 0.0;
+      if (!target.isFinite) target = 0.0;
 
       _currentFftValues[i] = ui.lerpDouble(current, target, 0.2)!;
     }
@@ -113,7 +157,19 @@ class FFTVisualizeState extends State<FFTVisualize>
   @override
   void dispose() {
     _ticker?.dispose();
+    _registry.unregister(this);
     super.dispose();
+  }
+}
+
+class _WindowVisibilityObserver extends WidgetsBindingObserver {
+  final FFTVisualizerRegistry _registry;
+
+  _WindowVisibilityObserver(this._registry);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _registry.setWindowVisibility(state == AppLifecycleState.resumed);
   }
 }
 
@@ -139,7 +195,5 @@ class FFTPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) {
-    return true;
-  }
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

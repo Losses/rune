@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/turntile/managed_turntile_screen_item.dart';
 
+import '../../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../../messages/collection.pb.dart';
 
 import './search_card.dart';
@@ -12,16 +12,20 @@ class SmallScreenSearchTrackListImplementation extends StatelessWidget {
   final List<SearchCard>? items;
   final int groupId;
 
+  final Axis direction;
+
   const SmallScreenSearchTrackListImplementation({
     super.key,
     required this.collectionType,
     required this.items,
     required this.groupId,
+    required this.direction,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Flex(
+      direction: direction,
       children: (items ?? defaultList).asMap().entries.map(
         (x) {
           final index = x.key;

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -29,7 +30,9 @@ class ControllerEntry {
   final IconData Function(BuildContext context) icon;
   final String title;
   final String subtitle;
-  final Widget Function(BuildContext context) controllerButtonBuilder;
+  final String Function(BuildContext context) tooltipBuilder;
+  final Widget Function(BuildContext context, List<Shadow>? shadows)
+      controllerButtonBuilder;
   final Future<MenuFlyoutItem> Function(BuildContext context)
       flyoutEntryBuilder;
   final List<SingleActivator>? shortcuts;
@@ -40,6 +43,7 @@ class ControllerEntry {
     required this.icon,
     required this.title,
     required this.subtitle,
+    required this.tooltipBuilder,
     required this.controllerButtonBuilder,
     required this.flyoutEntryBuilder,
     required this.shortcuts,
@@ -57,21 +61,28 @@ final controllerItems = [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
     onShortcut: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       if (notReady) return;
 
       playPrevious();
     },
-    controllerButtonBuilder: (context) {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+    tooltipBuilder: (context) => "Previous",
+    controllerButtonBuilder: (context, shadows) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
-      return PreviousButton(disabled: notReady);
+      return PreviousButton(
+        disabled: notReady,
+        shadows: shadows,
+      );
     },
     flyoutEntryBuilder: (context) async {
-      final statusProvider = Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
@@ -86,7 +97,7 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
+                context.pop();
                 playPrevious();
               },
       );
@@ -123,7 +134,14 @@ final controllerItems = [
         playPlay();
       }
     },
-    controllerButtonBuilder: (context) {
+    tooltipBuilder: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final status = statusProvider.playbackStatus;
+
+      return status?.state == "Playing" ? "Pause" : "Play";
+    },
+    controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
@@ -132,6 +150,7 @@ final controllerItems = [
       return PlayPauseButton(
         disabled: notReady,
         state: status?.state ?? "Stopped",
+        shadows: shadows,
       );
     },
     flyoutEntryBuilder: (context) async {
@@ -151,7 +170,7 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
+                context.pop();
                 status?.state == "Playing" ? playPause() : playPlay();
               },
       );
@@ -174,12 +193,16 @@ final controllerItems = [
 
       playNext();
     },
-    controllerButtonBuilder: (context) {
+    tooltipBuilder: (context) => "Next",
+    controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final notReady = statusProvider.notReady;
 
-      return NextButton(disabled: notReady);
+      return NextButton(
+        disabled: notReady,
+        shadows: shadows,
+      );
     },
     flyoutEntryBuilder: (context) async {
       final statusProvider =
@@ -198,8 +221,8 @@ final controllerItems = [
         onPressed: notReady
             ? null
             : () {
-                Flyout.of(context).close();
-                playPrevious();
+                context.pop();
+                playNext();
               },
       );
     },
@@ -219,7 +242,10 @@ final controllerItems = [
     subtitle: "Adjust the volume",
     shortcuts: [],
     onShortcut: null,
-    controllerButtonBuilder: (context) => const VolumeButton(),
+    tooltipBuilder: (context) => "Volume",
+    controllerButtonBuilder: (context, shadows) => VolumeButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       final volumeProvider =
           Provider.of<VolumeProvider>(context, listen: false);
@@ -273,7 +299,19 @@ final controllerItems = [
     },
     title: "Playback Mode",
     subtitle: "Switch between sequential, repeat, or shuffle",
-    controllerButtonBuilder: (context) => const PlaybackModeButton(),
+    tooltipBuilder: (context) {
+      final statusProvider =
+          Provider.of<PlaybackStatusProvider>(context, listen: false);
+      final status = statusProvider.playbackStatus;
+
+      final currentMode =
+          PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
+
+      return modeToLabel(currentMode);
+    },
+    controllerButtonBuilder: (context, shadows) => PlaybackModeButton(
+      shadows: shadows,
+    ),
     shortcuts: [],
     onShortcut: null,
     flyoutEntryBuilder: (context) async {
@@ -292,7 +330,7 @@ final controllerItems = [
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()
-          .getValue<List<dynamic>>('disabledPlaybackModes');
+          .getValue<List<dynamic>>('disabled_playback_modes');
       List<PlaybackMode> disabledModes = storedDisabledModes != null
           ? storedDisabledModes
               .map((index) => PlaybackMode.values[index])
@@ -328,7 +366,7 @@ final controllerItems = [
                 color: color,
               ),
               onPressed: () {
-                Flyout.of(context).close();
+                context.pop();
                 playMode(x.toValue());
               },
             );
@@ -348,7 +386,10 @@ final controllerItems = [
     onShortcut: (context) {
       showPlayQueueDialog(context);
     },
-    controllerButtonBuilder: (context) => QueueButton(),
+    tooltipBuilder: (context) => "Playlist",
+    controllerButtonBuilder: (context, shadows) => QueueButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
@@ -360,7 +401,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
+          context.pop();
           showPlayQueueDialog(context);
         },
       );
@@ -373,7 +414,8 @@ final controllerItems = [
     subtitle: "Content below will be hidden in the others list",
     shortcuts: [],
     onShortcut: null,
-    controllerButtonBuilder: (context) => Container(),
+    tooltipBuilder: (context) => "Hidden",
+    controllerButtonBuilder: (context, shadows) => Container(),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.hide),
@@ -391,7 +433,10 @@ final controllerItems = [
     onShortcut: (context) {
       showCoverArtWall(context);
     },
-    controllerButtonBuilder: (context) => const CoverWallButton(),
+    tooltipBuilder: (context) => "Cover Wall",
+    controllerButtonBuilder: (context, shadows) => CoverWallButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
@@ -403,7 +448,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
+          context.pop();
           showCoverArtWall(context);
         },
       );
@@ -429,7 +474,10 @@ final controllerItems = [
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
-    controllerButtonBuilder: (context) => const FullScreenButton(),
+    tooltipBuilder: (context) => "Fullscreen",
+    controllerButtonBuilder: (context, shadows) => FullScreenButton(
+      shadows: shadows,
+    ),
     flyoutEntryBuilder: (context) async {
       final fullScreen =
           Provider.of<FullScreenProvider>(context, listen: false);
@@ -446,7 +494,7 @@ final controllerItems = [
           ],
         ),
         onPressed: () {
-          Flyout.of(context).close();
+          context.pop();
           fullScreen.setFullScreen(!fullScreen.isFullScreen);
         },
       );
@@ -465,7 +513,7 @@ class ShortcutText extends StatelessWidget {
     return Text(
       text,
       style: theme.typography.caption?.apply(
-        color: theme.activeColor.withAlpha(80),
+        color: theme.resources.textFillColorPrimary.withAlpha(80),
       ),
     );
   }

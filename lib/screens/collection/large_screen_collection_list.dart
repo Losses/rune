@@ -17,11 +17,14 @@ class LargeScreenCollectionListViewState
     extends BaseCollectionListViewState<LargeScreenCollectionListView> {
   @override
   Widget buildScreen(BuildContext context) {
-    return StartScreen(
-      fetchSummary: fetchSummary,
-      fetchPage: fetchPage,
-      itemBuilder: itemBuilder,
-      userGenerated: userGenerated(widget.collectionType),
-    );
+    return LayoutBuilder(builder: (context, constraints) {
+      return StartScreenImplementation(
+        fetchSummary: fetchSummary,
+        fetchPage: fetchPage,
+        itemBuilder: itemBuilder,
+        userGenerated: userGenerated(widget.collectionType),
+        constraints: constraints,
+      );
+    });
   }
 }

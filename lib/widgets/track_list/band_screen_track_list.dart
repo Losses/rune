@@ -8,10 +8,12 @@ import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/ax_pressure.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/playback.pb.dart';
+import '../../providers/responsive_providers.dart';
 
 import '../context_menu_wrapper.dart';
 import '../tile/cover_art.dart';
@@ -32,7 +34,34 @@ class BandScreenTrackList extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasRecommendation = queriesHasRecommendation(queries);
 
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.tv
+      ],
+      builder: (context, deviceType) {
+        if (deviceType == DeviceType.band || deviceType == DeviceType.belt) {
+          return SmoothHorizontalScroll(
+            builder: (context, controller) {
+              return buildList(hasRecommendation, controller);
+            },
+          );
+        } else {
+          return buildList(hasRecommendation, null);
+        }
+      },
+    );
+  }
+
+  PagedListView<int, InternalMediaFile> buildList(
+    bool hasRecommendation,
+    ScrollController? scrollController,
+  ) {
     return PagedListView<int, InternalMediaFile>(
+      scrollDirection:
+          scrollController == null ? Axis.vertical : Axis.horizontal,
       pagingController: pagingController,
       builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
         noItemsFoundIndicatorBuilder: (context) {
