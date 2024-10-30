@@ -21,12 +21,14 @@ The query system supports a variety of operators, each accepting specific parame
 |                         | **lib::track**             | `i32` (Track ID)          | Filters media files by the given track ID.                               |
 |                         | **lib::directory.deep**    | `String` (Directory Path) | Filters media files by the given directory path, including all subdirectories. |
 |                         | **lib::directory.shallow** | `String` (Directory Path) | Filters media files by the given directory path, excluding subdirectories. |
-| **Sorting Operators**   | **sort::last_modified**    | `bool` (Ascending/Descending) | Sorts media files by their last modified date. `true` for ascending, `false` for descending. |
+| **Sorting Operators**   | **sort::track_number**     | `bool` (Ascending/Descending) | Sorts media files by their disk and track number. `true` for ascending, `false` for descending. |
+|                         | **sort::last_modified**    | `bool` (Ascending/Descending) | Sorts media files by their last modified date. `true` for ascending, `false` for descending. |
 |                         | **sort::duration**         | `bool` (Ascending/Descending) | Sorts media files by their duration. `true` for ascending, `false` for descending. |
 |                         | **sort::playedthrough**    | `bool` (Ascending/Descending) | Sorts media files by their played through count. `true` for ascending, `false` for descending. |
 |                         | **sort::skipped**          | `bool` (Ascending/Descending) | Sorts media files by their skipped count. `true` for ascending, `false` for descending. |
-| **Filtering by Liked Status** | **filter::liked**   | `bool` (Liked/Not Liked)  | Filters media files by their liked status. `true` for liked, `false` for not liked. |
-| **Limiting and Recommendation Operators** | **pipe::limit** | `u64` (Limit) | Limits the number of media files returned by the query.                  |
+| **Filtering by Liked Status** | **filter::liked**            | `bool` (Liked/Not Liked)  | Filters media files by their liked status. `true` for liked, `false` for not liked. |
+|                               | **filter::with_cover_art**   | `bool` (With/Without)     | Filters media files by cover art existence. `true` for with cover arts, `false` for without cover arts. |
+| **Limiting and Recommendation Operators** | **pipe::limit**  | `u64` (Limit) | Limits the number of media files returned by the query.                  |
 |                         | **pipe::recommend**        | `i32` (Recommendation Group) | Generates recommendations based on the given recommendation group.       |
 | **Unknown Operator**    | **Unknown**                | `String` (Operator Name)  | Represents an unknown operator. It is used for logging and debugging purposes. |
 
@@ -73,6 +75,44 @@ The query system applies the limit to the number of results if specified. It als
 Finally, the constructed query is executed against the database to retrieve the media files. The results are returned to the user.
 
 By following these steps, the query system efficiently retrieves and returns the desired media files based on the user's criteria.
+
+## CLI Tool Usage
+
+Rune provides a command-line interface (CLI) tool to help developers and users quickly debug and test queries in the Rune database. By using the Mix subcommand, users can verify their query statements and retrieve corresponding media file results. Here are some usage examples:
+
+### Examples
+
+1. **Filter and Sort Media Files**
+
+   This command retrieves all media files, filters out those without cover art, and sorts them by track number in ascending order:
+
+   ```bash
+   rune-cli ~/Music/ mix -m "lib::all(true);filter::with_cover_art(false);sort::track_number(true);"
+   ```
+
+2. **Generate Recommendations**
+
+   This command generates media file recommendations based on recommendation group 8:
+
+   ```bash
+   rune-cli ~/Music/ mix -m "pipe::recommend(8)"
+   ```
+
+3. **Directory Filtering, Sorting, Recommendation, and Limiting Results**
+
+   This command retrieves media files from the "workout" directory and all its subdirectories, sorts them by duration in descending order, generates recommendations from group 1, and limits the results to 5:
+
+   ```bash
+   rune-cli ~/Music/ mix -m "lib::directory.deep(workout);sort::duration(false);pipe::recommend(1);pipe::limit(5)"
+   ```
+
+### Usage Instructions
+
+- **Path Parameter**: `~/Music/` indicates the root directory where media files are located. Adjust this path according to your file location.
+- **Query Syntax**: Use the `-m` parameter to specify the query statement, which can include multiple operators such as filtering, sorting, recommending, and limiting.
+- **Operator Combination**: Users can combine different operators as needed to perform complex queries.
+
+These commands allow users to flexibly test and debug database queries, optimizing media file retrieval and recommendations.
 
 ## Recommendation Group
 

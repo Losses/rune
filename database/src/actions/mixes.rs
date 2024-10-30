@@ -280,6 +280,7 @@ enum QueryOperator {
     LibTrack(i32),
     LibDirectoryDeep(String),
     LibDirectoryShallow(String),
+    SortTrackNumber(bool),
     SortLastModified(bool),
     SortDuration(bool),
     SortPlayedthrough(bool),
@@ -416,6 +417,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::directory.deep" => QueryOperator::LibDirectoryDeep(parameter.clone()),
         "lib::directory.shallow" => QueryOperator::LibDirectoryShallow(parameter.clone()),
+        "sort::track_number" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::SortTrackNumber)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "sort::last_modified" => parse_parameter::<bool>(parameter, operator)
             .map(QueryOperator::SortLastModified)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
@@ -447,21 +451,32 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
 fn apply_join_filter(
     query: Select<media_files::Entity>,
     filter_liked: Option<bool>,
+    sort_track_number: Option<bool>,
     sort_playedthrough_asc: Option<bool>,
     sort_skipped_asc: Option<bool>,
 ) -> Select<media_files::Entity> {
+    let mut _query = query;
     if filter_liked.is_some() || sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() {
-        query
+        _query = _query
             .join(
                 JoinType::LeftJoin,
                 media_file_stats::Relation::MediaFiles.def().rev(),
             )
             .column(media_file_stats::Column::Liked)
             .column(media_file_stats::Column::PlayedThrough)
-            .column(media_file_stats::Column::Skipped)
-    } else {
-        query
+            .column(media_file_stats::Column::Skipped);
     }
+
+    if sort_track_number.is_some() {
+        _query = _query
+            .join(
+                JoinType::LeftJoin,
+                media_file_albums::Relation::MediaFiles.def().rev(),
+            )
+            .column(media_file_albums::Column::TrackNumber);
+    }
+
+    _query
 }
 
 // Macro to handle sorting
@@ -515,6 +530,7 @@ pub async fn query_mix_media_files(
     let mut directories_deep: Vec<String> = vec![];
     let mut directories_shallow: Vec<String> = vec![];
 
+    let mut sort_track_number_asc: Option<bool> = None;
     let mut sort_last_modified_asc: Option<bool> = None;
     let mut sort_duration_asc: Option<bool> = None;
     let mut sort_playedthrough_asc: Option<bool> = None;
@@ -534,6 +550,7 @@ pub async fn query_mix_media_files(
             QueryOperator::LibTrack(id) => track_ids.push(id),
             QueryOperator::LibDirectoryDeep(dir) => directories_deep.push(dir),
             QueryOperator::LibDirectoryShallow(dir) => directories_shallow.push(dir),
+            QueryOperator::SortTrackNumber(asc) => sort_track_number_asc = Some(asc),
             QueryOperator::SortLastModified(asc) => sort_last_modified_asc = Some(asc),
             QueryOperator::SortDuration(asc) => sort_duration_asc = Some(asc),
             QueryOperator::SortPlayedthrough(asc) => sort_playedthrough_asc = Some(asc),
@@ -666,6 +683,7 @@ pub async fn query_mix_media_files(
     query = apply_join_filter(
         query,
         filter_liked,
+        sort_track_number_asc,
         sort_playedthrough_asc,
         sort_skipped_asc,
     );
@@ -677,6 +695,13 @@ pub async fn query_mix_media_files(
             sort_last_modified_asc
         );
         apply_sorting_macro!(query, media_files::Column::Duration, sort_duration_asc);
+
+        if let Some(asc) = sort_track_number_asc {
+            query = query.order_by(
+                media_file_albums::Column::TrackNumber,
+                if asc { Order::Asc } else { Order::Desc },
+            );
+        }
 
         if let Some(asc) = sort_playedthrough_asc {
             query = query.order_by(
@@ -751,6 +776,13 @@ pub async fn query_mix_media_files(
     let mut cursor_by = query.clone().cursor_by(media_files::Column::Id);
     let mut final_asc = true;
 
+    apply_cursor_sorting_macro!(
+        query,
+        cursor_by,
+        media_file_albums::Column::TrackNumber,
+        sort_track_number_asc,
+        final_asc
+    );
     apply_cursor_sorting_macro!(
         query,
         cursor_by,

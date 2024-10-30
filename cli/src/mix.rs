@@ -2,9 +2,11 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use log::error;
+use prettytable::{row, Table};
 use rust_decimal::prelude::ToPrimitive;
-use prettytable::{format, row, Table};
 
+use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::mixes::query_mix_media_files;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::media_files;
@@ -69,7 +71,7 @@ pub async fn mixes(
             eprintln!("Unsupported format. Supported formats are 'json' and 'm3u8'.");
         }
         _none => {
-            display_mixes_in_table(&files);
+            display_mixes_in_table(main_db, &files).await;
         }
     }
 }
@@ -143,19 +145,41 @@ fn format_time(seconds: f64) -> String {
     format!("{}:{}", minutes_str, seconds_str)
 }
 
-pub fn display_mixes_in_table(files: &Vec<media_files::Model>) {
-    let mut table = Table::new();
-    table.add_row(row!["ID", "Path", "Duration"]);
-    table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+pub async fn display_mixes_in_table(main_db: &MainDbConnection, files: &[media_files::Model]) {
+    match get_metadata_summary_by_file_ids(main_db, files.iter().map(|x| x.id).collect::<Vec<_>>())
+        .await
+    {
+        Ok(summaries) => {
+            let mut table = Table::new();
+            table.add_row(row![
+                "ID",
+                "Title",
+                "Album",
+                "Track Number",
+                "Duration",
+                "Cover Art ID"
+            ]);
 
-    for file in files {
-        let file_path = Path::new(&file.directory).join(&file.file_name);
-        table.add_row(row![
-            file.id,
-            file_path.display(),
-            format_time(file.duration.to_f64().expect("Failed to convert duration"))
-        ]);
+            for summary in summaries {
+                table.add_row(row![
+                    summary.id,
+                    summary.title,
+                    summary.album,
+                    summary.track_number,
+                    format_time(
+                        summary
+                            .duration
+                            .to_f64()
+                            .expect("Failed to convert duration")
+                    ),
+                    summary.cover_art_id.unwrap_or_default()
+                ]);
+            }
+
+            table.printstd();
+        }
+        Err(e) => {
+            error!("Failed to retrieve metadata summary: {}", e);
+        }
     }
-
-    table.printstd();
 }
