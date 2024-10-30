@@ -55,12 +55,12 @@ enum DeviceType {
     priority: 4,
     orientation: DeviceOrientation.horizontal,
     start: 0,
-    end: 120,
+    end: 148,
   ),
   belt(
     priority: 4,
     orientation: DeviceOrientation.horizontal,
-    start: 121,
+    start: 149,
     end: 240,
   ),
   fish(
