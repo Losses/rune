@@ -2964,7 +2964,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "futures",
+ "jni",
  "log",
+ "ndk-context",
  "once_cell",
  "rand",
  "raw-window-handle",
