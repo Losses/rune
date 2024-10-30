@@ -81,7 +81,7 @@ class AxPressureState extends State<AxPressure> {
 
   @override
   Widget build(BuildContext context) {
-    // use listener to pop event to parents widget
+    // Use listener to pop event to parents widget
     return Listener(
       onPointerDown: (event) {
         _updateTransform(event.localPosition, context.size!);
@@ -96,12 +96,11 @@ class AxPressureState extends State<AxPressure> {
         _updateTransform(event.localPosition, context.size!);
       },
       onPointerPanZoomUpdate: (event) {
-        // Because event.localPosition will be fix in this event, and I can only get glabal pan position.
-        // So I need to calculate the real local position, by plus widget position and event.localPan.
-        // This should be the best fitting method.
+        // Since the localPosition is fixed in the onPointerPanZoomUpdate event, it is necessary to use a fitting method to calculate the actual required localPosition.
+        // The best fitting method we can find is to add the widget's position to the event.localPan.
         final RenderBox box = context.findRenderObject() as RenderBox;
-        final _widgetPosition = box.localToGlobal(Offset.zero);
-        final localPosition = event.localPan + _widgetPosition;
+        final widgetPosition = box.localToGlobal(Offset.zero);
+        final localPosition = event.localPan + widgetPosition;
         _updateTransform(localPosition, context.size!);
       },
       onPointerPanZoomEnd: (event) {
