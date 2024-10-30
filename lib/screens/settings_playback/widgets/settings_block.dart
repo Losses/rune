@@ -68,10 +68,13 @@ class SettingsBlockState extends State<SettingsBlock> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                SettingsBlockTitle(
-                  title: widget.title,
-                  subtitle: widget.subtitle,
+                Expanded(
+                  child: SettingsBlockTitle(
+                    title: widget.title,
+                    subtitle: widget.subtitle,
+                  ),
                 ),
+                const SizedBox(width: 8),
                 widget.child,
               ],
             ),
