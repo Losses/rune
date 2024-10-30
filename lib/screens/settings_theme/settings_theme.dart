@@ -12,6 +12,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../settings_playback/widgets/settings_block.dart';
 import '../settings_playback/widgets/settings_block_title.dart';
 
+const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
 
@@ -100,6 +101,7 @@ class SettingsTheme extends StatefulWidget {
 class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
   bool? disableBrandingAnimation;
+  String colorMode = "system";
 
   @override
   void initState() {
@@ -109,15 +111,22 @@ class _SettingsThemeState extends State<SettingsTheme> {
 
   Future<void> _loadSettings() async {
     final int? storedTheme = await settingsManager.getValue<int>(themeColorKey);
+    final String? storedColorMode =
+        await settingsManager.getValue<String>(colorModeKey);
     final bool? storedDisableBrandingAnimation =
         await settingsManager.getValue<bool>(disableBrandingAnimationKey);
 
-    if (storedTheme != null) {
-      setState(() {
+    setState(() {
+      if (storedTheme != null) {
         themeColor = Color(storedTheme);
+      }
+      if (storedColorMode != null) {
+        colorMode = storedColorMode;
+      }
+      if (disableBrandingAnimation != null) {
         disableBrandingAnimation = storedDisableBrandingAnimation;
-      });
-    }
+      }
+    });
   }
 
   Future<void> _updateThemeColor(Color? newThemeColor) async {
@@ -134,6 +143,15 @@ class _SettingsThemeState extends State<SettingsTheme> {
     }
   }
 
+  Future<void> _updateColorModeSetting(String newMode) async {
+    setState(() {
+      colorMode = newMode;
+
+      appTheme.updateThemeColor(themeColor);
+    });
+    await SettingsManager().setValue(colorModeKey, newMode);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
@@ -142,6 +160,32 @@ class _SettingsThemeState extends State<SettingsTheme> {
           child: SettingsPagePadding(
             child: Column(
               children: [
+                SettingsBlock(
+                  title: "Color Mode",
+                  subtitle: "Change the color mode that appears in Rune.",
+                  child: ComboBox<String>(
+                    value: colorMode,
+                    items: const [
+                      ComboBoxItem(
+                        value: "system",
+                        child: Text("System"),
+                      ),
+                      ComboBoxItem(
+                        value: "dark",
+                        child: Text("Dark"),
+                      ),
+                      ComboBoxItem(
+                        value: "light",
+                        child: Text("Light"),
+                      ),
+                    ],
+                    onChanged: (newValue) {
+                      if (newValue != null) {
+                        _updateColorModeSetting(newValue);
+                      }
+                    },
+                  ),
+                ),
                 Padding(
                   padding: const EdgeInsets.all(4),
                   child: Expander(
