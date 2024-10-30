@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/scan_library.dart';
@@ -54,6 +57,9 @@ class WelcomePage extends StatelessWidget {
                           FilledButton(
                             child: const Text("Select Directory"),
                             onPressed: () async {
+                              // on Android, check for permission
+                              if (!await requestAndroidPermission()) return;
+
                               final result = await getDirectoryPath();
 
                               if (result == null) return;
@@ -82,5 +88,15 @@ class WelcomePage extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<bool> requestAndroidPermission() async {
+    if (Platform.isAndroid) {
+      PermissionStatus status = await Permission.manageExternalStorage.status;
+      if (status.isDenied) {
+        return await Permission.manageExternalStorage.request().isGranted;
+      }
+    }
+    return true;
   }
 }
