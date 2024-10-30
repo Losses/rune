@@ -81,16 +81,31 @@ class AxPressureState extends State<AxPressure> {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onPanUpdate: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onTapDown: (details) =>
-          _updateTransform(details.localPosition, context.size!),
-      onPanEnd: (_) => setState(() => _resetTransform()),
-      onPanCancel: () => setState(() => _resetTransform()),
-      onTapUp: (details) => setState(() => _resetTransform()),
+    // Use listener to pop event to parents widget
+    return Listener(
+      onPointerDown: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerMove: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerUp: (event) {
+        setState(() => _resetTransform());
+      },
+      onPointerPanZoomStart: (event) {
+        _updateTransform(event.localPosition, context.size!);
+      },
+      onPointerPanZoomUpdate: (event) {
+        // Since the localPosition is fixed in the onPointerPanZoomUpdate event, it is necessary to use a fitting method to calculate the actual required localPosition.
+        // The best fitting method we can find is to add the widget's position to the event.localPan.
+        final RenderBox box = context.findRenderObject() as RenderBox;
+        final widgetPosition = box.localToGlobal(Offset.zero);
+        final localPosition = event.localPan + widgetPosition;
+        _updateTransform(localPosition, context.size!);
+      },
+      onPointerPanZoomEnd: (event) {
+        setState(() => _resetTransform());
+      },
       child: Container(
         transform: _transform,
         transformAlignment: Alignment.center,
