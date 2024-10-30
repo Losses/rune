@@ -2,6 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import './normal_layout.dart';
 import './stacked_layout.dart';
+
+import 'start_group_item.dart';
 import 'start_group_implementation.dart';
 
 enum StartGroupGridLayoutVariation { initial, square }
@@ -18,6 +20,8 @@ class StartGroup<T> extends StatelessWidget {
   final StartGroupGridLayoutVariation gridLayoutVariation;
   final StartGroupGroupLayoutVariation groupLayoutVariation;
   final BoxConstraints constraints;
+  final Dimensions Function(double, double, double, List<T>)?
+      dimensionCalculator;
 
   final double gapSize;
   final VoidCallback? onTitleTap;
@@ -33,6 +37,7 @@ class StartGroup<T> extends StatelessWidget {
     this.onTitleTap,
     this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
     this.groupLayoutVariation = StartGroupGroupLayoutVariation.normal,
+    this.dimensionCalculator,
   });
 
   @override
@@ -83,6 +88,7 @@ class StartGroup<T> extends StatelessWidget {
           groupIndex: groupIndex,
           constraints: constraints,
           itemBuilder: itemBuilder,
+          dimensionCalculator: dimensionCalculator,
         );
     }
   }

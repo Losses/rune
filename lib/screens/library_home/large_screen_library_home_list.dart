@@ -5,13 +5,14 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
-import '../../widgets/start_screen/constants/default_gap_size.dart';
-import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
+import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
-import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
+import '../../widgets/start_screen/start_group_implementation.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/collection/collection_item.dart';
 
 import './constants/first_column.dart';
@@ -104,6 +105,8 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                               StartGroupGroupLayoutVariation.stacked,
                           gridLayoutVariation:
                               StartGroupGridLayoutVariation.initial,
+                          dimensionCalculator: StartGroupImplementation
+                              .startLinkDimensionCalculator,
                           gapSize: defaultGapSize,
                           onTitleTap: () {},
                           itemBuilder: (context, item) {

@@ -4,10 +4,11 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
-import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/link_tile.dart';
-import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
+import '../../widgets/start_screen/start_group_implementation.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/settings_home/constants/first_column.dart';
 
 class LargeScreenSettingsHomeListView extends StatefulWidget {
@@ -52,7 +53,9 @@ class LargeScreenSettingsHomeListViewState
                     constraints: constraints,
                     groupLayoutVariation:
                         StartGroupGroupLayoutVariation.stacked,
-                    gridLayoutVariation: StartGroupGridLayoutVariation.initial,
+                    gridLayoutVariation: StartGroupGridLayoutVariation.square,
+                    dimensionCalculator:
+                        StartGroupImplementation.startLinkDimensionCalculator,
                     gapSize: defaultGapSize,
                     onTitleTap: () {},
                     itemBuilder: (context, item) {

@@ -51,6 +51,20 @@ class StartGroupImplementation<T> extends StatelessWidget {
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
+  static Dimensions startLinkDimensionCalculator(
+    double containerHeight,
+    double cellSize,
+    double gapSize,
+    List items,
+  ) {
+    final int rows = max(
+      ((containerHeight - 32) / (cellSize + gapSize)).floor(),
+      1,
+    );
+    final int columns = (items.length / rows).ceil();
+    return Dimensions(rows: rows, columns: columns, count: items.length);
+  }
+
   static Dimensions squareDimensionCalculator(
     double containerHeight,
     double cellSize,
