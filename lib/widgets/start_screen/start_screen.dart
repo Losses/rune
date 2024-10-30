@@ -269,7 +269,9 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                       items: item.items,
                       constraints: widget.constraints,
                       onTitleTap: () {
-                        showGroupListDialog(context);
+                        if (!widget.userGenerated) {
+                          showGroupListDialog(context);
+                        }
                       },
                       itemBuilder: (context, item) =>
                           widget.itemBuilder(context, item, _reloadData),
