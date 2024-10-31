@@ -79,7 +79,10 @@ final routes = <GoRoute>[
     builder: (context, state) => GoRouterModalBarrierFix(
       query_tracks.QueryTracksPage(
         queries: QueryList(
-          [("lib::album", state.pathParameters['albumId'] ?? "0")],
+          [
+            ("lib::album", state.pathParameters['albumId'] ?? "0"),
+            ("sort::track_number", "true")
+          ],
         ),
         title: state.extra is QueryTracksExtra
             ? (state.extra as QueryTracksExtra).title
