@@ -53,7 +53,7 @@ class LargeScreenSettingsHomeListViewState
                     constraints: constraints,
                     groupLayoutVariation:
                         StartGroupGroupLayoutVariation.stacked,
-                    gridLayoutVariation: StartGroupGridLayoutVariation.square,
+                    gridLayoutVariation: StartGroupGridLayoutVariation.initial,
                     dimensionCalculator:
                         StartGroupImplementation.startLinkDimensionCalculator,
                     gapSize: defaultGapSize,
