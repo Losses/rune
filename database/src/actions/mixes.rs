@@ -6,6 +6,7 @@ use anyhow::Context;
 use anyhow::Result;
 use chrono::Utc;
 use log::warn;
+use migration::ExprTrait;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Expr;
@@ -499,7 +500,7 @@ macro_rules! add_subquery_filter {
                 .into_query();
 
             $or_condition =
-                $or_condition.add(Expr::col(media_files::Column::Id).in_subquery(subquery));
+                $or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
         }
     };
 }
@@ -596,7 +597,16 @@ pub async fn query_mix_media_files(
 
     // Filter by track_ids if provided
     if !track_ids.is_empty() {
-        or_condition = or_condition.add(Expr::col(media_files::Column::Id).is_in(track_ids));
+        // Sigh... I know the code looks creepy, but sea-orm bugged and I have to do this...
+        let placeholders: String = track_ids
+            .iter()
+            .map(|_| "?")
+            .collect::<Vec<&str>>()
+            .join(", ");
+
+        let query_template = format!("\"media_files\".\"id\" IN ({})", placeholders);
+
+        or_condition = or_condition.add(Expr::cust_with_values(query_template, track_ids));
     }
 
     // Filter by directories if provided
