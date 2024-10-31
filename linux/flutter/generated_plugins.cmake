@@ -5,7 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_linux
   flutter_acrylic
-  screen_retriever
+  screen_retriever_linux
   system_theme
   url_launcher_linux
   window_manager

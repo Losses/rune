@@ -41,7 +41,7 @@ dependencies:
       url: https://github.com/Losses/fluent_ui.git
       ref: 2186f815de5d6b461775938eb2484d9a3f4162ee
   flutter_acrylic: ^1.1.4
-  system_theme: ^3.0.0
+  system_theme: 3.1.2
   go_router: ^14.2.1
   provider: ^6.1.2
   url_launcher: ^6.3.0
