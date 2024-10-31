@@ -709,10 +709,18 @@ pub async fn get_metadata_summary_by_file_ids(
     file_ids: Vec<i32>,
 ) -> Result<Vec<MetadataSummary>> {
     // Fetch all file entries for the given file IDs
-    let file_entries: Vec<media_files::Model> = media_files::Entity::find()
+    let mut file_entries: Vec<media_files::Model> = media_files::Entity::find()
         .filter(media_files::Column::Id.is_in(file_ids.clone()))
         .all(db)
         .await?;
+
+    // Sort file_entries based on the order in file_ids
+    file_entries.sort_by_key(|entry| {
+        file_ids
+            .iter()
+            .position(|&id| id == entry.id)
+            .unwrap_or(usize::MAX)
+    });
 
     // Use the get_metadata_summary_by_files function to get the metadata summaries
     get_metadata_summary_by_files(db, file_entries).await

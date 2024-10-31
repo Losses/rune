@@ -146,9 +146,9 @@ fn format_time(seconds: f64) -> String {
 }
 
 pub async fn display_mixes_in_table(main_db: &MainDbConnection, files: &[media_files::Model]) {
-    match get_metadata_summary_by_file_ids(main_db, files.iter().map(|x| x.id).collect::<Vec<_>>())
-        .await
-    {
+    let file_ids = files.iter().map(|x| x.id).collect::<Vec<_>>();
+
+    match get_metadata_summary_by_file_ids(main_db, file_ids).await {
         Ok(summaries) => {
             let mut table = Table::new();
             table.add_row(row![
