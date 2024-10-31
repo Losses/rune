@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/utils/update_color_mode.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/settings_manager.dart';
@@ -129,6 +132,17 @@ class _SettingsThemeState extends State<SettingsTheme> {
     });
   }
 
+  void _updateWindowEffect() {
+    if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        appTheme.setEffect(context);
+      }
+    });
+  }
+
   Future<void> _updateThemeColor(Color? newThemeColor) async {
     setState(() {
       themeColor = newThemeColor;
@@ -147,7 +161,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
     setState(() {
       colorMode = newMode;
 
-      appTheme.updateThemeColor(themeColor);
+      updateColorMode(colorMode);
+      _updateWindowEffect();
     });
     await SettingsManager().setValue(colorModeKey, newMode);
   }

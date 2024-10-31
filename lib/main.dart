@@ -12,6 +12,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
 import 'utils/settings_manager.dart';
+import 'utils/update_color_mode.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 
@@ -69,6 +70,10 @@ void main(List<String> arguments) async {
   }
 
   final SettingsManager settingsManager = SettingsManager();
+
+  String? colorMode = await settingsManager.getValue<String>(colorModeKey);
+
+  updateColorMode(colorMode);
 
   int? themeColor = await settingsManager.getValue<int>(themeColorKey);
 
