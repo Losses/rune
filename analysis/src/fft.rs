@@ -23,6 +23,7 @@ use symphonia::core::probe::Hint;
 use crate::features::energy;
 use crate::features::rms;
 use crate::features::zcr;
+use crate::wgpu_fft::wgpu_radix4;
 
 const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
     sinc_len: 256,
@@ -121,8 +122,9 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
     let track_id = track.id;
 
     // Prepare FFT planner and buffers.
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(window_size);
+    let fft = pollster::block_on(wgpu_radix4::FFTCompute::new());
+    // let mut planner = FftPlanner::new();
+    // let fft = planner.plan_fft_forward(window_size);
     let mut buffer = vec![Complex::new(0.0, 0.0); window_size];
     let mut avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
     let mut count = 0;
@@ -213,7 +215,8 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
                                 buffer[i] = Complex::new(windowed_sample, 0.0);
                             }
 
-                            fft.process(&mut buffer);
+                            // fft.process(&mut buffer);
+                            pollster::block_on(fft.compute_fft(&mut buffer));
                             debug!("FFT processed");
 
                             for (i, value) in buffer.iter().enumerate() {

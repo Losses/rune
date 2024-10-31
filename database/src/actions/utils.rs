@@ -277,7 +277,9 @@ macro_rules! parallel_media_files_processing {
 
         let cursor_query_clone = $cursor_query.clone();
         let (tx, rx) = async_channel::bounded($batch_size);
+        info!("Batch size: {}", $batch_size);
         let total_tasks = cursor_query_clone.count($main_db).await? as usize;
+        info!("Total tasks: {}", total_tasks);
         let processed_count = Arc::new(Mutex::new(0));
 
         let producer_cancel_token = $cancel_token.clone();

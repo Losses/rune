@@ -71,12 +71,22 @@ where
         cancel_token,
         cursor_query,
         lib_path,
-        move |file, lib_path| { analysis_file(file, lib_path) },
+        move |file, lib_path| { 
+            let start = std::time::Instant::now();
+            let result = analysis_file(file, lib_path);
+            let duration = start.elapsed();
+            info!("Analysis time for file {}: {:?}", file.file_name, duration);
+            result
+        },
         |db, file: media_files::Model, analysis_result| async move {
+            let start = std::time::Instant::now();
             match analysis_result {
                 Ok(analysis_result) => {
                     match insert_analysis_result(db, file.id, analysis_result).await {
-                        Ok(_) => debug!("Finished analysis: {}", file.id),
+                        Ok(_) => {
+                            let duration = start.elapsed();
+                            debug!("DB insert time for file {}: {:?}", file.file_name, duration);
+                        },
                         Err(e) => error!("Failed to insert analysis result: {}", e),
                     }
                 }
