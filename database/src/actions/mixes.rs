@@ -488,16 +488,6 @@ macro_rules! apply_sorting_macro {
     };
 }
 
-// Macro to handle cursor sorting
-macro_rules! apply_cursor_sorting_macro {
-    ($query:expr, $cursor_by:expr, $column:expr, $sort_option:expr, $final_asc:expr) => {
-        if let Some(asc) = $sort_option {
-            $cursor_by = $query.clone().cursor_by($column);
-            $final_asc = asc;
-        }
-    };
-}
-
 // Macro to handle subquery filters
 macro_rules! add_subquery_filter {
     ($or_condition:expr, $ids:expr, $entity:ty, $column:expr, $file_column:expr) => {
@@ -772,45 +762,40 @@ pub async fn query_mix_media_files(
         return Ok(ordered_files);
     }
 
-    // Use cursor pagination
-    let mut cursor_by = query.clone().cursor_by(media_files::Column::Id);
-    let mut final_asc = true;
+    if let Some(asc) = sort_track_number_asc {
+        query = query.order_by(
+            media_file_albums::Column::TrackNumber,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
 
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_file_albums::Column::TrackNumber,
-        sort_track_number_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_files::Column::LastModified,
-        sort_last_modified_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_files::Column::Duration,
-        sort_duration_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_file_stats::Column::PlayedThrough,
-        sort_playedthrough_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_file_stats::Column::Skipped,
-        sort_skipped_asc,
-        final_asc
-    );
+    if let Some(asc) = sort_last_modified_asc {
+        query = query.order_by(
+            media_files::Column::LastModified,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_duration_asc {
+        query = query.order_by(
+            media_files::Column::Duration,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_playedthrough_asc {
+        query = query.order_by(
+            media_file_stats::Column::PlayedThrough,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_skipped_asc {
+        query = query.order_by(
+            media_file_stats::Column::Skipped,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
 
     if let Some(limit) = pipe_limit {
         if cursor as u64 >= limit {
@@ -824,16 +809,12 @@ pub async fn query_mix_media_files(
         page_size as u64
     };
 
-    let media_files = (if final_asc {
-        cursor_by.after(cursor as i32).first(final_page_size)
-    } else {
-        cursor_by
-            .desc()
-            .before(cursor as i32)
-            .first(final_page_size)
-    })
-    .all(main_db)
-    .await?;
+    let media_files = query
+        .offset(Some(cursor as u64))
+        .limit(final_page_size)
+        .all(main_db)
+        .await
+        .unwrap();
 
     Ok(media_files)
 }
