@@ -1,8 +1,14 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
+
+int nearestPowerOfTwo(int value) {
+  if (value <= 0) return 1;
+  return pow(2, (log(value) / log(2)).round()).toInt();
+}
 
 class EmptyCoverArt extends StatelessWidget {
   final double? size;
@@ -59,7 +65,7 @@ class CoverArt extends StatelessWidget {
     int? cachedSize;
 
     if (size != null && size!.isFinite) {
-      cachedSize = (size! * pixelRatio).floor();
+      cachedSize = nearestPowerOfTwo((size! * pixelRatio).floor());
     }
 
     return path == '' || path == null
