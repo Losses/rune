@@ -4,17 +4,16 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/format_time.dart';
 import '../../../utils/fetch_flyout_items.dart';
-import '../../../utils/unavailable_menu_entry.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/controller_items.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
-import '../../../screens/cover_wall/utils/primary_command_bar_item.dart';
-import '../../../screens/cover_wall/utils/overflow_command_bar_item.dart';
-import '../../../screens/cover_wall/widgets/cover_art_page_progress_bar.dart';
 import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/playback_controller.dart';
 import '../../../providers/responsive_providers.dart';
+
+import 'cover_wall_command_bar.dart';
+import 'cover_art_page_progress_bar.dart';
 
 class SmallScreenPlayingTrack extends StatefulWidget {
   const SmallScreenPlayingTrack({super.key});
@@ -194,60 +193,5 @@ class SmallScreenPlayingTrackState extends State<SmallScreenPlayingTrack> {
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
     return (visibleEntries, hiddenEntries);
-  }
-}
-
-class CoverWallCommandBar extends StatelessWidget {
-  const CoverWallCommandBar({
-    super.key,
-    required this.flyoutItems,
-    required this.entries,
-    required this.shadows,
-  });
-
-  final (List<ControllerEntry>, List<ControllerEntry>) entries;
-  final Map<String, MenuFlyoutItem> flyoutItems;
-  final List<Shadow> shadows;
-
-  @override
-  Widget build(BuildContext context) {
-    return CommandBar(
-      isCompact: true,
-      overflowMenuItemBuilder: (context, entry) {
-        if (entry is PrimaryCommandBarItem) {
-          final item = flyoutItems[entry.entry.id];
-          if (item != null) {
-            return item;
-          }
-          return unavailableMenuEntry;
-        }
-
-        throw "Unacceptable entry type";
-      },
-      overflowItemBuilder: (onPressed) {
-        return OverflowCommandBarItem(
-          key: const ValueKey("Overflow Item"),
-          onPressed: onPressed,
-        );
-      },
-      primaryItems: entries.$1
-          .map(
-            (x) => PrimaryCommandBarItem(
-              key: ValueKey(x.id),
-              entry: x,
-              shadows: shadows,
-            ),
-          )
-          .toList(),
-      secondaryItems: entries.$2
-          .map(
-            (x) => PrimaryCommandBarItem(
-              key: ValueKey(x.id),
-              entry: x,
-              shadows: shadows,
-            ),
-          )
-          .toList(),
-    );
   }
 }
