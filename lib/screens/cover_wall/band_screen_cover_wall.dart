@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
+import '../../widgets/belt_container.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
@@ -70,12 +71,34 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
         .toList();
 
     return DeviceTypeBuilder(
-      deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
-      builder: (context, deviceType) {
-        if (deviceType == DeviceType.dock) {
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.belt,
+        DeviceType.dock,
+        DeviceType.tv,
+        DeviceType.station,
+      ],
+      builder: (context, activeBreakpoint) {
+        if (activeBreakpoint == DeviceType.dock) {
           return SingleChildScrollView(
             child: Column(
               children: children,
+            ),
+          );
+        }
+
+        if (activeBreakpoint == DeviceType.belt) {
+          return BeltContainer(
+            child: SmoothHorizontalScroll(
+              builder: (context, controller) {
+                return SingleChildScrollView(
+                  controller: controller,
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: children,
+                  ),
+                );
+              },
             ),
           );
         }

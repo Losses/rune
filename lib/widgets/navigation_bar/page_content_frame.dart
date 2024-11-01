@@ -54,6 +54,8 @@ class PageContentFrameState extends State<PageContentFrame> {
         bottom = screen.width / 3 + inset.bottom;
       } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
         bottom = inset.bottom;
+      } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
+        bottom = inset.bottom;
       } else {
         bottom = playbackControllerHeight + inset.bottom;
       }
@@ -61,7 +63,6 @@ class PageContentFrameState extends State<PageContentFrame> {
 
     if (widget.right) {
       if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        bottom = inset.bottom;
         right = screen.height / 3 + inset.right;
       }
     }
