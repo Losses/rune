@@ -4,7 +4,7 @@ orbs:
   rust: circleci/rust@1.6.1
 
 jobs:
-  build-arm:
+  build-linux-arm:
     machine:
       image: ubuntu-2204:2023.07.1
     resource_class: arm.medium
@@ -81,11 +81,107 @@ jobs:
           # Upload to GitHub release
           gh release upload ${TAG} ${ARTIFACT} --clobber
 
+  build-android:
+    docker:
+      - image: cimg/base:current
+        
+    steps:
+      - checkout
+      
+      - run:
+          name: Fetch complete history
+          command: |
+            git fetch --unshallow || true
+
+      - run:
+          name: Get commit hash
+          command: |
+            echo 'export COMMIT_HASH=$(git rev-parse --short HEAD)' >> $BASH_ENV
+            
+      - run:
+          name: Install Nix
+          command: |
+            # Install Nix
+            curl -L https://nixos.org/nix/install | sh
+            
+            # Source nix
+            . $HOME/.nix-profile/etc/profile.d/nix.sh
+            
+            # Add Nix binary directory to PATH
+            export PATH=$HOME/.nix-profile/bin:$PATH
+            
+            echo ". $HOME/.nix-profile/etc/profile.d/nix.sh" >> $BASH_ENV
+            echo "export PATH=$HOME/.nix-profile/bin:\$PATH" >> $BASH_ENV
+            
+            # Source the updated environment
+            source $BASH_ENV
+            
+            # Verify installation
+            which nix
+            nix --version
+            
+      - run:
+          name: Setup OpenSSL
+          command: |
+            bash -c './android/setup-openssl.sh'
+
+      - run:
+          name: Disable Flutter analytics
+          command: |
+            nix --extra-experimental-features "nix-command flakes" develop . --command flutter config --no-analytics
+
+      - run:
+          name: Get Flutter packages
+          command: |
+            nix --extra-experimental-features "nix-command flakes" develop . --command flutter pub get
+
+      - run:
+          name: Generating Rinf files
+          command: |
+            nix --extra-experimental-features "nix-command flakes" develop . --command flutter pub run rinf message
+            
+      - run:
+          name: Build APKs
+          command: |
+            nix --extra-experimental-features "nix-command flakes" develop . --command bash ./android/build.sh
+
+      - run:
+          name: Prepare artifacts
+          command: |
+            mkdir dist
+            cd build/app/outputs/flutter-apk/
+            cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-armv7.apk
+            cp app-arm64-v8a-release.apk ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-arm64.apk
+            cp app-x86_64-release.apk  ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-x64.apk
+
+      - run:
+        name: Upload to GitHub Release
+        command: |
+          TAG=${CIRCLE_TAG}
+      
+          # Download and install GitHub CLI
+          curl -L "https://github.com/cli/cli/releases/download/v2.60.1/gh_2.60.1_linux_amd64.tar.gz" | tar xz
+          sudo mv gh_2.60.1_linux_amd64/bin/gh /usr/local/bin/
+          
+          # Verify installation
+          gh --version
+          
+          # Upload to GitHub release
+          gh release upload ${TAG} "dist/app-armeabi-v7a-release.apk" --clobber
+          gh release upload ${TAG} "dist/app-arm64-v8a-release.apk" --clobber
+          gh release upload ${TAG} "dist/app-x86_64-release.apk" --clobber
+
 workflows:
   version: 2
   build:
     jobs:
-      - build-arm:
+      - build-linux-arm:
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v.*/
+      - build-android:
           filters:
             branches:
               ignore: /.*/
