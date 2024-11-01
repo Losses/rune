@@ -93,13 +93,13 @@ AccentColor get systemAccentColor {
           defaultTargetPlatform == TargetPlatform.android) &&
       !kIsWeb) {
     return AccentColor.swatch({
-      'darkest': SystemTheme.accentColor.darkest,
-      'darker': SystemTheme.accentColor.darker,
-      'dark': SystemTheme.accentColor.dark,
-      'normal': SystemTheme.accentColor.accent,
-      'light': SystemTheme.accentColor.light,
-      'lighter': SystemTheme.accentColor.lighter,
-      'lightest': SystemTheme.accentColor.lightest,
+      'darkest': SystemTheme.accentColor.darkest.withAlpha(255),
+      'darker': SystemTheme.accentColor.darker.withAlpha(255),
+      'dark': SystemTheme.accentColor.dark.withAlpha(255),
+      'normal': SystemTheme.accentColor.accent.withAlpha(255),
+      'light': SystemTheme.accentColor.light.withAlpha(255),
+      'lighter': SystemTheme.accentColor.lighter.withAlpha(255),
+      'lightest': SystemTheme.accentColor.lightest.withAlpha(255),
     });
   }
   return Colors.blue;
