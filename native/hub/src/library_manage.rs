@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use log::debug;
+use log::{debug, info, warn};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -67,7 +67,7 @@ pub async fn scan_audio_library_request(
     let request = dart_signal.message.clone();
     let main_db_clone = Arc::clone(&main_db);
 
-    let _ = task::spawn_blocking(move || {
+    task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             let path = request.path.clone();
@@ -88,6 +88,18 @@ pub async fn scan_audio_library_request(
                     Some(new_token.clone()),
                 )
                 .await?;
+
+                if new_token.is_cancelled() {
+                    info!("Operation cancelled during artist processing.");
+
+                    ScanAudioLibraryResponse {
+                        path: request.path.clone(),
+                        progress: -1,
+                    }
+                    .send_signal_to_dart();
+
+                    return Ok(());
+                }
 
                 let batch_size = determine_batch_size();
 
@@ -121,8 +133,7 @@ pub async fn scan_audio_library_request(
             result?;
             Ok::<(), anyhow::Error>(())
         })
-    })
-    .await?;
+    });
 
     Ok(())
 }
@@ -216,6 +227,7 @@ pub async fn cancel_task_request(
     let success = match request.r#type {
         0 => {
             if let Some(token) = tokens.analyse_token.take() {
+                warn!("Cancelling analyse task");
                 token.cancel();
                 true
             } else {
@@ -224,6 +236,7 @@ pub async fn cancel_task_request(
         }
         1 => {
             if let Some(token) = tokens.scan_token.take() {
+                warn!("Cancelling scan task");
                 token.cancel();
                 true
             } else {

@@ -32,7 +32,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
     final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: true);
+        Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return PageContentFrame(
       child: UnavailablePageOnBand(
@@ -130,7 +130,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                         () async {
                                           await closeLibrary(context);
                                           libraryPath.setLibraryPath(
-                                              allOpenedFiles[index]);
+                                            allOpenedFiles[index],
+                                          );
 
                                           if (!context.mounted) return;
                                           context.go('/library');
@@ -142,7 +143,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                     Button(
                                       onPressed: whileWorking(() async {
                                         libraryPath.removeOpenedFile(
-                                            allOpenedFiles[index]);
+                                          allOpenedFiles[index],
+                                        );
                                       }),
                                       child: const Text("Remove"),
                                     ),

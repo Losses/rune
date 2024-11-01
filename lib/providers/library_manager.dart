@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/library_manage.pb.dart';
 
-enum TaskStatus { working, finished }
+enum TaskStatus { working, finished, cancelled }
 
 class AnalyseTaskProgress {
   final String path;
@@ -55,6 +55,7 @@ class LibraryManagerProvider with ChangeNotifier {
   StreamSubscription? _scanResultSubscription;
   StreamSubscription? _analyseProgressSubscription;
   StreamSubscription? _analyseResultSubscription;
+  StreamSubscription? _cancelTaskSubscription;
 
   final Map<String, Completer<void>> _scanCompleters = {};
   final Map<String, Completer<void>> _analyseCompleters = {};
@@ -89,6 +90,32 @@ class LibraryManagerProvider with ChangeNotifier {
         TaskStatus.finished,
         initialize,
       );
+
+      _cancelTaskSubscription =
+          CancelTaskResponse.rustSignalStream.listen((event) {
+        final cancelResponse = event.message;
+        if (cancelResponse.success) {
+          if (cancelResponse.type == CancelTaskType.ScanAudioLibrary) {
+            _updateScanProgress(
+              cancelResponse.path,
+              ScanTaskType.IndexFiles,
+              0,
+              0,
+              TaskStatus.cancelled,
+              false,
+            );
+          } else if (cancelResponse.type ==
+              CancelTaskType.AnalyseAudioLibrary) {
+            _updateAnalyseProgress(
+              cancelResponse.path,
+              0,
+              0,
+              TaskStatus.cancelled,
+              false,
+            );
+          }
+        }
+      });
 
       if (initialize) {
         analyseLibrary(scanResult.path);
@@ -224,12 +251,17 @@ class LibraryManagerProvider with ChangeNotifier {
     return _analyseCompleters[path]!.future;
   }
 
+  Future<void> cancelTask(String path, CancelTaskType type) async {
+    CancelTaskRequest(path: path, type: type).sendSignalToRust();
+  }
+
   @override
   void dispose() {
     _scanProgressSubscription?.cancel();
     _scanResultSubscription?.cancel();
     _analyseProgressSubscription?.cancel();
     _analyseResultSubscription?.cancel();
+    _cancelTaskSubscription?.cancel();
     super.dispose();
   }
 }

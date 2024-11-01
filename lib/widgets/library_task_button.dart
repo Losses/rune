@@ -1,21 +1,49 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../screens/settings_library/widgets/progress_button.dart';
+import '../messages/library_manage.pbenum.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
+
+Future<bool?> showCancelDialog(BuildContext context) {
+  return showDialog<bool>(
+    context: context,
+    builder: (context) => ContentDialog(
+      title: const Text('Cancel ongoing task?'),
+      content: const Text(
+        'If you cancel this task, it will stop at its current completion state. Do you want to cancel it?',
+      ),
+      actions: [
+        Button(
+          child: const Text('Cancel Task'),
+          onPressed: () {
+            Navigator.pop(context, true); // User chose to cancel the task
+          },
+        ),
+        FilledButton(
+          child: const Text('Continue'),
+          onPressed: () =>
+              Navigator.pop(context, false), // User chose to continue the task
+        ),
+      ],
+    ),
+  );
+}
 
 class LibraryTaskButton extends StatelessWidget {
   final String title;
   final String progressTitle;
-  final Future<void> Function(LibraryManagerProvider, String) onPressedAction;
+  final Future<void> Function(LibraryManagerProvider, String) onPressedStart;
+  final void Function(LibraryManagerProvider, String) onPressedCancel;
   final bool Function(bool, bool) isTaskWorking;
   final double? progress;
 
   const LibraryTaskButton({
     required this.title,
     required this.progressTitle,
-    required this.onPressedAction,
+    required this.onPressedStart,
+    required this.onPressedCancel,
     required this.isTaskWorking,
     required this.progress,
     super.key,
@@ -44,13 +72,13 @@ class LibraryTaskButton extends StatelessWidget {
     return isWorking && isTaskWorking(scanWorking, analyseWorking)
         ? ProgressButton(
             title: progressTitle,
-            onPressed: null,
+            onPressed: () => onPressedCancel(libraryManager, itemPath),
             progress: progress,
           )
         : Button(
             onPressed: isWorking
                 ? null
-                : () => onPressedAction(libraryManager, itemPath),
+                : () => onPressedStart(libraryManager, itemPath),
             child: Text(title),
           );
   }
@@ -72,7 +100,14 @@ class ScanLibraryButton extends StatelessWidget {
       title: title ?? "Scan",
       progressTitle: "Scanning",
       progress: null,
-      onPressedAction: (libraryManager, itemPath) async {
+      onPressedCancel: (libraryManager, itemPath) async {
+        final confirm = await showCancelDialog(context);
+
+        if (confirm == true) {
+          libraryManager.cancelTask(itemPath, CancelTaskType.ScanAudioLibrary);
+        }
+      },
+      onPressedStart: (libraryManager, itemPath) async {
         libraryManager.scanLibrary(itemPath, false);
         await libraryManager.waitForScanToComplete(itemPath);
 
@@ -114,7 +149,15 @@ class AnalyseLibraryButton extends StatelessWidget {
     return LibraryTaskButton(
       title: title ?? "Analyse",
       progressTitle: "Analysing",
-      onPressedAction: (libraryManager, itemPath) async {
+      onPressedCancel: (libraryManager, itemPath) async {
+        final confirm = await showCancelDialog(context);
+
+        if (confirm == true) {
+          libraryManager.cancelTask(
+              itemPath, CancelTaskType.AnalyseAudioLibrary);
+        }
+      },
+      onPressedStart: (libraryManager, itemPath) async {
         libraryManager.analyseLibrary(itemPath, false);
         await libraryManager.waitForAnalyseToComplete(itemPath);
 
