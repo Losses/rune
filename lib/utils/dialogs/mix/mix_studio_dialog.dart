@@ -38,24 +38,18 @@ class MixStudioDialog extends StatefulWidget {
 class _MixStudioDialog extends State<MixStudioDialog> {
   @override
   Widget build(BuildContext context) {
-    final isMini = Provider.of<ResponsiveProvider>(context)
-        .smallerOrEqualTo(DeviceType.tablet);
-
     return MixStudioDialogImplementation(
       mixId: widget.mixId,
-      isMini: isMini,
     );
   }
 }
 
 class MixStudioDialogImplementation extends StatefulWidget {
   final int? mixId;
-  final bool isMini;
 
   const MixStudioDialogImplementation({
     super.key,
     required this.mixId,
-    required this.isMini,
   });
 
   @override
@@ -153,8 +147,11 @@ class _MixStudioDialogImplementationState
 
   @override
   Widget build(BuildContext context) {
+    final r = Provider.of<ResponsiveProvider>(context);
     final height = MediaQuery.of(context).size.height;
     const reduce = fullNavigationBarHeight + playbackControllerHeight + 48;
+
+    final isMini = r.smallerOrEqualTo(DeviceType.tablet);
 
     final editor = SizedBox(
       height: height - reduce,
@@ -163,7 +160,7 @@ class _MixStudioDialogImplementationState
 
     return UnavailableDialogOnBand(
       child: ContentDialog(
-        constraints: BoxConstraints(maxWidth: widget.isMini ? 420 : 1000),
+        constraints: BoxConstraints(maxWidth: isMini ? 420 : 1000),
         title: Column(
           children: [
             const SizedBox(height: 8),
@@ -174,7 +171,7 @@ class _MixStudioDialogImplementationState
           constraints: BoxConstraints(
             maxHeight: height < reduce ? reduce : height - reduce,
           ),
-          child: widget.isMini
+          child: isMini
               ? editor
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,

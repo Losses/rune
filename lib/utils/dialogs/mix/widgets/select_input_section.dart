@@ -77,10 +77,13 @@ class _SelectInputSectionState extends State<SelectInputSection> {
                                 children: [
                                   Icon(item.icon, size: 18),
                                   const SizedBox(width: 8),
-                                  Text(
-                                    item.title,
-                                    textAlign: TextAlign.start,
-                                  )
+                                  Expanded(
+                                    child: Text(
+                                      item.title,
+                                      textAlign: TextAlign.start,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
                                 ],
                               ),
                             )
