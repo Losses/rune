@@ -151,7 +151,8 @@ class _MixStudioDialogImplementationState
     final height = MediaQuery.of(context).size.height;
     const reduce = fullNavigationBarHeight + playbackControllerHeight + 48;
 
-    final isMini = r.smallerOrEqualTo(DeviceType.tablet);
+    final smallerThanTablet = r.smallerOrEqualTo(DeviceType.tablet);
+    final smallerThanZune = r.smallerOrEqualTo(DeviceType.zune);
 
     final editor = SizedBox(
       height: height - reduce,
@@ -160,7 +161,12 @@ class _MixStudioDialogImplementationState
 
     return UnavailableDialogOnBand(
       child: ContentDialog(
-        constraints: BoxConstraints(maxWidth: isMini ? 420 : 1000),
+        style: smallerThanZune
+            ? const ContentDialogThemeData(
+                padding: EdgeInsets.symmetric(vertical: 24, horizontal: 8),
+              )
+            : null,
+        constraints: BoxConstraints(maxWidth: smallerThanTablet ? 420 : 1000),
         title: Column(
           children: [
             const SizedBox(height: 8),
@@ -171,7 +177,7 @@ class _MixStudioDialogImplementationState
           constraints: BoxConstraints(
             maxHeight: height < reduce ? reduce : height - reduce,
           ),
-          child: isMini
+          child: smallerThanTablet
               ? editor
               : Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
