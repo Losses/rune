@@ -155,21 +155,21 @@ jobs:
             cp app-x86_64-release.apk  ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-x64.apk
 
       - run:
-        name: Upload to GitHub Release
-        command: |
-          TAG=${CIRCLE_TAG}
-      
-          # Download and install GitHub CLI
-          curl -L "https://github.com/cli/cli/releases/download/v2.60.1/gh_2.60.1_linux_amd64.tar.gz" | tar xz
-          sudo mv gh_2.60.1_linux_amd64/bin/gh /usr/local/bin/
-          
-          # Verify installation
-          gh --version
-          
-          # Upload to GitHub release
-          gh release upload ${TAG} "dist/app-armeabi-v7a-release.apk" --clobber
-          gh release upload ${TAG} "dist/app-arm64-v8a-release.apk" --clobber
-          gh release upload ${TAG} "dist/app-x86_64-release.apk" --clobber
+          name: Upload to GitHub Release
+          command: |
+            TAG=${CIRCLE_TAG}
+        
+            # Download and install GitHub CLI
+            curl -L "https://github.com/cli/cli/releases/download/v2.60.1/gh_2.60.1_linux_amd64.tar.gz" | tar xz
+            sudo mv gh_2.60.1_linux_amd64/bin/gh /usr/local/bin/
+            
+            # Verify installation
+            gh --version
+            
+            # Upload to GitHub release
+            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-armv7.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-arm64.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-x64.apk" --clobber
 
 workflows:
   version: 2
