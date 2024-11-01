@@ -2,18 +2,18 @@ import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/utils/update_color_mode.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/settings_manager.dart';
+import '../../utils/update_color_mode.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
+import '../../widgets/settings/settings_block_title.dart';
+import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-
-import '../settings_playback/widgets/settings_block.dart';
-import '../settings_playback/widgets/settings_block_title.dart';
 
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
@@ -175,31 +175,29 @@ class _SettingsThemeState extends State<SettingsTheme> {
           child: SettingsPagePadding(
             child: Column(
               children: [
-                SettingsBlock(
+                SettingsBoxComboBox(
                   title: "Color Mode",
                   subtitle: "Change the color mode that appears in Rune.",
-                  child: ComboBox<String>(
-                    value: colorMode,
-                    items: const [
-                      ComboBoxItem(
-                        value: "system",
-                        child: Text("System"),
-                      ),
-                      ComboBoxItem(
-                        value: "dark",
-                        child: Text("Dark"),
-                      ),
-                      ComboBoxItem(
-                        value: "light",
-                        child: Text("Light"),
-                      ),
-                    ],
-                    onChanged: (newValue) {
-                      if (newValue != null) {
-                        _updateColorModeSetting(newValue);
-                      }
-                    },
-                  ),
+                  value: colorMode,
+                  items: const [
+                    SettingsBoxComboBoxItem(
+                      value: "system",
+                      title: "System",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "dark",
+                      title: "Dark",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "light",
+                      title: "Light",
+                    ),
+                  ],
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _updateColorModeSetting(newValue);
+                    }
+                  },
                 ),
                 Padding(
                   padding: const EdgeInsets.all(4),
@@ -258,22 +256,20 @@ class _SettingsThemeState extends State<SettingsTheme> {
                     ),
                   ),
                 ),
-                SettingsBlock(
+                SettingsBoxToggle(
                   title: "Branding Animation",
                   subtitle: "Play branding animation when Rune starts.",
-                  child: ToggleSwitch(
-                    checked: !(disableBrandingAnimation ?? false),
-                    onChanged: (value) {
-                      settingsManager.setValue(
-                        disableBrandingAnimationKey,
-                        !value,
-                      );
+                  value: !(disableBrandingAnimation ?? false),
+                  onChanged: (value) {
+                    settingsManager.setValue(
+                      disableBrandingAnimationKey,
+                      !value,
+                    );
 
-                      setState(() {
-                        disableBrandingAnimation = !value;
-                      });
-                    },
-                  ),
+                    setState(() {
+                      disableBrandingAnimation = !value;
+                    });
+                  },
                 ),
               ],
             ),
