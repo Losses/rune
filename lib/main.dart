@@ -22,6 +22,9 @@ import 'config/shortcuts.dart';
 import 'config/navigation.dart';
 import 'config/routes_native.dart';
 
+import 'widgets/router/router_frame.dart';
+import 'widgets/router/router_animation.dart';
+
 import 'screens/settings_theme/settings_theme.dart';
 
 import 'messages/generated.dart';
@@ -156,20 +159,20 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
-          themeMode: appTheme.mode,
+          routes: routesNative,
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
+          themeMode: appTheme.mode,
+          theme: FluentThemeData(
+            accentColor: appTheme.color,
+            visualDensity: VisualDensity.standard,
+          ),
           darkTheme: FluentThemeData(
             brightness: Brightness.dark,
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
           ),
-          theme: FluentThemeData(
-            accentColor: appTheme.color,
-            visualDensity: VisualDensity.standard,
-          ),
           locale: appTheme.locale,
-          routes: routesNative,
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 
@@ -179,7 +182,15 @@ class Rune extends StatelessWidget {
                   : Colors.transparent,
               child: Directionality(
                 textDirection: appTheme.textDirection,
-                child: Shortcuts(shortcuts: shortcuts, child: child!),
+                child: Shortcuts(
+                  shortcuts: shortcuts,
+                  child: RouterFrame(
+                    child: RouterAnimation(
+                      appTheme: appTheme,
+                      child: child!,
+                    ),
+                  ),
+                ),
               ),
             );
           },
