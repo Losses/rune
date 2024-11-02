@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
-import 'package:rune/utils/router/constants/navigator.dart';
 
+import '../../utils/router/constants/navigator.dart';
 import '../../utils/router/router_transition_parameter.dart';
 import '../../config/theme.dart';
 import '../../providers/transition_calculation.dart';
