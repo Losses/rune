@@ -17,13 +17,10 @@ import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
+import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 import 'config/navigation.dart';
-import 'config/routes_native.dart';
-
-import 'widgets/router/router_frame.dart';
-import 'widgets/router/router_animation.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
 
@@ -132,15 +129,16 @@ void main(List<String> arguments) async {
           update: (context, screenSizeProvider, previous) =>
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
+        ChangeNotifierProvider(
+          create: (_) =>
+              TransitionCalculationProvider(navigationItems: navigationItems),
+        ),
         ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
-        ChangeNotifierProvider(
-            create: (_) =>
-                TransitionCalculationProvider(navigationItems: navigationItems))
       ],
       child: const Rune(),
     ),
@@ -159,7 +157,8 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
-          routes: routesNative,
+          routes: routes,
+          initialRoute: "/library",
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
           themeMode: appTheme.mode,
@@ -184,12 +183,7 @@ class Rune extends StatelessWidget {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: RouterFrame(
-                    child: RouterAnimation(
-                      appTheme: appTheme,
-                      child: child!,
-                    ),
-                  ),
+                  child: child!,
                 ),
               ),
             );

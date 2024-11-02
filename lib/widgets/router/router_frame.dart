@@ -2,26 +2,25 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../main.dart';
-import 'router_animation.dart';
-
-import '../../config/theme.dart';
 
 import '../../routes/welcome.dart' as welcome;
 
 import '../../screens/bsod/bsod.dart';
 
-import '../../widgets/banding_animation/branding_animation.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
-import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
+import '../../widgets/navigation_bar/navigation_back_button.dart';
+import '../../widgets/banding_animation/branding_animation.dart';
 import '../../widgets/playback_controller/cover_art_disk.dart';
 import '../../widgets/playback_controller/playback_controller.dart';
-import '../../widgets/router/rune_stack.dart';
-import '../../widgets/router/scale_fade_container.dart';
 
 import '../../providers/crash.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
+
+import 'rune_stack.dart';
+import 'router_animation.dart';
+import 'scale_fade_container.dart';
 
 class RouterFrame extends StatelessWidget {
   const RouterFrame({super.key, required this.child});
@@ -54,10 +53,7 @@ class RouterFrame extends StatelessWidget {
 
     final mainContent = FocusTraversalOrder(
       order: const NumericFocusOrder(2),
-      child: RouterAnimation(
-        appTheme: appTheme,
-        child: child,
-      ),
+      child: RouterAnimation(child: child),
     );
 
     final path = ModalRoute.of(context)?.settings.name ?? "/";

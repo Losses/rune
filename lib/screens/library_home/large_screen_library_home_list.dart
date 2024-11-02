@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
+import '../../utils/router/navigation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -130,7 +131,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
                                 onTitleTap: () => {
-                                  Navigator.pushNamed(
+                                  $push(
                                     context,
                                     '/${item.groupTitle.toLowerCase()}',
                                   )

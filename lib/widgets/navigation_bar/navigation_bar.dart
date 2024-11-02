@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
@@ -66,7 +67,7 @@ class NavigationBarState extends State<NavigationBar> {
   void _onRouteSelected(NavigationItem route) {
     if (route.path == _previousPath) return;
 
-    Navigator.pushReplacementNamed(context, route.path);
+    $replace(context, route.path);
   }
 
   void _onHeaderTap(BuildContext context, NavigationItem? item) {
@@ -74,7 +75,7 @@ class NavigationBarState extends State<NavigationBar> {
 
     setState(() {
       if (item != null) {
-        Navigator.pushReplacementNamed(context, item.path);
+        $replace(context, item.path);
       }
     });
   }
@@ -209,7 +210,7 @@ class NavigationBarState extends State<NavigationBar> {
                     if (isSearch)
                       {escapeFromSearch(context)}
                     else
-                      {Navigator.pushNamed(context, '/search')}
+                      {$push(context, '/search')}
                   },
                 ),
               ),

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'navigation_intent.dart';
+import '../../utils/router/navigation.dart';
 
 class NavigationAction extends Action<NavigationIntent> {
   final BuildContext context;
@@ -14,6 +15,6 @@ class NavigationAction extends Action<NavigationIntent> {
       return;
     }
 
-    Navigator.pushNamed(context, intent.path);
+    $push(context, intent.path);
   }
 }

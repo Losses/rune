@@ -1,4 +1,4 @@
-import '../messages/collection.pb.dart';
+import '../../messages/collection.pb.dart';
 
 final Map<CollectionType, String> routerName = {
   CollectionType.Album: 'albums',

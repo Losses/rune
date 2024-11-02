@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../providers/responsive_providers.dart';
@@ -26,7 +27,7 @@ class BandLinkTileList extends StatelessWidget {
               child: BandLinkTile(
                 title: item.$1,
                 onPressed: () {
-                  Navigator.pushNamed(context, item.$2);
+                  $push(context, item.$2);
                 },
                 icon: item.$3,
               ),

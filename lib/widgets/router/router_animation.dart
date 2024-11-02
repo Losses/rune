@@ -3,19 +3,16 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 
-import '../shortcuts/router_actions_manager.dart';
-
+import '../../utils/router/router_transition_parameter.dart';
+import '../../config/theme.dart';
 import '../../providers/transition_calculation.dart';
 
-import '../../theme.dart';
+import '../shortcuts/router_actions_manager.dart';
 
 class RouterAnimation extends StatefulWidget {
-  final AppTheme appTheme;
-
   const RouterAnimation({
     super.key,
     required this.child,
-    required this.appTheme,
   });
 
   final Widget child;
@@ -28,6 +25,9 @@ class _RouterAnimationState extends State<RouterAnimation>
     with TickerProviderStateMixin {
   late AnimationController _animationController;
 
+  String? from;
+  String? to;
+
   void _updateWindowEffectCallback() {
     if (Platform.isLinux) return;
     if (Platform.isAndroid) return;
@@ -39,7 +39,7 @@ class _RouterAnimationState extends State<RouterAnimation>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        widget.appTheme.setEffect(context);
+        appTheme.setEffect(context);
       }
     });
   }
@@ -51,23 +51,27 @@ class _RouterAnimationState extends State<RouterAnimation>
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    widget.appTheme.addListener(_updateWindowEffectCallback);
+    appTheme.addListener(_updateWindowEffectCallback);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _updateWindowEffectCallback();
+    final transition = getRouterTransitionParameter(context);
+    if (transition != null) {
+      from = transition.from;
+      to = transition.to;
+    }
   }
 
   @override
   void dispose() {
     _animationController.dispose();
-    widget.appTheme.removeListener(_updateWindowEffectCallback);
+    appTheme.removeListener(_updateWindowEffectCallback);
     super.dispose();
   }
 
-  String _lastRoute = '';
   RouteRelation _lastCompareResult = RouteRelation.same;
 
   Widget _applyAnimation(Widget child, RouteRelation relation) {
@@ -146,15 +150,12 @@ class _RouterAnimationState extends State<RouterAnimation>
     FluentLocalizations.of(context);
 
     final calculator = Provider.of<TransitionCalculationProvider>(context);
-    final path = ModalRoute.of(context)?.settings.name ?? "/";
 
-    if (path == _lastRoute) {
+    if (from == to) {
       return _applyAnimation(widget.child, _lastCompareResult);
     }
 
-    final relation = calculator.compareRoute(path);
-    calculator.registerRoute(path);
-    _lastRoute = path;
+    final relation = calculator.compareRoute(from, to);
     _lastCompareResult = relation;
     _animationController.reset();
     _animationController.forward();

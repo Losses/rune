@@ -1,9 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
-import '../../../utils/router_name.dart';
+import '../../../utils/router/navigation.dart';
+import '../../../utils/router/router_name.dart';
 import '../../../utils/context_menu/collection_item_context_menu.dart';
-import '../../../utils/query_tracks_parameter.dart';
+import '../../../utils/router/query_tracks_parameter.dart';
 import '../../../widgets/tile/flip_cover_grid.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
 import '../../../screens/search/widgets/search_card.dart';
@@ -23,7 +24,7 @@ class CollectionSearchItem extends SearchCard {
 
   @override
   void onPressed(BuildContext context) {
-    Navigator.pushReplacementNamed(
+    $replace(
       context,
       '/${collectionTypeToRouterName(collectionType)}/detail',
       arguments: QueryTracksParameter(getItemId(), getItemTitle()),

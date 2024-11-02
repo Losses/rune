@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:rune/utils/router/navigation.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/scan_library.dart';
@@ -79,7 +80,7 @@ class WelcomePage extends StatelessWidget {
                               await scanLibrary(context, result);
 
                               if (!context.mounted) return;
-                              Navigator.pushReplacementNamed(
+                              $replace(
                                 context,
                                 "/library",
                               );

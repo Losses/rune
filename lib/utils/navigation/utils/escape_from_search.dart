@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../router/navigation.dart';
+
 escapeFromSearch(BuildContext context) {
   final path = ModalRoute.of(context)?.settings.name;
 
@@ -7,7 +9,7 @@ escapeFromSearch(BuildContext context) {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     } else {
-      Navigator.pushNamed(context, '/library');
+      $push(context, '/library');
     }
 
     return true;

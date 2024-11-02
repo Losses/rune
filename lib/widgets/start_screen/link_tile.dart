@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/ax_pressure.dart';
 
@@ -26,7 +27,7 @@ class LinkTile extends StatelessWidget {
     return AxPressure(
       child: Tile(
         onPressed: () {
-          Navigator.pushNamed(context, path);
+          $push(context, path);
         },
         child: Stack(
           alignment: Alignment.bottomLeft,

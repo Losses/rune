@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/router/navigation.dart';
+
 void showCoverArtWall(BuildContext context) {
   final path = ModalRoute.of(context)?.settings.name;
   if (path == "/cover_wall") {
@@ -8,7 +10,7 @@ void showCoverArtWall(BuildContext context) {
       Navigator.pop(context);
     }
   } else {
-    Navigator.pushNamed(context, "/cover_wall");
+    $push(context, "/cover_wall");
   }
 }
 

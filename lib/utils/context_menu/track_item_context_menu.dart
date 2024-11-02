@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/query_list.dart';
-import '../query_tracks_parameter.dart';
 import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
@@ -20,6 +19,8 @@ import '../../messages/playback.pb.dart';
 import '../../messages/playlist.pbserver.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../router/navigation.dart';
+import '../router/query_tracks_parameter.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
 
 void openTrackItemContextMenu(
@@ -182,7 +183,7 @@ Widget buildTrackItemContextMenu(
           leading: const Icon(Symbols.face),
           text: const Text('Go to Artist'),
           onPressed: () => {
-            Navigator.pushNamed(
+            $push(
               context,
               '/artists/detail',
               arguments: QueryTracksParameter(
@@ -201,7 +202,7 @@ Widget buildTrackItemContextMenu(
                       leading: const Icon(Symbols.face),
                       text: Text(x.name),
                       onPressed: () => {
-                        Navigator.pushNamed(
+                        $push(
                           context,
                           '/artists/detail',
                           arguments: QueryTracksParameter(x.id, x.name),
@@ -213,7 +214,7 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.album),
         text: const Text('Go to Album'),
         onPressed: () => {
-          Navigator.pushNamed(
+          $push(
             context,
             '/albums/detail',
             arguments: QueryTracksParameter(item.album.id, item.album.name),

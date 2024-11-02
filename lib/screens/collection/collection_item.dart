@@ -1,8 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
-import '../../utils/router_name.dart';
-import '../../utils/query_tracks_parameter.dart';
+import '../../utils/router/navigation.dart';
+import '../../utils/router/router_name.dart';
+import '../../utils/router/query_tracks_parameter.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/flip_tile.dart';
@@ -81,11 +82,13 @@ class _CollectionItemState extends State<CollectionItem> {
               filterDuplicates(widget.collection.coverArtMap.values.toList()),
           emptyTileType: BoringAvatarType.bauhaus,
           onPressed: () {
-            Navigator.pushNamed(
+            $push(
               context,
               '/${collectionTypeToRouterName(widget.collectionType)}/detail',
               arguments: QueryTracksParameter(
-                  widget.collection.id, widget.collection.name),
+                widget.collection.id,
+                widget.collection.name,
+              ),
             );
           },
         ),
