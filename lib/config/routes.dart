@@ -16,42 +16,41 @@ import '../routes/query_tracks.dart' as query_tracks;
 import '../routes/library_home.dart' as library_home;
 
 import '../messages/collection.pb.dart';
-import '../widgets/router/router_wrapper.dart';
 
 final Map<String, WidgetBuilder> routes = {
-  '/welcome': (context) => const $(welcome.WelcomePage()),
-  '/welcome/scanning': (context) => const $(welcome.ScanningPage()),
-  '/home': (context) => const $(home.HomePage()),
-  '/library': (context) => const $(library_home.LibraryHomePage()),
-  '/artists': (context) => const $(collections.CollectionPage(
+  '/': (context) => const home.HomePage(),
+  '/welcome': (context) => const welcome.WelcomePage(),
+  '/welcome/scanning': (context) => const welcome.ScanningPage(),
+  '/library': (context) => const library_home.LibraryHomePage(),
+  '/artists': (context) => const collections.CollectionPage(
         key: ValueKey("Artists"),
         collectionType: CollectionType.Artist,
-      )),
+      ),
   '/artists/detail': (context) {
     final arguments = getQueryTracksParameter(context);
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
 
-    return $(query_tracks.QueryTracksPage(
+    return query_tracks.QueryTracksPage(
       queries: QueryList(
         [("lib::artist", arguments.id.toString())],
       ),
       title: arguments.title,
       mode: 99,
-    ));
+    );
   },
-  '/albums': (context) => const $(collections.CollectionPage(
+  '/albums': (context) => const collections.CollectionPage(
         key: ValueKey("Albums"),
         collectionType: CollectionType.Album,
-      )),
+      ),
   '/albums/detail': (context) {
     final arguments = getQueryTracksParameter(context);
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
 
-    return $(query_tracks.QueryTracksPage(
+    return query_tracks.QueryTracksPage(
       queries: QueryList(
         [
           ("lib::album", arguments.id.toString()),
@@ -60,51 +59,51 @@ final Map<String, WidgetBuilder> routes = {
       ),
       title: arguments.title,
       mode: 99,
-    ));
+    );
   },
-  '/playlists': (context) => const $(collections.CollectionPage(
+  '/playlists': (context) => const collections.CollectionPage(
         key: ValueKey("Playlists"),
         collectionType: CollectionType.Playlist,
-      )),
+      ),
   '/playlists/detail': (context) {
     final arguments = getQueryTracksParameter(context);
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
 
-    return $(query_tracks.QueryTracksPage(
+    return query_tracks.QueryTracksPage(
       queries: QueryList(
         [("lib::playlist", arguments.id.toString())],
       ),
       title: arguments.title,
       mode: 99,
-    ));
+    );
   },
-  '/mixes': (context) => const $(collections.CollectionPage(
+  '/mixes': (context) => const collections.CollectionPage(
         key: ValueKey("Mixes"),
         collectionType: CollectionType.Mix,
-      )),
+      ),
   '/mixes/detail': (context) {
     final arguments = getQueryTracksParameter(context);
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
 
-    return $(mixes.MixTrackesPage(
+    return mixes.MixTrackesPage(
       mixId: arguments.id,
       title: arguments.title,
-    ));
+    );
   },
-  '/tracks': (context) => const $(tracks.TracksPage()),
-  '/settings': (context) => const $(settings.SettingsHomePage()),
-  '/settings/library': (context) => const $(settings.SettingsLibraryPage()),
-  '/settings/analysis': (context) => const $(settings.SettingsAnalysis()),
-  '/settings/theme': (context) => const $(settings.SettingsTheme()),
-  '/settings/playback': (context) => const $(settings.SettingsPlayback()),
-  '/settings/about': (context) => const $(settings.SettingsAboutPage()),
-  '/settings/mix': (context) => const $(settings.SettingsTestPage()),
+  '/tracks': (context) => const tracks.TracksPage(),
+  '/settings': (context) => const settings.SettingsHomePage(),
+  '/settings/library': (context) => const settings.SettingsLibraryPage(),
+  '/settings/analysis': (context) => const settings.SettingsAnalysis(),
+  '/settings/theme': (context) => const settings.SettingsTheme(),
+  '/settings/playback': (context) => const settings.SettingsPlayback(),
+  '/settings/about': (context) => const settings.SettingsAboutPage(),
+  '/settings/mix': (context) => const settings.SettingsTestPage(),
   '/settings/media_controller': (context) =>
-      const $(settings.SettingsMediaControllerPage()),
-  '/search': (context) => const $(search.SearchPage()),
-  '/cover_wall': (context) => const $(cover_wall.CoverWallPage()),
+      const settings.SettingsMediaControllerPage(),
+  '/search': (context) => const search.SearchPage(),
+  '/cover_wall': (context) => const cover_wall.CoverWallPage(),
 };

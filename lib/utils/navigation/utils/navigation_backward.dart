@@ -4,7 +4,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../config/navigation_query.dart';
 
 bool navigationBackward(BuildContext context) {
-  final canPop = Navigator.canPop(context);
+  final canPop = $canPop();
 
   if (!canPop) {
     final path = ModalRoute.of(context)?.settings.name;
@@ -21,7 +21,7 @@ navigateBackwardWithPop(BuildContext context) {
   final path = ModalRoute.of(context)?.settings.name;
 
   if (!navigationBackward(context)) {
-    Navigator.pop(context);
+    $pop();
   } else if (path != '/library') {
     $replace(context, '/library');
   }

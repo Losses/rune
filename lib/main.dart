@@ -22,7 +22,8 @@ import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 import 'config/navigation.dart';
 
-import 'widgets/router/router_frame.dart';
+import 'widgets/router/no_effect_page_route.dart';
+import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
 
@@ -33,6 +34,7 @@ import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/playlist.dart';
 import 'providers/full_screen.dart';
+import 'providers/router_path.dart';
 import 'providers/library_path.dart';
 import 'providers/library_manager.dart';
 import 'providers/playback_controller.dart';
@@ -135,6 +137,7 @@ void main(List<String> arguments) async {
           create: (_) =>
               TransitionCalculationProvider(navigationItems: navigationItems),
         ),
+        ChangeNotifierProvider(create: (_) => $routerPath),
         ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
@@ -159,7 +162,32 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
-          routes: routes,
+          onGenerateRoute: (settings) {
+            final routeName = settings.name!;
+
+            if (routeName == '/') {
+              final builder = routes["/"]!;
+              final page = builder(context);
+
+              return NoEffectPageRoute<dynamic>(
+                settings: settings,
+                builder: (context) {
+                  return page;
+                },
+              );
+            }
+
+            final page = RuneWithNavigationBarAndPlaybackControllor(
+              routeName: routeName,
+            );
+
+            return NoEffectPageRoute<dynamic>(
+              settings: settings,
+              builder: (context) {
+                return page;
+              },
+            );
+          },
           initialRoute: "/library",
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
@@ -185,7 +213,7 @@ class Rune extends StatelessWidget {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: RouterFrame(child: child!),
+                  child: child!,
                 ),
               ),
             );

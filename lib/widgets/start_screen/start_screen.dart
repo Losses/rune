@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
@@ -202,7 +203,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                               child: Button(
                                 child: Text(x.groupTitle),
                                 onPressed: () {
-                                  Navigator.pop(context);
+                                  $pop();
                                   scrollToGroup(x.groupTitle);
                                 },
                               ),
@@ -214,7 +215,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   const SizedBox(height: 24),
                   Button(
                     child: const Text('Cancel'),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: () => $pop(),
                   ),
                 ],
               ),

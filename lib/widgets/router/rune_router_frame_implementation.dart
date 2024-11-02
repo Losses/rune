@@ -1,5 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/providers/router_path.dart';
 
 import '../../main.dart';
 
@@ -7,7 +8,6 @@ import '../../routes/welcome.dart' as welcome;
 
 import '../../screens/bsod/bsod.dart';
 
-import '../../utils/router/router_path.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
@@ -20,13 +20,21 @@ import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'rune_stack.dart';
+import 'rune_with_navigation_bar_and_playback_controllor.dart';
 import 'scale_fade_container.dart';
 
-class RouterFrame extends StatelessWidget {
-  const RouterFrame({super.key, required this.child});
+class RuneRouterFrameImplementation extends StatefulWidget {
+  const RuneRouterFrameImplementation({super.key, required this.child});
 
   final Widget child;
 
+  @override
+  State<RuneRouterFrameImplementation> createState() =>
+      _RuneRouterFrameImplementationState();
+}
+
+class _RuneRouterFrameImplementationState
+    extends State<RuneRouterFrameImplementation> {
   @override
   Widget build(BuildContext context) {
     final library = Provider.of<LibraryPathProvider>(context);
@@ -53,10 +61,10 @@ class RouterFrame extends StatelessWidget {
 
     final mainContent = FocusTraversalOrder(
       order: const NumericFocusOrder(2),
-      child: child,
+      child: widget.child,
     );
 
-    final path = $routerPath.path;
+    final path = Provider.of<RouterPathProvider>(context).path;
 
     return Stack(
       children: [
@@ -95,7 +103,9 @@ class RouterFrame extends StatelessWidget {
                             activeBreakpoint == DeviceType.band ||
                                 activeBreakpoint == DeviceType.dock;
 
-                        if (!isSmallView) return const NavigationBar();
+                        if (!isSmallView) {
+                          return NavigationBar(path: path);
+                        }
 
                         return const Positioned(
                           top: -12,

@@ -1,41 +1,62 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/router/router_path.dart';
 
-import '../../utils/router/constants/navigator.dart';
+import '../../providers/router_path.dart';
 import '../../utils/router/router_transition_parameter.dart';
+import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
-Future<T?> $push<T extends Object?>(
+bool $canPop() {
+  final navigation =
+      runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState!;
+
+  return navigation.canPop();
+}
+
+bool $pop() {
+  final navigation =
+      runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState!;
+
+  if (navigation.canPop()) {
+    navigation.pop();
+    return true;
+  }
+
+  return false;
+}
+
+Future<T?>? $push<T extends Object?>(
   BuildContext context,
   String routeName, {
   Object? arguments,
-}) async {
-  final from = $routerPath.path;
+}) {
+  final navigation =
+      runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
+
+  final from = ModalRoute.of(context)?.settings.name ?? "/";
   final to = routeName;
 
-  final p = RouterTransitionParameter(from, to, arguments);
+  $routerPath.update(routeName);
 
-  $routerPath.update(p);
-
-  return (await $navigator.future).pushNamed(
+  return navigation?.pushNamed(
     routeName,
-    arguments: p,
+    arguments: RouterTransitionParameter(from, to, arguments),
   );
 }
 
-Future<T?> $replace<T extends Object?>(
+Future<T?>? $replace<T extends Object?>(
   BuildContext context,
   String routeName, {
   Object? arguments,
-}) async {
-  final from = $routerPath.path;
+}) {
+  final navigation =
+      runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
+
+  final from = ModalRoute.of(context)?.settings.name ?? "/";
   final to = routeName;
 
-  final p = RouterTransitionParameter(from, to, arguments);
+  $routerPath.update(routeName);
 
-  $routerPath.update(p);
-
-  return (await $navigator.future).pushReplacementNamed(
+  return navigation?.pushReplacementNamed(
     routeName,
-    arguments: p,
+    arguments: RouterTransitionParameter(from, to, arguments),
   );
 }

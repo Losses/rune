@@ -5,9 +5,7 @@ import '../../router/navigation.dart';
 escapeFromCoverArtWall(BuildContext context) {
   final path = ModalRoute.of(context)?.settings.name;
   if (path == '/cover_wall') {
-    if (Navigator.canPop(context)) {
-      Navigator.pop(context);
-    } else {
+    if (!$pop()) {
       $push(context, '/library');
     }
 

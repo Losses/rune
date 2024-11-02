@@ -7,7 +7,7 @@ void showCoverArtWall(BuildContext context) {
   final path = ModalRoute.of(context)?.settings.name;
   if (path == "/cover_wall") {
     if (Navigator.canPop(context)) {
-      Navigator.pop(context);
+      $pop();
     }
   } else {
     $push(context, "/cover_wall");
