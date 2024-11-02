@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
-import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
@@ -21,6 +21,8 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 import 'config/navigation.dart';
+
+import 'widgets/router/router_frame.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
 
@@ -183,7 +185,7 @@ class Rune extends StatelessWidget {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: child!,
+                  child: RouterFrame(child: child!),
                 ),
               ),
             );

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
+import 'package:rune/utils/router/constants/navigator.dart';
 
 import '../../utils/router/router_transition_parameter.dart';
 import '../../config/theme.dart';
@@ -9,20 +10,19 @@ import '../../providers/transition_calculation.dart';
 
 import '../shortcuts/router_actions_manager.dart';
 
-class RouterAnimation extends StatefulWidget {
-  const RouterAnimation({
+class $ extends StatefulWidget {
+  const $(
+    this.child, {
     super.key,
-    required this.child,
   });
 
   final Widget child;
 
   @override
-  State<RouterAnimation> createState() => _RouterAnimationState();
+  State<$> createState() => _$State();
 }
 
-class _RouterAnimationState extends State<RouterAnimation>
-    with TickerProviderStateMixin {
+class _$State extends State<$> with TickerProviderStateMixin {
   late AnimationController _animationController;
 
   String? from;
@@ -62,6 +62,10 @@ class _RouterAnimationState extends State<RouterAnimation>
     if (transition != null) {
       from = transition.from;
       to = transition.to;
+    }
+
+    if (!$navigator.isCompleted) {
+      $navigator.complete(Navigator.of(context));
     }
   }
 

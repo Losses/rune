@@ -5,6 +5,7 @@ import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
+import '../../utils/router/router_path.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/responsive_providers.dart';
@@ -29,11 +30,27 @@ class NavigationBarState extends State<NavigationBar> {
   bool initialized = false;
 
   @override
+  void initState() {
+    super.initState();
+    $routerPath.addListener(_rebuild);
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+    $routerPath.removeListener(_rebuild);
+  }
+
+  _rebuild() {
+    setState(() {});
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
     if (!initialized) {
-      final path = ModalRoute.of(context)?.settings.name;
+      final path = $routerPath.path;
       _previousPath = path;
       initialized = true;
     } else {
@@ -42,7 +59,7 @@ class NavigationBarState extends State<NavigationBar> {
   }
 
   void _onRouteChanged() {
-    final path = ModalRoute.of(context)?.settings.name;
+    final path = $routerPath.path;
 
     if (_previousPath != null && path != _previousPath) {
       final previousItem = navigationQuery.getItem(_previousPath, false);
@@ -90,7 +107,8 @@ class NavigationBarState extends State<NavigationBar> {
     return SmallerOrEqualTo(
       deviceType: DeviceType.zune,
       builder: (context, isZune) {
-        final path = ModalRoute.of(context)?.settings.name;
+        final path = $routerPath.path;
+
         final item = navigationQuery.getItem(path, isZune);
         final parent = navigationQuery.getParent(path, isZune);
         final slibings = navigationQuery

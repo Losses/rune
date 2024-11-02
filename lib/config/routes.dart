@@ -16,8 +16,7 @@ import '../routes/query_tracks.dart' as query_tracks;
 import '../routes/library_home.dart' as library_home;
 
 import '../messages/collection.pb.dart';
-import '../widgets/router/router_animation.dart';
-import '../widgets/router/router_frame.dart';
+import '../widgets/router/router_wrapper.dart';
 
 final Map<String, WidgetBuilder> routes = {
   '/welcome': (context) => const $(welcome.WelcomePage()),
@@ -109,18 +108,3 @@ final Map<String, WidgetBuilder> routes = {
   '/search': (context) => const $(search.SearchPage()),
   '/cover_wall': (context) => const $(cover_wall.CoverWallPage()),
 };
-
-class $ extends StatelessWidget {
-  const $(this.child, {super.key});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return RouterFrame(
-      child: RouterAnimation(
-        child: child,
-      ),
-    );
-  }
-}

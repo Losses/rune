@@ -7,6 +7,7 @@ import '../../routes/welcome.dart' as welcome;
 
 import '../../screens/bsod/bsod.dart';
 
+import '../../utils/router/router_path.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
@@ -19,7 +20,6 @@ import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'rune_stack.dart';
-import 'router_animation.dart';
 import 'scale_fade_container.dart';
 
 class RouterFrame extends StatelessWidget {
@@ -53,10 +53,10 @@ class RouterFrame extends StatelessWidget {
 
     final mainContent = FocusTraversalOrder(
       order: const NumericFocusOrder(2),
-      child: RouterAnimation(child: child),
+      child: child,
     );
 
-    final path = ModalRoute.of(context)?.settings.name ?? "/";
+    final path = $routerPath.path;
 
     return Stack(
       children: [
