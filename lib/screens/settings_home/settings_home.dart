@@ -3,8 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rune/widgets/belt_container.dart';
 
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_home/band_screen_settings_home_list.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'large_screen_settings_home_list.dart';

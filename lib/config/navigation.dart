@@ -102,6 +102,7 @@ final List<NavigationItem> navigationItems = [
         ],
         children: [
           NavigationItem('Library', '/settings/library'),
+          NavigationItem('Analysis', '/settings/analysis'),
           NavigationItem('Playback', '/settings/playback'),
           NavigationItem('Theme', '/settings/theme'),
           NavigationItem('Controller', '/settings/media_controller'),

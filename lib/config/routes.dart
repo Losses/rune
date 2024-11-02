@@ -153,6 +153,12 @@ final routes = <GoRoute>[
     ),
   ),
   GoRoute(
+    path: '/settings/analysis',
+    builder: (context, state) => const GoRouterModalBarrierFix(
+      settings.SettingsAnalysis(),
+    ),
+  ),
+  GoRoute(
     path: '/settings/theme',
     builder: (context, state) => const GoRouterModalBarrierFix(
       settings.SettingsTheme(),
