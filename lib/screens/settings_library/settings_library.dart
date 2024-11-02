@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -57,7 +56,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         libraryManager.scanLibrary(path, false);
 
                         if (!context.mounted) return;
-                        context.go('/library');
+                        Navigator.pushNamed(context, '/library');
                       }),
                   SettingsButton(
                     icon: Symbols.refresh,
@@ -134,7 +133,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                           );
 
                                           if (!context.mounted) return;
-                                          context.go('/library');
+                                          Navigator.pushNamed(
+                                            context,
+                                            '/library',
+                                          );
                                         },
                                       ),
                                       child: const Text("Switch to"),

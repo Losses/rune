@@ -1,5 +1,4 @@
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -64,9 +63,11 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final List<ControllerEntry> hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
+    final path = ModalRoute.of(context)?.settings.name;
+
     final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
             .smallerOrEqualTo(DeviceType.phone) &&
-        GoRouterState.of(context).fullPath == '/cover_wall';
+        path == '/cover_wall';
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 

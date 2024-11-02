@@ -1,6 +1,5 @@
-import 'package:go_router/go_router.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:fluent_ui/fluent_ui.dart' hide Page;
 
 import '../../utils/navigation/utils/navigation_backward.dart';
 
@@ -27,9 +26,9 @@ class _NavigationBackButtonState extends State<NavigationBackButton> {
 
   @override
   Widget build(BuildContext context) {
-    final routerState = GoRouterState.of(context);
+    final path = ModalRoute.of(context)?.settings.name;
 
-    if (routerState.fullPath == '/library') {
+    if (path == '/library') {
       return Container();
     }
 

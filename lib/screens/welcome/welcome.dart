@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -80,7 +79,10 @@ class WelcomePage extends StatelessWidget {
                               await scanLibrary(context, result);
 
                               if (!context.mounted) return;
-                              context.go("/library");
+                              Navigator.pushReplacementNamed(
+                                context,
+                                "/library",
+                              );
                             },
                           ),
                         ],

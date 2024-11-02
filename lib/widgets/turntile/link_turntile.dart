@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rune/providers/responsive_providers.dart';
 import 'package:rune/widgets/navigation_bar/utils/activate_link_action.dart';
@@ -38,7 +37,7 @@ class _LinkTurntileState extends State<LinkTurntile> {
   }
 
   void onPressed() {
-    context.push(widget.path);
+    Navigator.pushNamed(context, widget.path);
   }
 
   @override

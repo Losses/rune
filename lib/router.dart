@@ -7,7 +7,6 @@ import 'package:fluent_ui/fluent_ui.dart' hide Page;
 import 'main.dart';
 
 import 'config/theme.dart';
-import 'config/routes.dart';
 
 import 'routes/welcome.dart' as welcome;
 
@@ -291,7 +290,7 @@ final router = GoRouter(
           ],
         );
       },
-      routes: routes,
+      routes: const [],
     ),
   ],
 );

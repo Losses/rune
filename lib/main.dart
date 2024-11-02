@@ -20,6 +20,7 @@ import 'config/theme.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 import 'config/navigation.dart';
+import 'config/routes_native.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
 
@@ -37,7 +38,6 @@ import 'providers/responsive_providers.dart';
 import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
-import 'router.dart';
 
 late bool disableBrandingAnimation;
 
@@ -154,7 +154,7 @@ class Rune extends StatelessWidget {
       builder: (context, child) {
         final appTheme = context.watch<AppTheme>();
 
-        return FluentApp.router(
+        return FluentApp(
           title: appTitle,
           themeMode: appTheme.mode,
           debugShowCheckedModeBanner: false,
@@ -169,9 +169,7 @@ class Rune extends StatelessWidget {
             visualDensity: VisualDensity.standard,
           ),
           locale: appTheme.locale,
-          routerDelegate: router.routerDelegate,
-          routeInformationParser: router.routeInformationParser,
-          routeInformationProvider: router.routeInformationProvider,
+          routes: routesNative,
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 

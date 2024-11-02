@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/api/fetch_library_summary.dart';
@@ -131,8 +130,10 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
                                 onTitleTap: () => {
-                                  context
-                                      .push('/${item.groupTitle.toLowerCase()}')
+                                  Navigator.pushNamed(
+                                    context,
+                                    '/${item.groupTitle.toLowerCase()}',
+                                  )
                                 },
                                 itemBuilder: (context, item) {
                                   return CollectionItem(

@@ -1,12 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 
 escapeFromCoverArtWall(BuildContext context) {
-  if (GoRouterState.of(context).fullPath == '/cover_wall') {
-    if (context.canPop()) {
-      context.pop();
+  final path = ModalRoute.of(context)?.settings.name;
+  if (path == '/cover_wall') {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
     } else {
-      context.go('/library');
+      Navigator.pushNamed(context, '/library');
     }
 
     return true;

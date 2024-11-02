@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -27,7 +26,7 @@ class BandLinkTileList extends StatelessWidget {
               child: BandLinkTile(
                 title: item.$1,
                 onPressed: () {
-                  context.push(item.$2);
+                  Navigator.pushNamed(context, item.$2);
                 },
                 icon: item.$3,
               ),

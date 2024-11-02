@@ -1,17 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:rune/config/navigation_query.dart';
 
 bool navigationBackward(BuildContext context) {
-  final router = GoRouter.of(context);
-  final canPop = router.canPop();
+  final canPop = Navigator.canPop(context);
 
   if (!canPop) {
-    final routerState = GoRouterState.of(context);
-    final path = routerState.fullPath;
+    final path = ModalRoute.of(context)?.settings.name;
     final parent = navigationQuery.getParent(path, false);
     if (parent != null && parent.path != '/' && parent.path != '/home') {
-      router.go(parent.path);
+      Navigator.pushReplacementNamed(context, parent.path);
     }
   }
 
@@ -19,12 +16,11 @@ bool navigationBackward(BuildContext context) {
 }
 
 navigateBackwardWithPop(BuildContext context) {
-  final router = GoRouter.of(context);
-  final routerState = GoRouterState.of(context);
+  final path = ModalRoute.of(context)?.settings.name;
 
   if (!navigationBackward(context)) {
-    router.pop();
-  } else if (routerState.path != '/library') {
-    router.go('/library');
+    Navigator.pop(context);
+  } else if (path != '/library') {
+    Navigator.pushReplacementNamed(context, '/library');
   }
 }

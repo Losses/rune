@@ -1,9 +1,8 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
 import '../../utils/router_name.dart';
-import '../../utils/router_extra.dart';
+import '../../utils/query_tracks_parameter.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/flip_tile.dart';
@@ -78,12 +77,15 @@ class _CollectionItemState extends State<CollectionItem> {
         },
         child: FlipTile(
           name: widget.collection.name,
-          paths: filterDuplicates(widget.collection.coverArtMap.values.toList()),
+          paths:
+              filterDuplicates(widget.collection.coverArtMap.values.toList()),
           emptyTileType: BoringAvatarType.bauhaus,
           onPressed: () {
-            context.push(
-              '/${collectionTypeToRouterName(widget.collectionType)}/${widget.collection.id}',
-              extra: QueryTracksExtra(widget.collection.name),
+            Navigator.pushNamed(
+              context,
+              '/${collectionTypeToRouterName(widget.collectionType)}/detail',
+              arguments: QueryTracksParameter(
+                  widget.collection.id, widget.collection.name),
             );
           },
         ),

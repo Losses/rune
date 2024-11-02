@@ -1,10 +1,9 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/query_list.dart';
-import '../../utils/router_extra.dart';
+import '../query_tracks_parameter.dart';
 import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
@@ -183,8 +182,14 @@ Widget buildTrackItemContextMenu(
           leading: const Icon(Symbols.face),
           text: const Text('Go to Artist'),
           onPressed: () => {
-            GoRouter.of(context).replace('/artists/${item.artists[0].id}',
-                extra: QueryTracksExtra(item.artists[0].name))
+            Navigator.pushNamed(
+              context,
+              '/artists/detail',
+              arguments: QueryTracksParameter(
+                item.artists[0].id,
+                item.artists[0].name,
+              ),
+            )
           },
         ),
       if (item.artists.length > 1)
@@ -196,8 +201,11 @@ Widget buildTrackItemContextMenu(
                       leading: const Icon(Symbols.face),
                       text: Text(x.name),
                       onPressed: () => {
-                        GoRouter.of(context).replace('/artists/${x.id}',
-                            extra: QueryTracksExtra(x.name))
+                        Navigator.pushNamed(
+                          context,
+                          '/artists/detail',
+                          arguments: QueryTracksParameter(x.id, x.name),
+                        )
                       },
                     ))
                 .toList()),
@@ -205,9 +213,10 @@ Widget buildTrackItemContextMenu(
         leading: const Icon(Symbols.album),
         text: const Text('Go to Album'),
         onPressed: () => {
-          GoRouter.of(context).replace(
-            '/albums/${item.album.id}',
-            extra: QueryTracksExtra(item.album.name),
+          Navigator.pushNamed(
+            context,
+            '/albums/detail',
+            arguments: QueryTracksParameter(item.album.id, item.album.name),
           )
         },
       ),

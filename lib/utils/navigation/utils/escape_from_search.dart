@@ -1,12 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 
 escapeFromSearch(BuildContext context) {
-  if (GoRouterState.of(context).fullPath == '/search') {
-    if (context.canPop()) {
-      context.pop();
+  final path = ModalRoute.of(context)?.settings.name;
+
+  if (path == '/search') {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
     } else {
-      context.go('/library');
+      Navigator.pushNamed(context, '/library');
     }
 
     return true;

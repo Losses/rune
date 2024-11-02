@@ -1,22 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../router.dart';
-
 void showCoverArtWall(BuildContext context) {
-  final RouteMatch lastMatch = router.routerDelegate.currentConfiguration.last;
-  final RouteMatchList matchList = lastMatch is ImperativeRouteMatch
-      ? lastMatch.matches
-      : router.routerDelegate.currentConfiguration;
-  final String location = matchList.uri.toString();
-
-  if (location == "/cover_wall") {
-    if (context.canPop()) {
-      context.pop();
+  final path = ModalRoute.of(context)?.settings.name;
+  if (path == "/cover_wall") {
+    if (Navigator.canPop(context)) {
+      Navigator.pop(context);
     }
   } else {
-    context.push("/cover_wall");
+    Navigator.pushNamed(context, "/cover_wall");
   }
 }
 

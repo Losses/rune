@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import 'navigation_intent.dart';
@@ -10,11 +9,11 @@ class NavigationAction extends Action<NavigationIntent> {
 
   @override
   void invoke(covariant NavigationIntent intent) {
-    final currentPath = GoRouterState.of(context).fullPath;
+    final currentPath = ModalRoute.of(context)?.settings.name;
     if (intent.path == currentPath) {
       return;
     }
 
-    GoRouter.of(context).push(intent.path);
+    Navigator.pushNamed(context, intent.path);
   }
 }

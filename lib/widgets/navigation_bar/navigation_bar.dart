@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
@@ -33,7 +32,7 @@ class NavigationBarState extends State<NavigationBar> {
     super.didChangeDependencies();
 
     if (!initialized) {
-      final path = GoRouterState.of(context).fullPath;
+      final path = ModalRoute.of(context)?.settings.name;
       _previousPath = path;
       initialized = true;
     } else {
@@ -42,7 +41,7 @@ class NavigationBarState extends State<NavigationBar> {
   }
 
   void _onRouteChanged() {
-    final path = GoRouterState.of(context).fullPath;
+    final path = ModalRoute.of(context)?.settings.name;
 
     if (_previousPath != null && path != _previousPath) {
       final previousItem = navigationQuery.getItem(_previousPath, false);
@@ -67,7 +66,7 @@ class NavigationBarState extends State<NavigationBar> {
   void _onRouteSelected(NavigationItem route) {
     if (route.path == _previousPath) return;
 
-    GoRouter.of(context).replace(route.path);
+    Navigator.pushReplacementNamed(context, route.path);
   }
 
   void _onHeaderTap(BuildContext context, NavigationItem? item) {
@@ -75,7 +74,7 @@ class NavigationBarState extends State<NavigationBar> {
 
     setState(() {
       if (item != null) {
-        context.go(item.path);
+        Navigator.pushReplacementNamed(context, item.path);
       }
     });
   }
@@ -90,7 +89,7 @@ class NavigationBarState extends State<NavigationBar> {
     return SmallerOrEqualTo(
       deviceType: DeviceType.zune,
       builder: (context, isZune) {
-        final path = GoRouterState.of(context).fullPath;
+        final path = ModalRoute.of(context)?.settings.name;
         final item = navigationQuery.getItem(path, isZune);
         final parent = navigationQuery.getParent(path, isZune);
         final slibings = navigationQuery
@@ -210,7 +209,7 @@ class NavigationBarState extends State<NavigationBar> {
                     if (isSearch)
                       {escapeFromSearch(context)}
                     else
-                      {context.push('/search')}
+                      {Navigator.pushNamed(context, '/search')}
                   },
                 ),
               ),

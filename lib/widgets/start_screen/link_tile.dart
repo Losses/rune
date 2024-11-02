@@ -1,4 +1,3 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/tile/tile.dart';
@@ -27,7 +26,7 @@ class LinkTile extends StatelessWidget {
     return AxPressure(
       child: Tile(
         onPressed: () {
-          context.push(path);
+          Navigator.pushNamed(context, path);
         },
         child: Stack(
           alignment: Alignment.bottomLeft,
