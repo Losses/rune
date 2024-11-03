@@ -1,5 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import 'router_modal_barrier_fix.dart';
+
 class NoEffectPageRoute<T> extends PageRoute<T> with NoEffectRouteTransitionMixin<T> {
   NoEffectPageRoute({
     required this.builder,
@@ -54,7 +56,7 @@ mixin NoEffectRouteTransitionMixin<T> on PageRoute<T> {
     return Semantics(
       scopesRoute: true,
       explicitChildNodes: true,
-      child: result,
+      child: RouterModalBarrierFix(result),
     );
   }
 

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-class GoRouterModalBarrierFix extends StatelessWidget {
-  const GoRouterModalBarrierFix(
+class RouterModalBarrierFix extends StatelessWidget {
+  const RouterModalBarrierFix(
     this.child, {
     super.key,
   });
