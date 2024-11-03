@@ -184,7 +184,6 @@ Widget buildTrackItemContextMenu(
           text: const Text('Go to Artist'),
           onPressed: () => {
             $push(
-              context,
               '/artists/detail',
               arguments: QueryTracksParameter(
                 item.artists[0].id,
@@ -203,7 +202,6 @@ Widget buildTrackItemContextMenu(
                       text: Text(x.name),
                       onPressed: () => {
                         $push(
-                          context,
                           '/artists/detail',
                           arguments: QueryTracksParameter(x.id, x.name),
                         )
@@ -215,7 +213,6 @@ Widget buildTrackItemContextMenu(
         text: const Text('Go to Album'),
         onPressed: () => {
           $push(
-            context,
             '/albums/detail',
             arguments: QueryTracksParameter(item.album.id, item.album.name),
           )

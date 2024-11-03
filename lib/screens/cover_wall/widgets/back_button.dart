@@ -16,16 +16,14 @@ class BackButton extends StatelessWidget {
       builder: (_, isTrue) {
         if (!isTrue) return Container();
 
-        return Padding(
-          padding: const EdgeInsets.only(top: 16, left: 16),
+        return const Padding(
+          padding: EdgeInsets.only(top: 16, left: 16),
           child: IconButton(
-            icon: const Icon(
+            icon: Icon(
               Symbols.arrow_back,
               size: 24,
             ),
-            onPressed: () {
-              showCoverArtWall(context);
-            },
+            onPressed: showCoverArtWall,
           ),
         );
       },

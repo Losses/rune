@@ -25,7 +25,6 @@ class CollectionSearchItem extends SearchCard {
   @override
   void onPressed(BuildContext context) {
     $replace(
-      context,
       '/${collectionTypeToRouterName(collectionType)}/detail',
       arguments: QueryTracksParameter(getItemId(), getItemTitle()),
     );

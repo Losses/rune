@@ -27,7 +27,7 @@ class BandLinkTileList extends StatelessWidget {
               child: BandLinkTile(
                 title: item.$1,
                 onPressed: () {
-                  $push(context, item.$2);
+                  $push(item.$2);
                 },
                 icon: item.$3,
               ),

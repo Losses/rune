@@ -4,14 +4,14 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
 
-void showCoverArtWall(BuildContext context) {
+void showCoverArtWall() {
   final path = $routerPath.path;
   if (path == "/cover_wall") {
-    if (Navigator.canPop(context)) {
+    if ($canPop()) {
       $pop();
     }
   } else {
-    $push(context, "/cover_wall");
+    $push("/cover_wall");
   }
 }
 
@@ -26,7 +26,7 @@ class CoverWallButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      onPressed: () => showCoverArtWall(context),
+      onPressed: () => showCoverArtWall(),
       icon: Icon(
         Symbols.photo_frame,
         shadows: shadows,

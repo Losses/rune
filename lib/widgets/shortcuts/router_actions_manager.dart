@@ -22,14 +22,14 @@ class NavigationShortcutManager extends StatelessWidget {
   Widget build(BuildContext context) {
     return BackButtonListener(
       onBackButtonPressed: () async {
-        return navigationBackward(context);
+        return navigationBackward();
       },
       child: Actions(
         actions: <Type, Action<Intent>>{
-          NavigationIntent: NavigationAction(context),
+          NavigationIntent: NavigationAction(),
           ControllerIntent: ControllerAction(context),
-          EscapeIntent: EscapeAction(context),
-          BackIntent: BackAction(context),
+          EscapeIntent: EscapeAction(),
+          BackIntent: BackAction(),
         },
         child: child,
       ),

@@ -430,7 +430,7 @@ final controllerItems = [
     subtitle: "Display cover art for a unique ambience",
     shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
     onShortcut: (context) {
-      showCoverArtWall(context);
+      showCoverArtWall();
     },
     tooltipBuilder: (context) => "Cover Wall",
     controllerButtonBuilder: (context, shadows) => CoverWallButton(
@@ -448,7 +448,7 @@ final controllerItems = [
         ),
         onPressed: () {
           Navigator.pop(context);
-          showCoverArtWall(context);
+          showCoverArtWall();
         },
       );
     },

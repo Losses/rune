@@ -57,7 +57,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                         libraryManager.scanLibrary(path, false);
 
                         if (!context.mounted) return;
-                        $push(context, '/library');
+                        $push('/library');
                       }),
                   SettingsButton(
                     icon: Symbols.refresh,
@@ -134,7 +134,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                           );
 
                                           if (!context.mounted) return;
-                                          $push(context, '/library');
+                                          $push('/library');
                                         },
                                       ),
                                       child: const Text("Switch to"),

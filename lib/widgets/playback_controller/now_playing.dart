@@ -41,7 +41,7 @@ class NowPlaying extends StatelessWidget {
                       ),
                     ),
                     onPressed: () {
-                      showCoverArtWall(context);
+                      showCoverArtWall();
                     },
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(3),

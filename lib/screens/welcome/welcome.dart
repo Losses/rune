@@ -80,10 +80,7 @@ class WelcomePage extends StatelessWidget {
                               await scanLibrary(context, result);
 
                               if (!context.mounted) return;
-                              $replace(
-                                context,
-                                "/library",
-                              );
+                              $replace("/library");
                             },
                           ),
                         ],

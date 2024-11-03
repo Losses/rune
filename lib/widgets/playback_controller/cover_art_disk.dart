@@ -59,7 +59,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
   }
 
   onPressed() {
-    showCoverArtWall(context);
+    showCoverArtWall();
   }
 
   @override
@@ -137,7 +137,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
                     alignment: Alignment.center,
                     child: TapRegion(
                       onTapInside: (_) {
-                        showCoverArtWall(context);
+                        showCoverArtWall();
                       },
                       child: child,
                     ),

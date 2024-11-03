@@ -27,7 +27,7 @@ class LinkTile extends StatelessWidget {
     return AxPressure(
       child: Tile(
         onPressed: () {
-          $push(context, path);
+          $push(path);
         },
         child: Stack(
           alignment: Alignment.bottomLeft,

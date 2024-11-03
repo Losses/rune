@@ -131,10 +131,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
                                 onTitleTap: () => {
-                                  $push(
-                                    context,
-                                    '/${item.groupTitle.toLowerCase()}',
-                                  )
+                                  $push('/${item.groupTitle.toLowerCase()}')
                                 },
                                 itemBuilder: (context, item) {
                                   return CollectionItem(

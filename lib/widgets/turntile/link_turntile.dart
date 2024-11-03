@@ -38,7 +38,7 @@ class _LinkTurntileState extends State<LinkTurntile> {
   }
 
   void onPressed() {
-    $push(context, widget.path);
+    $push(widget.path);
   }
 
   @override

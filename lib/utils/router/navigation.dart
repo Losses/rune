@@ -33,14 +33,13 @@ bool $pop() {
 }
 
 Future<T?>? $push<T extends Object?>(
-  BuildContext context,
   String routeName, {
   Object? arguments,
 }) {
   final navigation =
       runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
 
-  final from = ModalRoute.of(context)?.settings.name ?? "/";
+  final from = $routerPath.path ?? "/library";
   final to = routeName;
 
   $routerPath.update(routeName);
@@ -52,14 +51,13 @@ Future<T?>? $push<T extends Object?>(
 }
 
 Future<T?>? $replace<T extends Object?>(
-  BuildContext context,
   String routeName, {
   Object? arguments,
 }) {
   final navigation =
       runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
 
-  final from = ModalRoute.of(context)?.settings.name ?? "/";
+  final from = $routerPath.path ?? "/library";
   final to = routeName;
 
   $routerPath.update(routeName);

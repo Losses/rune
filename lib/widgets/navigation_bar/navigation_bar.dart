@@ -61,7 +61,7 @@ class NavigationBarState extends State<NavigationBar> {
     final currentPath = $routerPath.path;
     if (route.path == currentPath) return;
 
-    $replace(context, route.path);
+    $replace(route.path);
   }
 
   void _onHeaderTap(BuildContext context, NavigationItem? item) {
@@ -69,7 +69,7 @@ class NavigationBarState extends State<NavigationBar> {
 
     setState(() {
       if (item != null) {
-        $replace(context, item.path);
+        $replace(item.path);
       }
     });
   }
@@ -202,10 +202,7 @@ class NavigationBarState extends State<NavigationBar> {
                     size: 24,
                   ),
                   onPressed: () => {
-                    if (isSearch)
-                      {escapeFromSearch(context)}
-                    else
-                      {$push(context, '/search')}
+                    if (isSearch) {escapeFromSearch()} else {$push('/search')}
                   },
                 ),
               ),

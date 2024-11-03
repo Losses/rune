@@ -83,7 +83,6 @@ class _CollectionItemState extends State<CollectionItem> {
           emptyTileType: BoringAvatarType.bauhaus,
           onPressed: () {
             $push(
-              context,
               '/${collectionTypeToRouterName(widget.collectionType)}/detail',
               arguments: QueryTracksParameter(
                 widget.collection.id,
