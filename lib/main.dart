@@ -6,9 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
+import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:flutter_acrylic/flutter_acrylic.dart' as flutter_acrylic;
 
 import 'utils/platform.dart';
 import 'utils/settings_manager.dart';
@@ -63,9 +63,8 @@ void main(List<String> arguments) async {
     final windowsInfo = await deviceInfo.windowsInfo;
     final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
 
-    if (isWindows10 &&
-        appTheme.windowEffect == flutter_acrylic.WindowEffect.mica) {
-      appTheme.windowEffect = flutter_acrylic.WindowEffect.solid;
+    if (isWindows10 && appTheme.windowEffect == WindowEffect.mica) {
+      appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
     debugPrint('Device is not Windows 10, skip the patch');
@@ -107,7 +106,7 @@ void main(List<String> arguments) async {
   }
 
   if (isDesktop && !Platform.isLinux) {
-    await flutter_acrylic.Window.initialize();
+    await Window.initialize();
   }
 
   runApp(
@@ -229,7 +228,7 @@ class _RuneState extends State<Rune> {
             final theme = FluentTheme.of(context);
 
             return Container(
-              color: appTheme.windowEffect == flutter_acrylic.WindowEffect.solid
+              color: appTheme.windowEffect == WindowEffect.solid
                   ? theme.micaBackgroundColor
                   : Colors.transparent,
               child: Directionality(
