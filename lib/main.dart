@@ -198,9 +198,7 @@ class _RuneState extends State<Rune> {
 
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) {
-                  return page;
-                },
+                builder: (context) => page,
               );
             }
 
@@ -210,9 +208,7 @@ class _RuneState extends State<Rune> {
 
             return NoEffectPageRoute<dynamic>(
               settings: settings,
-              builder: (context) {
-                return page;
-              },
+              builder: (context) => page,
             );
           },
           initialRoute: "/library",
