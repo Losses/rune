@@ -203,7 +203,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                               child: Button(
                                 child: Text(x.groupTitle),
                                 onPressed: () {
-                                  $pop();
+                                  Navigator.of(context).pop();
                                   scrollToGroup(x.groupTitle);
                                 },
                               ),
@@ -215,7 +215,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   const SizedBox(height: 24),
                   Button(
                     child: const Text('Cancel'),
-                    onPressed: () => $pop(),
+                    onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
