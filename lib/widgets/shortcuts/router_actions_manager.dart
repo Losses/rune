@@ -8,31 +8,22 @@ import '../../utils/navigation/navigation_action.dart';
 import '../../utils/navigation/navigation_intent.dart';
 import '../../utils/navigation/controller_action.dart';
 import '../../utils/navigation/controller_intent.dart';
-import '../../utils/navigation/utils/navigation_backward.dart';
 
 class NavigationShortcutManager extends StatelessWidget {
-  const NavigationShortcutManager({
-    super.key,
-    required this.child,
-  });
+  const NavigationShortcutManager(this.child, {super.key});
 
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return BackButtonListener(
-      onBackButtonPressed: () async {
-        return navigationBackward();
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        NavigationIntent: NavigationAction(),
+        ControllerIntent: ControllerAction(context),
+        EscapeIntent: EscapeAction(),
+        BackIntent: BackAction(),
       },
-      child: Actions(
-        actions: <Type, Action<Intent>>{
-          NavigationIntent: NavigationAction(),
-          ControllerIntent: ControllerAction(context),
-          EscapeIntent: EscapeAction(),
-          BackIntent: BackAction(),
-        },
-        child: child,
-      ),
+      child: child,
     );
   }
 }

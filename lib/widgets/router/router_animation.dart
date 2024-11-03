@@ -1,16 +1,10 @@
-import 'dart:io';
-
-import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart' hide Page;
 
 import '../../utils/router/router_transition_parameter.dart';
-import '../../config/theme.dart';
-import '../../providers/transition_calculation.dart';
+import 'utils/transition_calculatior.dart';
 
-import '../shortcuts/router_actions_manager.dart';
-
-class $ extends StatefulWidget {
-  const $(
+class RouterAnimation extends StatefulWidget {
+  const RouterAnimation(
     this.child, {
     super.key,
   });
@@ -18,30 +12,15 @@ class $ extends StatefulWidget {
   final Widget child;
 
   @override
-  State<$> createState() => _$State();
+  State<RouterAnimation> createState() => _RouterAnimationState();
 }
 
-class _$State extends State<$> with TickerProviderStateMixin {
+class _RouterAnimationState extends State<RouterAnimation>
+    with TickerProviderStateMixin {
   late AnimationController _animationController;
 
   String? from;
   String? to;
-
-  void _updateWindowEffectCallback() {
-    if (Platform.isLinux) return;
-    if (Platform.isAndroid) return;
-  }
-
-  void updateWindowEffect() {
-    if (Platform.isLinux) return;
-    if (Platform.isAndroid) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        appTheme.setEffect(context);
-      }
-    });
-  }
 
   @override
   void initState() {
@@ -50,13 +29,6 @@ class _$State extends State<$> with TickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 300),
     );
-    appTheme.addListener(_updateWindowEffectCallback);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _updateWindowEffectCallback();
     final transition = getRouterTransitionParameter();
     if (transition != null) {
       from = transition.from;
@@ -64,14 +36,22 @@ class _$State extends State<$> with TickerProviderStateMixin {
     }
   }
 
+  late RouteRelation relation;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    relation = $transition.compareRoute(from, to);
+    _animationController.reset();
+    _animationController.forward();
+  }
+
   @override
   void dispose() {
     _animationController.dispose();
-    appTheme.removeListener(_updateWindowEffectCallback);
     super.dispose();
   }
-
-  RouteRelation _lastCompareResult = RouteRelation.same;
 
   Widget _applyAnimation(Widget child, RouteRelation relation) {
     const distance = 0.1;
@@ -148,19 +128,6 @@ class _$State extends State<$> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     FluentLocalizations.of(context);
 
-    final calculator = Provider.of<TransitionCalculationProvider>(context);
-
-    if (from == to) {
-      return _applyAnimation(widget.child, _lastCompareResult);
-    }
-
-    final relation = calculator.compareRoute(from, to);
-    _lastCompareResult = relation;
-    _animationController.reset();
-    _animationController.forward();
-
-    return NavigationShortcutManager(
-      child: _applyAnimation(widget.child, relation),
-    );
+    return _applyAnimation(widget.child, relation);
   }
 }

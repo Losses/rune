@@ -20,7 +20,6 @@ import 'config/theme.dart';
 import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
-import 'config/navigation.dart';
 
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
@@ -39,7 +38,6 @@ import 'providers/library_path.dart';
 import 'providers/library_manager.dart';
 import 'providers/playback_controller.dart';
 import 'providers/responsive_providers.dart';
-import 'providers/transition_calculation.dart';
 
 import 'theme.dart';
 
@@ -133,10 +131,6 @@ void main(List<String> arguments) async {
           update: (context, screenSizeProvider, previous) =>
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
-        ChangeNotifierProvider(
-          create: (_) =>
-              TransitionCalculationProvider(navigationItems: navigationItems),
-        ),
         ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
@@ -150,8 +144,41 @@ void main(List<String> arguments) async {
   );
 }
 
-class Rune extends StatelessWidget {
+class Rune extends StatefulWidget {
   const Rune({super.key});
+
+  @override
+  State<Rune> createState() => _RuneState();
+}
+
+class _RuneState extends State<Rune> {
+  void _updateWindowEffectCallback() {
+    if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
+  }
+
+  void updateWindowEffect() {
+    if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        appTheme.setEffect(context);
+      }
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    appTheme.addListener(_updateWindowEffectCallback);
+  }
+
+  @override
+  void dispose() {
+    appTheme.removeListener(_updateWindowEffectCallback);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

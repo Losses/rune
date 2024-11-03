@@ -1,6 +1,5 @@
-import 'package:flutter/foundation.dart';
-
-import '../utils/navigation/navigation_item.dart';
+import '../../../config/navigation.dart';
+import '../../../utils/navigation/navigation_item.dart';
 
 enum RouteRelation {
   parent,
@@ -11,12 +10,12 @@ enum RouteRelation {
   crossLevel,
 }
 
-class TransitionCalculationProvider with ChangeNotifier {
+class TransitionCalculatior {
   final List<NavigationItem> navigationItems;
   final Map<String, NavigationItem> _pathToItemMap = {};
   final Map<String, String?> _pathToParentMap = {};
 
-  TransitionCalculationProvider({required this.navigationItems}) {
+  TransitionCalculatior({required this.navigationItems}) {
     _initializeMaps();
   }
 
@@ -74,3 +73,5 @@ class TransitionCalculationProvider with ChangeNotifier {
     return RouteRelation.crossLevel;
   }
 }
+
+final $transition = TransitionCalculatior(navigationItems: navigationItems);
