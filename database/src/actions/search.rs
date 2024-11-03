@@ -148,6 +148,10 @@ pub async fn search_for(
 ) -> Result<HashMap<CollectionType, Vec<i64>>> {
     let mut results: HashMap<CollectionType, Vec<i64>> = HashMap::new();
 
+    if query_str.is_empty() {
+        return Ok(results);
+    }
+
     for collection_type in [
         CollectionType::Track,
         CollectionType::Artist,
