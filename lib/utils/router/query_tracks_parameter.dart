@@ -7,8 +7,8 @@ class QueryTracksParameter {
   QueryTracksParameter(this.id, this.title);
 }
 
-QueryTracksParameter? getQueryTracksParameter(Object? x) {
-  final parameters = getRouterTransitionParameter(x)?.parameters;
+QueryTracksParameter? getQueryTracksParameter() {
+  final parameters = getRouterTransitionParameter()?.parameters;
 
   if (parameters is! QueryTracksParameter) {
     return null;

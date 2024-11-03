@@ -10,7 +10,7 @@ class NavigationAction extends Action<NavigationIntent> {
 
   @override
   void invoke(covariant NavigationIntent intent) {
-    final currentPath = $routerPath.path;
+    final currentPath = $router.path;
     if (intent.path == currentPath) {
       return;
     }

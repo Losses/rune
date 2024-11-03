@@ -3,7 +3,7 @@ import '../../../providers/router_path.dart';
 import '../../router/navigation.dart';
 
 escapeFromSearch() {
-  final path = $routerPath.path;
+  final path = $router.path;
 
   if (path == '/search') {
     if (!$pop()) {

@@ -57,7 +57,7 @@ class _$State extends State<$> with TickerProviderStateMixin {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _updateWindowEffectCallback();
-    final transition = getRouterTransitionParameter(context);
+    final transition = getRouterTransitionParameter();
     if (transition != null) {
       from = transition.from;
       to = transition.to;

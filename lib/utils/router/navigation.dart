@@ -4,6 +4,10 @@ import '../../providers/router_path.dart';
 import '../../utils/router/router_transition_parameter.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
+Object? $arguments() {
+  return $router.parameter;
+}
+
 bool $canPop() {
   final navigation =
       runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState!;
@@ -18,13 +22,15 @@ bool $pop() {
   if (navigation.canPop()) {
     navigation.pop();
 
-    final path = ModalRoute.of(
+    final settings = ModalRoute.of(
             runeWithNavigationBarAndPlaybackControllorNavigatorKey
                 .currentContext!)!
-        .settings
-        .name;
+        .settings;
 
-    $routerPath.update(path);
+    final path = settings.name;
+    final parameter = settings.arguments;
+
+    $router.update(path, parameter);
 
     return true;
   }
@@ -39,15 +45,14 @@ Future<T?>? $push<T extends Object?>(
   final navigation =
       runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
 
-  final from = $routerPath.path ?? "/library";
+  final from = $router.path ?? "/library";
   final to = routeName;
 
-  $routerPath.update(routeName);
+  final p = RouterTransitionParameter(from, to, arguments);
 
-  return navigation?.pushNamed(
-    routeName,
-    arguments: RouterTransitionParameter(from, to, arguments),
-  );
+  $router.update(routeName, p);
+
+  return navigation!.pushNamed(routeName, arguments: p);
 }
 
 Future<T?>? $replace<T extends Object?>(
@@ -57,13 +62,12 @@ Future<T?>? $replace<T extends Object?>(
   final navigation =
       runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState;
 
-  final from = $routerPath.path ?? "/library";
+  final from = $router.path ?? "/library";
   final to = routeName;
 
-  $routerPath.update(routeName);
+  final p = RouterTransitionParameter(from, to, arguments);
 
-  return navigation?.pushReplacementNamed(
-    routeName,
-    arguments: RouterTransitionParameter(from, to, arguments),
-  );
+  $router.update(routeName, p);
+
+  return navigation!.pushReplacementNamed(routeName, arguments: p);
 }

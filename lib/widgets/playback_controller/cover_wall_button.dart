@@ -5,7 +5,7 @@ import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
 
 void showCoverArtWall() {
-  final path = $routerPath.path;
+  final path = $router.path;
   if (path == "/cover_wall") {
     if ($canPop()) {
       $pop();

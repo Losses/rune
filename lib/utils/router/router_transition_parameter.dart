@@ -1,3 +1,5 @@
+import '../../utils/router/navigation.dart';
+
 class RouterTransitionParameter {
   String from;
   String to;
@@ -6,7 +8,8 @@ class RouterTransitionParameter {
   RouterTransitionParameter(this.from, this.to, [this.parameters]);
 }
 
-RouterTransitionParameter? getRouterTransitionParameter(Object? x) {
+RouterTransitionParameter? getRouterTransitionParameter() {
+  final x = $arguments();
   if (x is! RouterTransitionParameter) return null;
 
   return x;

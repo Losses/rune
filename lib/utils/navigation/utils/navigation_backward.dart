@@ -6,7 +6,7 @@ bool navigationBackward() {
   final canPop = $canPop();
 
   if (!canPop) {
-    final path = $routerPath.path;
+    final path = $router.path;
     final parent = navigationQuery.getParent(path, false);
     if (parent != null && parent.path != '/' && parent.path != '/home') {
       $replace(parent.path);
@@ -17,7 +17,7 @@ bool navigationBackward() {
 }
 
 navigateBackwardWithPop() {
-  final path = $routerPath.path;
+  final path = $router.path;
 
   if (!navigationBackward()) {
     $pop();

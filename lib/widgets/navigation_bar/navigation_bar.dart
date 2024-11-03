@@ -58,7 +58,7 @@ class NavigationBarState extends State<NavigationBar> {
   }
 
   void _onRouteSelected(NavigationItem route) {
-    final currentPath = $routerPath.path;
+    final currentPath = $router.path;
     if (route.path == currentPath) return;
 
     $replace(route.path);

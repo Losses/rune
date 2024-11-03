@@ -27,7 +27,7 @@ final Map<String, WidgetBuilder> routes = {
         collectionType: CollectionType.Artist,
       ),
   '/artists/detail': (context) {
-    final arguments = getQueryTracksParameter(context);
+    final arguments = getQueryTracksParameter();
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
@@ -45,7 +45,7 @@ final Map<String, WidgetBuilder> routes = {
         collectionType: CollectionType.Album,
       ),
   '/albums/detail': (context) {
-    final arguments = getQueryTracksParameter(context);
+    final arguments = getQueryTracksParameter();
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
@@ -66,7 +66,7 @@ final Map<String, WidgetBuilder> routes = {
         collectionType: CollectionType.Playlist,
       ),
   '/playlists/detail': (context) {
-    final arguments = getQueryTracksParameter(context);
+    final arguments = getQueryTracksParameter();
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }
@@ -84,7 +84,7 @@ final Map<String, WidgetBuilder> routes = {
         collectionType: CollectionType.Mix,
       ),
   '/mixes/detail': (context) {
-    final arguments = getQueryTracksParameter(context);
+    final arguments = getQueryTracksParameter();
     if (arguments is! QueryTracksParameter) {
       throw "Invalid router parameters";
     }

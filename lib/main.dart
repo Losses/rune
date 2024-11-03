@@ -137,7 +137,7 @@ void main(List<String> arguments) async {
           create: (_) =>
               TransitionCalculationProvider(navigationItems: navigationItems),
         ),
-        ChangeNotifierProvider(create: (_) => $routerPath),
+        ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => CrashProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
