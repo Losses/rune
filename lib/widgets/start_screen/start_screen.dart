@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
-import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
@@ -97,8 +96,13 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   }
 
   Future<void> scrollToGroup(String groupTitle) async {
+    bool lastPageReached = false;
     // Step 1: Check if the group already exists in the loaded items.
-    while (!isLastPage) {
+    while (!lastPageReached) {
+      if (isLastPage) {
+        lastPageReached = true;
+      }
+
       final index = items.indexWhere((group) => group.groupTitle == groupTitle);
 
       // If found, calculate the scroll position.
@@ -122,7 +126,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
             4,
           );
 
-          scrollPosition += groupWidth + defaultGapSize + 32;
+          scrollPosition += groupWidth + defaultGapSize + 16;
         }
 
         // Step 6: Scroll to the calculated position.
