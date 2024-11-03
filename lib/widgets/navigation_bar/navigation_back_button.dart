@@ -1,6 +1,8 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../providers/router_path.dart';
 import '../../utils/navigation/utils/navigation_backward.dart';
 
 import '../../widgets/ax_pressure.dart';
@@ -26,7 +28,7 @@ class _NavigationBackButtonState extends State<NavigationBackButton> {
 
   @override
   Widget build(BuildContext context) {
-    final path = ModalRoute.of(context)?.settings.name;
+    final path = Provider.of<RouterPathProvider>(context).path;
 
     if (path == '/library') {
       return Container();

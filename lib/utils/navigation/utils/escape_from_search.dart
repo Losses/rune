@@ -9,7 +9,7 @@ escapeFromSearch(BuildContext context) {
 
   if (path == '/search') {
     if (!$pop()) {
-      $push(context, '/library');
+      $replace(context, '/library');
     }
 
     return true;

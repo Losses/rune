@@ -17,6 +17,15 @@ bool $pop() {
 
   if (navigation.canPop()) {
     navigation.pop();
+
+    final path = ModalRoute.of(
+            runeWithNavigationBarAndPlaybackControllorNavigatorKey
+                .currentContext!)!
+        .settings
+        .name;
+
+    $routerPath.update(path);
+
     return true;
   }
 

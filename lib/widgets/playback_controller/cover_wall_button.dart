@@ -1,10 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
 
 void showCoverArtWall(BuildContext context) {
-  final path = ModalRoute.of(context)?.settings.name;
+  final path = $routerPath.path;
   if (path == "/cover_wall") {
     if (Navigator.canPop(context)) {
       $pop();
