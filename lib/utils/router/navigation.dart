@@ -48,7 +48,7 @@ bool $canPop() {
 bool $pop() {
   final navigation = $state();
 
-  if (navigation.canPop()) {
+  if ($canPop()) {
     navigation.pop();
     _history.pop();
 

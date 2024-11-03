@@ -26,7 +26,9 @@ class NavigationShortcutManager extends StatelessWidget {
         BackIntent: BackAction(),
       },
       child: NavigationMouseKeyListener(
-        onBackwardMouseButtonTapDown: (_) => navigationBackward(),
+        onBackwardMouseButtonTapDown: (_) {
+          navigationBackward();
+        },
         child: child,
       ),
     );
