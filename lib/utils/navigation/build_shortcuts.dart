@@ -13,6 +13,7 @@ import 'navigation_intent.dart';
 Map<SingleActivator, Intent> buildShortcuts() {
   final shortcuts = <SingleActivator, Intent>{
     const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
+    const SingleActivator(LogicalKeyboardKey.gameButton8): const BackIntent(),
     const SingleActivator(LogicalKeyboardKey.escape): const EscapeIntent(),
     const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
   };

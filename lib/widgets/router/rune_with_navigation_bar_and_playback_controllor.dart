@@ -3,8 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../config/routes.dart';
 import '../../widgets/router/router_animation.dart';
 
-import '../shortcuts/router_actions_manager.dart';
-
 import 'no_effect_page_route.dart';
 import 'rune_router_frame_implementation.dart';
 
@@ -65,7 +63,7 @@ class RuneWithNavigationBarAndPlaybackControllorState
         if (builder == null) {
           return Container();
         }
-        return NavigationShortcutManager(RouterAnimation(builder(context)));
+        return RouterAnimation(builder(context));
       },
       settings: settings,
     );

@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/navigation/utils/navigation_backward.dart';
 
 import '../../utils/navigation/back_action.dart';
 import '../../utils/navigation/back_intent.dart';
@@ -8,6 +9,7 @@ import '../../utils/navigation/navigation_action.dart';
 import '../../utils/navigation/navigation_intent.dart';
 import '../../utils/navigation/controller_action.dart';
 import '../../utils/navigation/controller_intent.dart';
+import '../navigation_mouse_key_listener.dart';
 
 class NavigationShortcutManager extends StatelessWidget {
   const NavigationShortcutManager(this.child, {super.key});
@@ -23,7 +25,10 @@ class NavigationShortcutManager extends StatelessWidget {
         EscapeIntent: EscapeAction(),
         BackIntent: BackAction(),
       },
-      child: child,
+      child: NavigationMouseKeyListener(
+        onBackwardMouseButtonTapDown: (_) => navigationBackward(),
+        child: child,
+      ),
     );
   }
 }

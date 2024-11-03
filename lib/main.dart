@@ -40,6 +40,7 @@ import 'providers/playback_controller.dart';
 import 'providers/responsive_providers.dart';
 
 import 'theme.dart';
+import 'widgets/shortcuts/router_actions_manager.dart';
 
 late bool disableBrandingAnimation;
 
@@ -235,7 +236,7 @@ class _RuneState extends State<Rune> {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: child!,
+                  child: NavigationShortcutManager(child!),
                 ),
               ),
             );
