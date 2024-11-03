@@ -144,41 +144,8 @@ void main(List<String> arguments) async {
   );
 }
 
-class Rune extends StatefulWidget {
+class Rune extends StatelessWidget {
   const Rune({super.key});
-
-  @override
-  State<Rune> createState() => _RuneState();
-}
-
-class _RuneState extends State<Rune> {
-  void _updateWindowEffectCallback() {
-    if (Platform.isLinux) return;
-    if (Platform.isAndroid) return;
-  }
-
-  void updateWindowEffect() {
-    if (Platform.isLinux) return;
-    if (Platform.isAndroid) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        appTheme.setEffect(context);
-      }
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    appTheme.addListener(_updateWindowEffectCallback);
-  }
-
-  @override
-  void dispose() {
-    appTheme.removeListener(_updateWindowEffectCallback);
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -236,7 +203,7 @@ class _RuneState extends State<Rune> {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: NavigationShortcutManager(child!),
+                  child: NavigationShortcutManager(ThemeSyncer(child!)),
                 ),
               ),
             );
@@ -244,5 +211,46 @@ class _RuneState extends State<Rune> {
         );
       },
     );
+  }
+}
+
+class ThemeSyncer extends StatefulWidget {
+  const ThemeSyncer(this.child, {super.key});
+
+  final Widget child;
+  @override
+  ThemeSyncerState createState() => ThemeSyncerState();
+}
+
+class ThemeSyncerState extends State<ThemeSyncer> {
+  void _updateWindowEffectCallback() {
+    if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) {
+        if (mounted) {
+          appTheme.setEffect(context);
+        }
+      },
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    appTheme.addListener(_updateWindowEffectCallback);
+
+    _updateWindowEffectCallback();
+  }
+
+  @override
+  void dispose() {
+    appTheme.removeListener(_updateWindowEffectCallback);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }
