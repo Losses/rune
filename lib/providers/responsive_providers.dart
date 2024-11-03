@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -134,9 +132,6 @@ enum DeviceType {
 
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   Size _screenSize = Size.zero;
-  DateTime? _lastUpdateTime;
-  Timer? _throttleTimer;
-
   ScreenSizeProvider() {
     WidgetsBinding.instance.addObserver(this);
     _updateScreenSize();
@@ -147,21 +142,7 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
-
-    final now = DateTime.now();
-    if (_lastUpdateTime == null ||
-        now.difference(_lastUpdateTime!) >= const Duration(milliseconds: 100)) {
-      _updateScreenSize();
-      _lastUpdateTime = now;
-    } else {
-      _throttleTimer?.cancel();
-      _throttleTimer = Timer(
-        Duration(
-            milliseconds:
-                100 - now.difference(_lastUpdateTime!).inMilliseconds),
-        _updateScreenSize,
-      );
-    }
+    _updateScreenSize();
   }
 
   void _updateScreenSize() {
@@ -176,7 +157,6 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _throttleTimer?.cancel();
     super.dispose();
   }
 }
