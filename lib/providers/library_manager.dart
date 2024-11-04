@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/settings_manager.dart';
+import '../screens/settings_analysis/settings_analysis.dart';
 import '../messages/library_manage.pb.dart';
 
 enum TaskStatus { working, finished, cancelled }
@@ -214,7 +216,28 @@ class LibraryManagerProvider with ChangeNotifier {
 
   Future<void> analyseLibrary(String path, [bool initialize = false]) async {
     _updateAnalyseProgress(path, 0, -1, TaskStatus.working, initialize);
-    AnalyseAudioLibraryRequest(path: path).sendSignalToRust();
+    final computingDevice =
+        await SettingsManager().getValue<String>(analysisComputingDeviceKey);
+
+    double workloadFactor = 0.75;
+
+    String? performanceLevel =
+        await SettingsManager().getValue<String>(analysisPerformanceLevelKey);
+
+    if (performanceLevel == "balance") {
+      workloadFactor = 0.5;
+    }
+
+    if (performanceLevel == "battery") {
+      workloadFactor = 0.25;
+    }
+
+    AnalyseAudioLibraryRequest(
+      path: path,
+      computingDevice:
+          computingDevice == 'gpu' ? ComputingDevice.Gpu : ComputingDevice.Cpu,
+      workloadFactor: workloadFactor,
+    ).sendSignalToRust();
   }
 
   ScanTaskProgress? getScanTaskProgress(String path) {
