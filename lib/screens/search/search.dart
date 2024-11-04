@@ -230,6 +230,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               ),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context, top: false),
                   child: MediumScreenSearchTrackList(
                     items: items,
                   ),
@@ -254,6 +255,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               const SizedBox(height: 2),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context),
                   child: BandScreenSearchTrackList(
                     items: items,
                   ),
@@ -285,6 +287,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                     return SingleChildScrollView(
                       controller: controller,
                       scrollDirection: Axis.horizontal,
+                      padding: getScrollContainerPadding(context),
                       child: BandScreenSearchTrackList(
                         items: items,
                         direction: Axis.horizontal,
@@ -311,6 +314,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               ),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context),
                   child: SmallScreenSearchTrackList(
                     items: items,
                   ),

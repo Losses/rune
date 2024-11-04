@@ -16,18 +16,21 @@ import '../../messages/playback.pb.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../context_menu_wrapper.dart';
+import '../navigation_bar/page_content_frame.dart';
 import '../tile/cover_art.dart';
 
 class BandScreenTrackList extends StatelessWidget {
   final PagingController<int, InternalMediaFile> pagingController;
   final QueryList queries;
   final int mode;
+  final bool topPadding;
 
   const BandScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
     required this.mode,
+    required this.topPadding,
   });
 
   @override
@@ -45,17 +48,18 @@ class BandScreenTrackList extends StatelessWidget {
         if (deviceType == DeviceType.band || deviceType == DeviceType.belt) {
           return SmoothHorizontalScroll(
             builder: (context, controller) {
-              return buildList(hasRecommendation, controller);
+              return buildList(context, hasRecommendation, controller);
             },
           );
         } else {
-          return buildList(hasRecommendation, null);
+          return buildList(context, hasRecommendation, null);
         }
       },
     );
   }
 
   PagedListView<int, InternalMediaFile> buildList(
+    BuildContext context,
     bool hasRecommendation,
     ScrollController? scrollController,
   ) {
@@ -63,6 +67,8 @@ class BandScreenTrackList extends StatelessWidget {
       scrollDirection:
           scrollController == null ? Axis.vertical : Axis.horizontal,
       pagingController: pagingController,
+      scrollController: scrollController,
+      padding: getScrollContainerPadding(context, top: topPadding),
       builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
         noItemsFoundIndicatorBuilder: (context) {
           return SizedBox.expand(
@@ -151,7 +157,6 @@ class BandViewTrackItem extends StatelessWidget {
                 },
                 child: CoverArt(
                   path: item.coverArtPath,
-                  size: 40,
                   hint: (
                     item.album,
                     item.artist,

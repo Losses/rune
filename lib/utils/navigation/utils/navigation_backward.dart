@@ -3,7 +3,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../config/navigation_query.dart';
 
 bool navigationBackward() {
-  final canPop = $canPop();
+  final canPop = $pop();
 
   if (!canPop) {
     final path = $router.path;
@@ -13,15 +13,14 @@ bool navigationBackward() {
     }
   }
 
-  return !canPop;
+  return canPop;
 }
 
 navigateBackwardWithPop() {
-  final path = $router.path;
-
   if (!navigationBackward()) {
-    $pop();
-  } else if (path != '/library') {
-    $replace('/library');
+    final path = $router.path;
+    if (path != '/library') {
+      $replace('/library');
+    }
   }
 }

@@ -1,6 +1,5 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/providers/router_path.dart';
 
 import '../../main.dart';
 
@@ -16,6 +15,7 @@ import '../../widgets/playback_controller/cover_art_disk.dart';
 import '../../widgets/playback_controller/playback_controller.dart';
 
 import '../../providers/crash.dart';
+import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 

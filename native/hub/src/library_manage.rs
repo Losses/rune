@@ -101,7 +101,7 @@ pub async fn scan_audio_library_request(
                     return Ok(());
                 }
 
-                let batch_size = determine_batch_size();
+                let batch_size = determine_batch_size(0.75);
 
                 scan_cover_arts(
                     &main_db_clone,
@@ -138,9 +138,9 @@ pub async fn scan_audio_library_request(
     Ok(())
 }
 
-pub fn determine_batch_size() -> usize {
+pub fn determine_batch_size(workload_factor: f32) -> usize {
     let num_cores = num_cpus::get();
-    let batch_size = num_cores / 4 * 3;
+    let batch_size = ((num_cores as f32) * workload_factor).round() as usize;
     let min_batch_size = 1;
     let max_batch_size = 1000;
 
@@ -170,7 +170,7 @@ pub async fn analyse_audio_library_request(
 
     let request_path = request.path.clone();
     let closure_request_path = request_path.clone();
-    let batch_size = determine_batch_size();
+    let batch_size = determine_batch_size(request.workload_factor);
 
     task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();

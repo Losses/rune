@@ -172,6 +172,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SingleChildScrollView(
+          padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
               children: [

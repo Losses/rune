@@ -15,13 +15,13 @@ Future<bool?> showCancelDialog(BuildContext context) {
         'If you cancel this task, it will stop at its current completion state. Do you want to cancel it?',
       ),
       actions: [
-        Button(
+        FilledButton(
           child: const Text('Cancel Task'),
           onPressed: () {
             Navigator.pop(context, true); // User chose to cancel the task
           },
         ),
-        FilledButton(
+        Button(
           child: const Text('Continue'),
           onPressed: () =>
               Navigator.pop(context, false), // User chose to continue the task
@@ -154,7 +154,9 @@ class AnalyseLibraryButton extends StatelessWidget {
 
         if (confirm == true) {
           libraryManager.cancelTask(
-              itemPath, CancelTaskType.AnalyseAudioLibrary);
+            itemPath,
+            CancelTaskType.AnalyseAudioLibrary,
+          );
         }
       },
       onPressedStart: (libraryManager, itemPath) async {

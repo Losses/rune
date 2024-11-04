@@ -274,7 +274,7 @@ where
         cancel_token,
         cursor_query,
         lib_path,
-        move |file, lib_path| { extract_cover_art_by_file_id(file, lib_path) },
+        move |file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
         |db, file: media_files::Model, result| async move {
             match insert_extract_result(db, &file, magic_cover_art_id, result).await {
                 Ok(_) => {

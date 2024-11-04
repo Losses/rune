@@ -8,13 +8,13 @@ enum DeviceOrientation {
 
 enum DeviceType {
   dock(
-    priority: 3,
+    priority: 5,
     orientation: DeviceOrientation.vertical,
     start: 0,
     end: 120,
   ),
   zune(
-    priority: 3,
+    priority: 4,
     orientation: DeviceOrientation.vertical,
     start: 121,
     end: 340,
@@ -50,19 +50,19 @@ enum DeviceType {
     end: double.infinity,
   ),
   band(
-    priority: 4,
+    priority: 6,
     orientation: DeviceOrientation.horizontal,
     start: 0,
     end: 148,
   ),
   belt(
-    priority: 4,
+    priority: 5,
     orientation: DeviceOrientation.horizontal,
     start: 149,
     end: 240,
   ),
   fish(
-    priority: 4,
+    priority: 3,
     orientation: DeviceOrientation.horizontal,
     start: 241,
     end: 300,

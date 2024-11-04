@@ -1,4 +1,5 @@
 use anyhow::Result;
+use tokio_util::sync::CancellationToken;
 
 use crate::features::*;
 use crate::fft::*;
@@ -42,9 +43,16 @@ pub fn analyze_audio(
     file_path: &str,
     window_size: usize,
     overlap_size: usize,
-) -> Result<AnalysisResult> {
+    cancel_token: Option<CancellationToken>,
+) -> Result<Option<AnalysisResult>> {
     // Perform FFT on the audio file to get the spectrum
-    let audio_desc = fft(file_path, window_size, overlap_size);
+    let audio_desc = fft(file_path, window_size, overlap_size, cancel_token);
+
+    if audio_desc.is_none() {
+        return Ok(None);
+    }
+
+    let audio_desc = audio_desc.expect("Audio desc should not be none");
 
     let amp_spectrum = amp_spectrum(&audio_desc.spectrum, window_size);
 
@@ -87,7 +95,7 @@ pub fn analyze_audio(
         .expect("Expected a Vec of length 13");
 
     // Create and return the analysis result
-    Ok(AnalysisResult {
+    Ok(Some(AnalysisResult {
         stat: AudioStat {
             sample_rate: audio_desc.sample_rate,
             duration: audio_desc.duration,
@@ -113,7 +121,7 @@ pub fn analyze_audio(
         perceptual_spread,
         perceptual_sharpness,
         mfcc,
-    })
+    }))
 }
 
 #[derive(Debug, Clone, Copy)]

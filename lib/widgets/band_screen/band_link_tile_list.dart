@@ -5,13 +5,17 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../navigation_bar/page_content_frame.dart';
+
 class BandLinkTileList extends StatelessWidget {
   const BandLinkTileList({
     super.key,
     required this.links,
+    required this.topPadding,
   });
 
   final List<(String, String, IconData, bool)> links;
+  final bool topPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -41,6 +45,7 @@ class BandLinkTileList extends StatelessWidget {
       builder: (context, deviceType) {
         if (deviceType == DeviceType.dock) {
           return SingleChildScrollView(
+            padding: getScrollContainerPadding(context, top: topPadding),
             child: Column(
               children: children,
             ),

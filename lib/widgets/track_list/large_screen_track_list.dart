@@ -8,6 +8,7 @@ import '../../widgets/no_items.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 
+import '../navigation_bar/page_content_frame.dart';
 import '../start_screen/managed_start_screen_item.dart';
 
 import 'large_screen_track_list_item.dart';
@@ -16,18 +17,20 @@ class LargeScreenTrackList extends StatelessWidget {
   final PagingController<int, InternalMediaFile> pagingController;
   final QueryList queries;
   final int mode;
+  final bool topPadding;
 
   const LargeScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
     required this.mode,
+    required this.topPadding,
   });
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
           const double gapSize = 8;
@@ -48,6 +51,12 @@ class LargeScreenTrackList extends StatelessWidget {
               height: finalHeight,
               child: PagedGridView<int, InternalMediaFile>(
                 pagingController: pagingController,
+                padding: getScrollContainerPadding(
+                  context,
+                  top: topPadding,
+                  leftPlus: 12,
+                  rightPlus: 12,
+                ),
                 scrollDirection: Axis.horizontal,
                 scrollController: scrollController,
                 gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(

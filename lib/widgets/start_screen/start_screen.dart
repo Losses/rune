@@ -10,6 +10,7 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
+import '../navigation_bar/page_content_frame.dart';
 
 import 'utils/group.dart';
 import 'utils/internal_collection.dart';
@@ -97,6 +98,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
   Future<void> scrollToGroup(String groupTitle) async {
     bool lastPageReached = false;
+    final padding = getScrollContainerPadding(context);
     // Step 1: Check if the group already exists in the loaded items.
     while (!lastPageReached) {
       if (isLastPage) {
@@ -114,7 +116,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           final group = items[i];
           final dimensions =
               StartGroupImplementation.defaultDimensionCalculator(
-            widget.constraints.maxHeight,
+            widget.constraints.maxHeight - padding.top - padding.bottom,
             defaultCellSize,
             4,
             group.items,
@@ -232,6 +234,13 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
   @override
   Widget build(BuildContext context) {
+    final padding = getScrollContainerPadding(context);
+    final c = widget.constraints;
+    final trueConstraints = BoxConstraints(
+      maxWidth: c.maxWidth - padding.left - padding.right,
+      maxHeight: c.maxHeight - padding.top - padding.bottom,
+    );
+
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
       child: FutureBuilder<List<Group<InternalCollection>>>(
@@ -253,6 +262,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   centerLoading: true,
                   centerEmpty: true,
                   isLoading: isLoading,
+                  padding: padding,
                   emptyBuilder: (context) => Center(
                     child: initialized
                         ? NoItems(
@@ -272,7 +282,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                       groupIndex: index,
                       groupTitle: item.groupTitle,
                       items: item.items,
-                      constraints: widget.constraints,
+                      constraints: trueConstraints,
                       onTitleTap: () {
                         if (!widget.userGenerated) {
                           showGroupListDialog(context);

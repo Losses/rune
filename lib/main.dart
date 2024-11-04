@@ -156,6 +156,7 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
+          initialRoute: "/library",
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
@@ -178,7 +179,6 @@ class Rune extends StatelessWidget {
               builder: (context) => page,
             );
           },
-          initialRoute: "/library",
           debugShowCheckedModeBanner: false,
           color: appTheme.color,
           themeMode: appTheme.mode,

@@ -1,7 +1,9 @@
+import 'dart:ui';
 import 'dart:math';
-import 'package:fluent_ui/fluent_ui.dart';
 
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/ax_shadow.dart';
 
 import '../../utils/format_time.dart';
 import '../../widgets/ax_pressure.dart';
@@ -153,35 +155,50 @@ class CoverArtDiskState extends State<CoverArtDisk>
               actions: {
                 ActivateIntent: ActivateLinkAction(context, onPressed),
               },
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: AspectRatio(
-                  aspectRatio: 1,
-                  child: AnimatedContainer(
-                    duration: theme.fastAnimationDuration,
-                    width: double.infinity,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: borderColor,
-                        width: 5,
-                      ),
-                      borderRadius: BorderRadius.circular(512),
-                      boxShadow: _isFocused ? boxShadow : null,
-                    ),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(512),
+                  boxShadow: axShadow(10),
+                ),
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: AspectRatio(
+                    aspectRatio: 1,
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(radius - 1),
-                      child: CoverArt(
-                        size: size,
-                        path: status?.coverArtPath,
-                        hint: status != null
-                            ? (
-                                status.album,
-                                status.artist,
-                                'Total Time ${formatTime(status.duration)}'
-                              )
-                            : null,
+                      borderRadius: BorderRadius.circular(512),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: 5.0,
+                          sigmaY: 5.0,
+                        ),
+                        child: AnimatedContainer(
+                          duration: theme.fastAnimationDuration,
+                          width: double.infinity,
+                          height: double.infinity,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: borderColor,
+                              width: 5,
+                            ),
+                            borderRadius: BorderRadius.circular(512),
+                            boxShadow: _isFocused ? boxShadow : null,
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(radius - 1),
+                            child: CoverArt(
+                              size: size,
+                              path: status?.coverArtPath,
+                              hint: status != null
+                                  ? (
+                                      status.album,
+                                      status.artist,
+                                      'Total Time ${formatTime(status.duration)}'
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),

@@ -155,9 +155,9 @@ class NavigationBarState extends State<NavigationBar> {
                       final index = entry.key;
                       final isCurrent = currentItemIndex == index;
 
-                      final int? delay = !isCurrent
+                      final int delay = !isCurrent
                           ? ((index - currentItemIndex).abs() * 100)
-                          : null;
+                          : 0;
 
                       return SlibingLink(
                         key: ValueKey('${parent?.path}/${route.path}'),

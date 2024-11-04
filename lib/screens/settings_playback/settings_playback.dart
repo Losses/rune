@@ -76,6 +76,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SingleChildScrollView(
+          padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
               children: [
