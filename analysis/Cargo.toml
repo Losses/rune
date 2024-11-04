@@ -21,3 +21,6 @@ bytemuck = "1.19.0"
 num-complex = { version = "0.4.6", features = ["bytemuck"] }
 futures = "0.3.31"
 tokio-util = "0.7.11"
+rand = "0.8.5"
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3.18"

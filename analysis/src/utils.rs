@@ -4,7 +4,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = $func;
         let duration = start.elapsed();
-        println!("Time cost: {:?}", duration);
+        log::info!("Time cost: {:?}", duration);
         result
     }};
     
@@ -12,7 +12,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = $func;
         let duration = start.elapsed();
-        println!("{} Time cost: {:?}", $name, duration);
+        log::info!("{} Time cost: {:?}", $name, duration);
         result
     }};
 }

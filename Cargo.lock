@@ -115,10 +115,13 @@ dependencies = [
  "log",
  "num-complex",
  "pollster",
+ "rand",
  "rubato",
  "rustfft",
  "symphonia",
+ "tokio",
  "tokio-util",
+ "tracing-subscriber",
  "wgpu",
 ]
 

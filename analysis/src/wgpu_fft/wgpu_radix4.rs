@@ -17,11 +17,11 @@ pub struct FFTCompute {
     buffer_size: wgpu::BufferAddress,
 }
 
-const LEN: usize = 1024 * 1024 * 8;
-const A: usize = 1024;
+// const LEN: usize = 1024;
+// const A: usize = 1024;
 
 impl FFTCompute {
-    pub async fn new() -> Self {
+    pub async fn new(len: usize) -> Self {
         let instance = wgpu::Instance::default();
 
         let adapter = instance
@@ -53,7 +53,7 @@ impl FFTCompute {
             cache: None,
         });
 
-        let n: usize = LEN;
+        let n: usize = len;
         let buffer_size = (n * std::mem::size_of::<Complex32>()) as wgpu::BufferAddress;
 
         let input_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -156,21 +156,8 @@ impl FFTCompute {
             compute_pass.set_pipeline(&self.pipeline);
             compute_pass.set_bind_group(0, Some(&self.bind_group), &[]);
             
-            let workgroup_size = 1024;
-            let total_workgroups = 2;
-            
-            // compute_pass.dispatch_workgroups(256, 1, 1);
-            compute_pass.dispatch_workgroups(1, (LEN / 1024) as u32, 1);
+            compute_pass.dispatch_workgroups(1, (n / 1024) as u32, 1);
 
-            // compute_pass.dispatch_workgroups(256, 1, 1);
-            // let max_workgroups = 65535;
-            // let num_dispatches = (total_workgroups + max_workgroups - 1) / max_workgroups;
-            
-            // for i in 0..num_dispatches {
-            //     let remaining_workgroups = total_workgroups - i * max_workgroups;
-            //     let current_workgroups = remaining_workgroups.min(max_workgroups);
-            //     compute_pass.dispatch_workgroups(current_workgroups as u32, 1, 1);
-            // }
         }
 
         encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.result_buffer, 0, (n * std::mem::size_of::<Complex<T>>()) as u64);
@@ -209,5 +196,86 @@ impl FFTCompute {
         self.result_buffer1.unmap();
 
         debug_data
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustfft::{FftPlanner, num_complex::Complex32};
+    use crate::measure_time;
+
+    fn generate_random_data(len: usize) -> Vec<Complex32> {
+        (0..len).map(|_| {
+            Complex32::new(
+                rand::random::<f32>() * 2.0 - 1.0,  // 生成 -1.0 到 1.0 之间的随机数
+                rand::random::<f32>() * 2.0 - 1.0
+            )
+        }).collect()
+    }
+
+    fn compare_complex_vectors(v1: &[Complex32], v2: &[Complex32], epsilon: f32) -> bool {
+        if v1.len() != v2.len() {
+            return false;
+        }
+        
+        let mut max_diff_re = 0.0;
+        let mut max_diff_im = 0.0;
+        let mut max_diff_idx = 0;
+        
+        for (i, (a, b)) in v1.iter().zip(v2.iter()).enumerate() {
+            let diff_re = (a.re - b.re).abs();
+            let diff_im = (a.im - b.im).abs();
+            
+            if diff_re > max_diff_re {
+                max_diff_re = diff_re;
+                max_diff_idx = i;
+            }
+            if diff_im > max_diff_im {
+                max_diff_im = diff_im;
+            }
+        }
+        
+        log::info!("Max real difference: {} at index {}", max_diff_re, max_diff_idx);
+        log::info!("Max imaginary difference: {}", max_diff_im);
+        log::info!("Value at max diff - v1: {}, v2: {}", v1[max_diff_idx], v2[max_diff_idx]);
+        
+        v1.iter().zip(v2.iter()).all(|(a, b)| {
+            (a.re - b.re).abs() < epsilon && (a.im - b.im).abs() < epsilon
+        })
+    }
+
+    async fn test(len: usize) {
+        let mut planner = FftPlanner::<f32>::new();
+        let cpu_fft = planner.plan_fft_forward(1024);
+        let gpu_fft = FFTCompute::new(len).await;
+
+        let mut cpu_data1 = generate_random_data(len);
+        let mut cpu_data2 = cpu_data1.clone();
+        let mut gpu_data1 = cpu_data1.clone();
+        let mut gpu_data2 = gpu_data1.clone();
+
+        measure_time!(cpu_fft.process(&mut cpu_data1), "CPU FFT1");
+        measure_time!(cpu_fft.process(&mut cpu_data2), "CPU FFT2");
+        measure_time!(gpu_fft.compute_fft(&mut gpu_data1).await, "GPU FFT1");
+        measure_time!(gpu_fft.compute_fft(&mut gpu_data2).await, "GPU FFT2");
+
+        const EPSILON: f32 = 1e-3;
+        assert!(compare_complex_vectors(&cpu_data1, &gpu_data1, EPSILON), 
+            "CPU results differ more than expected");
+        assert!(compare_complex_vectors(&cpu_data2, &gpu_data2, EPSILON), 
+            "GPU results differ more than expected");
+    }
+
+    #[tokio::test]
+    async fn test_small_data() {
+        tracing_subscriber::fmt().with_test_writer().init();
+        test(1024).await;
+    }
+
+    #[tokio::test]
+    async fn test_big_data() {
+        tracing_subscriber::fmt().with_test_writer().init();
+        test(1024 * 1024 * 8).await;
     }
 }

@@ -41,7 +41,7 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
 
     // Prepare FFT planner and buffers.
 
-    let fft = pollster::block_on(wgpu_radix4::FFTCompute::new());
+    let fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size));
     // let mut planner = FftPlanner::new();
     // let fft = planner.plan_fft_forward(window_size);
     let mut buffer = vec![Complex::new(0.0, 0.0); window_size];
