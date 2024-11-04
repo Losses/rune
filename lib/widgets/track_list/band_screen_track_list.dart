@@ -157,7 +157,6 @@ class BandViewTrackItem extends StatelessWidget {
                 },
                 child: CoverArt(
                   path: item.coverArtPath,
-                  size: 40,
                   hint: (
                     item.album,
                     item.artist,

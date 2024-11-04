@@ -6,6 +6,7 @@ import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 import '../../utils/query_list.dart';
 import '../../utils/api/fetch_media_files.dart';
 import '../../config/animation.dart';
+import '../../widgets/belt_container.dart';
 import '../../widgets/track_list/band_screen_track_list.dart';
 import '../../widgets/track_list/small_screen_track_list.dart';
 import '../../widgets/track_list/large_screen_track_list.dart';
@@ -64,12 +65,23 @@ class TrackListViewState extends State<TrackListView> {
     return DeviceTypeBuilder(
       deviceType: const [
         DeviceType.dock,
+        DeviceType.zune,
+        DeviceType.tv,
         DeviceType.band,
         DeviceType.belt,
-        DeviceType.zune,
-        DeviceType.tv
       ],
       builder: (context, activeBreakpoint) {
+        if (activeBreakpoint == DeviceType.belt) {
+          return BeltContainer(
+            child: BandScreenTrackList(
+              pagingController: _pagingController,
+              queries: queries,
+              mode: 99,
+              topPadding: true,
+            ),
+          );
+        }
+
         if (activeBreakpoint == DeviceType.dock ||
             activeBreakpoint == DeviceType.band) {
           return BandScreenTrackList(
