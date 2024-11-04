@@ -4,6 +4,7 @@ import '../../utils/router/navigation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../providers/responsive_providers.dart';
+
 import '../navigation_bar/page_content_frame.dart';
 
 class BandLinkTileList extends StatelessWidget {

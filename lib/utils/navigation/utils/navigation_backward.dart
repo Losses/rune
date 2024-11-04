@@ -13,15 +13,14 @@ bool navigationBackward() {
     }
   }
 
-  return !canPop;
+  return canPop;
 }
 
 navigateBackwardWithPop() {
-  final path = $router.path;
-
   if (!navigationBackward()) {
-    $pop();
-  } else if (path != '/library') {
-    $replace('/library');
+    final path = $router.path;
+    if (path != '/library') {
+      $replace('/library');
+    }
   }
 }
