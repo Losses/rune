@@ -47,11 +47,7 @@ EdgeInsets getScrollContainerPadding(
   }
 
   if (left) {
-    if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
-      pLeft = 24 + inset.left + leftPlus;
-    } else {
-      pLeft = inset.right + leftPlus;
-    }
+    pLeft = inset.right + leftPlus;
   }
 
   return EdgeInsets.fromLTRB(pLeft, pTop, pRight, pBottom);
@@ -108,6 +104,12 @@ class PageContentFrame extends StatelessWidget {
         pBottom = playbackControllerHeight + inset.bottom;
       } else {
         pBottom = playbackControllerHeight + inset.bottom;
+      }
+    }
+
+    if (left) {
+      if (responsive.smallerOrEqualTo(DeviceType.belt, false)) {
+        pLeft = 24;
       }
     }
 

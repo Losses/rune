@@ -43,6 +43,7 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
         builder: (context, isDock) {
           return PageContentFrame(
             top: !isDock,
+            left: false,
             child: DeviceTypeBuilder(
               deviceType: const [
                 DeviceType.band,
