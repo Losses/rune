@@ -272,7 +272,7 @@ macro_rules! parallel_media_files_processing {
         use async_channel;
         use tokio::sync::{Semaphore, Mutex};
         use tokio::task;
-        use log::{debug, error, info};
+        use log::{debug, error, warn, info};
         use std::sync::Arc;
 
         let cursor_query_clone = $cursor_query.clone();
@@ -283,28 +283,63 @@ macro_rules! parallel_media_files_processing {
         let producer_cancel_token = $cancel_token.clone();
         let producer = {
             let cursor_query_clone = $cursor_query.clone();
+            let tx = tx.clone(); // Clone sender for producer
             async move {
                 let mut cursor = cursor_query_clone.cursor_by(media_files::Column::Id);
                 loop {
                     if let Some(ref token) = producer_cancel_token {
                         if token.is_cancelled() {
                             info!("Cancellation requested. Exiting producer loop.");
+                            // Handle the error gracefully
+                            if let Err(e) = tx.send(None).await {
+                                warn!("Failed to send termination signal: {:?}", e);
+                            }
                             break;
                         }
                     }
 
-                    let files: Vec<media_files::Model> = cursor
-                        .first($batch_size.try_into().unwrap())
+                    let files = match cursor.first($batch_size.try_into().unwrap())
                         .all($main_db)
-                        .await?;
+                        .await {
+                            Ok(f) => f,
+                            Err(e) => {
+                                error!("Database error: {:?}", e);
+                                // Send termination signal on error
+                                if let Err(e) = tx.send(None).await {
+                                    warn!("Failed to send termination signal: {:?}", e);
+                                }
+                                return Err(e);
+                            }
+                    };
 
                     if files.is_empty() {
                         info!("No more files to process. Exiting loop.");
+                        // Handle the error gracefully
+                        if let Err(e) = tx.send(None).await {
+                            error!("Failed to send termination signal: {:?}", e);
+                        }
                         break;
                     }
 
                     for file in &files {
-                        tx.send(Some(file.clone())).await.unwrap();
+                        // Check cancellation before each send
+                        if let Some(ref token) = producer_cancel_token {
+                            if token.is_cancelled() {
+                                info!("Cancellation requested during file sending.");
+                                if let Err(e) = tx.send(None).await {
+                                    warn!("Failed to send termination signal: {:?}", e);
+                                }
+                                return Ok(());
+                            }
+                        }
+
+                        match tx.send(Some(file.clone())).await {
+                            Ok(_) => {},
+                            Err(e) => {
+                                warn!("Failed to send file: {:?}", e);
+                                return Ok(());
+                            }
+                        }
                     }
 
                     if let Some(last_file) = files.last() {
@@ -315,9 +350,7 @@ macro_rules! parallel_media_files_processing {
                     }
                 }
 
-                // Send end signal
-                tx.send(None).await.unwrap();
-                Ok::<(), sea_orm::DbErr>(())
+                Ok(())
             }
         };
 
@@ -327,6 +360,8 @@ macro_rules! parallel_media_files_processing {
             let processed_count = Arc::clone(&processed_count);
             let progress_callback = Arc::clone(&$progress_callback);
             async move {
+                let mut active_tasks = vec![];
+
                 while let Ok(file_option) = rx.recv().await {
                     match file_option {
                         Some(file) => {
@@ -339,15 +374,21 @@ macro_rules! parallel_media_files_processing {
 
                             let main_db = $main_db.clone();
                             let semaphore = semaphore.clone();
-                            let permit = semaphore.acquire_owned().await.unwrap();
+                            let permit = match semaphore.acquire_owned().await {
+                                Ok(permit) => permit,
+                                Err(e) => {
+                                    error!("Failed to acquire semaphore: {:?}", e);
+                                    continue;
+                                }
+                            };
+
                             let lib_path = Arc::clone(&$lib_path);
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
-                            let process_cancel_token = consumer_cancel_token.clone();  // Clone for each task
+                            let process_cancel_token = consumer_cancel_token.clone();
 
                             let file_clone = file.clone();
-
-                            task::spawn(async move {
+                            let task = task::spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
                                     process_fn(&file_clone, &lib_path, process_cancel_token)  // Pass the cloned token
@@ -366,11 +407,15 @@ macro_rules! parallel_media_files_processing {
 
                                 drop(permit);
                             });
+
+                            active_tasks.push(task);
                         }
                         None => {
-                            // End signal received, wait for all tasks to complete
-                            while semaphore.available_permits() < $batch_size {
-                                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                            info!("Received termination signal, waiting for active tasks to complete...");
+                            for task in active_tasks {
+                                if let Err(e) = task.await {
+                                    error!("Task join error: {:?}", e);
+                                }
                             }
                             break;
                         }
@@ -383,8 +428,13 @@ macro_rules! parallel_media_files_processing {
 
         let (producer_result, consumer_result) = futures::join!(producer, consumer);
 
-        producer_result?;
-        consumer_result?;
+        // Handle any errors from producer or consumer
+        if let Err(e) = producer_result {
+            error!("Producer error: {:?}", e);
+        }
+        if let Err(e) = consumer_result {
+            error!("Consumer error: {:?}", e);
+        }
 
         Ok(total_tasks)
     }};
