@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -81,15 +83,19 @@ class PageContentFrame extends StatelessWidget {
     final inset = MediaQuery.viewInsetsOf(context);
     final responsive = Provider.of<ResponsiveProvider>(context);
 
+    double topBarHeight = Platform.isAndroid
+        ? MediaQueryData.fromView(View.of(context)).padding.top
+        : 0;
+
     if (top) {
       if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
-        pTop = bandNavigationBarHeight + inset.top;
+        pTop = bandNavigationBarHeight + inset.top + topBarHeight;
       } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
         pTop = inset.top;
       } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        pTop = carNavigationBarHeight + inset.top;
+        pTop = carNavigationBarHeight + inset.top + topBarHeight;
       } else {
-        pTop = fullNavigationBarHeight + inset.top;
+        pTop = fullNavigationBarHeight + inset.top + topBarHeight;
       }
     }
 
