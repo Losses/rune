@@ -27,9 +27,9 @@ class SmallScreenPlayingTrack extends StatelessWidget {
 
     return DeviceTypeBuilder(
       deviceType: const [
+        DeviceType.zune,
         DeviceType.car,
         DeviceType.tv,
-        DeviceType.zune,
         DeviceType.station
       ],
       builder: (context, activeBreakpoint) {
@@ -77,7 +77,7 @@ class SmallScreenPlayingTrack extends StatelessWidget {
                     SmallScreenPlayingTrackProgressBarContainer(
                       shadows: shadows,
                     ),
-                  const SizedBox(height: 8),
+                  if (!isZune) const SizedBox(height: 8),
                   Text(
                     title ?? "Unknown Track",
                     style: typography.subtitle?.apply(shadows: shadows),
