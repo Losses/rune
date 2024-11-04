@@ -1,8 +1,10 @@
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
+use log::info;
 
 use crate::features::*;
-use crate::fft::*;
+use crate::fft;
+use crate::gpu_fft;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioStat {
@@ -46,13 +48,13 @@ pub fn analyze_audio(
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
     // Perform FFT on the audio file to get the spectrum
-    let audio_desc = fft(file_path, window_size, overlap_size, cancel_token);
+    let audio_desc = gpu_fft::fft(file_path, window_size, overlap_size);
 
-    if audio_desc.is_none() {
-        return Ok(None);
-    }
+    // if audio_desc.is_none() {
+    //     return Ok(None);
+    // }
 
-    let audio_desc = audio_desc.expect("Audio desc should not be none");
+    // let audio_desc = audio_desc.expect("Audio desc should not be none");
 
     let amp_spectrum = amp_spectrum(&audio_desc.spectrum, window_size);
 

@@ -8,7 +8,6 @@ use symphonia::core::audio::Signal;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
-use tokio_util::sync::CancellationToken;
 
 use crate::features::energy;
 use crate::features::rms;
@@ -16,19 +15,7 @@ use crate::features::zcr;
 
 use crate::fft_utils::*;
 
-pub fn fft(
-    file_path: &str,
-    window_size: usize,
-    overlap_size: usize,
-    cancel_token: Option<CancellationToken>,
-) -> Option<AudioDescription> {
-    // Helper function to check cancellation
-    let is_cancelled = || {
-        cancel_token
-            .as_ref()
-            .map_or(false, |token| token.is_cancelled())
-    };
-
+pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
     // Get the audio track.
     let mut format = get_format(file_path).expect("no supported audio tracks");
     let track = format
@@ -78,17 +65,39 @@ pub fn fft(
         2.0,
         RESAMPLER_PARAMETER,
         actural_data_size,
-        1,
+        1, // Assuming mono for simplicity
     )
     .unwrap();
 
+    macro_rules! process_audio_chunk {
+        ($chunk:expr, $resampler:expr, $buffer:expr, $avg_spectrum:expr, $hanning_window:expr) => {{
+            let resampled_chunk = &$resampler.process(&[$chunk], None).unwrap()[0];
+
+            total_rms += rms(resampled_chunk);
+            total_zcr += zcr(resampled_chunk);
+            total_energy += energy(resampled_chunk);
+
+            for (i, &sample) in resampled_chunk.iter().enumerate() {
+                if i >= window_size {
+                    break;
+                }
+                let windowed_sample = sample * $hanning_window[i];
+                $buffer[i] = Complex::new(windowed_sample, 0.0);
+            }
+
+            fft.process(&mut $buffer);
+            debug!("FFT processed");
+
+            for (i, value) in $buffer.iter().enumerate() {
+                $avg_spectrum[i] += value;
+            }
+
+            count += 1;
+        }};
+    }
+
     // Decode loop.
     loop {
-        // Check for cancellation
-        if is_cancelled() {
-            return None;
-        }
-
         // Get the next packet from the media format.
         let packet = match format.next_packet() {
             Ok(packet) => packet,
@@ -123,53 +132,29 @@ pub fn fft(
 
         // Macro to handle different AudioBufferRef types
         macro_rules! process_audio_buffer {
-            ($buf:expr) => {
+            ($buf:expr, $buffer:expr) => {
                 for plane in $buf.planes().planes() {
-                    // Check for cancellation inside the buffer processing loop
-                    if is_cancelled() {
-                        return None;
-                    }
-
                     debug!("Processing plane with len: {}", plane.len());
                     for &sample in plane.iter() {
                         let sample: f32 = IntoSample::<f32>::into_sample(sample);
                         sample_buffer.push(sample);
                         total_samples += 1;
 
-                        // Process the buffer when it reaches the window size
+                        // 在主循环中使用 macro
                         while sample_buffer.len() >= actural_data_size {
-                            // Check for cancellation before processing each window
-                            if is_cancelled() {
-                                return None;
-                            }
-
                             let chunk = &sample_buffer[..actural_data_size];
-                            let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
-
-                            total_rms += rms(resampled_chunk);
-                            total_zcr += zcr(resampled_chunk);
-                            total_energy += energy(resampled_chunk);
-
-                            for (i, &sample) in resampled_chunk.iter().enumerate() {
-                                if i >= window_size {
-                                    break;
-                                }
-
-                                let windowed_sample = sample * hanning_window[i];
-                                buffer[i] = Complex::new(windowed_sample, 0.0);
-                            }
-
-                            fft.process(&mut buffer);
-                            debug!("FFT processed");
-
-                            for (i, value) in buffer.iter().enumerate() {
-                                avg_spectrum[i] += value;
-                            }
-
-                            count += 1;
-
-                            // Remove the processed samples, keeping the overlap
+                            process_audio_chunk!(chunk, resampler, buffer, avg_spectrum, hanning_window);
                             sample_buffer.drain(..(window_size - overlap_size));
+                        }
+
+                        // 处理剩余样本
+                        if !sample_buffer.is_empty() {
+                            while sample_buffer.len() < actural_data_size {
+                                sample_buffer.push(0.0);
+                            }
+                            
+                            let chunk = &sample_buffer[..actural_data_size];
+                            process_audio_chunk!(chunk, resampler, buffer, avg_spectrum, hanning_window);
                         }
                     }
                 }
@@ -179,43 +164,43 @@ pub fn fft(
         match decoded {
             AudioBufferRef::U8(buf) => {
                 debug!("Decoded buffer type: U8, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::U16(buf) => {
                 debug!("Decoded buffer type: U16, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::U24(buf) => {
                 debug!("Decoded buffer type: U24, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::U32(buf) => {
                 debug!("Decoded buffer type: U32, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::S8(buf) => {
                 debug!("Decoded buffer type: S8, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::S16(buf) => {
                 debug!("Decoded buffer type: S16, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::S24(buf) => {
                 debug!("Decoded buffer type: S24, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::S32(buf) => {
                 debug!("Decoded buffer type: S32, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::F32(buf) => {
                 debug!("Decoded buffer type: F32, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
             AudioBufferRef::F64(buf) => {
                 debug!("Decoded buffer type: F64, length: {}", buf.frames());
-                process_audio_buffer!(buf);
+                process_audio_buffer!(buf, buffer);
             }
         }
     }
@@ -224,20 +209,13 @@ pub fn fft(
         panic!("No audio data processed");
     }
 
-    // Final cancellation check before returning results
-    if is_cancelled() {
-        return None;
-    }
-
     // Calculate the final average spectrum.
     for value in avg_spectrum.iter_mut() {
         *value /= count as f32;
     }
     debug!("Final average spectrum calculated");
-    
-    info!("Total samples: {}", total_samples);
 
-    Some(AudioDescription {
+    AudioDescription {
         sample_rate,
         duration: duration_in_seconds,
         total_samples,
@@ -245,5 +223,5 @@ pub fn fft(
         rms: total_rms / count as f32,
         zcr: total_zcr / count,
         energy: total_energy / count as f32,
-    })
+    }
 }

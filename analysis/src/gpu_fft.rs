@@ -8,27 +8,15 @@ use symphonia::core::audio::Signal;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
-use tokio_util::sync::CancellationToken;
 
 use crate::features::energy;
 use crate::features::rms;
 use crate::features::zcr;
 
 use crate::fft_utils::*;
+use crate::wgpu_fft::wgpu_radix4;
 
-pub fn fft(
-    file_path: &str,
-    window_size: usize,
-    overlap_size: usize,
-    cancel_token: Option<CancellationToken>,
-) -> Option<AudioDescription> {
-    // Helper function to check cancellation
-    let is_cancelled = || {
-        cancel_token
-            .as_ref()
-            .map_or(false, |token| token.is_cancelled())
-    };
-
+pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
     // Get the audio track.
     let mut format = get_format(file_path).expect("no supported audio tracks");
     let track = format
@@ -52,8 +40,10 @@ pub fn fft(
     let track_id = track.id;
 
     // Prepare FFT planner and buffers.
-    let mut planner = FftPlanner::new();
-    let fft = planner.plan_fft_forward(window_size);
+
+    let fft = pollster::block_on(wgpu_radix4::FFTCompute::new());
+    // let mut planner = FftPlanner::new();
+    // let fft = planner.plan_fft_forward(window_size);
     let mut buffer = vec![Complex::new(0.0, 0.0); window_size];
     let mut avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
     let mut count = 0;
@@ -66,7 +56,7 @@ pub fn fft(
     let hanning_window: Vec<f32> = build_hanning_window(window_size);
 
     // Buffer to hold audio samples until we have enough for one window
-    let mut sample_buffer: Vec<f32> = Vec::new();
+    let mut sample_buffer: Vec<f32> = Vec::with_capacity(window_size);
 
     let resample_ratio = 11025_f64 / sample_rate as f64;
 
@@ -78,17 +68,61 @@ pub fn fft(
         2.0,
         RESAMPLER_PARAMETER,
         actural_data_size,
-        1,
+        1, // Assuming mono for simplicity
     )
     .unwrap();
 
+    // Macro to handle different AudioBufferRef types
+    macro_rules! process_audio_chunk {
+        ($chunk:expr, $resampler:expr, $buffer:expr, $avg_spectrum:expr, $hanning_window:expr, $fft:expr) => {{
+            let chunk_size = $chunk.len();
+            let mut resampler = if chunk_size != actural_data_size {
+                // Create a new resampler with the current chunk size
+                SincFixedIn::<f32>::new(
+                    resample_ratio,
+                    2.0,
+                    RESAMPLER_PARAMETER,
+                    chunk_size,
+                    1,
+                ).unwrap()
+            } else {
+                SincFixedIn::<f32>::new(
+                    resample_ratio,
+                    2.0,
+                    RESAMPLER_PARAMETER,
+                    actural_data_size,
+                    1, // Assuming mono for simplicity
+                )
+                .unwrap()
+            };
+            
+            let resampled_chunk = &resampler.process(&[$chunk], None).unwrap()[0];
+            
+            total_rms += rms(&resampled_chunk);
+            total_zcr += zcr(&resampled_chunk);
+            total_energy += energy(&resampled_chunk);
+
+            for (i, &sample) in resampled_chunk.iter().enumerate() {
+                if i >= window_size {
+                    break;
+                }
+                let windowed_sample = sample * $hanning_window[i];
+                $buffer[i] = Complex::new(windowed_sample, 0.0);
+            }
+
+            pollster::block_on($fft.compute_fft(&mut $buffer));
+            debug!("FFT processed");
+
+            for (i, value) in $buffer.iter().enumerate() {
+                $avg_spectrum[i] += value;
+            }
+
+            count += 1;
+        }};
+    }
+
     // Decode loop.
     loop {
-        // Check for cancellation
-        if is_cancelled() {
-            return None;
-        }
-
         // Get the next packet from the media format.
         let packet = match format.next_packet() {
             Ok(packet) => packet,
@@ -121,54 +155,25 @@ pub fn fft(
         };
         debug!("Packet decoded successfully");
 
-        // Macro to handle different AudioBufferRef types
         macro_rules! process_audio_buffer {
             ($buf:expr) => {
                 for plane in $buf.planes().planes() {
-                    // Check for cancellation inside the buffer processing loop
-                    if is_cancelled() {
-                        return None;
-                    }
-
                     debug!("Processing plane with len: {}", plane.len());
                     for &sample in plane.iter() {
                         let sample: f32 = IntoSample::<f32>::into_sample(sample);
                         sample_buffer.push(sample);
                         total_samples += 1;
 
-                        // Process the buffer when it reaches the window size
                         while sample_buffer.len() >= actural_data_size {
-                            // Check for cancellation before processing each window
-                            if is_cancelled() {
-                                return None;
-                            }
-
                             let chunk = &sample_buffer[..actural_data_size];
-                            let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
-
-                            total_rms += rms(resampled_chunk);
-                            total_zcr += zcr(resampled_chunk);
-                            total_energy += energy(resampled_chunk);
-
-                            for (i, &sample) in resampled_chunk.iter().enumerate() {
-                                if i >= window_size {
-                                    break;
-                                }
-
-                                let windowed_sample = sample * hanning_window[i];
-                                buffer[i] = Complex::new(windowed_sample, 0.0);
-                            }
-
-                            fft.process(&mut buffer);
-                            debug!("FFT processed");
-
-                            for (i, value) in buffer.iter().enumerate() {
-                                avg_spectrum[i] += value;
-                            }
-
-                            count += 1;
-
-                            // Remove the processed samples, keeping the overlap
+                            process_audio_chunk!(
+                                chunk,
+                                resampler,
+                                buffer,
+                                avg_spectrum,
+                                hanning_window,
+                                fft
+                            );
                             sample_buffer.drain(..(window_size - overlap_size));
                         }
                     }
@@ -220,13 +225,22 @@ pub fn fft(
         }
     }
 
-    if count == 0 {
-        panic!("No audio data processed");
+    if !sample_buffer.is_empty() {
+        // Pad to the nearest multiple of 1024
+        let target_size = ((sample_buffer.len() + 1023) / 1024) * 1024;
+        while sample_buffer.len() < target_size {
+            sample_buffer.push(0.0);
+        }
+
+        // Only process up to target_size
+        let chunk = &sample_buffer[..target_size.min(actural_data_size)];
+        process_audio_chunk!(chunk, resampler, buffer, avg_spectrum, hanning_window, fft);
     }
 
-    // Final cancellation check before returning results
-    if is_cancelled() {
-        return None;
+    info!("Total samples: {}", total_samples);
+
+    if count == 0 {
+        panic!("No audio data processed");
     }
 
     // Calculate the final average spectrum.
@@ -234,10 +248,8 @@ pub fn fft(
         *value /= count as f32;
     }
     debug!("Final average spectrum calculated");
-    
-    info!("Total samples: {}", total_samples);
 
-    Some(AudioDescription {
+    AudioDescription {
         sample_rate,
         duration: duration_in_seconds,
         total_samples,
@@ -245,5 +257,5 @@ pub fn fft(
         rms: total_rms / count as f32,
         zcr: total_zcr / count,
         energy: total_energy / count as f32,
-    })
+    }
 }
