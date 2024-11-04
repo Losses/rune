@@ -5,7 +5,57 @@ import '../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../providers/responsive_providers.dart';
 
-class PageContentFrame extends StatefulWidget {
+EdgeInsets getScrollContainerPadding(
+  BuildContext context, {
+  bool top = true,
+  bool left = true,
+  bool right = true,
+  bool bottom = true,
+  double leftPlus = 0,
+  double rightPlus = 0,
+}) {
+  double pTop = 0;
+  double pLeft = 0;
+  double pRight = 0;
+  double pBottom = 0;
+
+  final inset = MediaQuery.viewInsetsOf(context);
+  final responsive = Provider.of<ResponsiveProvider>(context);
+  final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
+
+  if (bottom) {
+    if (responsive.smallerOrEqualTo(DeviceType.zune, false)) {
+      pBottom = screen.width / 3 + inset.bottom;
+    } else if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
+      pBottom = screen.width / 3 + inset.bottom;
+    } else if (responsive.smallerOrEqualTo(DeviceType.phone, false)) {
+    } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
+      pBottom = inset.bottom;
+    } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
+      pBottom = inset.bottom;
+    }
+  }
+
+  if (right) {
+    if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
+      pRight = screen.height / 3 + inset.right + rightPlus;
+    } else {
+      pRight = inset.right + rightPlus;
+    }
+  }
+
+  if (left) {
+    if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
+      pLeft = 24 + inset.left + leftPlus;
+    } else {
+      pLeft = inset.right + leftPlus;
+    }
+  }
+
+  return EdgeInsets.fromLTRB(pLeft, pTop, pRight, pBottom);
+}
+
+class PageContentFrame extends StatelessWidget {
   const PageContentFrame({
     super.key,
     this.top = true,
@@ -22,60 +72,42 @@ class PageContentFrame extends StatefulWidget {
   final Widget child;
 
   @override
-  PageContentFrameState createState() => PageContentFrameState();
-}
-
-class PageContentFrameState extends State<PageContentFrame> {
-  @override
   Widget build(BuildContext context) {
-    double top = 0;
-    double left = 0;
-    double right = 0;
-    double bottom = 0;
+    double pTop = 0;
+    double pLeft = 0;
+    double pRight = 0;
+    double pBottom = 0;
 
     final inset = MediaQuery.viewInsetsOf(context);
     final responsive = Provider.of<ResponsiveProvider>(context);
-    final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
 
-    if (widget.top) {
+    if (top) {
       if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
-        top = bandNavigationBarHeight + inset.top;
+        pTop = bandNavigationBarHeight + inset.top;
       } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
-        top = inset.top;
+        pTop = inset.top;
       } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        top = carNavigationBarHeight + inset.top;
+        pTop = carNavigationBarHeight + inset.top;
       } else {
-        top = fullNavigationBarHeight + inset.top;
+        pTop = fullNavigationBarHeight + inset.top;
       }
     }
 
-    if (widget.bottom) {
+    if (bottom) {
       if (responsive.smallerOrEqualTo(DeviceType.dock, false)) {
-        bottom = screen.width / 3 + inset.bottom;
       } else if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
-        bottom = inset.bottom;
       } else if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        bottom = inset.bottom;
+      } else if (responsive.smallerOrEqualTo(DeviceType.zune, false)) {
+      } else if (responsive.smallerOrEqualTo(DeviceType.phone, false)) {
+        pBottom = playbackControllerHeight + inset.bottom;
       } else {
-        bottom = playbackControllerHeight + inset.bottom;
-      }
-    }
-
-    if (widget.right) {
-      if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
-        right = screen.height / 3 + inset.right;
-      }
-    }
-
-    if (widget.left) {
-      if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
-        left = 24 + inset.left;
+        pBottom = playbackControllerHeight + inset.bottom;
       }
     }
 
     return Container(
-      padding: EdgeInsets.fromLTRB(left, top, right, bottom),
-      child: widget.child,
+      padding: EdgeInsets.fromLTRB(pLeft, pTop, pRight, pBottom),
+      child: child,
     );
   }
 }

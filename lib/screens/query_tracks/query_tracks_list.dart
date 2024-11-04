@@ -18,12 +18,14 @@ class QueryTrackListView extends StatefulWidget {
   final QueryList queries;
   final StartScreenLayoutManager layoutManager;
   final int mode;
+  final bool topPadding;
 
   const QueryTrackListView({
     super.key,
     required this.layoutManager,
     required this.queries,
     required this.mode,
+    required this.topPadding,
   });
 
   @override
@@ -88,6 +90,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
               pagingController: _pagingController,
               queries: widget.queries,
               mode: widget.mode,
+              topPadding: widget.topPadding,
             ),
           );
         }
@@ -98,6 +101,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             pagingController: _pagingController,
             queries: widget.queries,
             mode: widget.mode,
+            topPadding: widget.topPadding,
           );
         }
 
@@ -106,6 +110,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
             pagingController: _pagingController,
             queries: widget.queries,
             mode: widget.mode,
+            topPadding: widget.topPadding,
           );
         }
 
@@ -113,6 +118,7 @@ class QueryTrackListViewState extends State<QueryTrackListView> {
           pagingController: _pagingController,
           queries: widget.queries,
           mode: widget.mode,
+          topPadding: widget.topPadding,
         );
       },
     );

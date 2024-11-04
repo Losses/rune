@@ -1,25 +1,31 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
-
 import '../../config/animation.dart';
-import '../../screens/settings_home/constants/first_column.dart';
-import '../../widgets/start_screen/constants/default_gap_size.dart';
-import '../../widgets/turntile/link_turntile.dart';
-import '../../widgets/turntile/turntile_group.dart';
-import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 
-class SmallScreenSettingsHomeListView extends StatefulWidget {
+import '../start_screen/constants/default_gap_size.dart';
+import '../start_screen/providers/start_screen_layout_manager.dart';
+import '../navigation_bar/page_content_frame.dart';
+
+import 'link_turntile.dart';
+import 'turntile_group.dart';
+
+class SmallScreenFeatureListView extends StatefulWidget {
+  const SmallScreenFeatureListView({
+    super.key,
+    required this.layoutManager,
+    required this.items,
+    required this.topPadding,
+  });
   final StartScreenLayoutManager layoutManager;
-
-  const SmallScreenSettingsHomeListView(
-      {super.key, required this.layoutManager});
+  final List<(String, String, IconData, bool)> items;
+  final bool topPadding;
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
 }
 
-class LibraryHomeListState extends State<SmallScreenSettingsHomeListView> {
+class LibraryHomeListState extends State<SmallScreenFeatureListView> {
   @override
   void initState() {
     super.initState();
@@ -34,9 +40,10 @@ class LibraryHomeListState extends State<SmallScreenSettingsHomeListView> {
   Widget build(BuildContext context) {
     return Center(
       child: SingleChildScrollView(
+        padding: getScrollContainerPadding(context, top: widget.topPadding),
         child: TurntileGroup<(String, String, IconData, bool)>(
           groupIndex: 0,
-          items: firstColumn,
+          items: widget.items,
           gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
           gapSize: defaultGapSize,
           onTitleTap: () {},

@@ -53,6 +53,7 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SingleChildScrollView(
+          padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
               children: [

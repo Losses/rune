@@ -1,14 +1,15 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../screens/library_home/band_screen_library_home_list.dart';
-import '../../screens/library_home/small_screen_library_home_list.dart';
+import '../../widgets/band_screen/band_screen_feature_list.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../widgets/turntile/small_screen_feature_list.dart';
 import '../../widgets/belt_container.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
-import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
+import 'constants/first_column.dart';
 import 'large_screen_library_home_list.dart';
 
 class LibraryHomePage extends StatefulWidget {
@@ -53,28 +54,35 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
               builder: (context, activeBreakpoint) {
                 if (activeBreakpoint == DeviceType.belt) {
                   return BeltContainer(
-                    child: BandScreenLibraryHomeListView(
+                    child: BandScreenFeatureList(
+                      items: bandScreenFirstColumn,
                       layoutManager: _layoutManager,
+                      topPadding: !isDock,
                     ),
                   );
                 }
 
                 if (activeBreakpoint == DeviceType.dock ||
                     activeBreakpoint == DeviceType.band) {
-                  return BandScreenLibraryHomeListView(
+                  return BandScreenFeatureList(
+                    items: bandScreenFirstColumn,
                     layoutManager: _layoutManager,
+                    topPadding: !isDock,
                   );
                 }
 
                 if (activeBreakpoint == DeviceType.zune) {
-                  return SmallScreenLibraryHomeListView(
+                  return SmallScreenFeatureListView(
+                    items: smallScreenFirstColumn,
                     layoutManager: _layoutManager,
+                    topPadding: !isDock,
                   );
                 }
 
                 return LargeScreenLibraryHomeListView(
                   libraryPath: libraryPath,
                   layoutManager: _layoutManager,
+                  topPadding: !isDock,
                 );
               },
             ),

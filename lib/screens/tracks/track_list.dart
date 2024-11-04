@@ -76,6 +76,7 @@ class TrackListViewState extends State<TrackListView> {
             pagingController: _pagingController,
             queries: queries,
             mode: 99,
+            topPadding: true,
           );
         }
 
@@ -84,6 +85,7 @@ class TrackListViewState extends State<TrackListView> {
             pagingController: _pagingController,
             queries: queries,
             mode: 99,
+            topPadding: true,
           );
         }
 
@@ -91,6 +93,7 @@ class TrackListViewState extends State<TrackListView> {
           pagingController: _pagingController,
           queries: queries,
           mode: 99,
+          topPadding: true,
         );
       },
     );

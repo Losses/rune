@@ -13,6 +13,7 @@ import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/collection/collection_item.dart';
 
 import './constants/first_column.dart';
@@ -20,9 +21,14 @@ import './constants/first_column.dart';
 class LargeScreenLibraryHomeListView extends StatefulWidget {
   final String libraryPath;
   final StartScreenLayoutManager layoutManager;
+  final bool topPadding;
 
-  const LargeScreenLibraryHomeListView(
-      {super.key, required this.libraryPath, required this.layoutManager});
+  const LargeScreenLibraryHomeListView({
+    super.key,
+    required this.libraryPath,
+    required this.layoutManager,
+    required this.topPadding,
+  });
 
   @override
   LibraryHomeListState createState() => LibraryHomeListState();
@@ -85,12 +91,21 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         } else {
           return LayoutBuilder(
             builder: (context, constraints) {
+              final padding = getScrollContainerPadding(context);
+              final c = constraints;
+              final trueConstraints = BoxConstraints(
+                maxWidth: c.maxWidth - padding.left - padding.right,
+                maxHeight: c.maxHeight - padding.top - padding.bottom,
+              );
+
               return Container(
                 alignment: Alignment.centerLeft,
                 child: SmoothHorizontalScroll(
                   builder: (context, scrollController) => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     controller: scrollController,
+                    padding:
+                        getScrollContainerPadding(context, top: widget.topPadding),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.start,
                       children: [
@@ -100,7 +115,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                           items: smallScreenFirstColumn
                               .where((x) => !x.$4)
                               .toList(),
-                          constraints: constraints,
+                          constraints: trueConstraints,
                           groupLayoutVariation:
                               StartGroupGroupLayoutVariation.stacked,
                           gridLayoutVariation:
@@ -124,7 +139,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 groupIndex: item.groupTitle.hashCode,
                                 groupTitle: item.groupTitle,
                                 items: item.items,
-                                constraints: constraints,
+                                constraints: trueConstraints,
                                 groupLayoutVariation:
                                     StartGroupGroupLayoutVariation.stacked,
                                 gridLayoutVariation:

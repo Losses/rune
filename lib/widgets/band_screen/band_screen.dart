@@ -14,6 +14,7 @@ import '../../providers/responsive_providers.dart';
 import '../start_screen/utils/group.dart';
 import '../start_screen/utils/internal_collection.dart';
 import '../start_screen/providers/start_screen_layout_manager.dart';
+import '../navigation_bar/page_content_frame.dart';
 
 class BandScreen extends StatefulWidget {
   final Future<List<Group<InternalCollection>>> Function() fetchSummary;
@@ -142,6 +143,7 @@ class BandScreenState extends State<BandScreen> {
       centerLoading: true,
       centerEmpty: true,
       isLoading: isLoading,
+      padding: getScrollContainerPadding(context),
       emptyBuilder: (context) => Center(
         child: initialized
             ? NoItems(

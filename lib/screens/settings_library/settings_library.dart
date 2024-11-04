@@ -38,6 +38,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
       child: UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
+            padding: getScrollContainerPadding(context),
             child: SettingsBodyPadding(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

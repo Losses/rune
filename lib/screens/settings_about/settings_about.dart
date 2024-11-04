@@ -24,6 +24,7 @@ class SettingsAboutPage extends StatelessWidget {
         builder: (context, isMini) {
           if (isMini) {
             return SingleChildScrollView(
+              padding: getScrollContainerPadding(context),
               child: SettingsPagePadding(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),

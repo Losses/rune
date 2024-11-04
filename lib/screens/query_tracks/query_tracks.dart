@@ -2,8 +2,8 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/query_list.dart';
-import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'query_tracks_list.dart';
@@ -59,6 +59,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
                     layoutManager: _layoutManager,
                     queries: widget.queries,
                     mode: widget.mode,
+                    topPadding: isMini,
                   ),
                 ),
               ],

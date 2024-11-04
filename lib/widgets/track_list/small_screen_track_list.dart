@@ -8,17 +8,20 @@ import '../../widgets/no_items.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/small_screen_track_list_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../navigation_bar/page_content_frame.dart';
 
 class SmallScreenTrackList extends StatelessWidget {
   final PagingController<int, InternalMediaFile> pagingController;
   final QueryList queries;
   final int mode;
+  final bool topPadding;
 
   const SmallScreenTrackList({
     super.key,
     required this.pagingController,
     required this.queries,
     required this.mode,
+    required this.topPadding,
   });
 
   @override
@@ -29,7 +32,12 @@ class SmallScreenTrackList extends StatelessWidget {
 
     return PagedListView<int, InternalMediaFile>(
       pagingController: pagingController,
-      padding: const EdgeInsets.all(12),
+      padding: getScrollContainerPadding(
+        context,
+        top: topPadding,
+        leftPlus: 16,
+        rightPlus: 16,
+      ),
       builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
         noItemsFoundIndicatorBuilder: (context) {
           return SizedBox.expand(
