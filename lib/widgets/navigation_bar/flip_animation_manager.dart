@@ -118,9 +118,15 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
       final fromStyles = _cachedStyles[fromKey];
       final toStyles = _cachedStyles[toKey];
 
-      // Hide elements before starting animation
-      _setVisibility(fromKey, false);
-      _setVisibility(toKey, false);
+      if (fromPosition == null && toPosition != null) {
+        _setVisibility(toKey, false);
+      } else if (fromPosition != null && toPosition == null) {
+        _setVisibility(fromKey, false);
+      } else {
+        // Hide elements before starting animation
+        _setVisibility(fromKey, false);
+        _setVisibility(toKey, false);
+      }
 
       if (fromPosition == null) {
         completer.complete(false);
