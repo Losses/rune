@@ -67,6 +67,7 @@ class BandScreenTrackList extends StatelessWidget {
       scrollDirection:
           scrollController == null ? Axis.vertical : Axis.horizontal,
       pagingController: pagingController,
+      scrollController: scrollController,
       padding: getScrollContainerPadding(context, top: topPadding),
       builderDelegate: PagedChildBuilderDelegate<InternalMediaFile>(
         noItemsFoundIndicatorBuilder: (context) {
