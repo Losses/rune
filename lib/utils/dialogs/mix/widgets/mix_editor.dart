@@ -1,5 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/dialogs/mix/widgets/number_section.dart';
 
 import '../../../../messages/search.pb.dart';
 import '../../../../messages/collection.pb.dart';
@@ -132,6 +133,10 @@ class _MixEditorState extends State<MixEditor> {
                         .toList();
                   },
                 ),
+              ),
+              NumberSection(
+                controller: _controller.randomTrackController,
+                title: 'Random Tracks',
               ),
               DirectorySection(controller: _controller.directoryController),
               SliderSection(

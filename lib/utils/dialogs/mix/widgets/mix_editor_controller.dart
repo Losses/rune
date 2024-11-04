@@ -15,6 +15,7 @@ class MixEditorController extends ChangeNotifier {
   final ChipInputController<int> playlistsController =
       ChipInputController<int>();
   final ChipInputController<int> tracksController = ChipInputController<int>();
+  final TextEditingController randomTrackController = TextEditingController();
   final DirectoryTreeController directoryController = DirectoryTreeController();
   final SliderController limitController = SliderController();
   final SelectInputController modeController = SelectInputController('99');
@@ -35,6 +36,7 @@ class MixEditorController extends ChangeNotifier {
     albumsController.addListener(_notifyListeners);
     playlistsController.addListener(_notifyListeners);
     tracksController.addListener(_notifyListeners);
+    randomTrackController.addListener(_notifyListeners);
     directoryController.addListener(_notifyListeners);
     limitController.addListener(_notifyListeners);
     modeController.addListener(_notifyListeners);
@@ -55,6 +57,7 @@ class MixEditorController extends ChangeNotifier {
     albumsController.removeListener(_notifyListeners);
     playlistsController.removeListener(_notifyListeners);
     tracksController.removeListener(_notifyListeners);
+    randomTrackController.removeListener(_notifyListeners);
     directoryController.removeListener(_notifyListeners);
     limitController.removeListener(_notifyListeners);
     modeController.removeListener(_notifyListeners);
@@ -68,6 +71,7 @@ class MixEditorController extends ChangeNotifier {
     albumsController.dispose();
     playlistsController.dispose();
     tracksController.dispose();
+    randomTrackController.dispose();
     directoryController.dispose();
     limitController.dispose();
     modeController.dispose();
@@ -102,6 +106,7 @@ class MixEditorController extends ChangeNotifier {
           .where((value) => value.$1 != null)
           .cast<(int, String)>()
           .toList(),
+      randomTracks: int.parse(randomTrackController.value.text),
       directories: directoryController.value ?? {},
       limit: limitController.value,
       mode: modeController.selectedValue ?? '99',

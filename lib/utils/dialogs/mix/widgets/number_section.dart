@@ -1,20 +1,28 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-class InputSection extends StatefulWidget {
+class NumberSection extends StatefulWidget {
   final String title;
   final TextEditingController? controller;
 
-  const InputSection({
+  const NumberSection({
     required this.title,
     this.controller,
     super.key,
   });
 
   @override
-  State<InputSection> createState() => _InputSectionState();
+  State<NumberSection> createState() => _NumberSectionState();
 }
 
-class _InputSectionState extends State<InputSection> {
+int bestInt(String x) {
+  try {
+    return int.parse(x);
+  } catch (e) {
+    return 0;
+  }
+}
+
+class _NumberSectionState extends State<NumberSection> {
   late final TextEditingController _controller;
 
   @override
@@ -42,7 +50,13 @@ class _InputSectionState extends State<InputSection> {
         Row(
           children: [
             Expanded(
-              child: TextBox(controller: _controller),
+              child: NumberBox(
+                value: bestInt(_controller.value.text),
+                onChanged: (x) {
+                  _controller.text = (x ?? 0).toString();
+                },
+                mode: SpinButtonPlacementMode.inline,
+              ),
             ),
           ],
         ),
