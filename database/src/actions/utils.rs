@@ -343,12 +343,15 @@ macro_rules! parallel_media_files_processing {
                             let lib_path = Arc::clone(&$lib_path);
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
+                            let process_cancel_token = consumer_cancel_token.clone();  // Clone for each task
 
                             let file_clone = file.clone();
 
                             task::spawn(async move {
-                                let analysis_result =
-                                    task::spawn_blocking(move || $process_fn(&file_clone, &lib_path)).await;
+                                let analysis_result = task::spawn_blocking(move || {
+                                    let process_fn = $process_fn;
+                                    process_fn(&file_clone, &lib_path, process_cancel_token)  // Pass the cloned token
+                                }).await;
 
                                 match analysis_result.with_context(|| "Failed to spawn analysis task") {
                                     Ok(analysis_result) => {

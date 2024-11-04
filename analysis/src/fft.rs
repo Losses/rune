@@ -19,6 +19,7 @@ use symphonia::core::formats::Track;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
+use tokio_util::sync::CancellationToken;
 
 use crate::features::energy;
 use crate::features::rms;
@@ -97,7 +98,19 @@ pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::cor
     Ok((sample_rate, duration_in_seconds))
 }
 
-pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDescription {
+pub fn fft(
+    file_path: &str,
+    window_size: usize,
+    overlap_size: usize,
+    cancel_token: Option<CancellationToken>,
+) -> Option<AudioDescription> {
+    // Helper function to check cancellation
+    let is_cancelled = || {
+        cancel_token
+            .as_ref()
+            .map_or(false, |token| token.is_cancelled())
+    };
+
     // Get the audio track.
     let mut format = get_format(file_path).expect("no supported audio tracks");
     let track = format
@@ -147,12 +160,17 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         2.0,
         RESAMPLER_PARAMETER,
         actural_data_size,
-        1, // Assuming mono for simplicity
+        1,
     )
     .unwrap();
 
     // Decode loop.
     loop {
+        // Check for cancellation
+        if is_cancelled() {
+            return None;
+        }
+
         // Get the next packet from the media format.
         let packet = match format.next_packet() {
             Ok(packet) => packet,
@@ -189,6 +207,11 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         macro_rules! process_audio_buffer {
             ($buf:expr) => {
                 for plane in $buf.planes().planes() {
+                    // Check for cancellation inside the buffer processing loop
+                    if is_cancelled() {
+                        return None;
+                    }
+
                     debug!("Processing plane with len: {}", plane.len());
                     for &sample in plane.iter() {
                         let sample: f32 = IntoSample::<f32>::into_sample(sample);
@@ -197,6 +220,11 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
 
                         // Process the buffer when it reaches the window size
                         while sample_buffer.len() >= actural_data_size {
+                            // Check for cancellation before processing each window
+                            if is_cancelled() {
+                                return None;
+                            }
+
                             let chunk = &sample_buffer[..actural_data_size];
                             let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
 
@@ -278,13 +306,18 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         panic!("No audio data processed");
     }
 
+    // Final cancellation check before returning results
+    if is_cancelled() {
+        return None;
+    }
+
     // Calculate the final average spectrum.
     for value in avg_spectrum.iter_mut() {
         *value /= count as f32;
     }
     debug!("Final average spectrum calculated");
 
-    AudioDescription {
+    Some(AudioDescription {
         sample_rate,
         duration: duration_in_seconds,
         total_samples,
@@ -292,5 +325,5 @@ pub fn fft(file_path: &str, window_size: usize, overlap_size: usize) -> AudioDes
         rms: total_rms / count as f32,
         zcr: total_zcr / count,
         energy: total_energy / count as f32,
-    }
+    })
 }

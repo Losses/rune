@@ -114,6 +114,7 @@ dependencies = [
  "rubato",
  "rustfft",
  "symphonia",
+ "tokio-util",
 ]
 
 [[package]]
