@@ -7,6 +7,8 @@ use anyhow::Result;
 use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
+use migration::Func;
+use migration::SimpleExpr;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Expr;
@@ -279,6 +281,7 @@ enum QueryOperator {
     LibAlbum(i32),
     LibPlaylist(i32),
     LibTrack(i32),
+    LibRandom(i32),
     LibDirectoryDeep(String),
     LibDirectoryShallow(String),
     SortTrackNumber(bool),
@@ -416,6 +419,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
         "lib::track" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibTrack)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "lib::random" => parse_parameter::<i32>(parameter, operator)
+            .map(QueryOperator::LibRandom)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::directory.deep" => QueryOperator::LibDirectoryDeep(parameter.clone()),
         "lib::directory.shallow" => QueryOperator::LibDirectoryShallow(parameter.clone()),
         "sort::track_number" => parse_parameter::<bool>(parameter, operator)
@@ -518,6 +524,7 @@ pub async fn query_mix_media_files(
     let mut album_ids: Vec<i32> = vec![];
     let mut playlist_ids: Vec<i32> = vec![];
     let mut track_ids: Vec<i32> = vec![];
+    let mut random_count: Vec<i32> = vec![];
     let mut directories_deep: Vec<String> = vec![];
     let mut directories_shallow: Vec<String> = vec![];
 
@@ -539,6 +546,7 @@ pub async fn query_mix_media_files(
             QueryOperator::LibAlbum(id) => album_ids.push(id),
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
             QueryOperator::LibTrack(id) => track_ids.push(id),
+            QueryOperator::LibRandom(count) => random_count.push(count),
             QueryOperator::LibDirectoryDeep(dir) => directories_deep.push(dir),
             QueryOperator::LibDirectoryShallow(dir) => directories_shallow.push(dir),
             QueryOperator::SortTrackNumber(asc) => sort_track_number_asc = Some(asc),
@@ -607,6 +615,18 @@ pub async fn query_mix_media_files(
         let query_template = format!("\"media_files\".\"id\" IN ({})", placeholders);
 
         or_condition = or_condition.add(Expr::cust_with_values(query_template, track_ids));
+    }
+
+    // Filter by random tracks if provided
+    if !random_count.is_empty() {
+        let subquery = media_files::Entity::find()
+            .select_only()
+            .order_by(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+            .limit(*random_count.iter().max().unwrap_or(&30) as u64)
+            .column(media_files::Column::Id)
+            .into_query();
+
+        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
     }
 
     // Filter by directories if provided
