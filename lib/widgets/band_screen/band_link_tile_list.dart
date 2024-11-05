@@ -56,6 +56,7 @@ class BandLinkTileList extends StatelessWidget {
           builder: (context, controller) {
             return SingleChildScrollView(
               controller: controller,
+              padding: getScrollContainerPadding(context, top: topPadding),
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: children,
