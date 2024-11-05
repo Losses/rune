@@ -5,7 +5,12 @@ import '../../utils/router/router_transition_parameter.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 class NavigationHistory {
-  final List<RouteSettings> _history = [];
+  final List<RouteSettings> _history = [
+    RouteSettings(
+      name: "/library",
+      arguments: RouterTransitionParameter("/library", "/library"),
+    )
+  ];
 
   void push(RouteSettings settings) {
     _history.add(settings);
