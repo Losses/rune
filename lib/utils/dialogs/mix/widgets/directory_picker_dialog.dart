@@ -1,17 +1,23 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../../widgets/directory/directory_tree.dart';
+import '../../../../widgets/responsive_dialog_actions.dart';
 
 import '../../unavailable_dialog_on_band.dart';
 
 class DirectoryPickerDialog extends StatelessWidget {
   final DirectoryTreeController controller;
-  const DirectoryPickerDialog({super.key, required this.controller});
+  final void Function(Set<String>?) $close;
+  const DirectoryPickerDialog({
+    super.key,
+    required this.controller,
+    required this.$close,
+  });
 
   @override
   Widget build(BuildContext context) {
     return UnavailableDialogOnBand(
+      $close: $close,
       child: ContentDialog(
         title: const Column(
           children: [
@@ -33,13 +39,12 @@ class DirectoryPickerDialog extends StatelessWidget {
             FilledButton(
               child: const Text('Confirm'),
               onPressed: () {
-                Navigator.pop(context, controller.value);
-                // Delete file here
+                $close(controller.value);
               },
             ),
             Button(
               child: const Text('Cancel'),
-              onPressed: () => Navigator.pop(context, null),
+              onPressed: () => $close(null),
             ),
           ),
         ],

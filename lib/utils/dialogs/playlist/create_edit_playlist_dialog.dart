@@ -13,8 +13,13 @@ import '../../api/fetch_collection_group_summary_title.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
+  final void Function(Playlist?) $close;
 
-  const CreateEditPlaylistDialog({super.key, this.playlistId});
+  const CreateEditPlaylistDialog({
+    super.key,
+    this.playlistId,
+    required this.$close,
+  });
 
   @override
   CreateEditPlaylistDialogState createState() =>
@@ -58,6 +63,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   @override
   Widget build(BuildContext context) {
     return UnavailableDialogOnBand(
+      $close: widget.$close,
       child: NoShortcuts(
         ContentDialog(
           title: Column(
@@ -125,13 +131,12 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                         });
 
                         if (!context.mounted) return;
-                        Navigator.pop(context, response);
+                        widget.$close(response);
                       },
                 child: Text(widget.playlistId != null ? 'Save' : 'Create'),
               ),
               Button(
-                onPressed:
-                    isLoading ? null : () => Navigator.pop(context, null),
+                onPressed: isLoading ? null : () => widget.$close(null),
                 child: const Text('Cancel'),
               ),
             ),

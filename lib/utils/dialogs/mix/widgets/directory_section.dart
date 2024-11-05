@@ -3,6 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../../../utils/dialogs/mix/widgets/directory_picker_dialog.dart';
 import '../../../../widgets/directory/directory_tree.dart';
 
+import '../../../router/navigation.dart';
+
 class DirectorySection extends StatefulWidget {
   final DirectoryTreeController? controller;
   final Set<String>? defaultValue;
@@ -76,9 +78,14 @@ Future<void> showContentDialog(
     BuildContext context, DirectoryTreeController controller) async {
   final internalController = DirectoryTreeController(controller.value);
 
-  final result = await showDialog<Set<String>>(
-    context: context,
-    builder: (context) => DirectoryPickerDialog(controller: internalController),
+  final result = await $showModal<Set<String>>(
+    context,
+    (context, $close) => DirectoryPickerDialog(
+      controller: internalController,
+      $close: $close,
+    ),
+    dismissWithEsc: true,
+    barrierDismissible: true,
   );
 
   internalController.dispose();

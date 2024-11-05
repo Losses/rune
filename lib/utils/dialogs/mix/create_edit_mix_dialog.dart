@@ -15,8 +15,14 @@ import '../unavailable_dialog_on_band.dart';
 class CreateEditMixDialog extends StatefulWidget {
   final int? mixId;
   final (String, String)? operator;
+  final void Function(Mix?) $close;
 
-  const CreateEditMixDialog({super.key, this.mixId, this.operator});
+  const CreateEditMixDialog({
+    super.key,
+    this.mixId,
+    this.operator,
+    required this.$close,
+  });
 
   @override
   CreateEditMixDialogState createState() => CreateEditMixDialogState();
@@ -41,6 +47,9 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
 
   Future<void> fetchGroupList() async {
     final groups = await fetchCollectionGroupSummaryTitle(CollectionType.Mix);
+
+    if (!mounted) return;
+
     setState(() {
       groupList = ['Favorite', ...groups];
     });
@@ -58,6 +67,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   @override
   Widget build(BuildContext context) {
     return UnavailableDialogOnBand(
+      $close: widget.$close,
       child: NoShortcuts(
         ContentDialog(
           title: Column(
@@ -133,13 +143,12 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                         });
 
                         if (!context.mounted) return;
-                        Navigator.pop(context, response);
+                        widget.$close(response);
                       },
                 child: Text(widget.mixId != null ? 'Save' : 'Create'),
               ),
               Button(
-                onPressed:
-                    isLoading ? null : () => Navigator.pop(context, null),
+                onPressed: isLoading ? null : () => widget.$close(null),
                 child: const Text('Cancel'),
               ),
             ),

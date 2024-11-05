@@ -27,9 +27,12 @@ import '../unavailable_dialog_on_band.dart';
 
 class MixStudioDialog extends StatefulWidget {
   final int? mixId;
+  final void Function(Mix?) $close;
+
   const MixStudioDialog({
     super.key,
     required this.mixId,
+    required this.$close,
   });
 
   @override
@@ -41,16 +44,19 @@ class _MixStudioDialog extends State<MixStudioDialog> {
   Widget build(BuildContext context) {
     return MixStudioDialogImplementation(
       mixId: widget.mixId,
+      $close: widget.$close,
     );
   }
 }
 
 class MixStudioDialogImplementation extends StatefulWidget {
   final int? mixId;
+  final void Function(Mix?) $close;
 
   const MixStudioDialogImplementation({
     super.key,
     required this.mixId,
+    required this.$close,
   });
 
   @override
@@ -143,7 +149,7 @@ class _MixStudioDialogImplementationState
     });
 
     if (!context.mounted) return;
-    Navigator.pop(context, response);
+    widget.$close(response);
   }
 
   @override
@@ -161,6 +167,7 @@ class _MixStudioDialogImplementationState
     );
 
     return UnavailableDialogOnBand(
+      $close: widget.$close,
       child: NoShortcuts(
         ContentDialog(
           style: smallerThanZune
@@ -264,8 +271,7 @@ class _MixStudioDialogImplementationState
                 child: Text(widget.mixId != null ? 'Save' : 'Create'),
               ),
               Button(
-                onPressed:
-                    isLoading ? null : () => Navigator.pop(context, null),
+                onPressed: isLoading ? null : () => widget.$close(null),
                 child: const Text('Cancel'),
               ),
             ),

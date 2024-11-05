@@ -1,38 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../providers/router_path.dart';
-import '../../utils/router/router_transition_parameter.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
+import '../../providers/router_path.dart';
 
-class NavigationHistory {
-  final List<RouteSettings> _history = [
-    RouteSettings(
-      name: "/library",
-      arguments: RouterTransitionParameter("/library", "/library"),
-    )
-  ];
-
-  void push(RouteSettings settings) {
-    _history.add(settings);
-  }
-
-  void pop() {
-    if (_history.isNotEmpty) {
-      _history.removeLast();
-    }
-  }
-
-  void replace(RouteSettings settings) {
-    if (_history.isNotEmpty) {
-      _history.removeLast();
-    }
-    _history.add(settings);
-  }
-
-  RouteSettings? get current => _history.isNotEmpty ? _history.last : null;
-}
-
-final NavigationHistory _history = NavigationHistory();
+import 'history.dart';
+import 'route_entry.dart';
+import 'modal_route_wrapper.dart';
+import 'router_transition_parameter.dart';
 
 NavigatorState $state() {
   return runeWithNavigationBarAndPlaybackControllorNavigatorKey.currentState!;
@@ -47,23 +21,63 @@ Object? $arguments() {
 }
 
 bool $canPop() {
-  return _history._history.length > 1;
+  return $history.history.length > 1;
 }
 
 bool $pop() {
   final navigation = $state();
-
   if ($canPop()) {
-    navigation.pop();
-    _history.pop();
+    final (canPop, result) = $history.pop();
+    if (!canPop) return false;
 
-    final route = _history._history.last;
-    $router.update(route.name, route.arguments);
-
+    final current = $history.current;
+    if (current != null) {
+      if (current is RouteEntry) {
+        final settings = current.toSettings();
+        $router.update(settings.name, settings.arguments);
+      }
+      navigation.pop(result);
+    }
     return true;
   }
-
   return false;
+}
+
+Future<bool> $popModal() async {
+  if (!$history.isCurrentModal) {
+    return false;
+  }
+
+  final (canPop, result) = $history.pop();
+  if (canPop) {
+    final navigation = $state();
+    navigation.pop(result);
+  }
+  return true;
+}
+
+
+Future<T?> $showModal<T extends Object?>(
+  BuildContext context,
+  Widget Function(BuildContext context, void Function(T? result) close)
+      builder, {
+  String? name,
+  Object? arguments,
+  (bool, dynamic) Function()? canPop,
+  bool barrierDismissible = false,
+  bool dismissWithEsc = false,
+}) {
+  return showDialog<T>(
+    context: context,
+    barrierDismissible: barrierDismissible,
+    dismissWithEsc: dismissWithEsc,
+    builder: (context) => ModalRouteWrapper(
+      name: name ?? 'modal',
+      arguments: arguments,
+      canPop: canPop,
+      builder: builder,
+    ),
+  );
 }
 
 Future<T?>? $push<T extends Object?>(
@@ -80,7 +94,7 @@ Future<T?>? $push<T extends Object?>(
   $router.update(routeName, p);
 
   final newSettings = RouteSettings(name: routeName, arguments: p);
-  _history.push(newSettings);
+  $history.push(newSettings);
 
   return navigation.pushNamed(routeName, arguments: p);
 }
@@ -99,7 +113,7 @@ Future<T?>? $replace<T extends Object?>(
   $router.update(routeName, p);
 
   final newSettings = RouteSettings(name: routeName, arguments: p);
-  _history.replace(newSettings);
+  $history.replace(newSettings);
 
   return navigation.pushReplacementNamed(routeName, arguments: p);
 }

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/router/navigation.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
@@ -180,9 +181,9 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   }
 
   void showGroupListDialog(BuildContext context) async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => FutureBuilder<List<Group<InternalCollection>>>(
+    await $showModal<void>(
+      context,
+      (context, $close) => FutureBuilder<List<Group<InternalCollection>>>(
         future: summary,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -209,7 +210,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                               child: Button(
                                 child: Text(x.groupTitle),
                                 onPressed: () {
-                                  Navigator.of(context).pop();
+                                  $close(0);
                                   scrollToGroup(x.groupTitle);
                                 },
                               ),
@@ -221,7 +222,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   const SizedBox(height: 24),
                   Button(
                     child: const Text('Cancel'),
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: () => $close(0),
                   ),
                 ],
               ),
@@ -229,6 +230,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           }
         },
       ),
+      dismissWithEsc: true,
+      barrierDismissible: true,
     );
   }
 
