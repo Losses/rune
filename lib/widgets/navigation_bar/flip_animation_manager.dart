@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/logger.dart';
@@ -130,19 +131,23 @@ class FlipAnimationManagerState extends State<FlipAnimationManager> {
 
       if (fromPosition == null) {
         completer.complete(false);
+        _setVisibility(toKey, true);
         return;
       }
       if (toPosition == null) {
         completer.complete(false);
+        _setVisibility(fromKey, true);
         return;
       }
 
       if (fromStyles == null) {
         completer.complete(false);
+        _setVisibility(toKey, true);
         return;
       }
       if (toStyles == null) {
         completer.complete(false);
+        _setVisibility(fromKey, true);
         return;
       }
 
