@@ -67,36 +67,38 @@ class _SelectInputSectionState extends State<SelectInputSection> {
               Expanded(
                 child: ComboBox<String>(
                   value: _controller.selectedValue,
-                  items: widget.items.map<ComboBoxItem<String>>((item) {
-                    return ComboBoxItem<String>(
-                      value: item.value,
-                      child: constraint.maxWidth > 140
-                          ? SizedBox(
-                              width: constraint.maxWidth - 48,
-                              child: Row(
-                                children: [
-                                  Icon(item.icon, size: 18),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      item.title,
-                                      textAlign: TextAlign.start,
-                                      overflow: TextOverflow.ellipsis,
+                  items: widget.items.map<ComboBoxItem<String>>(
+                    (item) {
+                      return ComboBoxItem<String>(
+                        value: item.value,
+                        child: constraint.maxWidth > 140
+                            ? SizedBox(
+                                width: constraint.maxWidth - 48,
+                                child: Row(
+                                  children: [
+                                    Icon(item.icon, size: 18),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: Text(
+                                        item.title,
+                                        textAlign: TextAlign.start,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
+                              )
+                            : SizedBox(
+                                width: constraint.maxWidth - 48,
+                                child: Text(
+                                  item.title,
+                                  textAlign: TextAlign.start,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            )
-                          : SizedBox(
-                              width: constraint.maxWidth - 48,
-                              child: Text(
-                                item.title,
-                                textAlign: TextAlign.start,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                    );
-                  }).toList(),
+                      );
+                    },
+                  ).toList(),
                   onChanged: (value) => setState(() {
                     _controller.selectedValue = value;
                   }),

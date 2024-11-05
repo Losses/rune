@@ -24,6 +24,8 @@ class MixEditorController extends ChangeNotifier {
   final SelectInputController modeController = SelectInputController('99');
   final SelectInputController recommendationController =
       SelectInputController('');
+  final SelectInputController sortOrderController =
+      SelectInputController('true');
   final SelectInputController sortByController =
       SelectInputController('default');
   final ToggleSwitchController likedController = ToggleSwitchController(false);
@@ -44,6 +46,7 @@ class MixEditorController extends ChangeNotifier {
     limitController.addListener(_notifyListeners);
     modeController.addListener(_notifyListeners);
     recommendationController.addListener(_notifyListeners);
+    sortOrderController.addListener(_notifyListeners);
     sortByController.addListener(_notifyListeners);
     likedController.addListener(_notifyListeners);
   }
@@ -65,6 +68,7 @@ class MixEditorController extends ChangeNotifier {
     limitController.removeListener(_notifyListeners);
     modeController.removeListener(_notifyListeners);
     recommendationController.removeListener(_notifyListeners);
+    sortOrderController.removeListener(_notifyListeners);
     sortByController.removeListener(_notifyListeners);
     likedController.removeListener(_notifyListeners);
 
@@ -79,6 +83,7 @@ class MixEditorController extends ChangeNotifier {
     limitController.dispose();
     modeController.dispose();
     recommendationController.dispose();
+    sortOrderController.dispose();
     sortByController.dispose();
     likedController.dispose();
 
@@ -115,6 +120,7 @@ class MixEditorController extends ChangeNotifier {
       mode: modeController.selectedValue ?? '99',
       recommendation: recommendationController.selectedValue ?? '99',
       sortBy: sortByController.selectedValue ?? 'default',
+      sortOrder: sortOrderController.selectedValue != 'false',
       likedOnly: likedController.isChecked,
     );
   }
@@ -152,6 +158,7 @@ class MixEditorController extends ChangeNotifier {
     modeController.selectedValue = data.mode;
     recommendationController.selectedValue = data.recommendation;
     sortByController.selectedValue = data.sortBy;
+    sortOrderController.selectedValue = data.sortOrder.toString();
     likedController.isChecked = data.likedOnly;
   }
 }

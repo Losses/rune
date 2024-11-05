@@ -16,6 +16,7 @@ class MixEditorData {
   final String mode;
   final String recommendation;
   final String sortBy;
+  final bool sortOrder;
   final bool likedOnly;
 
   MixEditorData({
@@ -31,6 +32,7 @@ class MixEditorData {
     required this.mode,
     required this.recommendation,
     required this.sortBy,
+    required this.sortOrder,
     required this.likedOnly,
   });
 
@@ -47,6 +49,7 @@ class MixEditorData {
     String? mode,
     String? recommendation,
     String? sortBy,
+    bool? sortOrder,
     bool? likedOnly,
   }) {
     return MixEditorData(
@@ -62,6 +65,7 @@ class MixEditorData {
       mode: mode ?? this.mode,
       recommendation: recommendation ?? this.recommendation,
       sortBy: sortBy ?? this.sortBy,
+      sortOrder: sortOrder ?? this.sortOrder,
       likedOnly: likedOnly ?? this.likedOnly,
     );
   }
@@ -81,6 +85,7 @@ class MixEditorData {
     mode: $mode,
     recommendation: $recommendation,
     sortBy: $sortBy,
+    sortOrder: $sortOrder,
     likedOnly: $likedOnly,
 )
 ''';
@@ -102,6 +107,7 @@ Future<MixEditorData> queryToMixEditorData(
   String mode = '99';
   String recommendation = '';
   String sortBy = 'default';
+  bool sortOrder = true;
   bool likedOnly = false;
 
   for (var item in query) {
@@ -138,6 +144,7 @@ Future<MixEditorData> queryToMixEditorData(
       case 'sort::playedthrough':
       case 'sort::skipped':
         sortBy = item.$1.split('::')[1];
+        sortOrder = item.$2 == 'true';
         break;
     }
   }
@@ -171,6 +178,7 @@ Future<MixEditorData> queryToMixEditorData(
     mode: mode,
     recommendation: recommendation,
     sortBy: sortBy,
+    sortOrder: sortOrder,
     likedOnly: likedOnly,
   );
 }
@@ -215,7 +223,7 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
   }
 
   if (data.sortBy != 'default') {
-    query.add(('sort::${data.sortBy}', 'true'));
+    query.add(('sort::${data.sortBy}', data.sortOrder.toString()));
   }
 
   return query;
