@@ -56,6 +56,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
   Future<void> loadPlaylist(int playlistId) async {
     playlist = await getPlaylistById(playlistId);
+
+    if (!mounted) return;
     if (playlist != null) {
       titleController.text = playlist!.name;
       groupController.text = playlist!.group;
