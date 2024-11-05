@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/dialogs/clean_group_titles.dart';
 
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
@@ -51,7 +52,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
     if (!mounted) return;
 
     setState(() {
-      groupList = ['Favorite', ...groups];
+      groupList = cleanGroupTitles(['Favorite', ...groups]);
     });
   }
 

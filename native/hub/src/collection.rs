@@ -124,6 +124,7 @@ impl_collection_type!(
     database::actions::mixes::list_mixes
 );
 
+#[derive(Debug)]
 pub enum CollectionAction {
     FetchGroupSummary,
     FetchGroups,

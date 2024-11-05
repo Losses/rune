@@ -1,15 +1,16 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/no_shortcuts.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
 import '../../../utils/api/get_playlist_by_id.dart';
 import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
+import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../messages/playlist.pb.dart';
 import '../../../messages/collection.pb.dart';
 
 import '../../api/fetch_collection_group_summary_title.dart';
+import '../clean_group_titles.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
@@ -50,7 +51,7 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     if (!mounted) return;
 
     setState(() {
-      groupList = ['Favorite', ...groups];
+      groupList = cleanGroupTitles(['Favorite', ...groups]);
     });
   }
 
