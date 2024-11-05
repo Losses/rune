@@ -2,13 +2,11 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/widgets/no_shortcuts.dart';
 
 import '../../../utils/settings_manager.dart';
-import '../../../utils/navigation/back_intent.dart';
 import '../../../messages/search.pb.dart';
 import '../../../providers/responsive_providers.dart';
-
-import '../utils/backspace_action.dart';
 
 final SettingsManager settingsManager = SettingsManager();
 
@@ -100,11 +98,8 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
       ),
     );
 
-    return Actions(
-      actions: <Type, Action<Intent>>{
-        BackIntent: BackSpaceAction(widget.controller),
-      },
-      child: AutoSuggestBox<String>(
+    return NoShortcuts(
+      AutoSuggestBox<String>(
         key: searchKey,
         focusNode: searchFocusNode,
         controller: widget.controller,

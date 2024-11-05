@@ -1,7 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../chip_input/chip_input.dart';
+import '../../../../utils/dialogs/mix/widgets/number_section.dart';
 import '../../../../widgets/directory/directory_tree.dart';
+
+import '../../../chip_input/chip_input.dart';
+
 import '../utils/mix_editor_data.dart';
 import '../utils/slider_controller.dart';
 import '../utils/select_input_controller.dart';
@@ -106,7 +109,7 @@ class MixEditorController extends ChangeNotifier {
           .where((value) => value.$1 != null)
           .cast<(int, String)>()
           .toList(),
-      randomTracks: int.parse(randomTrackController.value.text),
+      randomTracks: bestInt(randomTrackController.value.text),
       directories: directoryController.value ?? {},
       limit: limitController.value,
       mode: modeController.selectedValue ?? '99',

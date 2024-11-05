@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
 
+import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../messages/mix.pb.dart';
 import '../../../messages/collection.pb.dart';
 
@@ -57,90 +58,93 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   @override
   Widget build(BuildContext context) {
     return UnavailableDialogOnBand(
-      child: ContentDialog(
-        title: Column(
-          children: [
-            const SizedBox(height: 16),
-            Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 16),
-            InfoLabel(
-              label: 'Title',
-              child: TextBox(
-                controller: titleController,
-                enabled: !isLoading,
-              ),
-            ),
-            const SizedBox(height: 16),
-            InfoLabel(
-              label: 'Group',
-              child: AutoSuggestBox<String>(
-                controller: groupController,
-                items: groupList.map<AutoSuggestBoxItem<String>>(
-                  (e) {
-                    return AutoSuggestBoxItem<String>(
-                      value: e,
-                      label: e,
-                    );
-                  },
-                ).toList(),
-                placeholder: "Select a group",
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-        actions: [
-          ResponsiveDialogActions(
-            FilledButton(
-              onPressed: isLoading
-                  ? null
-                  : () async {
-                      setState(() {
-                        isLoading = true;
-                      });
-
-                      final operator = widget.operator;
-
-                      Mix? response;
-                      if (widget.mixId != null) {
-                        response = await updateMix(
-                          widget.mixId!,
-                          titleController.text,
-                          groupController.text,
-                          false,
-                          99,
-                          operator == null ? [] : [operator],
-                        );
-                      } else {
-                        response = await createMix(
-                          titleController.text,
-                          groupController.text,
-                          false,
-                          99,
-                          operator == null ? [] : [operator],
-                        );
-                      }
-
-                      setState(() {
-                        isLoading = false;
-                      });
-
-                      if (!context.mounted) return;
-                      Navigator.pop(context, response);
-                    },
-              child: Text(widget.mixId != null ? 'Save' : 'Create'),
-            ),
-            Button(
-              onPressed: isLoading ? null : () => Navigator.pop(context, null),
-              child: const Text('Cancel'),
-            ),
+      child: NoShortcuts(
+        ContentDialog(
+          title: Column(
+            children: [
+              const SizedBox(height: 16),
+              Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
+            ],
           ),
-        ],
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              InfoLabel(
+                label: 'Title',
+                child: TextBox(
+                  controller: titleController,
+                  enabled: !isLoading,
+                ),
+              ),
+              const SizedBox(height: 16),
+              InfoLabel(
+                label: 'Group',
+                child: AutoSuggestBox<String>(
+                  controller: groupController,
+                  items: groupList.map<AutoSuggestBoxItem<String>>(
+                    (e) {
+                      return AutoSuggestBoxItem<String>(
+                        value: e,
+                        label: e,
+                      );
+                    },
+                  ).toList(),
+                  placeholder: "Select a group",
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+          actions: [
+            ResponsiveDialogActions(
+              FilledButton(
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                        setState(() {
+                          isLoading = true;
+                        });
+
+                        final operator = widget.operator;
+
+                        Mix? response;
+                        if (widget.mixId != null) {
+                          response = await updateMix(
+                            widget.mixId!,
+                            titleController.text,
+                            groupController.text,
+                            false,
+                            99,
+                            operator == null ? [] : [operator],
+                          );
+                        } else {
+                          response = await createMix(
+                            titleController.text,
+                            groupController.text,
+                            false,
+                            99,
+                            operator == null ? [] : [operator],
+                          );
+                        }
+
+                        setState(() {
+                          isLoading = false;
+                        });
+
+                        if (!context.mounted) return;
+                        Navigator.pop(context, response);
+                      },
+                child: Text(widget.mixId != null ? 'Save' : 'Create'),
+              ),
+              Button(
+                onPressed:
+                    isLoading ? null : () => Navigator.pop(context, null),
+                child: const Text('Cancel'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
