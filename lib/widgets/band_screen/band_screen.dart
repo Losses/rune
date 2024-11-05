@@ -106,11 +106,13 @@ class BandScreenState extends State<BandScreen> {
               deviceType: const [
                 DeviceType.band,
                 DeviceType.belt,
+                DeviceType.station,
                 DeviceType.dock,
                 DeviceType.tv
               ],
               builder: (context, deviceType) {
-                if (deviceType == DeviceType.band) {
+                if (deviceType == DeviceType.band ||
+                    deviceType == DeviceType.belt) {
                   return SmoothHorizontalScroll(
                     builder: (context, controller) {
                       return buildList(deviceType, flattenItems, controller);
@@ -133,11 +135,11 @@ class BandScreenState extends State<BandScreen> {
     ScrollController? scrollController,
   ) {
     return InfiniteList(
-      scrollController: scrollController,
       scrollDirection:
           deviceType == DeviceType.band || deviceType == DeviceType.belt
               ? Axis.horizontal
               : Axis.vertical,
+      scrollController: scrollController,
       itemCount: flattenItems.length,
       loadingBuilder: (context) => const InfiniteListLoading(),
       centerLoading: true,
