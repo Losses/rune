@@ -74,6 +74,7 @@ class _CollectionItemState extends State<CollectionItem> {
             widget.collectionType,
             widget.collection.id,
             widget.refreshList,
+            widget.collection.readonly,
           );
         },
         child: FlipTile(
