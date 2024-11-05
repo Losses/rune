@@ -12,6 +12,7 @@ import 'navigation_intent.dart';
 Map<SingleActivator, Intent> buildShortcuts() {
   final shortcuts = <SingleActivator, Intent>{
     const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
+    const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
     const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
   };
 
@@ -50,6 +51,8 @@ Map<SingleActivator, Intent> buildNoShortcuts(Map<SingleActivator, Intent> x) {
 
   result[const SingleActivator(LogicalKeyboardKey.backspace)] =
       const DeleteCharacterIntent(forward: false);
+  result[const SingleActivator(LogicalKeyboardKey.escape)] =
+      const DismissIntent();
 
   return result;
 }

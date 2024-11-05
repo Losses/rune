@@ -46,6 +46,9 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   Future<void> fetchGroupList() async {
     final groups =
         await fetchCollectionGroupSummaryTitle(CollectionType.Playlist);
+
+    if (!mounted) return;
+
     setState(() {
       groupList = ['Favorite', ...groups];
     });

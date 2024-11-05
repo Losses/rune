@@ -8,6 +8,7 @@ class EscapeAction extends Action<DismissIntent> {
 
   @override
   void invoke(covariant DismissIntent intent) {
+    print('INVOKING');
     if (escapeFromSearch()) return;
     if (escapeFromCoverArtWall()) return;
   }
