@@ -1,7 +1,5 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/dialogs/mix/widgets/number_section.dart';
-import 'package:rune/utils/dialogs/mix/widgets/select_buttons_section.dart';
 
 import '../../../../utils/api/fetch_collection_by_ids.dart';
 import '../../../../utils/api/fetch_media_file_by_ids.dart';
@@ -21,10 +19,12 @@ import '../config/sort_order_items.dart';
 import '../config/sort_select_items.dart';
 import '../config/recommend_select_items.dart';
 
+import 'number_section.dart';
 import 'slider_section.dart';
 import 'directory_section.dart';
 import 'select_input_section.dart';
 import 'mix_editor_controller.dart';
+import 'select_buttons_section.dart';
 import 'search_chip_input_section.dart';
 
 class MixEditor extends StatefulWidget {
