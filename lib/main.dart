@@ -144,6 +144,8 @@ void main(List<String> arguments) async {
   );
 }
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 class Rune extends StatelessWidget {
   const Rune({super.key});
 
@@ -157,6 +159,7 @@ class Rune extends StatelessWidget {
         return FluentApp(
           title: appTitle,
           initialRoute: "/library",
+          navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 

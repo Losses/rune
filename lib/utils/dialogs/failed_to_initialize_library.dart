@@ -3,7 +3,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/router/navigation.dart';
 
 Future<void> showFailedToInitializeLibrary(
-    BuildContext context, String? errorMessage) async {
+  BuildContext context,
+  String? errorMessage,
+) async {
   await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(

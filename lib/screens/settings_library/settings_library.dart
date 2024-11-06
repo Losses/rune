@@ -2,14 +2,13 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/screens/settings_library/widgets/add_library_setting_button.dart';
 
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
-import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -64,30 +63,11 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SettingsButton(
-                      icon: Symbols.add,
-                      title: "Add Library",
-                      subtitle: "Add a new library and scan existing files",
-                      onPressed: () async {
-                        final path = await getDirectoryPath();
-
-                        if (path == null) return;
-
-                        if (!context.mounted) return;
-                        await closeLibrary(context);
-                        final (switched, error) =
-                            await libraryPath.setLibraryPath(path);
-
-                        if (switched) {
-                          libraryManager.scanLibrary(path, true);
-                          $push('/library');
-                        } else {
-                          if (!context.mounted) return;
-                          await showFailedToInitializeLibrary(context, error);
-                          if (!context.mounted) return;
-                          $replace('/');
-                        }
-                      }),
+                  const AddLibrarySettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                    useRootNavigate: false,
+                  ),
                   SettingsButton(
                     icon: Symbols.refresh,
                     title: "Factory Reset",

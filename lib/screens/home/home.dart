@@ -1,9 +1,16 @@
+import 'dart:io';
+
+import 'package:flutter_svg/svg.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
-import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../providers/library_path.dart';
+import '../../providers/responsive_providers.dart';
+
+import '../settings_library/widgets/add_library_setting_button.dart';
+import '../settings_library/widgets/settings_button.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -13,81 +20,124 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  Future<void> showHistoryDialog(
-    BuildContext context,
-    LibraryPathProvider provider,
-  ) async {
-    List<String> allOpenedFiles = await provider.getAllOpenedFiles();
-    if (!context.mounted) return;
+  bool requested = false;
+  List<String> allOpenedFiles = [];
 
-    showDialog(
-      context: context,
-      builder: (context) {
-        return ContentDialog(
-          title: const Text('Select from History'),
-          content: SizedBox(
-            width: double.maxFinite,
-            child: ListView.builder(
-              shrinkWrap: true,
-              itemCount: allOpenedFiles.length,
-              itemBuilder: (context, index) {
-                return ListTile(
-                  title: Text(allOpenedFiles[index]),
-                  onPressed: () {
-                    // Update the current path in the provider
-                    provider.setLibraryPath(allOpenedFiles[index]);
+  @override
+  void didChangeDependencies() {
+    if (requested) return;
 
-                    Navigator.pop(context); // Close the dialog
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            Button(
-              child: const Text('Close'),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ],
-        );
-      },
-    );
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
+    libraryPath.getAllOpenedFiles().then((x) {
+      if (!context.mounted) return;
+
+      setState(() {
+        allOpenedFiles = x;
+      });
+    });
+
+    super.didChangeDependencies();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<LibraryPathProvider>(builder: (context, provider, child) {
-      return PageContentFrame(
-        child: Center(
+    final theme = FluentTheme.of(context);
+
+    final r = Provider.of<ResponsiveProvider>(context);
+
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 560),
+        child: Container(
+          padding: const EdgeInsets.all(8),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (provider.currentPath != null)
-                Text('Current Path: ${provider.currentPath}'),
-              if (provider.currentPath == null)
-                Button(
-                  onPressed: () async {
-                    final result = await getDirectoryPath();
-
-                    if (result == null) {
-                      return;
-                    }
-
-                    await provider.setLibraryPath(result);
-                  },
-                  child: const Text("Create Library"),
+              if (!r.smallerOrEqualTo(DeviceType.belt, false))
+                SvgPicture.asset(
+                  'assets/mono_color_logo.svg',
+                  colorFilter: ColorFilter.mode(
+                    theme.inactiveColor,
+                    BlendMode.srcIn,
+                  ),
                 ),
-              if (provider.currentPath == null)
-                Button(
-                  onPressed: () async {
-                    await showHistoryDialog(context, provider);
-                  },
-                  child: const Text("Select from History"),
+              DeviceTypeBuilder(
+                deviceType: const [
+                  DeviceType.band,
+                  DeviceType.belt,
+                  DeviceType.car,
+                  DeviceType.station
+                ],
+                builder: (context, activeBreakpoint) {
+                  switch (activeBreakpoint) {
+                    case DeviceType.station:
+                      return const SizedBox(height: 20);
+                    case DeviceType.car:
+                      return const SizedBox(height: 14);
+                    case DeviceType.belt:
+                      return const SizedBox(height: 2);
+                    case DeviceType.band:
+                      return const SizedBox(height: 0);
+                    default:
+                      return const SizedBox(height: 20);
+                  }
+                },
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SizedBox(
+                    width: double.maxFinite,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: allOpenedFiles.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return const AddLibrarySettingButton(
+                            tryClose: false,
+                            navigateIfFailed: false,
+                            useRootNavigate: true,
+                          );
+                        }
+
+                        final itemPath = allOpenedFiles[index - 1];
+
+                        String fileName = File(itemPath).uri.pathSegments.last;
+
+                        return SettingsButton(
+                          icon: Symbols.folder,
+                          title: fileName,
+                          subtitle: allOpenedFiles[index - 1],
+                          onPressed: () async {
+                            final path = allOpenedFiles[index - 1];
+
+                            final (switched, error) =
+                                await libraryPath.setLibraryPath(path);
+
+                            if (switched) {
+                              if (!context.mounted) return;
+                              Navigator.of(context)
+                                  .pushReplacementNamed('/library');
+                            } else {
+                              if (!context.mounted) return;
+                              await showFailedToInitializeLibrary(
+                                context,
+                                error,
+                              );
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
                 ),
+              ),
             ],
           ),
         ),
-      );
-    });
+      ),
+    );
   }
 }

@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../main.dart';
 import '../../widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 import '../../providers/router_path.dart';
 
@@ -55,7 +56,6 @@ Future<bool> $popModal() async {
   }
   return true;
 }
-
 
 Future<T?> $showModal<T extends Object?>(
   BuildContext context,
@@ -116,4 +116,19 @@ Future<T?>? $replace<T extends Object?>(
   $history.replace(newSettings);
 
   return navigation.pushReplacementNamed(routeName, arguments: p);
+}
+
+NavigatorState $$state() {
+  return rootNavigatorKey.currentState!;
+}
+
+Future<T?>? $$replace<T extends Object?>(
+  String routeName, {
+  Object? arguments,
+}) {
+  final navigation = $$state();
+
+  $history.reset();
+  $router.update("/library", null);
+  return navigation.pushReplacementNamed(routeName);
 }

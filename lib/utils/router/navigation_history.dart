@@ -21,6 +21,16 @@ class NavigationHistory {
     history.add(entry);
   }
 
+  reset() {
+    history.clear();
+    history.add(
+      RouteEntry(
+        name: "/library",
+        arguments: RouterTransitionParameter("/library", "/library"),
+      ),
+    );
+  }
+
   (bool, dynamic) pop() {
     if (history.isEmpty) return (false, null);
 
