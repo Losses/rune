@@ -8,7 +8,6 @@ import '../../../chip_input/chip_input.dart';
 import '../utils/mix_editor_data.dart';
 import '../utils/slider_controller.dart';
 import '../utils/select_input_controller.dart';
-import '../utils/toggle_switch_controller.dart';
 
 class MixEditorController extends ChangeNotifier {
   final TextEditingController titleController = TextEditingController();
@@ -28,7 +27,7 @@ class MixEditorController extends ChangeNotifier {
       SelectInputController('true');
   final SelectInputController sortByController =
       SelectInputController('default');
-  final ToggleSwitchController likedController = ToggleSwitchController(false);
+  final SelectInputController likedController = SelectInputController('false');
 
   MixEditorController() {
     _initListeners();
@@ -121,7 +120,7 @@ class MixEditorController extends ChangeNotifier {
       recommendation: recommendationController.selectedValue ?? '99',
       sortBy: sortByController.selectedValue ?? 'default',
       sortOrder: sortOrderController.selectedValue != 'false',
-      likedOnly: likedController.isChecked,
+      likedOnly: likedController.selectedValue == 'true',
     );
   }
 
@@ -159,6 +158,6 @@ class MixEditorController extends ChangeNotifier {
     recommendationController.selectedValue = data.recommendation;
     sortByController.selectedValue = data.sortBy;
     sortOrderController.selectedValue = data.sortOrder.toString();
-    likedController.isChecked = data.likedOnly;
+    likedController.selectedValue = data.likedOnly.toString();
   }
 }

@@ -3,18 +3,19 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rune/utils/dialogs/mix/widgets/number_section.dart';
 import 'package:rune/utils/dialogs/mix/widgets/select_buttons_section.dart';
 
-import '../../../../messages/search.pb.dart';
-import '../../../../messages/collection.pb.dart';
 import '../../../../utils/api/fetch_collection_by_ids.dart';
 import '../../../../utils/api/fetch_media_file_by_ids.dart';
 import '../../../../utils/api/search_collection_summary.dart';
 import '../../../../utils/api/fetch_collection_group_summary_title.dart';
+import '../../../../messages/search.pb.dart';
+import '../../../../messages/collection.pb.dart';
 import '../../../../providers/responsive_providers.dart';
 
 import '../../../api/fetch_track_summary.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';
 import '../../../dialogs/mix/widgets/editable_combo_box_section.dart';
 
+import '../config/liked_items.dart';
 import '../config/mode_select_items.dart';
 import '../config/sort_order_items.dart';
 import '../config/sort_select_items.dart';
@@ -24,7 +25,6 @@ import 'slider_section.dart';
 import 'directory_section.dart';
 import 'select_input_section.dart';
 import 'mix_editor_controller.dart';
-import 'toggle_switch_section.dart';
 import 'search_chip_input_section.dart';
 
 class MixEditor extends StatefulWidget {
@@ -168,11 +168,14 @@ class _MixEditorState extends State<MixEditor> {
                 title: "Sort Order",
                 items: sortOrderItems,
                 defaultValue: 'true',
-                disabled: _controller.sortByController.selectedValue == 'default',
+                disabled:
+                    _controller.sortByController.selectedValue == 'default',
               ),
-              ToggleSwitchSection(
+              SelectButtonsSection(
                 controller: _controller.likedController,
-                content: const Text("Liked Only"),
+                title: "Liked",
+                items: likedItems,
+                defaultValue: 'false',
               ),
             ],
           ),
