@@ -19,7 +19,6 @@ import '../messages/collection.pb.dart';
 
 final Map<String, WidgetBuilder> routes = {
   '/': (context) => const home.HomePage(),
-  '/welcome': (context) => const welcome.WelcomePage(),
   '/welcome/scanning': (context) => const welcome.ScanningPage(),
   '/library': (context) => const library_home.LibraryHomePage(),
   '/artists': (context) => const collections.CollectionPage(

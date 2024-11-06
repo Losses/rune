@@ -49,7 +49,6 @@ class AddLibrarySettingButton extends StatelessWidget {
         if (switched) {
           libraryManager.scanLibrary(path, true);
           if (useRootNavigate) {
-            if (!context.mounted) return;
             $$replace('/library');
           } else {
             $push('/library');

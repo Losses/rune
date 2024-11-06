@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use log::{error, info};
 
 use database::connection::{
@@ -16,10 +16,6 @@ pub struct DatabaseConnections {
 
 async fn initialize_databases(path: &str) -> Result<DatabaseConnections> {
     info!("Initializing databases");
-
-    if path.contains("test") {
-        bail!("Expected error");
-    }
 
     let main_db = connect_main_db(path)
         .await

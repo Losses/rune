@@ -6,12 +6,12 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../providers/library_manager.dart';
-import '../../utils/ax_shadow.dart';
-import '../../utils/router/navigation.dart';
-import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../providers/library_path.dart';
-import '../../providers/responsive_providers.dart';
+import '../../../providers/library_manager.dart';
+import '../../../utils/ax_shadow.dart';
+import '../../../utils/router/navigation.dart';
+import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../providers/library_path.dart';
+import '../../../providers/responsive_providers.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -87,8 +87,8 @@ class WelcomePage extends StatelessWidget {
                                   await libraryPath.setLibraryPath(path);
 
                               if (success) {
-                                await libraryManager.scanLibrary(path, true);
-                                $replace("/library");
+                                libraryManager.scanLibrary(path, true);
+                                $$replace("/library");
                               } else {
                                 if (!context.mounted) return;
                                 await showFailedToInitializeLibrary(

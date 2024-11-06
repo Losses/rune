@@ -43,6 +43,7 @@ import 'theme.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 
 late bool disableBrandingAnimation;
+late String? initialPath;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -110,12 +111,14 @@ void main(List<String> arguments) async {
     await Window.initialize();
   }
 
+  initialPath = await getInitialPath();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => LibraryPathProvider(),
+          create: (_) => LibraryPathProvider(initialPath),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -158,7 +161,7 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
-          initialRoute: "/library",
+          initialRoute: initialPath == null ? "/" : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;

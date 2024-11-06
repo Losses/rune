@@ -67,12 +67,12 @@ class _RuneRouterFrameImplementationState
           return Bsod(report: crash.report!);
         }
 
-        if (library.currentPath == null) {
-          return const welcome.WelcomePage();
-        }
-
         if (scanning) {
           return const welcome.ScanningPage();
+        }
+
+        if (library.currentPath == null) {
+          return Container();
         }
 
         final mainContent = FocusTraversalOrder(
