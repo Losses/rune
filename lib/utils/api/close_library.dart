@@ -13,6 +13,7 @@ Future<void> closeLibrary(BuildContext context) async {
     final rustSignal = await CloseLibraryResponse.rustSignalStream.first;
 
     if (rustSignal.message.path == path) {
+      library.removeCurrentPath();
       return;
     }
   }

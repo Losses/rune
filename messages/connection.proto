@@ -2,6 +2,13 @@ syntax = "proto3";
 package connection;
 
 // [DART-SIGNAL]
-message MediaLibraryPath {
+message SetMediaLibraryPathRequest {
   string path = 1;
+}
+
+// [RUST-SIGNAL]
+message SetMediaLibraryPathResponse {
+  string path = 1;
+  bool success = 2;
+  optional string error = 3;
 }

@@ -114,7 +114,7 @@ async fn main() {
     let cli = Cli::parse();
 
     let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,debug",
+        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",
     );
 
     tracing_subscriber::fmt()

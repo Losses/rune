@@ -5,10 +5,12 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:rune/utils/router/navigation.dart';
 
+import '../../providers/library_manager.dart';
 import '../../utils/ax_shadow.dart';
-import '../../utils/scan_library.dart';
+import '../../utils/router/navigation.dart';
+import '../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
 class WelcomePage extends StatelessWidget {
@@ -19,6 +21,11 @@ class WelcomePage extends StatelessWidget {
     final theme = FluentTheme.of(context);
 
     final r = Provider.of<ResponsiveProvider>(context);
+
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
+    final libraryManager =
+        Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return Center(
       child: ConstrainedBox(
@@ -71,16 +78,24 @@ class WelcomePage extends StatelessWidget {
                               // on Android, check for permission
                               if (!await requestAndroidPermission()) return;
 
-                              final result = await getDirectoryPath();
+                              final path = await getDirectoryPath();
 
-                              if (result == null) return;
-
+                              if (path == null) return;
                               if (!context.mounted) return;
 
-                              await scanLibrary(context, result);
+                              final (success, error) =
+                                  await libraryPath.setLibraryPath(path);
 
-                              if (!context.mounted) return;
-                              $replace("/library");
+                              if (success) {
+                                await libraryManager.scanLibrary(path, true);
+                                $replace("/library");
+                              } else {
+                                if (!context.mounted) return;
+                                await showFailedToInitializeLibrary(
+                                  context,
+                                  error,
+                                );
+                              }
                             },
                           ),
                         ],
@@ -102,7 +117,7 @@ class WelcomePage extends StatelessWidget {
     );
   }
 
-  Future<bool> requestAndroidPermission() async {
+  static Future<bool> requestAndroidPermission() async {
     if (Platform.isAndroid) {
       PermissionStatus status = await Permission.manageExternalStorage.status;
       if (status.isDenied) {

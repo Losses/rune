@@ -72,6 +72,7 @@ class _HomePageState extends State<HomePage> {
                     if (result == null) {
                       return;
                     }
+
                     await provider.setLibraryPath(result);
                   },
                   child: const Text("Create Library"),

@@ -13,19 +13,19 @@ class AnalyseTaskProgress {
   int progress;
   int total;
   TaskStatus status;
-  bool initialize;
+  bool isInitializeTask;
 
   AnalyseTaskProgress({
     required this.path,
     this.progress = 0,
     this.total = 0,
     this.status = TaskStatus.working,
-    this.initialize = false,
+    this.isInitializeTask = false,
   });
 
   @override
   String toString() {
-    return 'AnalyseTaskProgress(path: $path, progress: $progress, total: $total, status: $status, initialize: $initialize)';
+    return 'AnalyseTaskProgress(path: $path, progress: $progress, total: $total, status: $status, initialize: $isInitializeTask)';
   }
 }
 
@@ -46,7 +46,7 @@ class ScanTaskProgress {
 
   @override
   String toString() {
-    return 'ScanTaskProgress(path: $path, progress: $progress, status: $status, initialize: $initialize)';
+    return 'ScanTaskProgress(path: $path, progress: $progress, status: $status, type: $type, initialize: $initialize)';
   }
 }
 
@@ -132,11 +132,12 @@ class LibraryManagerProvider with ChangeNotifier {
         AnalyseAudioLibraryProgress.rustSignalStream.listen((event) {
       final analyseProgress = event.message;
       _updateAnalyseProgress(
-          analyseProgress.path,
-          analyseProgress.progress,
-          analyseProgress.total,
-          TaskStatus.working,
-          getAnalyseTaskProgress(analyseProgress.path)?.initialize ?? false);
+        analyseProgress.path,
+        analyseProgress.progress,
+        analyseProgress.total,
+        TaskStatus.working,
+        getAnalyseTaskProgress(analyseProgress.path)?.isInitializeTask ?? false,
+      );
     });
 
     _analyseResultSubscription =
@@ -147,7 +148,8 @@ class LibraryManagerProvider with ChangeNotifier {
           analyseResult.total,
           analyseResult.total,
           TaskStatus.finished,
-          getAnalyseTaskProgress(analyseResult.path)?.initialize ?? false);
+          getAnalyseTaskProgress(analyseResult.path)?.isInitializeTask ??
+              false);
 
       // Complete the analyse task
       _analyseCompleters[analyseResult.path]?.complete();
@@ -166,6 +168,7 @@ class LibraryManagerProvider with ChangeNotifier {
     if (_scanTasks.containsKey(path)) {
       _scanTasks[path]!.progress = progress;
       _scanTasks[path]!.status = status;
+      _scanTasks[path]!.type = taskType;
     } else {
       _scanTasks[path] = ScanTaskProgress(
         path: path,
@@ -190,7 +193,7 @@ class LibraryManagerProvider with ChangeNotifier {
         progress: progress,
         total: total,
         status: status,
-        initialize: initialize,
+        isInitializeTask: initialize,
       );
     }
     notifyListeners();
@@ -202,14 +205,14 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scanLibrary(String path, [bool initialize = false]) async {
+  Future<void> scanLibrary(String path, [bool isInitializeTask = false]) async {
     _updateScanProgress(
       path,
       ScanTaskType.IndexFiles,
       0,
       0,
       TaskStatus.working,
-      initialize,
+      isInitializeTask,
     );
     ScanAudioLibraryRequest(path: path).sendSignalToRust();
   }
@@ -240,7 +243,7 @@ class LibraryManagerProvider with ChangeNotifier {
     ).sendSignalToRust();
   }
 
-  ScanTaskProgress? getScanTaskProgress(String path) {
+  ScanTaskProgress? getScanTaskProgress(String? path) {
     return _scanTasks[path];
   }
 
