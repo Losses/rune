@@ -76,6 +76,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
     final size = min(screen.height, screen.width);
 
     final isCar = r.smallerOrEqualTo(DeviceType.car, false);
+    final isWatch = smallerThanWatch(screen);
+
+    if (isWatch) return Container();
 
     final duration = notReady
         ? const Duration(milliseconds: 0)

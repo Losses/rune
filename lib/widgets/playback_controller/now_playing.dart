@@ -1,9 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/format_time.dart';
-import '../../widgets/tile/cover_art.dart';
-import '../../widgets/playback_controller/cover_wall_button.dart';
+import '../../widgets/playback_controller/now_playing_track_cover_art_button.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -34,30 +32,7 @@ class NowPlaying extends StatelessWidget {
             ? Row(
                 children: [
                   const SizedBox(width: 16),
-                  Button(
-                    style: const ButtonStyle(
-                      padding: WidgetStatePropertyAll(
-                        EdgeInsets.all(0),
-                      ),
-                    ),
-                    onPressed: () {
-                      showCoverArtWall();
-                    },
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: CoverArt(
-                        path: status?.coverArtPath,
-                        hint: status != null
-                            ? (
-                                status.album,
-                                status.artist,
-                                'Total Time ${formatTime(status.duration)}'
-                              )
-                            : null,
-                        size: 48,
-                      ),
-                    ),
-                  ),
+                  const NowPlayingTrackCoverArtButton(size: 48),
                   if (hideProgress) const SizedBox(width: 10),
                   hideProgress
                       ? Expanded(

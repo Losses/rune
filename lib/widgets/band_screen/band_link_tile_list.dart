@@ -12,14 +12,16 @@ class BandLinkTileList extends StatelessWidget {
     super.key,
     required this.links,
     required this.topPadding,
+    this.leadingItem,
   });
 
   final List<(String, String, IconData, bool)> links;
   final bool topPadding;
+  final Widget? leadingItem;
 
   @override
   Widget build(BuildContext context) {
-    final children = links
+    List<Widget> children = links
         .map(
           (item) => Padding(
             padding: const EdgeInsets.symmetric(
@@ -39,6 +41,10 @@ class BandLinkTileList extends StatelessWidget {
           ),
         )
         .toList();
+
+    if (leadingItem != null) {
+      children = [leadingItem!, ...children];
+    }
 
     return DeviceTypeBuilder(
       deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],

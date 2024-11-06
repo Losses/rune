@@ -1,11 +1,14 @@
+import 'dart:math';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/band_screen/band_screen_feature_list.dart';
-import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../widgets/turntile/small_screen_feature_list.dart';
 import '../../widgets/belt_container.dart';
+import '../../widgets/turntile/small_screen_feature_list.dart';
+import '../../widgets/band_screen/band_screen_feature_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../widgets/playback_controller/now_playing_track_cover_art_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -53,22 +56,47 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                 DeviceType.tv
               ],
               builder: (context, activeBreakpoint) {
-                if (activeBreakpoint == DeviceType.belt) {
-                  return BeltContainer(
-                    child: BandScreenFeatureList(
-                      items: bandScreenFirstColumn,
-                      layoutManager: _layoutManager,
-                      topPadding: !isDock,
-                    ),
-                  );
-                }
+                final isBandWidget = activeBreakpoint == DeviceType.belt ||
+                    activeBreakpoint == DeviceType.dock ||
+                    activeBreakpoint == DeviceType.band;
 
-                if (activeBreakpoint == DeviceType.dock ||
-                    activeBreakpoint == DeviceType.band) {
-                  return BandScreenFeatureList(
-                    items: bandScreenFirstColumn,
-                    layoutManager: _layoutManager,
-                    topPadding: !isDock,
+                if (isBandWidget) {
+                  return SmallerOrEqualThanWatch(
+                    builder: (context, isWatch) {
+                      final leadingItem = isWatch
+                          ? Padding(
+                            padding: const EdgeInsets.only(right: 2),
+                              child: LayoutBuilder(
+                                  builder: (context, constraints) {
+                                return NowPlayingTrackCoverArtButton(
+                                  size: min(
+                                        constraints.maxWidth,
+                                        constraints.maxHeight,
+                                      ) -
+                                      4,
+                                );
+                              }),
+                            )
+                          : null;
+
+                      if (activeBreakpoint == DeviceType.belt) {
+                        return BeltContainer(
+                          child: BandScreenFeatureList(
+                            items: bandScreenFirstColumn,
+                            layoutManager: _layoutManager,
+                            topPadding: !isDock,
+                            leadingItem: leadingItem,
+                          ),
+                        );
+                      }
+
+                      return BandScreenFeatureList(
+                        items: bandScreenFirstColumn,
+                        layoutManager: _layoutManager,
+                        topPadding: !isDock,
+                        leadingItem: leadingItem,
+                      );
+                    },
                   );
                 }
 
