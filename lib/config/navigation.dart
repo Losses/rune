@@ -1,5 +1,5 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/navigation/navigation_item.dart';
 
@@ -107,7 +107,7 @@ final List<NavigationItem> navigationItems = [
           NavigationItem('Theme', '/settings/theme'),
           NavigationItem('Controller', '/settings/media_controller'),
           NavigationItem('About', '/settings/about'),
-          NavigationItem('Test', '/settings/mix'),
+          // NavigationItem('Test', '/settings/mix'),
         ],
       ),
     ],
