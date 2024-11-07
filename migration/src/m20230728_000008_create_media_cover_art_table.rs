@@ -42,4 +42,5 @@ pub enum MediaCoverArt {
     Id,
     FileHash,
     Binary,
+    PrimaryColor
 }
