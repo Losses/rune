@@ -71,14 +71,17 @@ class StartGroupImplementation<T> extends StatelessWidget {
     double gapSize,
     List items,
   ) {
-    final int rows = max(
+    final int columns = max(
       ((containerHeight - 32) / (cellSize + gapSize)).floor(),
       1,
     );
-    final int maxItems =
-        min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
-    final int columns = min((maxItems / rows).ceil(), rows);
-    return Dimensions(rows: rows, columns: columns, count: maxItems);
+    final int maxItems = min(
+        pow(sqrt(items.length).floor(), 2).floor(), pow(columns, 2).floor());
+    final int rows = min((maxItems / columns).ceil(), columns);
+
+    final int trueColumns = max(columns, 3);
+    final int trueMaxItems = trueColumns * rows;
+    return Dimensions(rows: rows, columns: trueColumns, count: trueMaxItems);
   }
 
   static (double, double) finalSizeCalculator(
