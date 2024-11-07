@@ -12,6 +12,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'utils/platform.dart';
 import 'utils/settings_manager.dart';
+import 'utils/theme_color_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
@@ -74,11 +75,14 @@ void main(List<String> arguments) async {
 
   final SettingsManager settingsManager = SettingsManager();
 
-  String? colorMode = await settingsManager.getValue<String>(colorModeKey);
+  final String? colorMode =
+      await settingsManager.getValue<String>(colorModeKey);
 
   updateColorMode(colorMode);
 
-  int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+  await ThemeColorManager().initialize();
+
+  final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
 
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));

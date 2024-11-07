@@ -220,7 +220,7 @@ pub async fn insert_extract_result(
                 id: ActiveValue::NotSet,
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
-                primary_color: ActiveValue::Set(Some(cover_art.primary_color as i32)),
+                primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
             };
 
             let insert_result = media_cover_art::Entity::insert(new_cover_art)
@@ -330,6 +330,21 @@ where
     Ok(())
 }
 
+pub async fn get_cover_art_id_by_track_id(
+    main_db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<Option<i32>> {
+    let file: Option<media_files::Model> = media_files::Entity::find_by_id(file_id)
+        .one(main_db)
+        .await?;
+
+    if let Some(file) = file {
+        return Ok(file.cover_art_id);
+    }
+
+    Ok(None)
+}
+
 pub async fn get_cover_art_by_id(main_db: &DatabaseConnection, id: i32) -> Result<Option<Vec<u8>>> {
     let result = media_cover_art::Entity::find()
         .filter(media_cover_art::Column::Id.eq(id))
@@ -366,7 +381,7 @@ pub async fn get_random_cover_art_ids(
 pub async fn get_primary_color_by_cover_art_id(
     main_db: &DatabaseConnection,
     cover_art_id: i32,
-) -> Result<u32> {
+) -> Result<i32> {
     // Step 1: Retrieve the cover art record from the database
     let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
         .one(main_db)
@@ -375,7 +390,7 @@ pub async fn get_primary_color_by_cover_art_id(
 
     // Step 2: Check if the primary color is null
     if let Some(primary_color) = cover_art.primary_color {
-        return Ok(primary_color as u32);
+        return Ok(primary_color);
     }
 
     // Step 3: Calculate the primary color
@@ -385,7 +400,7 @@ pub async fn get_primary_color_by_cover_art_id(
         Some(primary_color_int) => {
             // Step 4: Update the database with the new primary color
             let mut cover_art_active: media_cover_art::ActiveModel = cover_art.into();
-            cover_art_active.primary_color = ActiveValue::Set(Some(primary_color_int as i32));
+            cover_art_active.primary_color = ActiveValue::Set(Some(primary_color_int));
             media_cover_art::Entity::update(cover_art_active)
                 .exec(main_db)
                 .await?;

@@ -10,7 +10,7 @@ use crate::crc::media_crc32;
 pub struct CoverArt {
     pub crc: String,
     pub data: Vec<u8>,
-    pub primary_color: u32,
+    pub primary_color: i32,
 }
 
 fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
@@ -35,7 +35,7 @@ fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
     Ok(rgb_sequence)
 }
 
-pub fn get_primary_color(x: &[u8]) -> Option<u32> {
+pub fn get_primary_color(x: &[u8]) -> Option<i32> {
     if x.is_empty() {
         return None;
     }
@@ -49,9 +49,13 @@ pub fn get_primary_color(x: &[u8]) -> Option<u32> {
     }
 }
 
-pub fn color_to_int(color: &Color) -> u32 {
-    let alpha = 255;
-    ((alpha as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
+pub fn color_to_int(color: &Color) -> i32 {
+    let alpha: i32 = 0xFF;
+    let r: i32 = (color.r as i32) & 0xFF;
+    let g: i32 = (color.g as i32) & 0xFF;
+    let b: i32 = (color.b as i32) & 0xFF;
+
+    (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
 pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {

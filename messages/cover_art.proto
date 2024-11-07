@@ -34,12 +34,12 @@ message GetCoverArtIdsByMixQueriesResponse {
 }
 
 // [DART-SIGNAL]
-message GetPrimaryColorByCoverArtIdRequest {
+message GetPrimaryColorByTrackIdRequest {
   int32 id = 1;
 }
 
 // [RUST-SIGNAL]
-message GetPrimaryColorByCoverArtIdResponse {
+message GetPrimaryColorByTrackIdResponse {
   int32 id = 1;
   optional int32 primary_color = 2;
 }
