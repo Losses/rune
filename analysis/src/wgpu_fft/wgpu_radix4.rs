@@ -134,10 +134,8 @@ impl FFTCompute {
         assert!(n.is_power_of_two(), "Input length must be a power of 2");
         assert!((n * std::mem::size_of::<Complex<T>>()) as u64 <= self.buffer_size, "Input data too large for buffer");
 
-        // 将输入数据复制到输入缓冲区
         self.queue.write_buffer(&self.input_buffer, 0, bytemuck::cast_slice(data));
 
-        // 清空输出缓冲区
         let zero_buffer = vec![0u8; self.buffer_size as usize];
         self.queue.write_buffer(&self.output_buffer, 0, bytemuck::cast_slice(data));
 

@@ -16,6 +16,46 @@ use crate::features::zcr;
 
 use crate::fft_utils::*;
 
+// Define the macro at the beginning of the file, after the imports
+macro_rules! process_window {
+    ($sample_buffer:expr, $actural_data_size:expr, $window_size:expr, $overlap_size:expr, 
+     $resampler:expr, $hanning_window:expr, $buffer:expr, $fft:expr, $avg_spectrum:expr,
+     $total_rms:expr, $total_zcr:expr, $total_energy:expr, $count:expr, $is_cancelled:expr) => {
+        // Check for cancellation before processing each window
+        if $is_cancelled() {
+            return None;
+        }
+
+        let chunk = &$sample_buffer[..$actural_data_size];
+        let resampled_chunk = &$resampler.process(&[chunk], None).unwrap()[0];
+
+        $total_rms += rms(resampled_chunk);
+        $total_zcr += zcr(resampled_chunk);
+        $total_energy += energy(resampled_chunk);
+
+        for (i, &sample) in resampled_chunk.iter().enumerate() {
+            if i >= $window_size {
+                break;
+            }
+
+            let windowed_sample = sample * $hanning_window[i];
+            $buffer[i] = Complex::new(windowed_sample, 0.0);
+        }
+
+        $fft.process(&mut $buffer);
+        debug!("FFT processed");
+
+        for (i, value) in $buffer.iter().enumerate() {
+            $avg_spectrum[i] += value;
+        }
+
+        $count += 1;
+
+        // Remove the processed samples, keeping the overlap
+        $sample_buffer.drain(..($window_size - $overlap_size));
+    };
+}
+
 pub fn fft(
     file_path: &str,
     window_size: usize,
@@ -138,38 +178,11 @@ pub fn fft(
 
                         // Process the buffer when it reaches the window size
                         while sample_buffer.len() >= actural_data_size {
-                            // Check for cancellation before processing each window
-                            if is_cancelled() {
-                                return None;
-                            }
-
-                            let chunk = &sample_buffer[..actural_data_size];
-                            let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
-
-                            total_rms += rms(resampled_chunk);
-                            total_zcr += zcr(resampled_chunk);
-                            total_energy += energy(resampled_chunk);
-
-                            for (i, &sample) in resampled_chunk.iter().enumerate() {
-                                if i >= window_size {
-                                    break;
-                                }
-
-                                let windowed_sample = sample * hanning_window[i];
-                                buffer[i] = Complex::new(windowed_sample, 0.0);
-                            }
-
-                            fft.process(&mut buffer);
-                            debug!("FFT processed");
-
-                            for (i, value) in buffer.iter().enumerate() {
-                                avg_spectrum[i] += value;
-                            }
-
-                            count += 1;
-
-                            // Remove the processed samples, keeping the overlap
-                            sample_buffer.drain(..(window_size - overlap_size));
+                            process_window!(
+                                sample_buffer, actural_data_size, window_size, overlap_size,
+                                resampler, hanning_window, buffer, fft, avg_spectrum,
+                                total_rms, total_zcr, total_energy, count, is_cancelled
+                            );
                         }
                     }
                 }
