@@ -18,6 +18,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
+const enableDynamicColorsKey = 'enable_dynamic_color';
 
 final settingsManager = SettingsManager();
 
@@ -104,6 +105,7 @@ class SettingsTheme extends StatefulWidget {
 class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
   bool? disableBrandingAnimation;
+  bool? enableDynamicColors;
   String colorMode = "system";
 
   @override
@@ -118,6 +120,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
         await settingsManager.getValue<String>(colorModeKey);
     final bool? storedDisableBrandingAnimation =
         await settingsManager.getValue<bool>(disableBrandingAnimationKey);
+    final bool? storedEnableDynamicColors =
+        await settingsManager.getValue<bool>(enableDynamicColorsKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -128,6 +132,9 @@ class _SettingsThemeState extends State<SettingsTheme> {
       }
       if (disableBrandingAnimation != null) {
         disableBrandingAnimation = storedDisableBrandingAnimation;
+      }
+      if (storedEnableDynamicColors != null) {
+        enableDynamicColors = storedEnableDynamicColors;
       }
     });
   }
@@ -256,6 +263,22 @@ class _SettingsThemeState extends State<SettingsTheme> {
                       ],
                     ),
                   ),
+                ),
+                SettingsBoxToggle(
+                  title: "Dynamic Colors",
+                  subtitle:
+                      "Adjust Rune's theme colors based on the cover art of the playing track.",
+                  value: enableDynamicColors ?? false,
+                  onChanged: (value) {
+                    settingsManager.setValue(
+                      enableDynamicColorsKey,
+                      !value,
+                    );
+
+                    setState(() {
+                      enableDynamicColors = value;
+                    });
+                  },
                 ),
                 SettingsBoxToggle(
                   title: "Branding Animation",
