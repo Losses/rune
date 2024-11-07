@@ -158,6 +158,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             GetRandomCoverArtIdsRequest => (main_db),
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
+            GetPrimaryColorByCoverArtIdRequest => (main_db),
 
             FetchAllPlaylistsRequest => (main_db),
             CreatePlaylistRequest => (main_db),

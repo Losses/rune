@@ -35,6 +35,20 @@ fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
     Ok(rgb_sequence)
 }
 
+pub fn get_primary_color(x: &[u8]) -> Option<u32> {
+    if x.is_empty() {
+        return None;
+    }
+    let decoded_image = decode_image(x);
+    match decoded_image {
+        Ok(x) => {
+            let primary_color = get_palette_rgb(&x)[0];
+            Some(color_to_int(&primary_color))
+        }
+        Err(_) => None,
+    }
+}
+
 pub fn color_to_int(color: &Color) -> u32 {
     let alpha = 255;
     ((alpha as u32) << 24) | ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)

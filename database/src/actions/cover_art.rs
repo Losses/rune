@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::info;
+use metadata::cover_art::get_primary_color;
 use once_cell::sync::Lazy;
 use sea_orm::Condition;
 use sea_orm::{
@@ -360,4 +361,38 @@ pub async fn get_random_cover_art_ids(
         .await?;
 
     bake_cover_art_by_cover_arts(cover_arts)
+}
+
+pub async fn get_primary_color_by_cover_art_id(
+    main_db: &DatabaseConnection,
+    cover_art_id: i32,
+) -> Result<u32> {
+    // Step 1: Retrieve the cover art record from the database
+    let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
+        .one(main_db)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Cover art not found"))?;
+
+    // Step 2: Check if the primary color is null
+    if let Some(primary_color) = cover_art.primary_color {
+        return Ok(primary_color as u32);
+    }
+
+    // Step 3: Calculate the primary color
+    let primary_color_int = get_primary_color(&cover_art.binary);
+
+    match primary_color_int {
+        Some(primary_color_int) => {
+            // Step 4: Update the database with the new primary color
+            let mut cover_art_active: media_cover_art::ActiveModel = cover_art.into();
+            cover_art_active.primary_color = ActiveValue::Set(Some(primary_color_int as i32));
+            media_cover_art::Entity::update(cover_art_active)
+                .exec(main_db)
+                .await?;
+
+            // Step 5: Return the primary color
+            Ok(primary_color_int)
+        }
+        None => Err(anyhow::anyhow!("No primary color found")),
+    }
 }

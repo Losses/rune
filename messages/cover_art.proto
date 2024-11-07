@@ -40,5 +40,6 @@ message GetPrimaryColorByCoverArtIdRequest {
 
 // [RUST-SIGNAL]
 message GetPrimaryColorByCoverArtIdResponse {
-  repeated string paths = 1;
+  int32 id = 1;
+  optional int32 primary_color = 2;
 }

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use database::actions::cover_art::get_primary_color_by_cover_art_id;
 use database::entities::media_files;
 use futures::future::join_all;
 use rinf::DartSignal;
@@ -86,6 +87,30 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
         result: join_all(files_futures).await,
     }
     .send_signal_to_dart();
+
+    Ok(())
+}
+
+pub async fn get_primary_color_by_cover_art_id_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<GetPrimaryColorByCoverArtIdRequest>,
+) -> Result<()> {
+    let id = dart_signal.message.id;
+
+    let primary_color = get_primary_color_by_cover_art_id(&main_db, id).await;
+
+    match primary_color {
+        Ok(x) => GetPrimaryColorByCoverArtIdResponse {
+            id,
+            primary_color: Some(x as i32),
+        }
+        .send_signal_to_dart(),
+        Err(_) => GetPrimaryColorByCoverArtIdResponse {
+            id,
+            primary_color: None,
+        }
+        .send_signal_to_dart(),
+    };
 
     Ok(())
 }
