@@ -1,4 +1,4 @@
-import 'package:rune/messages/mix.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<Mix> createMix(
   String name,

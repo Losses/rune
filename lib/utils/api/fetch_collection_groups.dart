@@ -1,4 +1,4 @@
-import 'package:rune/messages/collection.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<CollectionGroup>> fetchCollectionGroups(
   CollectionType collectionType,

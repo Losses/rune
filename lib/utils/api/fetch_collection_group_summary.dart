@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:rune/messages/collection.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<CollectionGroupSummary>> fetchCollectionGroupSummary(
   CollectionType collectionType,

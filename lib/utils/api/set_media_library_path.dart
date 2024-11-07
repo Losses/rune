@@ -1,4 +1,4 @@
-import 'package:rune/messages/connection.pb.dart';
+import '../../messages/all.dart';
 
 Future<(bool, String?)> setMediaLibraryPath(String path) async {
   SetMediaLibraryPathRequest(path: path).sendSignalToRust();

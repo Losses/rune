@@ -1,4 +1,4 @@
-import 'package:rune/messages/mix.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<void> addItemToMix(int mixId, String operator, String parameter) async {
   final request = AddItemToMixRequest(

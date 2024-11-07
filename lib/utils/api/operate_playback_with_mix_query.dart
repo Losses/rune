@@ -3,7 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
-import '../../messages/playback.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<int>> operatePlaybackWithMixQuery({
   required QueryList queries,

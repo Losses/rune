@@ -1,4 +1,4 @@
-import 'package:rune/messages/playlist.pb.dart';
+import '../../messages/all.dart';
 
 Future<bool> removePlaylist(int playlistId) async {
   final updateRequest = RemovePlaylistRequest(playlistId: playlistId);
