@@ -32,3 +32,13 @@ message GetCoverArtIdsByMixQueriesResponseUnit {
 message GetCoverArtIdsByMixQueriesResponse {
     repeated GetCoverArtIdsByMixQueriesResponseUnit result = 1;
 }
+
+// [DART-SIGNAL]
+message GetPrimaryColorByCoverArtIdRequest {
+  int32 id = 1;
+}
+
+// [RUST-SIGNAL]
+message GetPrimaryColorByCoverArtIdResponse {
+  repeated string paths = 1;
+}
