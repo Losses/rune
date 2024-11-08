@@ -31,6 +31,9 @@ class _ModalRouteWrapperState extends State<ModalRouteWrapper> {
         name: widget.name,
         arguments: widget.arguments,
         canPop: widget.canPop,
+        pop: () {
+          _handleClose(null);
+        },
       ),
     );
   }

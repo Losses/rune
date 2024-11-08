@@ -34,14 +34,6 @@ class NavigationHistory {
   (bool, dynamic) pop() {
     if (history.isEmpty) return (false, null);
 
-    final last = history.last;
-    if (last is ModalRouteEntry && last.canPop != null) {
-      final result = last.canPop!();
-      if (!result.$1) return (false, null);
-      history.removeLast();
-      return result;
-    }
-
     history.removeLast();
     return (true, null);
   }
