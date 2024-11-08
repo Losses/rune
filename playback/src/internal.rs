@@ -156,6 +156,9 @@ pub(crate) struct PlayerInternal {
     playback_mode: PlaybackMode,
     playback_strategy: Box<dyn PlaybackStrategy>,
     volume: f32,
+    stream_error_sender: mpsc::UnboundedSender<String>,
+    stream_error_receiver: mpsc::UnboundedReceiver<String>,
+    stream_retry_count: usize,
 }
 
 impl PlayerInternal {
@@ -164,6 +167,7 @@ impl PlayerInternal {
         event_sender: mpsc::UnboundedSender<PlayerEvent>,
         cancellation_token: CancellationToken,
     ) -> Self {
+        let (stream_error_sender, stream_error_receiver) = mpsc::unbounded_channel();
         Self {
             commands,
             event_sender,
@@ -181,6 +185,9 @@ impl PlayerInternal {
             playback_strategy: Box::new(SequentialStrategy),
             volume: 1.0,
             fft_enabled: Arc::new(Mutex::new(false)),
+            stream_error_sender,
+            stream_error_receiver,
+            stream_retry_count: 0,
         }
     }
 
@@ -249,6 +256,28 @@ impl PlayerInternal {
                     self.debounce_timer = None;
                     self.send_playlist_updated()?;
                 },
+                Some(error_message) = self.stream_error_receiver.recv() => {
+                    error!("Received error message: {}", error_message);
+
+                    if self.stream_retry_count < 5 {
+                        if let Some(index) = self.current_track_index {
+                            self.stream_retry_count += 1;
+                            warn!("Retrying to load track (attempt {} of 5)", self.stream_retry_count);
+                            if let Err(e) = self.load(Some(index), false, true) {
+                                error!("Retry failed: {:?}", e);
+                            }
+                        }
+                    } else {
+                        error!("Max retry attempts reached, reporting error");
+                        self.event_sender.send(PlayerEvent::Error {
+                            id: self.current_track_id.unwrap_or(-1),
+                            index: self.current_track_index.unwrap_or(0),
+                            path: self.current_track_path.clone().unwrap_or_default(),
+                            error: error_message,
+                        }).context("Failed to send Error event")?;
+                        self.stream_retry_count = 0;
+                    }
+                },
                 _ = self.cancellation_token.cancelled() => {
                     debug!("Cancellation token triggered, exiting run loop");
                     self.stop()?;
@@ -274,8 +303,11 @@ impl PlayerInternal {
             let source =
                 Decoder::new(BufReader::new(file)).with_context(|| "Failed to decode audio")?;
 
-            let (stream, stream_handle) = RuneOutputStream::try_default_with_callback(|error| {
-                error!("{}", error);
+            let (stream, stream_handle) = RuneOutputStream::try_default_with_callback({
+                let error_sender = self.stream_error_sender.clone();
+                move |error| {
+                    let _ = error_sender.send(error.to_string());
+                }
             })
             .context("Failed to create output stream")?;
             let sink = try_new_sink(&stream_handle).context("Failed to create sink")?;
