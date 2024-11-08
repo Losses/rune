@@ -267,13 +267,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_small_data() {
-        tracing_subscriber::fmt().with_test_writer().init();
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         test(1024).await;
     }
 
     #[tokio::test]
     async fn test_big_data() {
-        tracing_subscriber::fmt().with_test_writer().init();
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
         test(1024 * 1024 * 8).await;
     }
 }

@@ -30,6 +30,20 @@ pub struct AudioDescription {
   pub energy: f32,
 }
 
+impl std::fmt::Debug for AudioDescription {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      f.debug_struct("AudioDescription")
+          .field("sample_rate", &self.sample_rate)
+          .field("duration", &self.duration)
+          .field("total_samples", &self.total_samples)
+          .field("spectrum_len", &self.spectrum.len())
+          .field("rms", &self.rms)
+          .field("zcr", &self.zcr)
+          .field("energy", &self.energy)
+          .finish()
+  }
+}
+
 pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
   (0..window_size)
       .map(|n| {

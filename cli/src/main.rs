@@ -121,9 +121,8 @@ async fn main() {
         .with_env_filter(filter)
         .with_test_writer()
         .init();
-
     // Determine the path from either the option or the positional argument
-    let path = cli.library.expect("Path is required");
+    let path = cli.library.or_else(|| Some(PathBuf::from("/Users/hexagram/Music/网易云音乐"))).expect("Path is required");
 
     let canonicalized_path = match canonicalize(&path) {
         Ok(path) => path,

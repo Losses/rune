@@ -9,7 +9,7 @@ pub async fn analyse_audio_library(
     analysis_db: &RecommendationDbConnection,
     path: &Path,
 ) {
-    if let Err(e) = analysis_audio_library(main_db, path, 30, empty_progress_callback, None).await {
+    if let Err(e) = analysis_audio_library(main_db, path, 15, empty_progress_callback, None).await {
         eprintln!("Audio analysis failed: {}", e);
         return;
     }

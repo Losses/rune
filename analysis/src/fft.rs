@@ -27,6 +27,7 @@ macro_rules! process_window {
         }
 
         let chunk = &$sample_buffer[..$actural_data_size];
+        // println!("Processing chunk of length: {}", chunk.len());
         let resampled_chunk = &$resampler.process(&[chunk], None).unwrap()[0];
 
         $total_rms += rms(resampled_chunk);

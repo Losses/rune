@@ -48,7 +48,7 @@ pub fn analyze_audio(
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
     // Perform FFT on the audio file to get the spectrum
-    let audio_desc = gpu_fft::fft(file_path, window_size, overlap_size);
+    let audio_desc = gpu_fft::fft(file_path, window_size, 1024,overlap_size);
     // let audio_desc = fft::fft(file_path, window_size, overlap_size, cancel_token);
     // if audio_desc.is_none() {
     //     return Ok(None);
