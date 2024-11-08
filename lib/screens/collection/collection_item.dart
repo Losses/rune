@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
+import 'package:rune/utils/execute_middle_click_action.dart';
 
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_name.dart';
@@ -65,6 +66,13 @@ class _CollectionItemState extends State<CollectionItem> {
       child: ContextMenuWrapper(
         contextAttachKey: contextAttachKey,
         contextController: contextController,
+        onMiddleClick: (_) {
+          executeMiddleClickAction(
+            context,
+            widget.collectionType,
+            widget.collection.id,
+          );
+        },
         onContextMenu: (position) {
           openCollectionItemContextMenu(
             position,

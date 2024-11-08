@@ -18,6 +18,7 @@ abstract class SearchCard extends StatelessWidget {
   String getItemTitle();
   Widget buildLeadingWidget(double size);
   void onPressed(BuildContext context);
+  void onMiddleClick(BuildContext context, Offset position);
   void onContextMenu(BuildContext context, Offset position);
 
   @override
@@ -25,6 +26,7 @@ abstract class SearchCard extends StatelessWidget {
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,
+      onMiddleClick: (position) => onMiddleClick(context, position),
       onContextMenu: (position) => onContextMenu(context, position),
       child: AxPressure(
         child: DeviceTypeBuilder(
