@@ -257,12 +257,13 @@ impl PlayerInternal {
                     self.send_playlist_updated()?;
                 },
                 Some(error_message) = self.stream_error_receiver.recv() => {
+                    self.stop()?;
                     error!("Received error message: {}", error_message);
 
                     if self.stream_retry_count < 5 {
                         if let Some(index) = self.current_track_index {
                             self.stream_retry_count += 1;
-                            warn!("Retrying to load track (attempt {} of 5)", self.stream_retry_count);
+                            info!("Retrying to load track (attempt {} of 5)", self.stream_retry_count);
                             if let Err(e) = self.load(Some(index), false, true) {
                                 error!("Retry failed: {:?}", e);
                             }
