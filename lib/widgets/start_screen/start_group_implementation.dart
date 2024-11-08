@@ -80,8 +80,15 @@ class StartGroupImplementation<T> extends StatelessWidget {
     final int rows = min((maxItems / columns).ceil(), columns);
 
     final int trueColumns = max(columns, 3);
-    final int trueMaxItems = trueColumns * rows;
-    return Dimensions(rows: rows, columns: trueColumns, count: trueMaxItems);
+    final int correctedMaxItems = min(trueColumns * rows, items.length);
+
+    final notEnough = items.length < trueColumns * rows;
+
+    return Dimensions(
+      rows: notEnough ? trueColumns : rows,
+      columns: notEnough ? rows : trueColumns,
+      count: correctedMaxItems,
+    );
   }
 
   static (double, double) finalSizeCalculator(
