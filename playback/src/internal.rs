@@ -5,11 +5,12 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::{Decoder, PlayError, Sink, Source};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::realtime_fft::RealTimeFFT;
 use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
@@ -132,6 +133,12 @@ enum InternalPlaybackState {
     Stopped,
 }
 
+fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
+    let (sink, queue_rx) = Sink::new_idle();
+    stream.play_raw(queue_rx)?;
+    Ok(sink)
+}
+
 pub(crate) struct PlayerInternal {
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
     event_sender: mpsc::UnboundedSender<PlayerEvent>,
@@ -142,7 +149,7 @@ pub(crate) struct PlayerInternal {
     current_track_index: Option<usize>,
     current_track_path: Option<PathBuf>,
     sink: Option<Sink>,
-    _stream: Option<OutputStream>,
+    _stream: Option<RuneOutputStream>,
     state: InternalPlaybackState,
     debounce_timer: Option<Instant>,
     cancellation_token: CancellationToken,
@@ -267,9 +274,11 @@ impl PlayerInternal {
             let source =
                 Decoder::new(BufReader::new(file)).with_context(|| "Failed to decode audio")?;
 
-            let (stream, stream_handle) =
-                OutputStream::try_default().context("Failed to create output stream")?;
-            let sink = Sink::try_new(&stream_handle).context("Failed to create sink")?;
+            let (stream, stream_handle) = RuneOutputStream::try_default_with_callback(|error| {
+                error!("{}", error);
+            })
+            .context("Failed to create output stream")?;
+            let sink = try_new_sink(&stream_handle).context("Failed to create sink")?;
 
             // Create a channel to transfer FFT data
             let (fft_tx, mut fft_rx) = mpsc::unbounded_channel();

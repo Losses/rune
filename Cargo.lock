@@ -2971,7 +2971,7 @@ dependencies = [
  "once_cell",
  "rand",
  "raw-window-handle",
- "rodio",
+ "rodio 0.20.0",
  "rustfft",
  "souvlaki",
  "tokio",
@@ -3517,6 +3517,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "rodio"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29b4839fa8524afa1829ee630ee1ef27b7bbe5bf0cde773456941c69060a4f74"
+dependencies = [
+ "claxon",
+ "cpal",
+ "hound",
+ "lewton",
+ "symphonia",
+]
+
+[[package]]
 name = "rsa"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3562,7 +3575,7 @@ dependencies = [
  "pathdiff",
  "playback",
  "prettytable",
- "rodio",
+ "rodio 0.19.0",
  "rust_decimal",
  "serde",
  "serde_json",
