@@ -14,7 +14,6 @@ use crate::features::rms;
 use crate::features::zcr;
 
 use crate::fft_utils::*;
-use crate::measure_time;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {
@@ -97,7 +96,8 @@ impl FFTProcessor {
             .expect("unsupported codec");
 
         let track_id = track.id;
-        measure_time!(self.process_audio_stream(&mut format, &mut decoder, track_id), "Process audio stream");
+
+        self.process_audio_stream(&mut format, &mut decoder, track_id);
 
         AudioDescription {
             sample_rate: self.sample_rate,
@@ -123,7 +123,7 @@ impl FFTProcessor {
 
                 while self.sample_buffer.len() >= self.actual_data_size {
                     let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
-                    measure_time!(self.process_audio_chunk(&chunk, false), "Process audio chunk");
+
                     self.sample_buffer
                         .drain(..(self.window_size - self.overlap_size));
                 }
@@ -140,13 +140,16 @@ impl FFTProcessor {
         self.resample_ratio = 11025_f64 / self.sample_rate as f64;
         self.actual_data_size = ((self.window_size) as f64 / self.resample_ratio).ceil() as usize;
 
-        self.resampler = Some(SincFixedIn::<f32>::new(
-            self.resample_ratio,
-            2.0,
-            RESAMPLER_PARAMETER,
-            self.actual_data_size,
-            1,
-        ).unwrap());
+        self.resampler = Some(
+            SincFixedIn::<f32>::new(
+                self.resample_ratio,
+                2.0,
+                RESAMPLER_PARAMETER,
+                self.actual_data_size,
+                1,
+            )
+            .unwrap(),
+        );
 
         // Decode loop.
         loop {
@@ -253,7 +256,10 @@ impl FFTProcessor {
     }
 
     fn process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
-        let resampled_chunk = &self.resampler.as_mut().unwrap()
+        let resampled_chunk = &self
+            .resampler
+            .as_mut()
+            .unwrap()
             .process(&[chunk], None)
             .unwrap()[0];
 
@@ -300,7 +306,7 @@ impl FFTProcessor {
             for batch_idx in 0..self.batch_size {
                 let start = batch_idx * self.window_size;
                 // let end = start + self.window_size;
-                
+
                 for i in 0..self.window_size {
                     self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
                 }
@@ -316,14 +322,15 @@ pub fn fft(
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
-) -> AudioDescription {
+) -> Option<AudioDescription> {
     let mut processor = FFTProcessor::new(window_size, batch_size, overlap_size);
-    processor.process_file(file_path)
+    Some(processor.process_file(file_path))
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+    use crate::measure_time;
 
     use crate::fft;
 
@@ -338,34 +345,44 @@ mod tests {
         let overlap_size = 512;
 
         let gpu_result = measure_time!(
-            fft(file_path, window_size, batch_size, overlap_size),
-            "GPU FFT"
-        );
+            "GPU FFT",
+            fft(file_path, window_size, batch_size, overlap_size)
+        ).unwrap();
 
         let cpu_result = measure_time!(
-            fft::fft(file_path, window_size, overlap_size, None),
-            "CPU FFT"
-        );
-        let cpu_result = cpu_result.unwrap();
+            "CPU FFT",
+            fft::fft(file_path, window_size, overlap_size, None)
+        ).unwrap();
 
         println!("GPU result: {:?}", gpu_result);
         println!("CPU result: {:?}", cpu_result);
 
         // Compare results with tolerance
-        assert!((gpu_result.rms - cpu_result.rms).abs() < 0.001, 
-            "RMS difference too large: {} vs {}", gpu_result.rms, cpu_result.rms);
-        assert!((gpu_result.energy - cpu_result.energy).abs() < 0.01,
-            "Energy difference too large: {} vs {}", gpu_result.energy, cpu_result.energy);
-        assert_eq!(gpu_result.zcr, cpu_result.zcr, 
-            "ZCR values don't match: {} vs {}", gpu_result.zcr, cpu_result.zcr);
-        
+        assert!(
+            (gpu_result.rms - cpu_result.rms).abs() < 0.001,
+            "RMS difference too large: {} vs {}",
+            gpu_result.rms,
+            cpu_result.rms
+        );
+        assert!(
+            (gpu_result.energy - cpu_result.energy).abs() < 0.01,
+            "Energy difference too large: {} vs {}",
+            gpu_result.energy,
+            cpu_result.energy
+        );
+        assert_eq!(
+            gpu_result.zcr, cpu_result.zcr,
+            "ZCR values don't match: {} vs {}",
+            gpu_result.zcr, cpu_result.zcr
+        );
+
         // Compare spectrum values
         // for (i, (gpu_val, cpu_val)) in gpu_result.spectrum.iter()
         //     .zip(cpu_result.spectrum.iter())
-        //     .enumerate() 
+        //     .enumerate()
         // {
         //     assert!((gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
-        //         "Spectrum difference too large at index {}: {} vs {}", 
+        //         "Spectrum difference too large at index {}: {} vs {}",
         //         i, gpu_val.norm(), cpu_val.norm());
         // }
     }

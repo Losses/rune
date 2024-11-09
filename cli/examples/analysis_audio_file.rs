@@ -5,7 +5,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("file path not provided");
 
-    let result = analyze_audio(path, 4096, 4096 / 2, None);
+    let result = analyze_audio(path, 4096, 4096 / 2, 1, None);
 
     let analysis_result = match result {
         Ok(x) =>

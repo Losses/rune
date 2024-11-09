@@ -253,10 +253,10 @@ mod tests {
         let mut gpu_data1 = cpu_data1.clone();
         let mut gpu_data2 = gpu_data1.clone();
 
-        measure_time!(cpu_fft.process(&mut cpu_data1), "CPU FFT1");
-        measure_time!(cpu_fft.process(&mut cpu_data2), "CPU FFT2");
-        measure_time!(gpu_fft.compute_fft(&mut gpu_data1).await, "GPU FFT1");
-        measure_time!(gpu_fft.compute_fft(&mut gpu_data2).await, "GPU FFT2");
+        measure_time!("CPU FFT1", cpu_fft.process(&mut cpu_data1));
+        measure_time!("CPU FFT2", cpu_fft.process(&mut cpu_data2));
+        measure_time!("GPU FFT1", gpu_fft.compute_fft(&mut gpu_data1).await);
+        measure_time!("GPU FFT2", gpu_fft.compute_fft(&mut gpu_data2).await);
 
         const EPSILON: f32 = 1e-3;
         assert!(compare_complex_vectors(&cpu_data1, &gpu_data1, EPSILON), 

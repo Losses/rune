@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use analysis::compute_device::ComputingDevice;
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 use log::info;
@@ -38,6 +39,7 @@ pub async fn analysis_audio_library<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
     batch_size: usize,
+    computing_device: ComputingDevice,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize>
@@ -71,7 +73,7 @@ where
         cancel_token,
         cursor_query,
         lib_path,
-        move |file, lib_path, cancel_token| { analysis_file(file, lib_path, cancel_token) },
+        move |file, lib_path, cancel_token| { analysis_file(file, lib_path, computing_device, cancel_token) },
         |db,
          file: media_files::Model,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {
@@ -101,6 +103,7 @@ where
 fn analysis_file(
     file: &media_files::Model,
     lib_path: &Path,
+    computing_device: ComputingDevice,
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<NormalizedAnalysisResult>> {
     // Construct the full path to the file
@@ -111,6 +114,7 @@ fn analysis_file(
         file_path.to_str().expect("Unable to convert file path"),
         1024, // Example window size
         512,  // Example overlap size
+        computing_device,
         cancel_token,
     )?;
 
