@@ -2,10 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/all.dart';
 import '../screens/settings_playback/settings_playback.dart';
-import 'api/if_analysis_exists.dart';
 import 'api/operate_playback_with_mix_query.dart';
 import 'build_query.dart';
-import 'dialogs/no_analysis/show_no_analysis_dialog.dart';
 import 'get_non_replace_operate_mode.dart';
 import 'query_list.dart';
 import 'settings_manager.dart';
@@ -76,14 +74,6 @@ Future<void> startRoaming(
   int id, [
   List<int> fallbackFileIds = const [],
 ]) async {
-  // TODO: IMPLEMENT COLLECTION ANALYSED CHECK HERE
-  final analysed = await ifAnalyseExists(id);
-  if (!analysed) {
-    if (!context.mounted) return;
-    showNoAnalysisDialog(context);
-    return;
-  }
-
   final queries = QueryList(
     withRecommend(
       await buildQuery(
@@ -93,16 +83,16 @@ Future<void> startRoaming(
     ),
   );
 
-  if (context.mounted) {
-    await safeOperatePlaybackWithMixQuery(
-      context: context,
-      queries: queries,
-      playbackMode: 99,
-      hintPosition: -1,
-      initialPlaybackId: 0,
-      instantlyPlay: true,
-      operateMode: PlaylistOperateMode.Replace,
-      fallbackFileIds: fallbackFileIds,
-    );
-  }
+  if (!context.mounted) return;
+
+  await safeOperatePlaybackWithMixQuery(
+    context: context,
+    queries: queries,
+    playbackMode: 99,
+    hintPosition: -1,
+    initialPlaybackId: 0,
+    instantlyPlay: true,
+    operateMode: PlaylistOperateMode.Replace,
+    fallbackFileIds: fallbackFileIds,
+  );
 }

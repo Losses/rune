@@ -658,7 +658,6 @@ pub async fn query_mix_media_files(
     let has_liked = filter_liked.is_some();
     let has_cover_art = filter_cover_art.is_some();
 
-    // if let Some(liked) = filter_liked {
     if has_liked || has_cover_art {
         let mut filter = Condition::all();
 
