@@ -159,6 +159,8 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     cursor += 1;
     final (newItems, newIsLastPage) = await widget.fetchPage(thisCursor);
 
+    if (!mounted) return;
+
     setState(() {
       isLoading = false;
       isLastPage = newIsLastPage;
