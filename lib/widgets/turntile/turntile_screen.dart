@@ -54,20 +54,6 @@ class TurntileScreenImplementationState
   final scrollController = ScrollController();
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    Provider.of<CollectionDataProvider>(context, listen: false).summary.then(
-      (x) {
-        Timer(
-          Duration(milliseconds: gridAnimationDelay),
-          () => layoutManager.playAnimations(),
-        );
-      },
-    );
-  }
-
-  @override
   void dispose() {
     super.dispose();
     layoutManager.dispose();
@@ -128,6 +114,16 @@ class TurntileScreenImplementationState
     }
   }
 
+  _fetchData() async {
+    final data = Provider.of<CollectionDataProvider>(context, listen: false);
+    await data.fetchData();
+
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => layoutManager.playAnimations(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final data = Provider.of<CollectionDataProvider>(context);
@@ -161,7 +157,7 @@ class TurntileScreenImplementationState
                       )
                     : Container(),
               ),
-              onFetchData: data.fetchData,
+              onFetchData: _fetchData,
               hasReachedMax: data.isLastPage,
               itemBuilder: (context, index) {
                 final item = data.items[index];

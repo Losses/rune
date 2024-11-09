@@ -30,23 +30,19 @@ class BandScreenState extends State<BandScreen> {
   final layoutManager = StartScreenLayoutManager();
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-
-    Provider.of<CollectionDataProvider>(context, listen: false).summary.then(
-      (x) {
-        Timer(
-          Duration(milliseconds: gridAnimationDelay),
-          () => layoutManager.playAnimations(),
-        );
-      },
-    );
-  }
-
-  @override
   void dispose() {
     super.dispose();
     layoutManager.dispose();
+  }
+
+  _fetchData() async {
+    final data = Provider.of<CollectionDataProvider>(context, listen: false);
+    await data.fetchData();
+
+    Timer(
+      Duration(milliseconds: gridAnimationDelay),
+      () => layoutManager.playAnimations(),
+    );
   }
 
   @override
@@ -126,7 +122,7 @@ class BandScreenState extends State<BandScreen> {
               )
             : Container(),
       ),
-      onFetchData: data.fetchData,
+      onFetchData: _fetchData,
       hasReachedMax: data.isLastPage,
       itemBuilder: (context, index) {
         final item = flattenItems[index];
