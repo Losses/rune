@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
+import '../screens/collection/utils/collection_data_provider.dart';
 import '../screens/settings_analysis/settings_analysis.dart';
 import '../messages/library_manage.pb.dart';
 
@@ -71,12 +72,14 @@ class LibraryManagerProvider with ChangeNotifier {
         ScanAudioLibraryProgress.rustSignalStream.listen((event) {
       final scanProgress = event.message;
       _updateScanProgress(
-          scanProgress.path,
-          scanProgress.task,
-          scanProgress.progress,
-          scanProgress.total,
-          TaskStatus.working,
-          getScanTaskProgress(scanProgress.path)?.initialize ?? false);
+        scanProgress.path,
+        scanProgress.task,
+        scanProgress.progress,
+        scanProgress.total,
+        TaskStatus.working,
+        getScanTaskProgress(scanProgress.path)?.initialize ?? false,
+      );
+      CollectionCache().clearAll();
     });
 
     _scanResultSubscription =
@@ -126,6 +129,7 @@ class LibraryManagerProvider with ChangeNotifier {
       // Complete the scan task
       _scanCompleters[scanResult.path]?.complete();
       _scanCompleters.remove(scanResult.path);
+      CollectionCache().clearAll();
     });
 
     _analyseProgressSubscription =
