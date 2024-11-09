@@ -141,7 +141,7 @@ class BandScreenState extends State<BandScreen> {
                 horizontal: 2,
                 vertical: 1,
               ),
-              child: collectionItemBuilder(context, item, data.reloadData),
+              child: collectionItemBuilder(context, item),
             ),
           ),
         );

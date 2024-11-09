@@ -91,7 +91,7 @@ class TurntileScreenState extends State<TurntileScreen> {
                   gridLayoutVariation: TurntileGroupGridLayoutVariation.tile,
                   items: item.items,
                   itemBuilder: (context, item) =>
-                      collectionItemBuilder(context, item, data.reloadData),
+                      collectionItemBuilder(context, item),
                 );
               },
             );
