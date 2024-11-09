@@ -8,6 +8,7 @@ use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
+use tokio_util::sync::CancellationToken;
 
 use crate::features::energy;
 use crate::features::rms;
@@ -28,6 +29,8 @@ pub struct FFTProcessor {
     batch_sample_buffer: Vec<f32>,
     batch_cache_buffer_count: usize,
     buffer: Vec<Complex<f32>>,
+    fn_is_cancelled: Box<dyn Fn() -> bool>,
+    is_cancelled: bool,
     // Processing state
     count: usize,
     total_samples: usize,
@@ -38,12 +41,29 @@ pub struct FFTProcessor {
     resample_ratio: f64,
     sample_rate: u32,
     duration_in_seconds: f64,
-    resampler: Option<SincFixedIn<f32>>,
+    resampler: Option<SincFixedIn<f32>>,   
+}
+
+macro_rules! check_cancellation {
+    ($self:expr) => {
+        if $self.is_cancelled || ($self.fn_is_cancelled)() {
+            $self.is_cancelled = true;
+            return;
+        }
+    };
+
+    ($self:expr,$func:expr) => {{
+        if $self.is_cancelled || ($self.fn_is_cancelled)() {
+            $self.is_cancelled = true;
+            return;
+        }
+        $func;
+    }}
 }
 
 impl FFTProcessor {
     // batch_size is only associated with variables starting with batch
-    pub fn new(window_size: usize, batch_size: usize, overlap_size: usize) -> Self {
+    pub fn new(window_size: usize, batch_size: usize, overlap_size: usize, cancel_token: Option<CancellationToken>) -> Self {
         let batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
@@ -51,6 +71,13 @@ impl FFTProcessor {
         let sample_buffer = Vec::with_capacity(window_size);
         let batch_sample_buffer = Vec::with_capacity(window_size * batch_size);
         let buffer = vec![Complex::new(0.0, 0.0); window_size];
+        
+        let fn_is_cancelled: Box<dyn Fn() -> bool> = Box::new(move || {
+            cancel_token
+                .as_ref()
+                .map_or(false, |token| token.is_cancelled())
+        });
+        let is_cancelled = false;
 
         Self {
             window_size,
@@ -64,6 +91,8 @@ impl FFTProcessor {
             batch_sample_buffer,
             buffer,
             batch_cache_buffer_count: 0,
+            fn_is_cancelled,
+            is_cancelled,
             // Processing state
             count: 0,
             total_samples: 0,
@@ -78,7 +107,7 @@ impl FFTProcessor {
         }
     }
 
-    pub fn process_file(&mut self, file_path: &str) -> AudioDescription {
+    pub fn process_file(&mut self, file_path: &str) -> Option<AudioDescription> {
         let mut format = get_format(file_path).expect("no supported audio tracks");
         let track = format
             .tracks()
@@ -99,7 +128,11 @@ impl FFTProcessor {
 
         self.process_audio_stream(&mut format, &mut decoder, track_id);
 
-        AudioDescription {
+        if self.is_cancelled || (self.fn_is_cancelled)() {
+            return None;
+        }
+
+        Some(AudioDescription {
             sample_rate: self.sample_rate,
             duration: self.duration_in_seconds,
             total_samples: self.total_samples,
@@ -107,7 +140,7 @@ impl FFTProcessor {
             rms: self.total_rms / self.count as f32,
             zcr: self.total_zcr / self.count,
             energy: self.total_energy / self.count as f32,
-        }
+        })
     }
 
     fn process_audio_buffer<T>(&mut self, buf: &AudioBuffer<T>)
@@ -153,6 +186,9 @@ impl FFTProcessor {
 
         // Decode loop.
         loop {
+            // Check for cancellation
+            check_cancellation!(self);
+
             // Get the next packet from the media format.
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
@@ -188,43 +224,43 @@ impl FFTProcessor {
             match decoded {
                 AudioBufferRef::U8(buf) => {
                     debug!("Decoded buffer type: U8, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::U16(buf) => {
                     debug!("Decoded buffer type: U16, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::U24(buf) => {
                     debug!("Decoded buffer type: U24, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::U32(buf) => {
                     debug!("Decoded buffer type: U32, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::S8(buf) => {
                     debug!("Decoded buffer type: S8, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::S16(buf) => {
                     debug!("Decoded buffer type: S16, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::S24(buf) => {
                     debug!("Decoded buffer type: S24, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::S32(buf) => {
                     debug!("Decoded buffer type: S32, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::F32(buf) => {
                     debug!("Decoded buffer type: F32, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
                 AudioBufferRef::F64(buf) => {
                     debug!("Decoded buffer type: F64, length: {}", buf.frames());
-                    self.process_audio_buffer(buf.as_ref());
+                    check_cancellation!(self, self.process_audio_buffer(buf.as_ref()));
                 }
             }
         }
@@ -239,7 +275,7 @@ impl FFTProcessor {
             // Only process up to target_size
             let chunk: Vec<f32> =
                 self.sample_buffer[..target_size.min(self.actual_data_size)].to_vec();
-            self.process_audio_chunk(&chunk, true);
+            check_cancellation!(self, self.process_audio_chunk(&chunk, true));
         }
 
         info!("Total samples: {}", self.total_samples);
@@ -322,9 +358,10 @@ pub fn fft(
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
+    cancel_token: Option<CancellationToken>,
 ) -> Option<AudioDescription> {
-    let mut processor = FFTProcessor::new(window_size, batch_size, overlap_size);
-    Some(processor.process_file(file_path))
+    let mut processor = FFTProcessor::new(window_size, batch_size, overlap_size, cancel_token);
+    processor.process_file(file_path)
 }
 
 #[cfg(test)]
@@ -346,7 +383,7 @@ mod tests {
 
         let gpu_result = measure_time!(
             "GPU FFT",
-            fft(file_path, window_size, batch_size, overlap_size)
+            fft(file_path, window_size, batch_size, overlap_size, None)
         ).unwrap();
 
         let cpu_result = measure_time!(

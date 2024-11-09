@@ -51,7 +51,7 @@ pub fn analyze_audio(
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
     let audio_desc = if computing_device == ComputingDevice::Gpu {
-        measure_time!("GPU FFT", gpu_fft::fft(file_path, window_size, 1024 * 8, overlap_size))
+        measure_time!("GPU FFT", gpu_fft::fft(file_path, window_size, 1024 * 8, overlap_size, cancel_token))
     } else {
         measure_time!("CPU FFT", fft::fft(file_path, window_size, overlap_size, cancel_token))
     };
