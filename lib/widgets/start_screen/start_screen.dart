@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
-import '../../utils/router/navigation.dart';
+import '../../utils/dialogs/show_group_list_dialog.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
@@ -78,7 +78,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   }
 
   Future<void> scrollToGroup(String groupTitle) async {
-    final data = Provider.of<CollectionDataProvider>(context);
+    final data = Provider.of<CollectionDataProvider>(context, listen: false);
 
     bool lastPageReached = false;
     final padding = getScrollContainerPadding(context, listen: false);
@@ -128,62 +128,6 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     // Step 3: If reached here, it means we didn't find the group and reached the last page.
     // Silent return as specified.
-  }
-
-  void showGroupListDialog(BuildContext context) async {
-    final data = Provider.of<CollectionDataProvider>(context);
-    await $showModal<void>(
-      context,
-      (context, $close) => FutureBuilder<List<Group<InternalCollection>>>(
-        future: data.summary,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Container();
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else {
-            return ContentDialog(
-              constraints: const BoxConstraints(maxWidth: 320),
-              content: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Wrap(
-                    spacing: 4,
-                    runSpacing: 4,
-                    children: snapshot.data!
-                        .map(
-                          (x) => ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 40),
-                            child: AspectRatio(
-                              aspectRatio: 1,
-                              child: Button(
-                                child: Text(x.groupTitle),
-                                onPressed: () {
-                                  $close(0);
-                                  scrollToGroup(x.groupTitle);
-                                },
-                              ),
-                            ),
-                          ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 24),
-                  Button(
-                    child: const Text('Cancel'),
-                    onPressed: () => $close(0),
-                  ),
-                ],
-              ),
-            );
-          }
-        },
-      ),
-      dismissWithEsc: true,
-      barrierDismissible: true,
-    );
   }
 
   @override
@@ -242,7 +186,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                       constraints: trueConstraints,
                       onTitleTap: () {
                         if (!isUserGenerated) {
-                          showGroupListDialog(context);
+                          showGroupListDialog(context, scrollToGroup);
                         }
                       },
                       itemBuilder: (context, item) =>
