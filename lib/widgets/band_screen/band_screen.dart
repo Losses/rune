@@ -5,6 +5,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../config/animation.dart';
+import '../../screens/collection/utils/is_user_generated.dart';
+import '../../screens/collection/utils/collection_item_builder.dart';
+import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/infinite_list_loading.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -17,68 +20,27 @@ import '../start_screen/providers/start_screen_layout_manager.dart';
 import '../navigation_bar/page_content_frame.dart';
 
 class BandScreen extends StatefulWidget {
-  final Future<List<Group<InternalCollection>>> Function() fetchSummary;
-  final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback)
-      itemBuilder;
-  final bool userGenerated;
-
-  const BandScreen({
-    super.key,
-    required this.fetchSummary,
-    required this.fetchPage,
-    required this.itemBuilder,
-    required this.userGenerated,
-  });
+  const BandScreen({super.key});
 
   @override
   BandScreenState createState() => BandScreenState();
 }
 
 class BandScreenState extends State<BandScreen> {
-  late Future<List<Group<InternalCollection>>> summary;
-
   final layoutManager = StartScreenLayoutManager();
 
-  List<Group<InternalCollection>> items = [];
-
-  bool isLoading = false;
-  bool isLastPage = false;
-  bool initialized = false;
-  int cursor = 0;
-
-  void _fetchData() async {
-    setState(() {
-      initialized = true;
-      isLoading = true;
-    });
-
-    final thisCursor = cursor;
-    cursor += 1;
-    final (newItems, newIsLastPage) = await widget.fetchPage(thisCursor);
-
-    setState(() {
-      isLoading = false;
-      isLastPage = newIsLastPage;
-      items.addAll(newItems);
-    });
-
-    Timer(
-      Duration(milliseconds: gridAnimationDelay),
-      () => layoutManager.playAnimations(),
-    );
-  }
-
-  void _reloadData() async {
-    cursor = 0;
-    items = [];
-    _fetchData();
-  }
-
   @override
-  void initState() {
-    super.initState();
-    summary = widget.fetchSummary();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    Provider.of<CollectionDataProvider>(context, listen: false).summary.then(
+      (x) {
+        Timer(
+          Duration(milliseconds: gridAnimationDelay),
+          () => layoutManager.playAnimations(),
+        );
+      },
+    );
   }
 
   @override
@@ -89,18 +51,22 @@ class BandScreenState extends State<BandScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final data = Provider.of<CollectionDataProvider>(context);
+
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
       child: FutureBuilder<List<Group<InternalCollection>>>(
-        future: summary,
+        future: data.summary,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return Container();
+            return const Center(
+              child: ProgressRing(),
+            );
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
             final List<InternalCollection> flattenItems =
-                items.expand((x) => x.items).toList();
+                data.items.expand((x) => x.items).toList();
 
             return DeviceTypeBuilder(
               deviceType: const [
@@ -134,6 +100,10 @@ class BandScreenState extends State<BandScreen> {
     List<InternalCollection> flattenItems,
     ScrollController? scrollController,
   ) {
+    final data = Provider.of<CollectionDataProvider>(context);
+
+    final isUserGenerated = userGenerated(data.collectionType);
+
     return InfiniteList(
       scrollDirection:
           deviceType == DeviceType.band || deviceType == DeviceType.belt
@@ -144,20 +114,20 @@ class BandScreenState extends State<BandScreen> {
       loadingBuilder: (context) => const InfiniteListLoading(),
       centerLoading: true,
       centerEmpty: true,
-      isLoading: isLoading,
+      isLoading: data.isLoading,
       padding: getScrollContainerPadding(context),
       emptyBuilder: (context) => Center(
-        child: initialized
+        child: data.initialized
             ? NoItems(
                 title: "No collection found",
                 hasRecommendation: false,
-                reloadData: _reloadData,
-                userGenerated: widget.userGenerated,
+                reloadData: data.reloadData,
+                userGenerated: isUserGenerated,
               )
             : Container(),
       ),
-      onFetchData: _fetchData,
-      hasReachedMax: isLastPage,
+      onFetchData: data.fetchData,
+      hasReachedMax: data.isLastPage,
       itemBuilder: (context, index) {
         final item = flattenItems[index];
         return ManagedTurntileScreenItem(
@@ -171,7 +141,7 @@ class BandScreenState extends State<BandScreen> {
                 horizontal: 2,
                 vertical: 1,
               ),
-              child: widget.itemBuilder(context, item, _reloadData),
+              child: collectionItemBuilder(context, item, data.reloadData),
             ),
           ),
         );

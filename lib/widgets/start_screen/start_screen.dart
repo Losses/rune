@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/router/navigation.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/start_screen/constants/default_gap_size.dart';
+import '../../screens/collection/utils/is_user_generated.dart';
+import '../../screens/collection/utils/collection_item_builder.dart';
+import '../../screens/collection/utils/collection_data_provider.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -21,49 +24,25 @@ import 'start_group.dart';
 import 'start_group_implementation.dart';
 
 class StartScreen extends StatelessWidget {
-  final Future<List<Group<InternalCollection>>> Function() fetchSummary;
-  final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback)
-      itemBuilder;
-  final bool userGenerated;
-
-  const StartScreen({
-    super.key,
-    required this.fetchSummary,
-    required this.fetchPage,
-    required this.itemBuilder,
-    required this.userGenerated,
-  });
+  const StartScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      return StartScreenImplementation(
-        fetchSummary: fetchSummary,
-        fetchPage: fetchPage,
-        itemBuilder: itemBuilder,
-        userGenerated: userGenerated,
-        constraints: constraints,
-      );
-    });
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return StartScreenImplementation(
+          constraints: constraints,
+        );
+      },
+    );
   }
 }
 
 class StartScreenImplementation extends StatefulWidget {
-  final Future<List<Group<InternalCollection>>> Function() fetchSummary;
-  final Future<(List<Group<InternalCollection>>, bool)> Function(int) fetchPage;
-  final Widget Function(BuildContext, InternalCollection, VoidCallback)
-      itemBuilder;
-  final bool userGenerated;
-
   final BoxConstraints constraints;
 
   const StartScreenImplementation({
     super.key,
-    required this.fetchSummary,
-    required this.fetchPage,
-    required this.itemBuilder,
-    required this.userGenerated,
     required this.constraints,
   });
 
@@ -74,20 +53,21 @@ class StartScreenImplementation extends StatefulWidget {
 
 class StartScreenImplementationState extends State<StartScreenImplementation>
     with SingleTickerProviderStateMixin {
-  late Future<List<Group<InternalCollection>>> summary;
   final layoutManager = StartScreenLayoutManager();
   late final scrollController = SmoothScrollController(vsync: this);
 
-  List<Group<InternalCollection>> items = [];
-  bool isLoading = false;
-  bool isLastPage = false;
-  bool initialized = false;
-  int cursor = 0;
-
   @override
-  void initState() {
-    super.initState();
-    summary = widget.fetchSummary();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    Provider.of<CollectionDataProvider>(context, listen: false).summary.then(
+      (x) {
+        Timer(
+          Duration(milliseconds: gridAnimationDelay),
+          () => layoutManager.playAnimations(),
+        );
+      },
+    );
   }
 
   @override
@@ -98,15 +78,18 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
   }
 
   Future<void> scrollToGroup(String groupTitle) async {
+    final data = Provider.of<CollectionDataProvider>(context);
+
     bool lastPageReached = false;
     final padding = getScrollContainerPadding(context, listen: false);
     // Step 1: Check if the group already exists in the loaded items.
     while (!lastPageReached) {
-      if (isLastPage) {
+      if (data.isLastPage) {
         lastPageReached = true;
       }
 
-      final index = items.indexWhere((group) => group.groupTitle == groupTitle);
+      final index =
+          data.items.indexWhere((group) => group.groupTitle == groupTitle);
 
       // If found, calculate the scroll position.
       if (index != -1) {
@@ -114,7 +97,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
         // Step 5: Calculate the scroll position for the target group.
         for (int i = 0; i < index; i++) {
-          final group = items[i];
+          final group = data.items[i];
           final dimensions =
               StartGroupImplementation.defaultDimensionCalculator(
             widget.constraints.maxHeight - padding.top - padding.bottom,
@@ -140,53 +123,19 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
       }
 
       // Step 2: If not found, load the next page.
-      await _fetchDataAsync();
+      await data.fetchData();
     }
 
     // Step 3: If reached here, it means we didn't find the group and reached the last page.
     // Silent return as specified.
   }
 
-  Future<void> _fetchDataAsync() async {
-    if (isLoading || isLastPage) return;
-
-    setState(() {
-      initialized = true;
-      isLoading = true;
-    });
-
-    final thisCursor = cursor;
-    cursor += 1;
-    final (newItems, newIsLastPage) = await widget.fetchPage(thisCursor);
-
-    if (!mounted) return;
-
-    setState(() {
-      isLoading = false;
-      isLastPage = newIsLastPage;
-      items.addAll(newItems);
-    });
-
-    Timer(
-      Duration(milliseconds: gridAnimationDelay),
-      () => layoutManager.playAnimations(),
-    );
-  }
-
-  void _reloadData() {
-    setState(() {
-      cursor = 0;
-      items = [];
-      isLastPage = false;
-    });
-    _fetchDataAsync();
-  }
-
   void showGroupListDialog(BuildContext context) async {
+    final data = Provider.of<CollectionDataProvider>(context);
     await $showModal<void>(
       context,
       (context, $close) => FutureBuilder<List<Group<InternalCollection>>>(
-        future: summary,
+        future: data.summary,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container();
@@ -246,10 +195,13 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
       maxHeight: c.maxHeight - padding.top - padding.bottom,
     );
 
+    final data = Provider.of<CollectionDataProvider>(context);
+    final isUserGenerated = userGenerated(data.collectionType);
+
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: layoutManager,
       child: FutureBuilder<List<Group<InternalCollection>>>(
-        future: summary,
+        future: data.summary,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container();
@@ -260,28 +212,28 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               controller: scrollController,
               builder: (context, smoothScrollController) {
                 return InfiniteList(
-                  itemCount: items.length,
+                  itemCount: data.items.length,
                   scrollDirection: Axis.horizontal,
                   scrollController: smoothScrollController,
                   loadingBuilder: (context) => const InfiniteListLoading(),
                   centerLoading: true,
                   centerEmpty: true,
-                  isLoading: isLoading,
+                  isLoading: data.isLoading,
                   padding: padding,
                   emptyBuilder: (context) => Center(
-                    child: initialized
+                    child: data.initialized
                         ? NoItems(
                             title: "No collection found",
                             hasRecommendation: false,
-                            reloadData: _reloadData,
-                            userGenerated: widget.userGenerated,
+                            reloadData: data.reloadData,
+                            userGenerated: isUserGenerated,
                           )
                         : Container(),
                   ),
-                  onFetchData: _fetchDataAsync,
-                  hasReachedMax: isLastPage,
+                  onFetchData: data.fetchData,
+                  hasReachedMax: data.isLastPage,
                   itemBuilder: (context, index) {
-                    final item = items[index];
+                    final item = data.items[index];
                     return StartGroup<InternalCollection>(
                       key: ValueKey(item.groupTitle),
                       groupIndex: index,
@@ -289,12 +241,12 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                       items: item.items,
                       constraints: trueConstraints,
                       onTitleTap: () {
-                        if (!widget.userGenerated) {
+                        if (!isUserGenerated) {
                           showGroupListDialog(context);
                         }
                       },
                       itemBuilder: (context, item) =>
-                          widget.itemBuilder(context, item, _reloadData),
+                          collectionItemBuilder(context, item, data.reloadData),
                     );
                   },
                 );
