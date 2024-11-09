@@ -24,16 +24,16 @@ fn fft_compute(global_id1: u32) {
     let full_N = window_size;
     let N = full_N;
 
-    // 每个线程需要处理四个数据点
+
     for (var i = 0u; i < 4u; i = i + 1u) {
-        let local_index = index + i * 256u;  // 256是workgroup size
+        let local_index = index + i * 256u;
         if (local_index >= N) {
             continue;
         }
 
         var rev_index = 0u;
         var temp = local_index;
-        let log4_N = u32(log2(f32(N)) / 2);  // 对于1024点，这里5
+        let log4_N = u32(log2(f32(N)) / 2);
 
         for (var j = 0u; j < log4_N; j = j + 1u) {
             rev_index = rev_index << 2u;
@@ -41,7 +41,6 @@ fn fft_compute(global_id1: u32) {
             temp = temp >> 2u;
         }
 
-        // 位反转置换
         if (local_index < rev_index && rev_index < N) {
             let temp1 = shared_data[local_index];
             shared_data[local_index] = shared_data[rev_index];
@@ -49,13 +48,11 @@ fn fft_compute(global_id1: u32) {
         }
     }
 
-    workgroupBarrier();  // 确保位反转完成
+    workgroupBarrier();
 
-    // FFT 计算
     for (var step = 4u; step <= N; step = step << 2u) {
         let quarter_step = step >> 2u;
 
-        // 每个线程处理四个蝶形运算
         for (var i = 0u; i < 4u; i = i + 1u) {
             let local_index = index + i * 256u;
             if (local_index >= N) {
@@ -93,7 +90,7 @@ fn fft_compute(global_id1: u32) {
             }
         }
 
-        workgroupBarrier();  // 确保每个步骤完成后同步
+        workgroupBarrier();
     }
 }
 

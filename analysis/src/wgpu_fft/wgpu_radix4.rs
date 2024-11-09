@@ -206,7 +206,7 @@ mod tests {
     fn generate_random_data(len: usize) -> Vec<Complex32> {
         (0..len).map(|_| {
             Complex32::new(
-                rand::random::<f32>() * 2.0 - 1.0,  // 生成 -1.0 到 1.0 之间的随机数
+                rand::random::<f32>() * 2.0 - 1.0,
                 rand::random::<f32>() * 2.0 - 1.0
             )
         }).collect()
