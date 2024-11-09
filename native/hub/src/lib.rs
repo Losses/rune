@@ -28,8 +28,6 @@ use tracing_subscriber::EnvFilter;
 
 pub use tokio;
 
-use ::database::connection::connect_main_db;
-use ::database::connection::connect_recommendation_db;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 
@@ -95,40 +93,15 @@ struct TaskTokens {
     analyse_token: Option<CancellationToken>,
 }
 
-async fn player_loop(path: String) {
+async fn player_loop(path: String, db_connections: DatabaseConnections) {
     info!("Media Library Received, initialize other receivers");
 
     tokio::spawn(async move {
         info!("Initializing database");
 
-        let main_db = match connect_main_db(&path)
-            .await
-            .with_context(|| "Failed to connect to main DB")
-        {
-            Ok(db) => Arc::new(db),
-            Err(e) => {
-                error!("Failed to connect to main DB: {}", e);
-                CrashResponse {
-                    detail: format!("{:#?}", e),
-                }
-                .send_signal_to_dart();
-                return;
-            }
-        };
+        let main_db: Arc<sea_orm::DatabaseConnection> = db_connections.main_db;
 
-        let recommend_db = match connect_recommendation_db(&path)
-            .with_context(|| "Failed to connect to recommendation DB")
-        {
-            Ok(db) => Arc::new(db),
-            Err(e) => {
-                error!("Failed to connect to recommendation DB: {}", e);
-                CrashResponse {
-                    detail: format!("{:#?}", e),
-                }
-                .send_signal_to_dart();
-                return;
-            }
-        };
+        let recommend_db: Arc<database::connection::RecommendationDbConnection> = db_connections.recommend_db;
 
         let lib_path = Arc::new(path);
 
@@ -185,6 +158,7 @@ async fn player_loop(path: String) {
 
             GetRandomCoverArtIdsRequest => (main_db),
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
+            GetPrimaryColorByTrackIdRequest => (main_db),
 
             FetchAllPlaylistsRequest => (main_db),
             CreatePlaylistRequest => (main_db),

@@ -1,14 +1,21 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
+
+import '../../../widgets/responsive_dialog_actions.dart';
 
 import '../../api/remove_mix.dart';
+import '../../router/navigation.dart';
 
 import '../remove_dialog_on_band.dart';
 
 Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (context) => RemoveMixDialog(mixId: mixId),
+  final result = await $showModal<bool>(
+    context,
+    (context, $close) => RemoveMixDialog(
+      mixId: mixId,
+      $close: $close,
+    ),
+    dismissWithEsc: true,
+    barrierDismissible: true,
   );
 
   return result;
@@ -16,10 +23,12 @@ Future<bool?> showRemoveMixDialog(BuildContext context, int mixId) async {
 
 class RemoveMixDialog extends StatefulWidget {
   final int mixId;
+  final void Function(bool?) $close;
 
   const RemoveMixDialog({
     super.key,
     required this.mixId,
+    required this.$close,
   });
 
   @override
@@ -37,12 +46,13 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
 
     if (!mounted) return;
 
-    Navigator.pop(context, true);
+    widget.$close(true);
   }
 
   @override
   Widget build(BuildContext context) {
     return RemoveDialogOnBand(
+      $close: widget.$close,
       onConfirm: _onConfirm,
       child: ContentDialog(
         title: const Column(
@@ -61,7 +71,7 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
               child: const Text('Delete'),
             ),
             FilledButton(
-              onPressed: isLoading ? null : () => Navigator.pop(context, false),
+              onPressed: isLoading ? null : () => widget.$close(false),
               child: const Text('Cancel'),
             ),
           ),

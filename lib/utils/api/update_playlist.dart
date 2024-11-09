@@ -1,4 +1,4 @@
-import 'package:rune/messages/playlist.pb.dart';
+import '../../messages/all.dart';
 
 Future<Playlist> updatePlaylist(
   int playlistId,

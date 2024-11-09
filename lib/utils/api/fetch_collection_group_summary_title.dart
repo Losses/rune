@@ -1,4 +1,4 @@
-import 'package:rune/messages/collection.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<String>> fetchCollectionGroupSummaryTitle(
     CollectionType collectionType) async {
@@ -7,7 +7,7 @@ Future<List<String>> fetchCollectionGroupSummaryTitle(
   fetchGroupsRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await CollectionGroups.rustSignalStream.first;
+  final rustSignal = await CollectionGroupSummaryResponse.rustSignalStream.first;
   final groups =
       rustSignal.message.groups.map((group) => group.groupTitle).toList();
 

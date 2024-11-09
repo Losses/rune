@@ -11,6 +11,7 @@ pub struct Model {
     pub file_hash: String,
     #[sea_orm(column_type = "Blob")]
     pub binary: Vec<u8>,
+    pub primary_color: Option<i32>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

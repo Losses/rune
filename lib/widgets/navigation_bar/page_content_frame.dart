@@ -15,6 +15,7 @@ EdgeInsets getScrollContainerPadding(
   bool bottom = true,
   double leftPlus = 0,
   double rightPlus = 0,
+  bool listen = true,
 }) {
   double pTop = 0;
   double pLeft = 0;
@@ -22,8 +23,8 @@ EdgeInsets getScrollContainerPadding(
   double pBottom = 0;
 
   final inset = MediaQuery.viewInsetsOf(context);
-  final responsive = Provider.of<ResponsiveProvider>(context);
-  final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
+  final responsive = Provider.of<ResponsiveProvider>(context, listen: listen);
+  final screen = Provider.of<ScreenSizeProvider>(context, listen: listen).screenSize;
 
   if (bottom) {
     if (responsive.smallerOrEqualTo(DeviceType.zune, false)) {
@@ -41,13 +42,19 @@ EdgeInsets getScrollContainerPadding(
   if (right) {
     if (responsive.smallerOrEqualTo(DeviceType.car, false)) {
       pRight = screen.height / 3 + inset.right + rightPlus;
+    } else if (responsive.smallerOrEqualTo(DeviceType.belt, false)) {
+      pRight = 16 + inset.right + rightPlus;
     } else {
       pRight = inset.right + rightPlus;
     }
   }
 
   if (left) {
-    pLeft = inset.right + leftPlus;
+    if (responsive.smallerOrEqualTo(DeviceType.belt, false)) {
+      pLeft = 16 + inset.left + rightPlus;
+    } else {
+      pLeft = inset.left + leftPlus;
+    }
   }
 
   return EdgeInsets.fromLTRB(pLeft, pTop, pRight, pBottom);
@@ -108,7 +115,7 @@ class PageContentFrame extends StatelessWidget {
     }
 
     if (left) {
-      if (responsive.smallerOrEqualTo(DeviceType.belt, false)) {
+      if (responsive.smallerOrEqualTo(DeviceType.band, false)) {
         pLeft = 24;
       }
     }

@@ -1,4 +1,4 @@
-import 'package:rune/messages/mix.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<bool> removeMix(int mixId) async {
   final updateRequest = RemoveMixRequest(mixId: mixId);

@@ -148,11 +148,12 @@ jobs:
       - run:
           name: Prepare artifacts
           command: |
+            TAG=${CIRCLE_TAG}
             mkdir dist
             cd build/app/outputs/flutter-apk/
-            cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-armv7.apk
-            cp app-arm64-v8a-release.apk ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-arm64.apk
-            cp app-x86_64-release.apk  ../../../../dist/Rune-${CIRCLE_SHA1:0:7}-android-x64.apk
+            cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-aarch32.apk
+            cp app-arm64-v8a-release.apk ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-aarch64.apk
+            cp app-x86_64-release.apk  ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-amd64.apk
 
       - run:
           name: Upload to GitHub Release
@@ -167,9 +168,9 @@ jobs:
             gh --version
             
             # Upload to GitHub release
-            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-armv7.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-arm64.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${CIRCLE_SHA1:0:7}-android-x64.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-aarch32.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-aarch64.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-amd64.apk" --clobber
 
 workflows:
   version: 2

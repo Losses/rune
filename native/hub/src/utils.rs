@@ -30,6 +30,7 @@ pub async fn inject_cover_art_map(
         queries: collection.queries,
         collection_type: collection.collection_type,
         cover_art_map,
+        readonly: collection.readonly,
     })
 }
 

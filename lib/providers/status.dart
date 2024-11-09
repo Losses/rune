@@ -4,6 +4,7 @@ import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/playback.pb.dart';
+import '../utils/theme_color_manager.dart';
 
 class PlaybackStatusProvider with ChangeNotifier {
   PlaybackStatus? _playbackStatus;
@@ -27,7 +28,13 @@ class PlaybackStatusProvider with ChangeNotifier {
     final newStatus = signal.message;
     if (_playbackStatus == null ||
         !_isPlaybackStatusEqual(_playbackStatus!, newStatus)) {
+      final bool isNewTrack = _playbackStatus?.id != newStatus.id;
       _playbackStatus = newStatus;
+
+      if (isNewTrack && newStatus.state != "Stopped") {
+        ThemeColorManager().handleCoverArtColorChange(newStatus.id);
+      }
+
       notifyListeners();
     }
   }

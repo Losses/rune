@@ -1,4 +1,4 @@
-import '../../messages/analyse.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<bool> ifAnalyseExists(int fileId) async {
   final fetchRequest = IfAnalyseExistsRequest(fileId: fileId);

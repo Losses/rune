@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/ax_shadow.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/update_color_mode.dart';
+import '../../utils/theme_color_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
@@ -18,6 +19,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
+const enableDynamicColorsKey = 'enable_dynamic_color';
 
 final settingsManager = SettingsManager();
 
@@ -104,6 +106,7 @@ class SettingsTheme extends StatefulWidget {
 class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
   bool? disableBrandingAnimation;
+  bool? enableDynamicColors;
   String colorMode = "system";
 
   @override
@@ -118,6 +121,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
         await settingsManager.getValue<String>(colorModeKey);
     final bool? storedDisableBrandingAnimation =
         await settingsManager.getValue<bool>(disableBrandingAnimationKey);
+    final bool? storedEnableDynamicColors =
+        await settingsManager.getValue<bool>(enableDynamicColorsKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -128,6 +133,9 @@ class _SettingsThemeState extends State<SettingsTheme> {
       }
       if (disableBrandingAnimation != null) {
         disableBrandingAnimation = storedDisableBrandingAnimation;
+      }
+      if (storedEnableDynamicColors != null) {
+        enableDynamicColors = storedEnableDynamicColors;
       }
     });
   }
@@ -146,8 +154,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
   Future<void> _updateThemeColor(Color? newThemeColor) async {
     setState(() {
       themeColor = newThemeColor;
-
-      appTheme.updateThemeColor(themeColor);
+      ThemeColorManager().updateUserSelectedColor(newThemeColor);
     });
 
     if (newThemeColor == null) {
@@ -155,6 +162,16 @@ class _SettingsThemeState extends State<SettingsTheme> {
     } else {
       await SettingsManager().setValue(themeColorKey, newThemeColor.value);
     }
+  }
+
+  void _handleDynamicColorToggle(bool value) async {
+    await settingsManager.setValue(enableDynamicColorsKey, value);
+
+    setState(() {
+      enableDynamicColors = value;
+    });
+
+    ThemeColorManager().updateDynamicColorSetting(value);
   }
 
   Future<void> _updateColorModeSetting(String newMode) async {
@@ -256,6 +273,20 @@ class _SettingsThemeState extends State<SettingsTheme> {
                       ],
                     ),
                   ),
+                ),
+                SettingsBoxToggle(
+                  title: "Dynamic Colors",
+                  subtitle:
+                      "Adjust Rune's theme colors based on the cover art of the playing track.",
+                  value: enableDynamicColors ?? false,
+                  onChanged: (value) {
+                    settingsManager.setValue(
+                      enableDynamicColorsKey,
+                      !value,
+                    );
+
+                    _handleDynamicColorToggle(value);
+                  },
                 ),
                 SettingsBoxToggle(
                   title: "Branding Animation",

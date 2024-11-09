@@ -1,4 +1,4 @@
-import 'package:rune/messages/playlist.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<void> addItemToPlaylist(int playlistId, int itemId,
     [int? position]) async {

@@ -1,4 +1,4 @@
-import '../../messages/media_file.pb.dart';
+import '../../messages/all.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFiles(

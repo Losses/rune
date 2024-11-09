@@ -1,7 +1,7 @@
 
 import '../../utils/query_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/mix.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<InternalMediaFile>> queryMixTracks(
   QueryList queries, [

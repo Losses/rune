@@ -1,43 +1,56 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../messages/connection.pb.dart';
+import '../utils/api/set_media_library_path.dart';
 import '../utils/file_storage/file_storage_service.dart';
+
+final FileStorageService _fileStorageService = FileStorageService();
+
+Future<String?> getInitialPath() async {
+  const String libraryPath =
+      String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
+  if (libraryPath.isNotEmpty) {
+    return libraryPath;
+  } else {
+    return await _fileStorageService.getLastOpenedFile();
+  }
+}
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
-  bool _scanning = false;
+  Set<String> libraryHistory = {};
 
-  final FileStorageService _fileStorageService = FileStorageService();
-
-  LibraryPathProvider() {
-    String libraryPath =
-        const String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
-    if (libraryPath.isNotEmpty) {
-      setLibraryPath(libraryPath);
-    } else {
-      _fileStorageService.getLastOpenedFile().then((x) {
-        if (x != null) {
-          setLibraryPath(x);
-        }
-      });
+  LibraryPathProvider(String? initialPath) {
+    if (initialPath != null) {
+      setLibraryPath(initialPath);
     }
+
+    getAllOpenedFiles().then((x) {
+      for (final item in x) {
+        libraryHistory.add(item);
+      }
+
+      if (libraryHistory.isNotEmpty) {
+        notifyListeners();
+      }
+    });
   }
 
   String? get currentPath => _currentPath;
-  bool get scanning => _scanning;
 
-  Future<void> setLibraryPath(String filePath, [bool scan = false]) async {
+  Future<(bool, String?)> setLibraryPath(String filePath) async {
     _currentPath = filePath;
-    _scanning = scan;
-    // Send the signal to Rust
-    MediaLibraryPath(path: filePath).sendSignalToRust();
+    libraryHistory.add(filePath);
     notifyListeners();
-    _fileStorageService.storeFilePath(filePath);
-  }
 
-  Future<void> finalizeScanning() async {
-    _scanning = false;
-    notifyListeners();
+    final (success, error) = await setMediaLibraryPath(filePath);
+
+    if (success) {
+      _fileStorageService.storeFilePath(filePath);
+    } else {
+      removeCurrentPath();
+    }
+
+    return (success, error);
   }
 
   Future<List<String>> getAllOpenedFiles() {
@@ -48,6 +61,7 @@ class LibraryPathProvider with ChangeNotifier {
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
     _currentPath = null;
+    libraryHistory.clear();
 
     notifyListeners();
   }
@@ -57,7 +71,13 @@ class LibraryPathProvider with ChangeNotifier {
     await _fileStorageService.removeFilePath(filePath);
     if (_currentPath == filePath) {
       _currentPath = null;
+      libraryHistory.remove(filePath);
     }
+    notifyListeners();
+  }
+
+  removeCurrentPath() {
+    _currentPath = null;
     notifyListeners();
   }
 }

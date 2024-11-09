@@ -1,11 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../chip_input/chip_input.dart';
+import '../../../../utils/dialogs/mix/widgets/number_section.dart';
 import '../../../../widgets/directory/directory_tree.dart';
+
+import '../../../chip_input/chip_input.dart';
+
 import '../utils/mix_editor_data.dart';
 import '../utils/slider_controller.dart';
 import '../utils/select_input_controller.dart';
-import '../utils/toggle_switch_controller.dart';
 
 class MixEditorController extends ChangeNotifier {
   final TextEditingController titleController = TextEditingController();
@@ -15,14 +17,17 @@ class MixEditorController extends ChangeNotifier {
   final ChipInputController<int> playlistsController =
       ChipInputController<int>();
   final ChipInputController<int> tracksController = ChipInputController<int>();
+  final TextEditingController randomTrackController = TextEditingController();
   final DirectoryTreeController directoryController = DirectoryTreeController();
   final SliderController limitController = SliderController();
   final SelectInputController modeController = SelectInputController('99');
   final SelectInputController recommendationController =
       SelectInputController('');
+  final SelectInputController sortOrderController =
+      SelectInputController('true');
   final SelectInputController sortByController =
       SelectInputController('default');
-  final ToggleSwitchController likedController = ToggleSwitchController(false);
+  final SelectInputController likedController = SelectInputController('false');
 
   MixEditorController() {
     _initListeners();
@@ -35,10 +40,12 @@ class MixEditorController extends ChangeNotifier {
     albumsController.addListener(_notifyListeners);
     playlistsController.addListener(_notifyListeners);
     tracksController.addListener(_notifyListeners);
+    randomTrackController.addListener(_notifyListeners);
     directoryController.addListener(_notifyListeners);
     limitController.addListener(_notifyListeners);
     modeController.addListener(_notifyListeners);
     recommendationController.addListener(_notifyListeners);
+    sortOrderController.addListener(_notifyListeners);
     sortByController.addListener(_notifyListeners);
     likedController.addListener(_notifyListeners);
   }
@@ -55,10 +62,12 @@ class MixEditorController extends ChangeNotifier {
     albumsController.removeListener(_notifyListeners);
     playlistsController.removeListener(_notifyListeners);
     tracksController.removeListener(_notifyListeners);
+    randomTrackController.removeListener(_notifyListeners);
     directoryController.removeListener(_notifyListeners);
     limitController.removeListener(_notifyListeners);
     modeController.removeListener(_notifyListeners);
     recommendationController.removeListener(_notifyListeners);
+    sortOrderController.removeListener(_notifyListeners);
     sortByController.removeListener(_notifyListeners);
     likedController.removeListener(_notifyListeners);
 
@@ -68,10 +77,12 @@ class MixEditorController extends ChangeNotifier {
     albumsController.dispose();
     playlistsController.dispose();
     tracksController.dispose();
+    randomTrackController.dispose();
     directoryController.dispose();
     limitController.dispose();
     modeController.dispose();
     recommendationController.dispose();
+    sortOrderController.dispose();
     sortByController.dispose();
     likedController.dispose();
 
@@ -102,12 +113,14 @@ class MixEditorController extends ChangeNotifier {
           .where((value) => value.$1 != null)
           .cast<(int, String)>()
           .toList(),
+      randomTracks: bestInt(randomTrackController.value.text),
       directories: directoryController.value ?? {},
       limit: limitController.value,
       mode: modeController.selectedValue ?? '99',
       recommendation: recommendationController.selectedValue ?? '99',
       sortBy: sortByController.selectedValue ?? 'default',
-      likedOnly: likedController.isChecked,
+      sortOrder: sortOrderController.selectedValue != 'false',
+      likedOnly: likedController.selectedValue == 'true',
     );
   }
 
@@ -144,6 +157,7 @@ class MixEditorController extends ChangeNotifier {
     modeController.selectedValue = data.mode;
     recommendationController.selectedValue = data.recommendation;
     sortByController.selectedValue = data.sortBy;
-    likedController.isChecked = data.likedOnly;
+    sortOrderController.selectedValue = data.sortOrder.toString();
+    likedController.selectedValue = data.likedOnly.toString();
   }
 }

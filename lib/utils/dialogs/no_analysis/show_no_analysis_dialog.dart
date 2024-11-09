@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
+
+import '../../../utils/router/navigation.dart';
 
 import '../../../widgets/library_task_button.dart';
+import '../../../widgets/responsive_dialog_actions.dart';
 
 import '../unavailable_dialog_on_band.dart';
 
@@ -12,9 +14,10 @@ Future<String?> showNoAnalysisDialog(
   BuildContext context, [
   bool collection = false,
 ]) async {
-  return showDialog<String>(
-    context: context,
-    builder: (context) => UnavailableDialogOnBand(
+  return $showModal<String>(
+    context,
+    (context, $close) => UnavailableDialogOnBand(
+      $close: $close,
       icon: Symbols.cognition,
       child: ContentDialog(
         title: const Column(
@@ -37,11 +40,13 @@ Future<String?> showNoAnalysisDialog(
             const AnalyseLibraryButton(),
             Button(
               child: const Text('Cancel'),
-              onPressed: () => Navigator.pop(context, 'Cancel'),
+              onPressed: () => $close('Cancel'),
             ),
           ),
         ],
       ),
     ),
+    dismissWithEsc: true,
+    barrierDismissible: true,
   );
 }

@@ -34,22 +34,20 @@ class _InputSectionState extends State<InputSection> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraint) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(widget.title),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Expanded(
-                child: TextBox(controller: _controller),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-        ],
-      );
-    });
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.title),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            Expanded(
+              child: TextBox(controller: _controller),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
   }
 }

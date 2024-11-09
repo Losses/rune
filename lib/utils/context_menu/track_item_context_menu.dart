@@ -2,23 +2,17 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../utils/query_list.dart';
-import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/api/get_all_playlists.dart';
 import '../../utils/api/if_analysis_exists.dart';
 import '../../utils/api/add_item_to_playlist.dart';
 import '../../utils/api/get_parsed_media_file.dart';
-import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
-import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
-import '../../messages/mix.pbserver.dart';
-import '../../messages/media_file.pb.dart';
-import '../../messages/playback.pb.dart';
-import '../../messages/playlist.pbserver.dart';
+import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../execute_middle_click_action.dart';
 import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
@@ -116,65 +110,27 @@ Widget buildTrackItemContextMenu(
     );
   }).toList();
 
-  final queries = QueryList([("lib::track", item.file.id.toString())]);
-
   return MenuFlyout(
     items: [
       MenuFlyoutItem(
         leading: const Icon(Symbols.play_circle),
         text: const Text('Start Playing'),
         onPressed: () async {
-          operatePlaybackWithMixQuery(
-            queries: queries,
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: 0,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: [],
-          );
+          startPlaying(CollectionType.Track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.playlist_add),
         text: const Text('Add to Queue'),
         onPressed: () async {
-          operatePlaybackWithMixQuery(
-            queries: queries,
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: 0,
-            instantlyPlay: false,
-            operateMode: await getNonReplaceOperateMode(),
-            fallbackFileIds: [],
-          );
+          addToQueue(CollectionType.Track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
         text: const Text('Start Roaming'),
         onPressed: () async {
-          if (!analysed) {
-            showNoAnalysisDialog(context);
-            return;
-          }
-
-          if (context.mounted) {
-            await safeOperatePlaybackWithMixQuery(
-              context: context,
-              queries: QueryList([
-                ...queries,
-                ("pipe::limit", "50"),
-                ("pipe::recommend", "-1")
-              ]),
-              playbackMode: 99,
-              hintPosition: -1,
-              initialPlaybackId: 0,
-              instantlyPlay: true,
-              operateMode: PlaylistOperateMode.Replace,
-              fallbackFileIds: [],
-            );
-          }
+          startRoaming(context, CollectionType.Track, item.file.id, const []);
         },
       ),
       const MenuFlyoutSeparator(),
@@ -276,8 +232,6 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
   FetchParsedMediaFileResponse item,
   bool isBand,
 ) {
-  final queries = QueryList([("lib::track", item.file.id.toString())]);
-
   List<CommandBarButton> items = [
     CommandBarButton(
       icon: const Tooltip(
@@ -285,15 +239,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: Icon(Symbols.play_circle),
       ),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: true,
-          operateMode: PlaylistOperateMode.Replace,
-          fallbackFileIds: [],
-        );
+        startPlaying(CollectionType.Track, item.file.id, const []);
       },
     ),
     CommandBarButton(
@@ -302,15 +248,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: false,
-          operateMode: await getNonReplaceOperateMode(),
-          fallbackFileIds: [],
-        );
+        addToQueue(CollectionType.Track, item.file.id, const []);
       },
     ),
     CommandBarButton(
@@ -319,24 +257,7 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
         child: Icon(Symbols.rocket),
       ),
       onPressed: () async {
-        final q = QueryList([
-          ...queries,
-          ("pipe::limit", "50"),
-          ("pipe::recommend", "-1"),
-        ]);
-
-        if (context.mounted) {
-          await safeOperatePlaybackWithMixQuery(
-            context: context,
-            queries: q,
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: 0,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: [],
-          );
-        }
+        startRoaming(context, CollectionType.Track, item.file.id, const []);
       },
     ),
   ];

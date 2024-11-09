@@ -424,6 +424,8 @@ macro_rules! parallel_media_files_processing {
                     }
                 }
 
+                info!("Scanning task finished.");
+
                 Ok::<(), sea_orm::DbErr>(())
             }
         };
@@ -437,6 +439,9 @@ macro_rules! parallel_media_files_processing {
         if let Err(e) = consumer_result {
             error!("Consumer error: {:?}", e);
         }
+
+
+        info!("Total tasks executed: {}", total_tasks);
 
         Ok(total_tasks)
     }};

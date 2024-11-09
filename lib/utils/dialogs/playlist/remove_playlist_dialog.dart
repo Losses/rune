@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/router/navigation.dart';
 import 'package:rune/widgets/responsive_dialog_actions.dart';
 
 import '../../api/remove_playlist.dart';
@@ -7,9 +8,14 @@ import '../remove_dialog_on_band.dart';
 
 Future<bool?> showRemovePlaylistDialog(
     BuildContext context, int playlistId) async {
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (context) => RemovePlaylistDialog(playlistId: playlistId),
+  final result = await $showModal<bool>(
+    context,
+    (context, $close) => RemovePlaylistDialog(
+      playlistId: playlistId,
+      $close: $close,
+    ),
+    dismissWithEsc: true,
+    barrierDismissible: true,
   );
 
   return result;
@@ -17,10 +23,12 @@ Future<bool?> showRemovePlaylistDialog(
 
 class RemovePlaylistDialog extends StatefulWidget {
   final int playlistId;
+  final void Function(bool?) $close;
 
   const RemovePlaylistDialog({
     super.key,
     required this.playlistId,
+    required this.$close,
   });
 
   @override
@@ -38,12 +46,13 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
 
     if (!mounted) return;
 
-    Navigator.pop(context, true);
+    widget.$close(true);
   }
 
   @override
   Widget build(BuildContext context) {
     return RemoveDialogOnBand(
+      $close: widget.$close,
       onConfirm: _onConfirm,
       child: ContentDialog(
         title: const Column(
@@ -62,7 +71,7 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
               child: const Text('Delete'),
             ),
             FilledButton(
-              onPressed: isLoading ? null : () => Navigator.pop(context, false),
+              onPressed: isLoading ? null : () => widget.$close(false),
               child: const Text('Cancel'),
             ),
           ),

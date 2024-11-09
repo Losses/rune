@@ -395,3 +395,28 @@ class GreaterOrEqualToScreenSize extends StatelessWidget {
     );
   }
 }
+
+bool smallerThanWatch(Size size) {
+  return size.width <= 64 || size.height <= 64;
+}
+
+class SmallerOrEqualThanWatch extends StatelessWidget {
+  final Widget Function(BuildContext context, bool isWatch) builder;
+
+  const SmallerOrEqualThanWatch({
+    super.key,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) {
+        final width = screenSizeProvider.screenSize.width;
+        final height = screenSizeProvider.screenSize.height;
+        return width <= 64 || height <= 64;
+      },
+      builder: (context, isWatch, child) => builder(context, isWatch),
+    );
+  }
+}

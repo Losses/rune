@@ -40,6 +40,7 @@ message Collection {
     repeated mix.MixQuery queries = 3;
     CollectionType collection_type = 4;
     map<int32, string> cover_art_map = 5;
+    bool readonly = 6;
 }
 
 message CollectionGroup {

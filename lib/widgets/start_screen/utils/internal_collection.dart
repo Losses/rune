@@ -7,6 +7,7 @@ class InternalCollection {
   final QueryList queries;
   final CollectionType collectionType;
   final Map<int, String> coverArtMap;
+  final bool readonly;
 
   InternalCollection({
     required this.id,
@@ -14,6 +15,7 @@ class InternalCollection {
     required this.queries,
     required this.collectionType,
     required this.coverArtMap,
+    required this.readonly,
   });
 
   static InternalCollection fromRawCollection(Collection x) {
@@ -23,6 +25,7 @@ class InternalCollection {
       queries: QueryList.fromMixQuery(x.queries),
       collectionType: x.collectionType,
       coverArtMap: x.coverArtMap,
+      readonly: x.readonly,
     );
   }
 }

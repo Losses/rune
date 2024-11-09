@@ -1,4 +1,4 @@
-import 'package:rune/messages/system.pb.dart';
+import '../../messages/all.dart';
 
 Future<SystemInfoResponse> systemInfo() async {
   final updateRequest = SystemInfoRequest();

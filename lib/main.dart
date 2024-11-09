@@ -12,6 +12,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'utils/platform.dart';
 import 'utils/settings_manager.dart';
+import 'utils/theme_color_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
@@ -43,6 +44,7 @@ import 'theme.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 
 late bool disableBrandingAnimation;
+late String? initialPath;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,11 +75,14 @@ void main(List<String> arguments) async {
 
   final SettingsManager settingsManager = SettingsManager();
 
-  String? colorMode = await settingsManager.getValue<String>(colorModeKey);
+  final String? colorMode =
+      await settingsManager.getValue<String>(colorModeKey);
 
   updateColorMode(colorMode);
 
-  int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+  await ThemeColorManager().initialize();
+
+  final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
 
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));
@@ -110,12 +115,14 @@ void main(List<String> arguments) async {
     await Window.initialize();
   }
 
+  initialPath = await getInitialPath();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => LibraryPathProvider(),
+          create: (_) => LibraryPathProvider(initialPath),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -144,6 +151,8 @@ void main(List<String> arguments) async {
   );
 }
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 class Rune extends StatelessWidget {
   const Rune({super.key});
 
@@ -156,7 +165,8 @@ class Rune extends StatelessWidget {
 
         return FluentApp(
           title: appTitle,
-          initialRoute: "/library",
+          initialRoute: initialPath == null ? "/" : "/library",
+          navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 

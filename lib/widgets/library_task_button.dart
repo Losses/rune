@@ -1,15 +1,16 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/router/navigation.dart';
 import '../screens/settings_library/widgets/progress_button.dart';
 import '../messages/library_manage.pbenum.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
-  return showDialog<bool>(
-    context: context,
-    builder: (context) => ContentDialog(
+  return $showModal<bool>(
+    context,
+    (context, $close) => ContentDialog(
       title: const Text('Cancel ongoing task?'),
       content: const Text(
         'If you cancel this task, it will stop at its current completion state. Do you want to cancel it?',
@@ -18,16 +19,17 @@ Future<bool?> showCancelDialog(BuildContext context) {
         FilledButton(
           child: const Text('Cancel Task'),
           onPressed: () {
-            Navigator.pop(context, true); // User chose to cancel the task
+            $close(true);
           },
         ),
         Button(
           child: const Text('Continue'),
-          onPressed: () =>
-              Navigator.pop(context, false), // User chose to continue the task
+          onPressed: () => $close(false),
         ),
       ],
     ),
+    dismissWithEsc: true,
+    barrierDismissible: true,
   );
 }
 

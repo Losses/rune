@@ -124,6 +124,7 @@ impl_collection_type!(
     database::actions::mixes::list_mixes
 );
 
+#[derive(Debug)]
 pub enum CollectionAction {
     FetchGroupSummary,
     FetchGroups,
@@ -439,6 +440,7 @@ impl Collection {
             }],
             collection_type,
             cover_art_map: HashMap::new(),
+            readonly: false,
         }
     }
 
@@ -466,6 +468,7 @@ impl Collection {
             queries: queries.to_vec(),
             collection_type: 3,
             cover_art_map: HashMap::new(),
+            readonly: mix.locked,
         }
     }
 

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
+import '../../utils/execute_middle_click_action.dart';
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
 import '../../utils/queries_has_recommendation.dart';
@@ -12,7 +13,7 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
-import '../../messages/playback.pb.dart';
+import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../context_menu_wrapper.dart';
@@ -131,6 +132,13 @@ class BandViewTrackItem extends StatelessWidget {
             child: ContextMenuWrapper(
               contextAttachKey: contextAttachKey,
               contextController: contextController,
+              onMiddleClick: (_) {
+                executeMiddleClickAction(
+                  context,
+                  CollectionType.Track,
+                  item.id,
+                );
+              },
               onContextMenu: (position) {
                 openTrackItemContextMenu(
                   position,

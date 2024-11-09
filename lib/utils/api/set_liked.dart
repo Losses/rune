@@ -1,4 +1,4 @@
-import 'package:rune/messages/stat.pb.dart';
+import '../../messages/all.dart';
 
 Future<bool?> setLiked(int fileId, bool liked) async {
   final updateRequest = SetLikedRequest(fileId: fileId, liked: liked);
