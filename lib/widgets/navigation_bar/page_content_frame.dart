@@ -15,6 +15,7 @@ EdgeInsets getScrollContainerPadding(
   bool bottom = true,
   double leftPlus = 0,
   double rightPlus = 0,
+  bool listen = true,
 }) {
   double pTop = 0;
   double pLeft = 0;
@@ -22,8 +23,8 @@ EdgeInsets getScrollContainerPadding(
   double pBottom = 0;
 
   final inset = MediaQuery.viewInsetsOf(context);
-  final responsive = Provider.of<ResponsiveProvider>(context);
-  final screen = Provider.of<ScreenSizeProvider>(context).screenSize;
+  final responsive = Provider.of<ResponsiveProvider>(context, listen: listen);
+  final screen = Provider.of<ScreenSizeProvider>(context, listen: listen).screenSize;
 
   if (bottom) {
     if (responsive.smallerOrEqualTo(DeviceType.zune, false)) {

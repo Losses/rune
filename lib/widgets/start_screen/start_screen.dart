@@ -99,7 +99,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
   Future<void> scrollToGroup(String groupTitle) async {
     bool lastPageReached = false;
-    final padding = getScrollContainerPadding(context);
+    final padding = getScrollContainerPadding(context, listen: false);
     // Step 1: Check if the group already exists in the loaded items.
     while (!lastPageReached) {
       if (isLastPage) {
