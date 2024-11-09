@@ -28,30 +28,26 @@ bool $canPop() {
 
 bool $pop() {
   final navigation = $state();
-  if ($canPop()) {
-    final current = $history.current;
 
-    final canPop = $canPop();
-    if (!canPop) return false;
+  if (!$canPop()) return false;
 
-    if (current != null) {
-      if (current is ModalRouteEntry) {
-        current.pop();
-        $history.pop();
-        return true;
-      }
+  final current = $history.current;
+  if (current != null) return false;
 
-      if (current is RouteEntry) {
-        final (success, result) = $history.pop();
-        final settings = current.toSettings();
-        $router.update(settings.name, settings.arguments);
-        navigation.pop(result);
-        return true;
-      }
-
-      return false;
-    }
+  if (current is ModalRouteEntry) {
+    current.pop();
+    $history.pop();
+    return true;
   }
+
+  if (current is RouteEntry) {
+    final (success, result) = $history.pop();
+    final settings = current.toSettings();
+    $router.update(settings.name, settings.arguments);
+    navigation.pop(result);
+    return true;
+  }
+
   return false;
 }
 

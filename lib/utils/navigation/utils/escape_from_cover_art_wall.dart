@@ -1,4 +1,5 @@
 import '../../../providers/router_path.dart';
+
 import '../../router/navigation.dart';
 
 escapeFromCoverArtWall() {
@@ -6,7 +7,7 @@ escapeFromCoverArtWall() {
 
   if (path == '/cover_wall') {
     if (!$pop()) {
-      $push('/library');
+      $replace('/library');
     }
 
     return true;
