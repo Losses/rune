@@ -123,7 +123,7 @@ impl FFTProcessor {
 
                 while self.sample_buffer.len() >= self.actual_data_size {
                     let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
-
+                    self.process_audio_chunk(&chunk, false);
                     self.sample_buffer
                         .drain(..(self.window_size - self.overlap_size));
                 }
@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn test_fft_startup_sound() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/test2.flac";
+        let file_path = "../assets/startup_0.ogg";
         let window_size = 1024;
         let batch_size = 1024 * 8;
         let overlap_size = 512;
