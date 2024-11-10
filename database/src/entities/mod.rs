@@ -14,5 +14,6 @@ pub mod media_files;
 pub mod media_metadata;
 pub mod mix_queries;
 pub mod mixes;
+pub mod playback_queue;
 pub mod playlists;
 pub mod search_index;

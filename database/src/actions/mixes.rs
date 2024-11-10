@@ -20,6 +20,7 @@ use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySel
 use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
+use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
@@ -282,6 +283,7 @@ enum QueryOperator {
     LibPlaylist(i32),
     LibTrack(i32),
     LibRandom(i32),
+    LibQueue(bool),
     LibDirectoryDeep(String),
     LibDirectoryShallow(String),
     SortTrackNumber(bool),
@@ -422,6 +424,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
         "lib::random" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibRandom)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "lib::queue" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::LibQueue)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::directory.deep" => QueryOperator::LibDirectoryDeep(parameter.clone()),
         "lib::directory.shallow" => QueryOperator::LibDirectoryShallow(parameter.clone()),
         "sort::track_number" => parse_parameter::<bool>(parameter, operator)
@@ -527,6 +532,7 @@ pub async fn query_mix_media_files(
     let mut random_count: Vec<i32> = vec![];
     let mut directories_deep: Vec<String> = vec![];
     let mut directories_shallow: Vec<String> = vec![];
+    let mut playback_queue: Option<bool> = None;
 
     let mut sort_track_number_asc: Option<bool> = None;
     let mut sort_last_modified_asc: Option<bool> = None;
@@ -547,6 +553,7 @@ pub async fn query_mix_media_files(
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
             QueryOperator::LibTrack(id) => track_ids.push(id),
             QueryOperator::LibRandom(count) => random_count.push(count),
+            QueryOperator::LibQueue(enabled) => playback_queue = Some(enabled),
             QueryOperator::LibDirectoryDeep(dir) => directories_deep.push(dir),
             QueryOperator::LibDirectoryShallow(dir) => directories_shallow.push(dir),
             QueryOperator::SortTrackNumber(asc) => sort_track_number_asc = Some(asc),
@@ -605,24 +612,9 @@ pub async fn query_mix_media_files(
 
     // Filter by track_ids if provided
     if !track_ids.is_empty() {
-        // Sigh... I know the code looks creepy, but sea-orm bugged and I have to do this...
-        let placeholders: String = track_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<&str>>()
-            .join(", ");
-
-        let query_template = format!("\"media_files\".\"id\" IN ({})", placeholders);
-
-        or_condition = or_condition.add(Expr::cust_with_values(query_template, track_ids));
-    }
-
-    // Filter by random tracks if provided
-    if !random_count.is_empty() {
         let subquery = media_files::Entity::find()
             .select_only()
-            .order_by(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
-            .limit(*random_count.iter().max().unwrap_or(&30) as u64)
+            .filter(media_files::Column::Id.is_in(track_ids))
             .column(media_files::Column::Id)
             .into_query();
 
@@ -653,6 +645,33 @@ pub async fn query_mix_media_files(
             dir_conditions = dir_conditions.add(Expr::col(media_files::Column::Directory).eq(dir));
         }
         or_condition = or_condition.add(dir_conditions);
+    }
+
+    // Filter by random tracks if provided
+    if !random_count.is_empty() {
+        let subquery = media_files::Entity::find()
+            .select_only()
+            .order_by(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+            .limit(*random_count.iter().max().unwrap_or(&30) as u64)
+            .column(media_files::Column::Id)
+            .into_query();
+
+        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+    }
+
+    if let Some(queue_enabled) = playback_queue {
+        if queue_enabled {
+            let queued_tracks = list_playback_queue(main_db).await?;
+
+            let subquery = media_files::Entity::find()
+                .select_only()
+                .filter(media_files::Column::Id.is_in(queued_tracks))
+                .column(media_files::Column::Id)
+                .into_query();
+
+            or_condition =
+                or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+        }
     }
 
     let has_liked = filter_liked.is_some();

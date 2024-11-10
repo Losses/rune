@@ -8,14 +8,17 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio::task;
 
-use database::actions::cover_art::{bake_cover_art_by_cover_art_ids, bake_cover_art_by_file_ids};
+use database::actions::cover_art::bake_cover_art_by_cover_art_ids;
+use database::actions::cover_art::bake_cover_art_by_file_ids;
 use database::actions::metadata::get_metadata_summary_by_file_id;
 use database::actions::metadata::get_metadata_summary_by_file_ids;
 use database::actions::metadata::MetadataSummary;
+use database::actions::playback_queue::replace_playback_queue;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
+use playback::controller::get_default_cover_art_path;
+use playback::controller::handle_media_control_event;
 use playback::controller::MediaControlManager;
-use playback::controller::{get_default_cover_art_path, handle_media_control_event};
 use playback::player::Player;
 use playback::player::PlaylistStatus;
 use playback::MediaMetadata;
@@ -179,6 +182,10 @@ pub async fn initialize_player(
 
         while let Ok(playlist) = playlist_receiver.recv().await {
             send_playlist_update(&main_db, &playlist).await;
+            match replace_playback_queue(&main_db, playlist.items).await {
+                Ok(_) => {}
+                Err(e) => error!("Failed to update playback queue record: {:#?}", e),
+            };
         }
     });
 

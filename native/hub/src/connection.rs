@@ -57,7 +57,7 @@ where
                     main_loop(media_library_path, db_connections).await;
                 }
                 Err(e) => {
-                    error!("Database initialization failed: {}", e);
+                    error!("Database initialization failed: {:#?}", e);
                     // Send error response to Dart
                     SetMediaLibraryPathResponse {
                         path: media_library_path,
