@@ -8,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::{bail, Context, Result};
 use symphonia::core::codecs::CODEC_TYPE_NULL;
 
-use analysis::fft::{get_codec_information, get_format};
+use analysis::fft_utils::{get_codec_information, get_format};
 
 use crate::crc::media_crc32;
 

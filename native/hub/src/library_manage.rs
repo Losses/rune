@@ -8,6 +8,8 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
+use analysis::compute_device::ComputingDevice;
+
 use database::actions::analysis::analysis_audio_library;
 use database::actions::cover_art::scan_cover_arts;
 use database::actions::metadata::scan_audio_library;
@@ -180,6 +182,7 @@ pub async fn analyse_audio_library_request(
                     &main_db,
                     Path::new(&request_path),
                     batch_size,
+                    request.computing_device.into(),
                     move |progress, total| {
                         AnalyseAudioLibraryProgress {
                             path: closure_request_path.clone(),

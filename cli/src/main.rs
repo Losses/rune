@@ -39,7 +39,11 @@ enum Commands {
     Index,
 
     /// Analyze the audio files in the library
-    Analyze,
+    Analyze {
+        /// The compute device to use (cpu/gpu)
+        #[arg(short, long, default_value = "gpu")]
+        compute_device: String,
+    },
 
     /// Show information of the track in the library
     Info {
@@ -121,7 +125,6 @@ async fn main() {
         .with_env_filter(filter)
         .with_test_writer()
         .init();
-
     // Determine the path from either the option or the positional argument
     let path = cli.library.expect("Path is required");
 
@@ -166,8 +169,8 @@ async fn main() {
         Commands::Index => {
             index_audio_library(&main_db).await;
         }
-        Commands::Analyze => {
-            analyse_audio_library(&main_db, &analysis_db, &path).await;
+        Commands::Analyze { compute_device } => {
+            analyse_audio_library(compute_device.as_str().into(), &main_db, &analysis_db, &path).await;
         }
         Commands::Info { file_ids } => {
             match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {

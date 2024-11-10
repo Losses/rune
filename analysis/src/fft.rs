@@ -1,101 +1,60 @@
-use anyhow::Context;
-use anyhow::Result;
-use log::debug;
+use log::{debug, info};
 
 use rubato::Resampler;
 use rubato::SincFixedIn;
-use rubato::SincInterpolationParameters;
-use rubato::SincInterpolationType;
-use rubato::WindowFunction;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::AudioBufferRef;
 use symphonia::core::audio::Signal;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::formats::FormatReader;
-use symphonia::core::formats::Track;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
 use tokio_util::sync::CancellationToken;
 
 use crate::features::energy;
 use crate::features::rms;
 use crate::features::zcr;
 
-const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
-    sinc_len: 256,
-    f_cutoff: 0.95,
-    interpolation: SincInterpolationType::Linear,
-    oversampling_factor: 256,
-    window: WindowFunction::BlackmanHarris2,
-};
+use crate::fft_utils::*;
 
-pub struct AudioDescription {
-    pub sample_rate: u32,
-    pub duration: f64,
-    pub total_samples: usize,
-    pub spectrum: Vec<Complex<f32>>,
-    pub rms: f32,
-    pub zcr: usize,
-    pub energy: f32,
-}
+// Define the macro at the beginning of the file, after the imports
+macro_rules! process_window {
+    ($sample_buffer:expr, $actural_data_size:expr, $window_size:expr, $overlap_size:expr, 
+     $resampler:expr, $hanning_window:expr, $buffer:expr, $fft:expr, $avg_spectrum:expr,
+     $total_rms:expr, $total_zcr:expr, $total_energy:expr, $count:expr, $is_cancelled:expr) => {
+        // Check for cancellation before processing each window
+        if $is_cancelled() {
+            return None;
+        }
 
-pub fn build_hanning_window(window_size: usize) -> Vec<f32> {
-    (0..window_size)
-        .map(|n| {
-            0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (window_size as f32 - 1.0)).cos())
-        })
-        .collect()
-}
+        let chunk = &$sample_buffer[..$actural_data_size];
+        // println!("Processing chunk of length: {}", chunk.len());
+        let resampled_chunk = &$resampler.process(&[chunk], None).unwrap()[0];
 
-pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
-    // Open the media source.
-    let src = std::fs::File::open(file_path).with_context(|| "failed to open media")?;
+        $total_rms += rms(resampled_chunk);
+        $total_zcr += zcr(resampled_chunk);
+        $total_energy += energy(resampled_chunk);
 
-    // Create the media source stream.
-    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+        for (i, &sample) in resampled_chunk.iter().enumerate() {
+            if i >= $window_size {
+                break;
+            }
 
-    // Create a probe hint using the file's extension.
-    let mut hint = Hint::new();
-    let ext = file_path.split('.').last().unwrap_or_default();
-    hint.with_extension(ext);
+            let windowed_sample = sample * $hanning_window[i];
+            $buffer[i] = Complex::new(windowed_sample, 0.0);
+        }
 
-    // Use the default options for metadata and format readers.
-    let meta_opts: MetadataOptions = Default::default();
-    let fmt_opts: FormatOptions = Default::default();
+        $fft.process(&mut $buffer);
+        debug!("FFT processed");
 
-    // Probe the media source.
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)
-        .with_context(|| "unsupported format")?;
+        for (i, value) in $buffer.iter().enumerate() {
+            $avg_spectrum[i] += value;
+        }
 
-    // Get the instantiated format reader.
-    let format = probed.format;
+        $count += 1;
 
-    Ok(format)
-}
-
-pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::core::errors::Error> {
-    let sample_rate = track
-        .codec_params
-        .sample_rate
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No sample rate found"))?;
-    let duration = track
-        .codec_params
-        .n_frames
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No duration found"))?;
-
-    let time_base = track
-        .codec_params
-        .time_base
-        .unwrap_or_else(|| symphonia::core::units::TimeBase::new(1, sample_rate));
-    let duration_in_seconds =
-        time_base.calc_time(duration).seconds as f64 + time_base.calc_time(duration).frac;
-
-    Ok((sample_rate, duration_in_seconds))
+        // Remove the processed samples, keeping the overlap
+        $sample_buffer.drain(..($window_size - $overlap_size));
+    };
 }
 
 pub fn fft(
@@ -220,38 +179,11 @@ pub fn fft(
 
                         // Process the buffer when it reaches the window size
                         while sample_buffer.len() >= actural_data_size {
-                            // Check for cancellation before processing each window
-                            if is_cancelled() {
-                                return None;
-                            }
-
-                            let chunk = &sample_buffer[..actural_data_size];
-                            let resampled_chunk = &resampler.process(&[chunk], None).unwrap()[0];
-
-                            total_rms += rms(resampled_chunk);
-                            total_zcr += zcr(resampled_chunk);
-                            total_energy += energy(resampled_chunk);
-
-                            for (i, &sample) in resampled_chunk.iter().enumerate() {
-                                if i >= window_size {
-                                    break;
-                                }
-
-                                let windowed_sample = sample * hanning_window[i];
-                                buffer[i] = Complex::new(windowed_sample, 0.0);
-                            }
-
-                            fft.process(&mut buffer);
-                            debug!("FFT processed");
-
-                            for (i, value) in buffer.iter().enumerate() {
-                                avg_spectrum[i] += value;
-                            }
-
-                            count += 1;
-
-                            // Remove the processed samples, keeping the overlap
-                            sample_buffer.drain(..(window_size - overlap_size));
+                            process_window!(
+                                sample_buffer, actural_data_size, window_size, overlap_size,
+                                resampler, hanning_window, buffer, fft, avg_spectrum,
+                                total_rms, total_zcr, total_energy, count, is_cancelled
+                            );
                         }
                     }
                 }
@@ -316,6 +248,8 @@ pub fn fft(
         *value /= count as f32;
     }
     debug!("Final average spectrum calculated");
+    
+    info!("Total samples: {}", total_samples);
 
     Some(AudioDescription {
         sample_rate,
