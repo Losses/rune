@@ -1,10 +1,8 @@
 use anyhow::Result;
 use tokio_util::sync::CancellationToken;
-use log::info;
 
 use crate::computing_device::ComputingDevice;
 use crate::features::*;
-use crate::legacy_fft;
 use crate::fft_processor;
 use crate::measure_time;
 

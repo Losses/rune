@@ -26,15 +26,13 @@ pub struct FFTProcessor {
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
-    batch_fft: wgpu_radix4::FFTCompute,
+    gpu_batch_fft: wgpu_radix4::FFTCompute,
     cpu_batch_fft: Arc<dyn Fft<f32>>,
     batch_fft_buffer: Vec<Complex<f32>>,
     avg_spectrum: Vec<Complex<f32>>,
     hanning_window: Vec<f32>,
     sample_buffer: Vec<f32>,
-    batch_sample_buffer: Vec<f32>,
     batch_cache_buffer_count: usize,
-    buffer: Vec<Complex<f32>>,
     fn_is_cancelled: Box<dyn Fn() -> bool>,
     is_cancelled: bool,
     // Processing state
@@ -68,7 +66,6 @@ macro_rules! check_cancellation {
 }
 
 impl FFTProcessor {
-    // batch_size is only associated with variables starting with batch
     pub fn new(
         computing_device: ComputingDevice,
         window_size: usize,
@@ -78,13 +75,11 @@ impl FFTProcessor {
         overlap_size: usize,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        let batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
+        let gpu_batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
         let hanning_window = build_hanning_window(window_size);
         let sample_buffer = Vec::with_capacity(window_size);
-        let batch_sample_buffer = Vec::with_capacity(window_size * batch_size);
-        let buffer = vec![Complex::new(0.0, 0.0); window_size];
         let mut planner = FftPlanner::<f32>::new();
         let cpu_batch_fft = planner.plan_fft_forward(window_size);
 
@@ -100,14 +95,12 @@ impl FFTProcessor {
             window_size,
             batch_size,
             overlap_size,
-            batch_fft,
+            gpu_batch_fft,
             cpu_batch_fft,
             batch_fft_buffer,
             avg_spectrum,
             hanning_window,
             sample_buffer,
-            batch_sample_buffer,
-            buffer,
             batch_cache_buffer_count: 0,
             fn_is_cancelled,
             is_cancelled,
@@ -345,7 +338,7 @@ impl FFTProcessor {
             // Only process the valid portion of the batch buffer
             // let valid_size = self.batch_cache_buffer_count * self.window_size;
             // let mut batch_vec = self.batch_fft_buffer[..valid_size].to_vec();
-            pollster::block_on(self.batch_fft.compute_fft(&mut self.batch_fft_buffer));
+            pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
             // self.batch_fft_buffer[..valid_size].copy_from_slice(&batch_vec);
 
             // Accumulate spectrums for the valid batches
@@ -358,7 +351,7 @@ impl FFTProcessor {
 
             self.batch_cache_buffer_count = 0;
         } else if self.batch_cache_buffer_count >= self.batch_size {
-            pollster::block_on(self.batch_fft.compute_fft(&mut self.batch_fft_buffer));
+            pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
 
             // Split batch_fft_buffer into batches and accumulate into avg_spectrum
             for batch_idx in 0..self.batch_size {
@@ -432,14 +425,13 @@ pub fn gpu_fft(
     overlap_size: usize,
     cancel_token: Option<CancellationToken>,
 ) -> Option<AudioDescription> {
-    let mut processor = FFTProcessor::new(
+    FFTProcessor::new(
         ComputingDevice::Gpu,
         window_size,
         batch_size,
         overlap_size,
         cancel_token,
-    );
-    processor.process_file(file_path)
+    ).process_file(file_path)
 }
 
 pub fn cpu_fft(
@@ -448,24 +440,19 @@ pub fn cpu_fft(
     overlap_size: usize,
     cancel_token: Option<CancellationToken>,
 ) -> Option<AudioDescription> {
-    let mut processor = FFTProcessor::new(
+    FFTProcessor::new(
         ComputingDevice::Cpu,
         window_size,
         1,
         overlap_size,
         cancel_token,
-    );
-    
-    processor.process_file(file_path)
+    ).process_file(file_path)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::measure_time;
-    use std::path::PathBuf;
-
     use crate::legacy_fft;
-
     use super::*;
 
     #[test]
@@ -518,13 +505,13 @@ mod tests {
         );
 
         // Compare spectrum values
-        // for (i, (gpu_val, cpu_val)) in gpu_result.spectrum.iter()
-        //     .zip(cpu_result.spectrum.iter())
-        //     .enumerate()
-        // {
-        //     assert!((gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
-        //         "Spectrum difference too large at index {}: {} vs {}",
-        //         i, gpu_val.norm(), cpu_val.norm());
-        // }
+        for (i, (gpu_val, cpu_val)) in gpu_result.spectrum.iter()
+            .zip(cpu_result.spectrum.iter())
+            .enumerate()
+        {
+            assert!((gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
+                "Spectrum difference too large at index {}: {} vs {}",
+                i, gpu_val.norm(), cpu_val.norm());
+        }
     }
 }

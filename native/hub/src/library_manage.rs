@@ -8,8 +8,6 @@ use tokio::sync::Mutex;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
 
-use analysis::computing_device::ComputingDevice;
-
 use database::actions::analysis::analysis_audio_library;
 use database::actions::cover_art::scan_cover_arts;
 use database::actions::metadata::scan_audio_library;
