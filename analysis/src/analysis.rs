@@ -2,10 +2,10 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 use log::info;
 
-use crate::compute_device::ComputingDevice;
+use crate::computing_device::ComputingDevice;
 use crate::features::*;
-use crate::fft;
-use crate::gpu_fft;
+use crate::legacy_fft;
+use crate::fft_processor;
 use crate::measure_time;
 
 #[derive(Debug, Clone, Copy)]
@@ -51,9 +51,9 @@ pub fn analyze_audio(
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
     let audio_desc = if computing_device == ComputingDevice::Gpu {
-        measure_time!("GPU FFT", gpu_fft::fft(file_path, window_size, 1024 * 8, overlap_size, cancel_token))
+        measure_time!("GPU FFT", fft_processor::gpu_fft(file_path, window_size, 1024 * 8, overlap_size, cancel_token))
     } else {
-        measure_time!("CPU FFT", fft::fft(file_path, window_size, overlap_size, cancel_token))
+        measure_time!("CPU FFT", fft_processor::cpu_fft(file_path, window_size, overlap_size, cancel_token))
     };
 
     if audio_desc.is_none() {
