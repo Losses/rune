@@ -1,24 +1,17 @@
 use num_complex::{Complex, Complex32};
 use rustfft::FftNum;
-use std::{num::NonZeroU64, time::Instant};
-use wgpu::{util::DeviceExt, ComputePipeline, Device, Queue, ShaderModule};
+use wgpu::{ComputePipeline, Device, Queue};
 use bytemuck::{Pod, Zeroable};
 
 pub struct FFTCompute {
     device: Device,
     queue: Queue,
     pipeline: ComputePipeline,
-    input_buffer: wgpu::Buffer,
     output_buffer: wgpu::Buffer,
-    debug_buffer: wgpu::Buffer,
     result_buffer: wgpu::Buffer,
-    result_buffer1: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     buffer_size: wgpu::BufferAddress,
 }
-
-// const LEN: usize = 1024;
-// const A: usize = 1024;
 
 impl FFTCompute {
     pub async fn new(len: usize) -> Self {
@@ -56,22 +49,8 @@ impl FFTCompute {
         let n: usize = len;
         let buffer_size = (n * std::mem::size_of::<Complex32>()) as wgpu::BufferAddress;
 
-        let input_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Input Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Output Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
-
-        let debug_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Debug Buffer"),
             size: buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
@@ -84,29 +63,14 @@ impl FFTCompute {
             mapped_at_creation: false,
         });
 
-        let result_buffer1 = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Result1 Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("FFT Bind Group"),
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[
-                // wgpu::BindGroupEntry {
-                //     binding: 0,
-                //     resource: input_buffer.as_entire_binding(),
-                // },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: output_buffer.as_entire_binding(),
                 },
-                // wgpu::BindGroupEntry {
-                //     binding: 2,
-                //     resource: debug_buffer.as_entire_binding(),
-                // },
             ],
         });
 
@@ -114,33 +78,23 @@ impl FFTCompute {
             device,
             queue,
             pipeline,
-            input_buffer,
             output_buffer,
-            debug_buffer,
             result_buffer,
-            result_buffer1,
             bind_group,
             buffer_size,
         }
     }
 
-    pub async fn compute_fft<T>(&self, data: &mut Vec<Complex<T>>) -> Vec<Complex<T>>
+    pub async fn compute_fft<T>(&self, data: &mut Vec<Complex<T>>)
     where 
         T: FftNum + Pod + Zeroable + Copy,
         Complex<T>: Pod + Zeroable,
     {
-        let start_total = Instant::now();
         let n = data.len();
         assert!(n.is_power_of_two(), "Input length must be a power of 2");
         assert!((n * std::mem::size_of::<Complex<T>>()) as u64 <= self.buffer_size, "Input data too large for buffer");
 
-        self.queue.write_buffer(&self.input_buffer, 0, bytemuck::cast_slice(data));
-
-        let zero_buffer = vec![0u8; self.buffer_size as usize];
         self.queue.write_buffer(&self.output_buffer, 0, bytemuck::cast_slice(data));
-
-        let zero_buffer = vec![0u8; self.buffer_size as usize];
-        self.queue.write_buffer(&self.debug_buffer, 0, &zero_buffer);
 
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("FFT Command Encoder"),
@@ -159,7 +113,6 @@ impl FFTCompute {
         }
 
         encoder.copy_buffer_to_buffer(&self.output_buffer, 0, &self.result_buffer, 0, (n * std::mem::size_of::<Complex<T>>()) as u64);
-        encoder.copy_buffer_to_buffer(&self.debug_buffer, 0, &self.result_buffer1, 0, (n * std::mem::size_of::<Complex<T>>()) as u64);
         self.queue.submit(Some(encoder.finish()));
 
         let buffer_slice = self.result_buffer.slice(..);
@@ -177,23 +130,6 @@ impl FFTCompute {
 
         drop(mapped_range);  
         self.result_buffer.unmap(); 
-
-        let debug_buffer_slice = self.result_buffer1.slice(..);
-        let (tx1, rx1) = futures::channel::oneshot::channel();
-        debug_buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx1.send(result).unwrap();
-        });
-
-        self.device.poll(wgpu::Maintain::Wait);
-        rx1.await.unwrap().unwrap();
-
-        let mapped_range1 = debug_buffer_slice.get_mapped_range();
-        let debug_data: Vec<Complex<T>> = bytemuck::cast_slice(&mapped_range1).to_vec();
-
-        drop(mapped_range1);
-        self.result_buffer1.unmap();
-
-        debug_data
     }
 }
 
