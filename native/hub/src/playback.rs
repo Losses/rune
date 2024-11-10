@@ -14,6 +14,7 @@ use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use playback::player::Player;
 
+use crate::LoadRequest;
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::OperatePlaybackWithMixQueryResponse;
 use crate::PlaylistOperateMode;
@@ -42,6 +43,15 @@ pub fn files_to_playback_request(
             (file.id, file_path)
         })
         .collect::<Vec<_>>()
+}
+
+pub async fn load_request(
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<LoadRequest>,
+) -> Result<()> {
+    let volume = dart_signal.message.index;
+    player.lock().await.load(volume as usize);
+    Ok(())
 }
 
 pub async fn play_request(player: Arc<Mutex<Player>>, _: DartSignal<PlayRequest>) -> Result<()> {

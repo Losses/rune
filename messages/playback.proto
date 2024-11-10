@@ -20,6 +20,11 @@ message PlaybackStatus {
 }
 
 // [DART-SIGNAL]
+message LoadRequest {
+  int32 index = 1;
+}
+
+// [DART-SIGNAL]
 message PlayRequest {}
 
 // [DART-SIGNAL]

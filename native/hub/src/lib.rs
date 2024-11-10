@@ -129,6 +129,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             AnalyseAudioLibraryRequest => (main_db, recommend_db, task_tokens),
             CancelTaskRequest => (task_tokens),
 
+            LoadRequest => (player),
             PlayRequest => (player),
             PauseRequest => (player),
             NextRequest => (main_db, player),

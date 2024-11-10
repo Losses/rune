@@ -80,6 +80,13 @@ pub enum PlayerCommand {
 #[derive(Debug, Clone)]
 pub enum PlayerEvent {
     Stopped,
+    Loaded {
+        id: i32,
+        index: usize,
+        path: PathBuf,
+        playback_mode: PlaybackMode,
+        position: Duration,
+    },
     Playing {
         id: i32,
         index: usize,
@@ -368,6 +375,22 @@ impl PlayerInternal {
                     })
                     .context("Failed to send Playing event")?;
                 self.state = InternalPlaybackState::Playing;
+            } else {
+                self.event_sender
+                    .send(PlayerEvent::Loaded {
+                        id: self
+                            .current_track_id
+                            .ok_or(anyhow!("Track id unavailable"))?,
+                        index: mapped_index,
+                        path: self
+                            .current_track_path
+                            .clone()
+                            .ok_or(anyhow!("Current track id unavailable"))?,
+                        playback_mode: self.playback_mode,
+                        position: Duration::new(0, 0),
+                    })
+                    .context("Failed to send Playing event")?;
+                self.state = InternalPlaybackState::Stopped;
             }
         } else {
             error!("Load command received without index");

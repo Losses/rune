@@ -122,7 +122,7 @@ void main(List<String> arguments) async {
       providers: [
         ChangeNotifierProvider(
           lazy: false,
-          create: (_) => LibraryPathProvider(initialPath),
+          create: (_) => CrashProvider(),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -130,7 +130,19 @@ void main(List<String> arguments) async {
         ),
         ChangeNotifierProvider(
           lazy: false,
+          create: (_) => PlaylistProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
           create: (_) => ScreenSizeProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => PlaybackStatusProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => LibraryPathProvider(initialPath),
         ),
         ChangeNotifierProxyProvider<ScreenSizeProvider, ResponsiveProvider>(
           create: (context) =>
@@ -139,10 +151,7 @@ void main(List<String> arguments) async {
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
         ChangeNotifierProvider(create: (_) => $router),
-        ChangeNotifierProvider(create: (_) => CrashProvider()),
-        ChangeNotifierProvider(create: (_) => PlaylistProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
-        ChangeNotifierProvider(create: (_) => PlaybackStatusProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
       ],
