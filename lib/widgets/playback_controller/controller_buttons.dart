@@ -85,8 +85,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                 ? miniEntries
                 : visibleEntries)
               Tooltip(
-                  message: entry.tooltipBuilder(context),
-                  child: entry.controllerButtonBuilder(context, null)),
+                message: entry.tooltipBuilder(context),
+                child: entry.controllerButtonBuilder(context, null),
+              ),
             if (hiddenEntries.isNotEmpty)
               FlyoutTarget(
                 controller: menuController,
