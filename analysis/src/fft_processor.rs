@@ -29,6 +29,7 @@ pub struct FFTProcessor {
     gpu_batch_fft: wgpu_radix4::FFTCompute,
     cpu_batch_fft: Arc<dyn Fft<f32>>,
     batch_fft_buffer: Vec<Complex<f32>>,
+    batch_chunk_buffer: Vec<f32>,
     avg_spectrum: Vec<Complex<f32>>,
     hanning_window: Vec<f32>,
     sample_buffer: Vec<f32>,
@@ -75,8 +76,10 @@ impl FFTProcessor {
         overlap_size: usize,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        let gpu_batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
+        let gpu_batch_fft =
+            pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
+        let batch_chunk_buffer = vec![0.0; window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
         let hanning_window = build_hanning_window(window_size);
         let sample_buffer = Vec::with_capacity(window_size);
@@ -98,6 +101,7 @@ impl FFTProcessor {
             gpu_batch_fft,
             cpu_batch_fft,
             batch_fft_buffer,
+            batch_chunk_buffer,
             avg_spectrum,
             hanning_window,
             sample_buffer,
@@ -170,7 +174,7 @@ impl FFTProcessor {
                     if self.computing_device == ComputingDevice::Gpu {
                         self.gpu_process_audio_chunk(&chunk, false);
                     } else {
-                        self.cpu_process_audio_chunk(&chunk, false);
+                        self.cpu_process_audio_chunk(&chunk, false)
                     }
                     self.sample_buffer
                         .drain(..(self.window_size - self.overlap_size));
@@ -318,10 +322,6 @@ impl FFTProcessor {
             .process(&[chunk], None)
             .unwrap()[0];
 
-        self.total_rms += rms(&resampled_chunk);
-        self.total_zcr += zcr(&resampled_chunk);
-        self.total_energy += energy(&resampled_chunk);
-
         let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
             if i >= self.window_size {
@@ -329,35 +329,35 @@ impl FFTProcessor {
             }
             let windowed_sample = sample * self.hanning_window[i];
             self.batch_fft_buffer[start_idx + i] = Complex::new(windowed_sample, 0.0);
+            self.batch_chunk_buffer[start_idx + i] = sample;
         }
 
         self.batch_cache_buffer_count += 1;
         self.count += 1;
 
-        if force {
-            // Only process the valid portion of the batch buffer
-            // let valid_size = self.batch_cache_buffer_count * self.window_size;
-            // let mut batch_vec = self.batch_fft_buffer[..valid_size].to_vec();
-            pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
-            // self.batch_fft_buffer[..valid_size].copy_from_slice(&batch_vec);
+        if force || self.batch_cache_buffer_count >= self.batch_size {
+            let batch_size = if force {
+                self.batch_cache_buffer_count
+            } else {
+                self.batch_size
+            };
+            let batch_chunk_buffer_slice =
+                &self.batch_chunk_buffer[..batch_size * self.window_size];
 
-            // Accumulate spectrums for the valid batches
-            for batch_idx in 0..self.batch_cache_buffer_count {
-                let start = batch_idx * self.window_size;
-                for i in 0..self.window_size {
-                    self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
-                }
+            for chunk in batch_chunk_buffer_slice.chunks(1024) {
+                self.total_rms += rms(chunk);
             }
 
-            self.batch_cache_buffer_count = 0;
-        } else if self.batch_cache_buffer_count >= self.batch_size {
+            self.total_zcr += zcr(batch_chunk_buffer_slice);
+            self.total_energy += energy(batch_chunk_buffer_slice);
+
+            self.batch_chunk_buffer.fill(0.0);
+
             pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
 
-            // Split batch_fft_buffer into batches and accumulate into avg_spectrum
-            for batch_idx in 0..self.batch_size {
+            // Accumulate spectrums for the valid batches
+            for batch_idx in 0..batch_size {
                 let start = batch_idx * self.window_size;
-                // let end = start + self.window_size;
-
                 for i in 0..self.window_size {
                     self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
                 }
@@ -368,16 +368,13 @@ impl FFTProcessor {
     }
 
     fn cpu_process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
+        // Why resampled_chunk's length is always smaller than 1024?
         let resampled_chunk = &self
             .resampler
             .as_mut()
             .unwrap()
             .process(&[chunk], None)
             .unwrap()[0];
-
-        self.total_rms += rms(&resampled_chunk);
-        self.total_zcr += zcr(&resampled_chunk);
-        self.total_energy += energy(&resampled_chunk);
 
         let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
@@ -386,28 +383,35 @@ impl FFTProcessor {
             }
             let windowed_sample = sample * self.hanning_window[i];
             self.batch_fft_buffer[start_idx + i] = Complex::new(windowed_sample, 0.0);
+            self.batch_chunk_buffer[start_idx + i] = sample;
         }
 
         self.batch_cache_buffer_count += 1;
         self.count += 1;
 
-        if force {
-            self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
+        if force || self.batch_cache_buffer_count >= self.batch_size {
+            let batch_size = if force {
+                self.batch_cache_buffer_count
+            } else {
+                self.batch_size
+            };
 
-            for batch_idx in 0..self.batch_cache_buffer_count {
-                let start = batch_idx * self.window_size;
-                for i in 0..self.window_size {
-                    self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
-                }
+            let batch_chunk_buffer_slice =
+                &self.batch_chunk_buffer[..batch_size * self.window_size];
+
+            for chunk in batch_chunk_buffer_slice.chunks(1024) {
+                self.total_rms += rms(chunk);
             }
+            self.total_zcr += zcr(batch_chunk_buffer_slice);
+            self.total_energy += energy(batch_chunk_buffer_slice);
 
-            self.batch_cache_buffer_count = 0;
-        } else if self.batch_cache_buffer_count >= self.batch_size {
+            self.batch_chunk_buffer.fill(0.0);
+
             self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
 
-            for batch_idx in 0..self.batch_size {
+            // Accumulate spectrums for the valid batches
+            for batch_idx in 0..batch_size {
                 let start = batch_idx * self.window_size;
-
                 for i in 0..self.window_size {
                     self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
                 }
@@ -431,7 +435,8 @@ pub fn gpu_fft(
         batch_size,
         overlap_size,
         cancel_token,
-    ).process_file(file_path)
+    )
+    .process_file(file_path)
 }
 
 pub fn cpu_fft(
@@ -446,14 +451,52 @@ pub fn cpu_fft(
         1,
         overlap_size,
         cancel_token,
-    ).process_file(file_path)
+    )
+    .process_file(file_path)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::measure_time;
-    use crate::legacy_fft;
     use super::*;
+    use crate::legacy_fft;
+    use crate::measure_time;
+
+    #[test]
+    fn test_legacy_cpu_fft() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let file_path = "../assets/startup_0.ogg";
+        let window_size = 1024;
+        let overlap_size = 512;
+        measure_time!(
+            "Legacy CPU FFT Total",
+            legacy_fft::fft(file_path, window_size, overlap_size, None)
+        );
+    }
+
+    #[test]
+    fn test_cpu_fft() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let file_path = "../assets/startup_0.ogg";
+        let window_size = 1024;
+        let overlap_size = 512;
+        measure_time!(
+            "CPU FFT Total",
+            cpu_fft(file_path, window_size, overlap_size, None)
+        );
+    }
+
+    #[test]
+    fn test_gpu_fft() {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let file_path = "../assets/startup_0.ogg";
+        let window_size = 1024;
+        let batch_size = 1024 * 8;
+        let overlap_size = 512;
+        measure_time!(
+            "GPU FFT Total",
+            gpu_fft(file_path, window_size, batch_size, overlap_size, None)
+        );
+    }
 
     #[test]
     fn test_fft_startup_sound() {
@@ -464,19 +507,19 @@ mod tests {
         let overlap_size = 512;
 
         let cpu_result = measure_time!(
-            "CPU FFT",
+            "CPU FFT Total",
             cpu_fft(file_path, window_size, overlap_size, None)
         )
         .unwrap();
 
         let gpu_result = measure_time!(
-            "GPU FFT",
+            "GPU FFT Total",
             gpu_fft(file_path, window_size, batch_size, overlap_size, None)
         )
         .unwrap();
 
         let legacy_cpu_result = measure_time!(
-            "LEGACY CPU FFT",
+            "LEGACY CPU FFT Total",
             legacy_fft::fft(file_path, window_size, overlap_size, None)
         )
         .unwrap();
@@ -505,13 +548,19 @@ mod tests {
         );
 
         // Compare spectrum values
-        for (i, (gpu_val, cpu_val)) in gpu_result.spectrum.iter()
+        for (i, (gpu_val, cpu_val)) in gpu_result
+            .spectrum
+            .iter()
             .zip(cpu_result.spectrum.iter())
             .enumerate()
         {
-            assert!((gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
+            assert!(
+                (gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
                 "Spectrum difference too large at index {}: {} vs {}",
-                i, gpu_val.norm(), cpu_val.norm());
+                i,
+                gpu_val.norm(),
+                cpu_val.norm()
+            );
         }
     }
 }
