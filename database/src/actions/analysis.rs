@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use analysis::compute_device::ComputingDevice;
+use analysis::computing_device::ComputingDevice;
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 use log::info;

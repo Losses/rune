@@ -1,4 +1,4 @@
-use analysis::compute_device::ComputingDevice;
+use analysis::computing_device::ComputingDevice;
 use log::{error, info};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;

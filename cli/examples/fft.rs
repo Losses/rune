@@ -1,4 +1,4 @@
-use analysis::fft::fft;
+use analysis::legacy_fft::fft;
 
 fn main() {
     // Get the first command line argument.

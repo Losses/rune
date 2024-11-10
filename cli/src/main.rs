@@ -42,7 +42,7 @@ enum Commands {
     Analyze {
         /// The compute device to use (cpu/gpu)
         #[arg(short, long, default_value = "gpu")]
-        compute_device: String,
+        computing_device: String,
     },
 
     /// Show information of the track in the library
@@ -169,8 +169,8 @@ async fn main() {
         Commands::Index => {
             index_audio_library(&main_db).await;
         }
-        Commands::Analyze { compute_device } => {
-            analyse_audio_library(compute_device.as_str().into(), &main_db, &analysis_db, &path).await;
+        Commands::Analyze { computing_device } => {
+            analyse_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
         }
         Commands::Info { file_ids } => {
             match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {

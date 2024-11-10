@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use log::{debug, info};
 
 use rubato::Resampler;
 use rubato::SincFixedIn;
+use rustfft::Fft;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
@@ -10,6 +13,7 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
+use crate::computing_device::ComputingDevice;
 use crate::features::energy;
 use crate::features::rms;
 use crate::features::zcr;
@@ -18,10 +22,12 @@ use crate::fft_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {
+    computing_device: ComputingDevice,
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
     batch_fft: wgpu_radix4::FFTCompute,
+    cpu_batch_fft: Arc<dyn Fft<f32>>,
     batch_fft_buffer: Vec<Complex<f32>>,
     avg_spectrum: Vec<Complex<f32>>,
     hanning_window: Vec<f32>,
@@ -41,7 +47,7 @@ pub struct FFTProcessor {
     resample_ratio: f64,
     sample_rate: u32,
     duration_in_seconds: f64,
-    resampler: Option<SincFixedIn<f32>>,   
+    resampler: Option<SincFixedIn<f32>>,
 }
 
 macro_rules! check_cancellation {
@@ -58,12 +64,20 @@ macro_rules! check_cancellation {
             return;
         }
         $func;
-    }}
+    }};
 }
 
 impl FFTProcessor {
     // batch_size is only associated with variables starting with batch
-    pub fn new(window_size: usize, batch_size: usize, overlap_size: usize, cancel_token: Option<CancellationToken>) -> Self {
+    pub fn new(
+        computing_device: ComputingDevice,
+        window_size: usize,
+        // for cpu mode, batch_size is recommended to be 1
+        // for gpu mode, batch_size is recommended to be 1024 * 8
+        batch_size: usize,
+        overlap_size: usize,
+        cancel_token: Option<CancellationToken>,
+    ) -> Self {
         let batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
@@ -71,7 +85,9 @@ impl FFTProcessor {
         let sample_buffer = Vec::with_capacity(window_size);
         let batch_sample_buffer = Vec::with_capacity(window_size * batch_size);
         let buffer = vec![Complex::new(0.0, 0.0); window_size];
-        
+        let mut planner = FftPlanner::<f32>::new();
+        let cpu_batch_fft = planner.plan_fft_forward(window_size);
+
         let fn_is_cancelled: Box<dyn Fn() -> bool> = Box::new(move || {
             cancel_token
                 .as_ref()
@@ -80,10 +96,12 @@ impl FFTProcessor {
         let is_cancelled = false;
 
         Self {
+            computing_device,
             window_size,
             batch_size,
             overlap_size,
             batch_fft,
+            cpu_batch_fft,
             batch_fft_buffer,
             avg_spectrum,
             hanning_window,
@@ -156,7 +174,11 @@ impl FFTProcessor {
 
                 while self.sample_buffer.len() >= self.actual_data_size {
                     let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
-                    self.process_audio_chunk(&chunk, false);
+                    if self.computing_device == ComputingDevice::Gpu {
+                        self.gpu_process_audio_chunk(&chunk, false);
+                    } else {
+                        self.cpu_process_audio_chunk(&chunk, false);
+                    }
                     self.sample_buffer
                         .drain(..(self.window_size - self.overlap_size));
                 }
@@ -275,7 +297,11 @@ impl FFTProcessor {
             // Only process up to target_size
             let chunk: Vec<f32> =
                 self.sample_buffer[..target_size.min(self.actual_data_size)].to_vec();
-            check_cancellation!(self, self.process_audio_chunk(&chunk, true));
+            if self.computing_device == ComputingDevice::Gpu {
+                check_cancellation!(self, self.gpu_process_audio_chunk(&chunk, true));
+            } else {
+                check_cancellation!(self, self.cpu_process_audio_chunk(&chunk, true));
+            }
         }
 
         info!("Total samples: {}", self.total_samples);
@@ -291,7 +317,7 @@ impl FFTProcessor {
         debug!("Final average spectrum calculated");
     }
 
-    fn process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
+    fn gpu_process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
         let resampled_chunk = &self
             .resampler
             .as_mut()
@@ -303,18 +329,14 @@ impl FFTProcessor {
         self.total_zcr += zcr(&resampled_chunk);
         self.total_energy += energy(&resampled_chunk);
 
+        let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
             if i >= self.window_size {
                 break;
             }
             let windowed_sample = sample * self.hanning_window[i];
-            self.buffer[i] = Complex::new(windowed_sample, 0.0);
+            self.batch_fft_buffer[start_idx + i] = Complex::new(windowed_sample, 0.0);
         }
-
-        // Copy the entire buffer to batch_fft_buffer at the end of the current batch
-        let start_idx = self.batch_cache_buffer_count * self.window_size;
-        self.batch_fft_buffer[start_idx..start_idx + self.window_size]
-            .copy_from_slice(&self.buffer[..self.window_size]);
 
         self.batch_cache_buffer_count += 1;
         self.count += 1;
@@ -351,25 +373,98 @@ impl FFTProcessor {
             self.batch_cache_buffer_count = 0;
         }
     }
+
+    fn cpu_process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
+        let resampled_chunk = &self
+            .resampler
+            .as_mut()
+            .unwrap()
+            .process(&[chunk], None)
+            .unwrap()[0];
+
+        self.total_rms += rms(&resampled_chunk);
+        self.total_zcr += zcr(&resampled_chunk);
+        self.total_energy += energy(&resampled_chunk);
+
+        let start_idx = self.batch_cache_buffer_count * self.window_size;
+        for (i, &sample) in resampled_chunk.iter().enumerate() {
+            if i >= self.window_size {
+                break;
+            }
+            let windowed_sample = sample * self.hanning_window[i];
+            self.batch_fft_buffer[start_idx + i] = Complex::new(windowed_sample, 0.0);
+        }
+
+        self.batch_cache_buffer_count += 1;
+        self.count += 1;
+
+        if force {
+            self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
+
+            for batch_idx in 0..self.batch_cache_buffer_count {
+                let start = batch_idx * self.window_size;
+                for i in 0..self.window_size {
+                    self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
+                }
+            }
+
+            self.batch_cache_buffer_count = 0;
+        } else if self.batch_cache_buffer_count >= self.batch_size {
+            self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
+
+            for batch_idx in 0..self.batch_size {
+                let start = batch_idx * self.window_size;
+
+                for i in 0..self.window_size {
+                    self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
+                }
+            }
+
+            self.batch_cache_buffer_count = 0;
+        }
+    }
 }
 
-pub fn fft(
+pub fn gpu_fft(
     file_path: &str,
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
     cancel_token: Option<CancellationToken>,
 ) -> Option<AudioDescription> {
-    let mut processor = FFTProcessor::new(window_size, batch_size, overlap_size, cancel_token);
+    let mut processor = FFTProcessor::new(
+        ComputingDevice::Gpu,
+        window_size,
+        batch_size,
+        overlap_size,
+        cancel_token,
+    );
+    processor.process_file(file_path)
+}
+
+pub fn cpu_fft(
+    file_path: &str,
+    window_size: usize,
+    overlap_size: usize,
+    cancel_token: Option<CancellationToken>,
+) -> Option<AudioDescription> {
+    let mut processor = FFTProcessor::new(
+        ComputingDevice::Cpu,
+        window_size,
+        1,
+        overlap_size,
+        cancel_token,
+    );
+    
     processor.process_file(file_path)
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use crate::measure_time;
+    use std::path::PathBuf;
 
-    use crate::fft;
+    use crate::legacy_fft;
 
     use super::*;
 
@@ -381,34 +476,43 @@ mod tests {
         let batch_size = 1024 * 8;
         let overlap_size = 512;
 
-        let gpu_result = measure_time!(
-            "GPU FFT",
-            fft(file_path, window_size, batch_size, overlap_size, None)
-        ).unwrap();
-
         let cpu_result = measure_time!(
             "CPU FFT",
-            fft::fft(file_path, window_size, overlap_size, None)
-        ).unwrap();
+            cpu_fft(file_path, window_size, overlap_size, None)
+        )
+        .unwrap();
 
-        println!("GPU result: {:?}", gpu_result);
-        println!("CPU result: {:?}", cpu_result);
+        let gpu_result = measure_time!(
+            "GPU FFT",
+            gpu_fft(file_path, window_size, batch_size, overlap_size, None)
+        )
+        .unwrap();
+
+        let legacy_cpu_result = measure_time!(
+            "LEGACY CPU FFT",
+            legacy_fft::fft(file_path, window_size, overlap_size, None)
+        )
+        .unwrap();
+
+        info!("GPU result: {:?}", gpu_result);
+        info!("CPU result: {:?}", cpu_result);
+        info!("Legacy CPU result: {:?}", legacy_cpu_result);
 
         // Compare results with tolerance
         assert!(
-            (gpu_result.rms - cpu_result.rms).abs() < 0.001,
+            (gpu_result.rms - legacy_cpu_result.rms).abs() < 0.001,
             "RMS difference too large: {} vs {}",
             gpu_result.rms,
             cpu_result.rms
         );
         assert!(
-            (gpu_result.energy - cpu_result.energy).abs() < 0.01,
+            (gpu_result.energy - legacy_cpu_result.energy).abs() < 0.01,
             "Energy difference too large: {} vs {}",
             gpu_result.energy,
             cpu_result.energy
         );
         assert_eq!(
-            gpu_result.zcr, cpu_result.zcr,
+            gpu_result.zcr, legacy_cpu_result.zcr,
             "ZCR values don't match: {} vs {}",
             gpu_result.zcr, cpu_result.zcr
         );

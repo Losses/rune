@@ -1,4 +1,4 @@
-use analysis::{analysis::{analyze_audio, normalize_analysis_result}, compute_device::ComputingDevice};
+use analysis::{analysis::{analyze_audio, normalize_analysis_result}, computing_device::ComputingDevice};
 
 fn main() {
     // Get the first command line argument.
