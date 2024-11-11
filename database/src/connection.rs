@@ -17,7 +17,7 @@ use migration::MigratorTrait;
 use crate::actions::mixes::initialize_mix_queries;
 
 #[cfg(windows)]
-fn set_hidden_attribute(path: &Path) -> Result<()> {
+fn set_hidden_attribute(path: &std::path::Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
 
     // Convert path to wide string (UTF-16) as required by Windows API
@@ -29,7 +29,7 @@ fn set_hidden_attribute(path: &Path) -> Result<()> {
 
     // Call Windows API to set hidden attribute
     unsafe {
-        SetFileAttributesW(PWSTR(wide.as_ptr() as *mut u16), FILE_ATTRIBUTE_HIDDEN.0).ok()?;
+        SetFileAttributesW(PWSTR(wide.as_ptr() as *mut u16), FILE_ATTRIBUTE_HIDDEN)?;
     }
 
     Ok(())

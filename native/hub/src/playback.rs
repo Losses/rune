@@ -28,7 +28,7 @@ use crate::{
 
 pub fn files_to_playback_request(
     lib_path: &String,
-    files: Vec<database::entities::media_files::Model>,
+    files: &Vec<database::entities::media_files::Model>,
 ) -> std::vec::Vec<(i32, std::path::PathBuf)> {
     files
         .into_iter()
@@ -281,7 +281,7 @@ pub async fn operate_playback_with_mix_query_request(
 
     // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
-        player.add_to_playlist(files_to_playback_request(&lib_path, tracks), add_mode);
+        player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
         OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
         return Ok(());
     }
@@ -303,7 +303,9 @@ pub async fn operate_playback_with_mix_query_request(
     let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
 
     // Add to playlist
-    player.add_to_playlist(files_to_playback_request(&lib_path, tracks), add_mode);
+    if !tracks.is_empty() {
+        player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
+    }
     OperatePlaybackWithMixQueryResponse {
         file_ids: file_ids.clone(),
     }
@@ -315,8 +317,10 @@ pub async fn operate_playback_with_mix_query_request(
     }
 
     // Switch to the nearest index and play
-    player.switch(nearest_index + playlist_len);
-    player.play();
+    if !tracks.is_empty() {
+        player.switch(nearest_index + playlist_len);
+        player.play();
+    }
 
     Ok(())
 }
