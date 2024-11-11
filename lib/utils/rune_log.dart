@@ -1,3 +1,5 @@
+import 'package:fluent_ui/fluent_ui.dart';
+
 const String resetColor = '\x1B[0m';
 const String grayColor = '\x1B[90m';
 const String redColor = '\x1B[91m';
@@ -9,14 +11,9 @@ const String magentaColor = '\x1B[95m';
 void log(String type, String color, String content) {
   final timestamp = DateTime.now().toUtc().toIso8601String();
   final formattedLog =
-      '${'\b \b' * 9}$grayColor$timestamp$resetColor  $color$type$resetColor$magentaColor flutter: $resetColor$content';
+      '${'\b \b' * 9}$grayColor$timestamp$resetColor  $color$type$resetColor$grayColor flutter: $resetColor$content';
 
-  // ignore: avoid_print
-  print(formattedLog);
-}
-
-void debug$(String content) {
-  log('DEBUG', blueColor, content);
+  debugPrint(formattedLog);
 }
 
 void info$(String content) {

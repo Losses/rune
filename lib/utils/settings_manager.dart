@@ -9,7 +9,7 @@ import 'rune_log.dart';
 const storageName = 'rune';
 
 getSettingsPath() async {
-  if (Platform.isLinux) {
+  if (Platform.isLinux || Platform.isWindows) {
     return (await getApplicationSupportDirectory()).path;
   }
 
