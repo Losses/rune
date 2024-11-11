@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/screens/settings_library/widgets/add_library_setting_button.dart';
 
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
@@ -12,6 +11,7 @@ import '../../utils/router/navigation.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 
@@ -74,8 +74,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                     subtitle: "Remove all items from the library list",
                     onPressed: () async {
                       await closeLibrary(context);
-
                       libraryPath.clearAllOpenedFiles();
+                      $$replace("/");
                     },
                   ),
                   const SizedBox(height: 2),
