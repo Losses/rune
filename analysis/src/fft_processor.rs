@@ -75,7 +75,8 @@ impl FFTProcessor {
         overlap_size: usize,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        let gpu_batch_fft = pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
+        let gpu_batch_fft =
+            pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
         let hanning_window = build_hanning_window(window_size);
@@ -336,10 +337,7 @@ impl FFTProcessor {
 
         if force {
             // Only process the valid portion of the batch buffer
-            // let valid_size = self.batch_cache_buffer_count * self.window_size;
-            // let mut batch_vec = self.batch_fft_buffer[..valid_size].to_vec();
             pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
-            // self.batch_fft_buffer[..valid_size].copy_from_slice(&batch_vec);
 
             // Accumulate spectrums for the valid batches
             for batch_idx in 0..self.batch_cache_buffer_count {
@@ -356,7 +354,6 @@ impl FFTProcessor {
             // Split batch_fft_buffer into batches and accumulate into avg_spectrum
             for batch_idx in 0..self.batch_size {
                 let start = batch_idx * self.window_size;
-                // let end = start + self.window_size;
 
                 for i in 0..self.window_size {
                     self.avg_spectrum[i] += self.batch_fft_buffer[start + i];
@@ -431,7 +428,8 @@ pub fn gpu_fft(
         batch_size,
         overlap_size,
         cancel_token,
-    ).process_file(file_path)
+    )
+    .process_file(file_path)
 }
 
 pub fn cpu_fft(
@@ -446,14 +444,15 @@ pub fn cpu_fft(
         1,
         overlap_size,
         cancel_token,
-    ).process_file(file_path)
+    )
+    .process_file(file_path)
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::measure_time;
-    use crate::legacy_fft;
     use super::*;
+    use crate::legacy_fft;
+    use crate::measure_time;
 
     #[test]
     fn test_fft_startup_sound() {
@@ -505,13 +504,19 @@ mod tests {
         );
 
         // Compare spectrum values
-        for (i, (gpu_val, cpu_val)) in gpu_result.spectrum.iter()
+        for (i, (gpu_val, cpu_val)) in gpu_result
+            .spectrum
+            .iter()
             .zip(cpu_result.spectrum.iter())
             .enumerate()
         {
-            assert!((gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
+            assert!(
+                (gpu_val.norm() - cpu_val.norm()).abs() < 0.001,
                 "Spectrum difference too large at index {}: {} vs {}",
-                i, gpu_val.norm(), cpu_val.norm());
+                i,
+                gpu_val.norm(),
+                cpu_val.norm()
+            );
         }
     }
 }

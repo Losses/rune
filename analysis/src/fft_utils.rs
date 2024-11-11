@@ -10,7 +10,7 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::formats::FormatReader;
-use rustfft::{num_complex::Complex};
+use rustfft::num_complex::Complex;
 
 pub const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
   sinc_len: 256,

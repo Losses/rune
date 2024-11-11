@@ -1,8 +1,8 @@
-use analysis::computing_device::ComputingDevice;
 use log::{error, info};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
+use analysis::computing_device::ComputingDevice;
 use database::actions::analysis::{
     analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
 };

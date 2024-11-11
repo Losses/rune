@@ -7,7 +7,7 @@ macro_rules! measure_time {
         log::info!("Time cost: {:?}", duration);
         result
     }};
-    
+
     ($name:expr,$func:expr) => {{
         let start = std::time::Instant::now();
         let result = $func;
@@ -23,7 +23,7 @@ macro_rules! measure_time {
         log::info!("Time cost: {:?}", duration);
         result
     }};
-    
+
     ($name:expr, $($body:stmt)*) => {{
         let start = std::time::Instant::now();
         let result = { $($body)* };
@@ -32,4 +32,3 @@ macro_rules! measure_time {
         result
     }};
 }
-
