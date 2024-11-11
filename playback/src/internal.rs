@@ -305,6 +305,12 @@ impl PlayerInternal {
             } else {
                 index
             };
+
+            if mapped_index + 1 > self.playlist.len() {
+                warn!("Index {} exceed the boundary", mapped_index);
+                return Ok(());
+            }
+
             let item = &self.playlist[mapped_index];
             let file = File::open(item.path.clone())
                 .with_context(|| format!("Failed to open file: {:?}", item.path))?;
