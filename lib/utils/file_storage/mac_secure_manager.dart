@@ -31,7 +31,7 @@ class MacSecureManager {
 
     await _storage.initStorage;
 
-    await loadBookmark();
+    await _loadBookmark();
 
     _initialized = true;
   }
@@ -50,7 +50,7 @@ class MacSecureManager {
     await _storage.write(dir, bookmark);
   }
 
-  Future<void> loadBookmark() async {
+  Future<void> _loadBookmark() async {
     if (!isApplePlatform()) return;
 
     final secureBookmarks = SecureBookmarks();
