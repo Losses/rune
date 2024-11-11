@@ -10,6 +10,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'utils/platform.dart';
+import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
@@ -66,7 +67,7 @@ void main(List<String> arguments) async {
       appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
-    debugPrint('Device is not Windows 10, skip the patch');
+    info$('Device is not Windows 10, skip the patch');
   }
 
   final SettingsManager settingsManager = SettingsManager();

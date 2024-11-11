@@ -4,6 +4,7 @@ import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../utils/storage_key_manager.dart';
+import 'rune_log.dart';
 
 const storageName = 'rune';
 
@@ -31,8 +32,7 @@ class SettingsManager {
     if (_initialized) return;
 
     final path = await getSettingsPath();
-    // ignore: avoid_print
-    print("Initializing config file at: $path");
+    info$("Initializing config file at: $path");
 
     _storage = GetStorage(storageName, path);
 
