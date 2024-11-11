@@ -49,7 +49,7 @@ async fn main() {
         &main_db,
         &root_path,
         10,
-        ComputingDevice::Gpu.into(),
+        ComputingDevice::Gpu,
         empty_analysis_progress_callback,
         None,
     )

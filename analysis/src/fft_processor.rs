@@ -318,9 +318,9 @@ impl FFTProcessor {
             .process(&[chunk], None)
             .unwrap()[0];
 
-        self.total_rms += rms(&resampled_chunk);
-        self.total_zcr += zcr(&resampled_chunk);
-        self.total_energy += energy(&resampled_chunk);
+        self.total_rms += rms(resampled_chunk);
+        self.total_zcr += zcr(resampled_chunk);
+        self.total_energy += energy(resampled_chunk);
 
         let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
@@ -375,9 +375,9 @@ impl FFTProcessor {
             .process(&[chunk], None)
             .unwrap()[0];
 
-        self.total_rms += rms(&resampled_chunk);
-        self.total_zcr += zcr(&resampled_chunk);
-        self.total_energy += energy(&resampled_chunk);
+        self.total_rms += rms(resampled_chunk);
+        self.total_zcr += zcr(resampled_chunk);
+        self.total_energy += energy(resampled_chunk);
 
         let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
