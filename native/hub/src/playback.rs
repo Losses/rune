@@ -28,10 +28,10 @@ use crate::{
 
 pub fn files_to_playback_request(
     lib_path: &String,
-    files: &Vec<database::entities::media_files::Model>,
+    files: &[database::entities::media_files::Model],
 ) -> std::vec::Vec<(i32, std::path::PathBuf)> {
     files
-        .into_iter()
+        .iter()
         .map(|file| {
             let file_path = canonicalize(
                 Path::new(lib_path)
