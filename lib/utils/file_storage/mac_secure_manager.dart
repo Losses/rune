@@ -53,7 +53,6 @@ class MacSecureManager {
   Future<void> loadBookmark() async {
     if (!isApplePlatform()) return;
 
-    await _initFuture;
     final secureBookmarks = SecureBookmarks();
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();
