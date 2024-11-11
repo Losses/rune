@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/router/navigation.dart';
 
 import '../utils/query_list.dart';
 import '../utils/api/play_mode.dart';
@@ -29,7 +30,12 @@ class LibraryPathProvider with ChangeNotifier {
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
-      setLibraryPath(initialPath);
+      setLibraryPath(initialPath).then((result) {
+        final success = result.$1;
+        if (!success) {
+          $$replace("/");
+        }
+      });
     }
 
     getAllOpenedFiles().then((x) {
