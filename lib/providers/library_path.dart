@@ -9,6 +9,7 @@ import '../utils/file_storage/file_storage_service.dart';
 import '../utils/settings_manager.dart';
 
 import '../messages/all.dart';
+import 'status.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
 
@@ -64,7 +65,10 @@ class LibraryPathProvider with ChangeNotifier {
         operateMode: PlaylistOperateMode.Replace,
         fallbackFileIds: [],
       );
-      load(0);
+
+      final lastQueueIndex =
+          await (SettingsManager().getValue(lastQueueIndexKey));
+      load(lastQueueIndex ?? 0);
     } else {
       removeCurrentPath();
     }
