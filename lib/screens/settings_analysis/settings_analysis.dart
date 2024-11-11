@@ -17,7 +17,7 @@ class SettingsAnalysis extends StatefulWidget {
 }
 
 class _SettingsAnalysisState extends State<SettingsAnalysis> {
-  String computingDevice = "gpu";
+  String computingDevice = "cpu";
   String performanceLevel = "performance";
 
   @override
