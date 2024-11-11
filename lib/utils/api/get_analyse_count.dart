@@ -1,4 +1,4 @@
-import '../../messages/analyse.pbserver.dart';
+import '../../messages/all.dart';
 
 ifAnalyseExists(int fileId) async {
   final fetchRequest = GetAnalyseCountRequest();

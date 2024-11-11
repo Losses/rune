@@ -24,9 +24,9 @@ class TurntileGroupItemsTile<T> extends StatelessWidget {
     required this.groupIndex,
     required this.itemBuilder,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
-  }) : dimensionCalculator = dimensionCalculator ?? _defaultDimensionCalculator;
+  }) : dimensionCalculator = dimensionCalculator ?? defaultTurntileDimensionCalculator;
 
-  static Dimensions _defaultDimensionCalculator(
+  static Dimensions defaultTurntileDimensionCalculator(
     double containerWidth,
     double cellSize,
     double gapSize,

@@ -1,30 +1,26 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
-import 'package:rune/config/navigation_query.dart';
+import '../../../providers/router_path.dart';
+import '../../../utils/router/navigation.dart';
+import '../../../config/navigation_query.dart';
 
-bool navigationBackward(BuildContext context) {
-  final router = GoRouter.of(context);
-  final canPop = router.canPop();
+bool navigationBackward() {
+  final canPop = $pop();
 
   if (!canPop) {
-    final routerState = GoRouterState.of(context);
-    final path = routerState.fullPath;
+    final path = $router.path;
     final parent = navigationQuery.getParent(path, false);
     if (parent != null && parent.path != '/' && parent.path != '/home') {
-      router.go(parent.path);
+      $replace(parent.path);
     }
   }
 
-  return !canPop;
+  return canPop;
 }
 
-navigateBackwardWithPop(BuildContext context) {
-  final router = GoRouter.of(context);
-  final routerState = GoRouterState.of(context);
-
-  if (!navigationBackward(context)) {
-    router.pop();
-  } else if (routerState.path != '/library') {
-    router.go('/library');
+navigateBackwardWithPop() {
+  if (!navigationBackward()) {
+    final path = $router.path;
+    if (path != '/library') {
+      $replace('/library');
+    }
   }
 }

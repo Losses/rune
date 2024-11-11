@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../router/navigation.dart';
 import '../../widgets/playback_controller/queue.dart';
 
 Future<void> showPlayQueueDialog(
@@ -8,11 +9,9 @@ Future<void> showPlayQueueDialog(
   int? mixId,
   (String, String)? operator,
 }) async {
-  return await showDialog<void>(
-    barrierDismissible: true,
-    dismissWithEsc: true,
-    context: context,
-    builder: (context) => ContentDialog(
+  return await $showModal<void>(
+    context,
+    (context, $close) => ContentDialog(
       constraints: const BoxConstraints(maxWidth: 420, maxHeight: 600),
       title: Row(
         children: [
@@ -26,7 +25,7 @@ Future<void> showPlayQueueDialog(
               Symbols.close,
               size: 24,
             ),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => $close(null),
           ),
         ],
       ),
@@ -38,5 +37,7 @@ Future<void> showPlayQueueDialog(
         ),
       ),
     ),
+    barrierDismissible: true,
+    dismissWithEsc: true,
   );
 }

@@ -2,24 +2,20 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../utils/query_list.dart';
-import '../../utils/build_collection_query.dart';
-import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
-import '../../utils/api/fetch_mix_queries_by_mix_id.dart';
-import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/mix/remove_mix_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 
-import '../../messages/playback.pb.dart';
 import '../../messages/mix.pbserver.dart';
 import '../../messages/collection.pb.dart';
 
 import '../../providers/responsive_providers.dart';
+
+import '../execute_middle_click_action.dart';
 
 final Map<CollectionType, String> typeToOperator = {
   CollectionType.Album: "lib::album",
@@ -103,10 +99,6 @@ void openCollectionItemContextMenu(
     ancestor: Navigator.of(context).context.findRenderObject(),
   );
 
-  final queries = type == CollectionType.Mix
-      ? await fetchMixQueriesByMixId(id)
-      : buildCollectionQuery(type, id);
-
   if (!context.mounted) return;
 
   final r = Provider.of<ResponsiveProvider>(context, listen: false);
@@ -124,7 +116,6 @@ void openCollectionItemContextMenu(
           context,
           type,
           id,
-          queries,
           isBand,
         );
       },
@@ -142,7 +133,6 @@ void openCollectionItemContextMenu(
       type,
       id,
       mixes,
-      queries,
       refreshList,
       readonly,
     ),
@@ -153,8 +143,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
-  List<Mix> mixes,
-  List<(String, String)> queries, [
+  List<Mix> mixes, [
   void Function()? refreshList,
   bool? readonly,
   List<int> fallbackFileIds = const [],
@@ -185,54 +174,21 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
       leading: const Icon(Symbols.play_circle),
       text: const Text('Start Playing'),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: true,
-          operateMode: PlaylistOperateMode.Replace,
-          fallbackFileIds: fallbackFileIds,
-        );
+        startPlaying(type, id, fallbackFileIds);
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
       text: const Text('Add to Queue'),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: false,
-          operateMode: await getNonReplaceOperateMode(),
-          fallbackFileIds: [],
-        );
+        addToQueue(type, id, fallbackFileIds);
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.rocket),
       text: const Text('Start Roaming'),
       onPressed: () async {
-        final q = QueryList([
-          ...queries,
-          ("pipe::limit", "50"),
-          ("pipe::recommend", "-1"),
-        ]);
-
-        if (context.mounted) {
-          await safeOperatePlaybackWithMixQuery(
-            context: context,
-            queries: q,
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: 0,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: [],
-          );
-        }
+        startRoaming(context, type, id, fallbackFileIds);
       },
     ),
   ];
@@ -302,7 +258,6 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
-  List<(String, String)> queries,
   bool isBand, [
   List<int> fallbackFileIds = const [],
 ]) {
@@ -313,15 +268,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: Icon(Symbols.play_circle),
       ),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: true,
-          operateMode: PlaylistOperateMode.Replace,
-          fallbackFileIds: fallbackFileIds,
-        );
+        startPlaying(type, id, fallbackFileIds);
       },
     ),
     CommandBarButton(
@@ -330,15 +277,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
-        operatePlaybackWithMixQuery(
-          queries: QueryList(queries),
-          playbackMode: 99,
-          hintPosition: -1,
-          initialPlaybackId: 0,
-          instantlyPlay: false,
-          operateMode: await getNonReplaceOperateMode(),
-          fallbackFileIds: [],
-        );
+        addToQueue(type, id, fallbackFileIds);
       },
     ),
     CommandBarButton(
@@ -347,24 +286,7 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
         child: Icon(Symbols.rocket),
       ),
       onPressed: () async {
-        final q = QueryList([
-          ...queries,
-          ("pipe::limit", "50"),
-          ("pipe::recommend", "-1"),
-        ]);
-
-        if (context.mounted) {
-          await safeOperatePlaybackWithMixQuery(
-            context: context,
-            queries: q,
-            playbackMode: 99,
-            hintPosition: -1,
-            initialPlaybackId: 0,
-            instantlyPlay: true,
-            operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: [],
-          );
-        }
+        startRoaming(context, type, id, fallbackFileIds);
       },
     ),
   ];

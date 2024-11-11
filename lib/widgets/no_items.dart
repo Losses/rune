@@ -1,7 +1,11 @@
+import 'dart:math';
+
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../widgets/action_buttons.dart';
+import '../providers/responsive_providers.dart';
 
 class NoItems extends StatelessWidget {
   final String title;
@@ -21,33 +25,65 @@ class NoItems extends StatelessWidget {
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Symbols.select, size: 48),
-        const SizedBox(height: 8),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.center,
+    return DeviceTypeBuilder(
+      deviceType: const [
+        DeviceType.band,
+        DeviceType.dock,
+        DeviceType.tv,
+        DeviceType.station
+      ],
+      builder: (context, activeBreakpoint) {
+        if (activeBreakpoint == DeviceType.band ||
+            activeBreakpoint == DeviceType.dock) {
+          final size = Provider.of<ScreenSizeProvider>(context);
+          return Icon(
+            Symbols.select,
+            size: (min(size.screenSize.height, size.screenSize.width) * 0.8)
+                .clamp(0, 48),
+          );
+        }
+        return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(title, style: typography.title),
-            const SizedBox(height: 4),
-            userGenerated
-                ? const Text("Try creating your own collection")
-                : hasRecommendation
-                    ? const Text("These actions may help")
-                    : const Text("Try scanning new files"),
+            const Icon(Symbols.select, size: 48),
+            const SizedBox(height: 8),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: typography.title,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 4),
+                userGenerated
+                    ? const Text(
+                        "Try creating your own collection",
+                        textAlign: TextAlign.center,
+                      )
+                    : hasRecommendation
+                        ? const Text(
+                            "These actions may help",
+                            textAlign: TextAlign.center,
+                          )
+                        : const Text(
+                            "Try scanning new files",
+                            textAlign: TextAlign.center,
+                          ),
+              ],
+            ),
+            if (!userGenerated) ...[
+              const SizedBox(height: 24),
+              ActionButtons(
+                reloadData: reloadData,
+                hasRecommendation: hasRecommendation,
+              ),
+            ]
           ],
-        ),
-        if (!userGenerated) ...[
-          const SizedBox(height: 24),
-          ActionButtons(
-            reloadData: reloadData,
-            hasRecommendation: hasRecommendation,
-          ),
-        ]
-      ],
+        );
+      },
     );
   }
 }

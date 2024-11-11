@@ -1,19 +1,25 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/ax_shadow.dart';
 import '../../utils/settings_manager.dart';
+import '../../utils/update_color_mode.dart';
+import '../../utils/theme_color_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
+import '../../widgets/settings/settings_block_title.dart';
+import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
-import '../settings_playback/widgets/settings_block.dart';
-import '../settings_playback/widgets/settings_block_title.dart';
-
+const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
+const enableDynamicColorsKey = 'enable_dynamic_color';
 
 final settingsManager = SettingsManager();
 
@@ -100,6 +106,8 @@ class SettingsTheme extends StatefulWidget {
 class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
   bool? disableBrandingAnimation;
+  bool? enableDynamicColors;
+  String colorMode = "system";
 
   @override
   void initState() {
@@ -109,22 +117,44 @@ class _SettingsThemeState extends State<SettingsTheme> {
 
   Future<void> _loadSettings() async {
     final int? storedTheme = await settingsManager.getValue<int>(themeColorKey);
+    final String? storedColorMode =
+        await settingsManager.getValue<String>(colorModeKey);
     final bool? storedDisableBrandingAnimation =
         await settingsManager.getValue<bool>(disableBrandingAnimationKey);
+    final bool? storedEnableDynamicColors =
+        await settingsManager.getValue<bool>(enableDynamicColorsKey);
 
-    if (storedTheme != null) {
-      setState(() {
+    setState(() {
+      if (storedTheme != null) {
         themeColor = Color(storedTheme);
+      }
+      if (storedColorMode != null) {
+        colorMode = storedColorMode;
+      }
+      if (disableBrandingAnimation != null) {
         disableBrandingAnimation = storedDisableBrandingAnimation;
-      });
-    }
+      }
+      if (storedEnableDynamicColors != null) {
+        enableDynamicColors = storedEnableDynamicColors;
+      }
+    });
+  }
+
+  void _updateWindowEffect() {
+    if (Platform.isLinux) return;
+    if (Platform.isAndroid) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        appTheme.setEffect(context);
+      }
+    });
   }
 
   Future<void> _updateThemeColor(Color? newThemeColor) async {
     setState(() {
       themeColor = newThemeColor;
-
-      appTheme.updateThemeColor(themeColor);
+      ThemeColorManager().updateUserSelectedColor(newThemeColor);
     });
 
     if (newThemeColor == null) {
@@ -134,14 +164,59 @@ class _SettingsThemeState extends State<SettingsTheme> {
     }
   }
 
+  void _handleDynamicColorToggle(bool value) async {
+    await settingsManager.setValue(enableDynamicColorsKey, value);
+
+    setState(() {
+      enableDynamicColors = value;
+    });
+
+    ThemeColorManager().updateDynamicColorSetting(value);
+  }
+
+  Future<void> _updateColorModeSetting(String newMode) async {
+    setState(() {
+      colorMode = newMode;
+
+      updateColorMode(colorMode);
+      _updateWindowEffect();
+    });
+    await SettingsManager().setValue(colorModeKey, newMode);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SingleChildScrollView(
+          padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
               children: [
+                SettingsBoxComboBox(
+                  title: "Color Mode",
+                  subtitle: "Change the color mode that appears in Rune.",
+                  value: colorMode,
+                  items: const [
+                    SettingsBoxComboBoxItem(
+                      value: "system",
+                      title: "System",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "dark",
+                      title: "Dark",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "light",
+                      title: "Light",
+                    ),
+                  ],
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _updateColorModeSetting(newValue);
+                    }
+                  },
+                ),
                 Padding(
                   padding: const EdgeInsets.all(4),
                   child: Expander(
@@ -199,22 +274,34 @@ class _SettingsThemeState extends State<SettingsTheme> {
                     ),
                   ),
                 ),
-                SettingsBlock(
+                SettingsBoxToggle(
+                  title: "Dynamic Colors",
+                  subtitle:
+                      "Adjust Rune's theme colors based on the cover art of the playing track.",
+                  value: enableDynamicColors ?? false,
+                  onChanged: (value) {
+                    settingsManager.setValue(
+                      enableDynamicColorsKey,
+                      !value,
+                    );
+
+                    _handleDynamicColorToggle(value);
+                  },
+                ),
+                SettingsBoxToggle(
                   title: "Branding Animation",
                   subtitle: "Play branding animation when Rune starts.",
-                  child: ToggleSwitch(
-                    checked: !(disableBrandingAnimation ?? false),
-                    onChanged: (value) {
-                      settingsManager.setValue(
-                        disableBrandingAnimationKey,
-                        !value,
-                      );
+                  value: !(disableBrandingAnimation ?? false),
+                  onChanged: (value) {
+                    settingsManager.setValue(
+                      disableBrandingAnimationKey,
+                      !value,
+                    );
 
-                      setState(() {
-                        disableBrandingAnimation = !value;
-                      });
-                    },
-                  ),
+                    setState(() {
+                      disableBrandingAnimation = !value;
+                    });
+                  },
                 ),
               ],
             ),

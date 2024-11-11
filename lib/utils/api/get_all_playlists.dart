@@ -1,4 +1,4 @@
-import 'package:rune/messages/playlist.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<List<Playlist>> getAllPlaylists() async {
   final fetchRequest = FetchAllPlaylistsRequest();

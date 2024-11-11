@@ -138,6 +138,21 @@ impl Player {
             while let Some(event) = event_receiver.blocking_recv() {
                 let mut status = status_clone.lock().unwrap();
                 match event {
+                    PlayerEvent::Loaded {
+                        id,
+                        index,
+                        path,
+                        playback_mode,
+                        position,
+                    } => {
+                        status.id = Some(id);
+                        status.index = Some(index);
+                        status.path = Some(path);
+                        status.playback_mode = playback_mode;
+                        status.position = position;
+                        status.ready = true;
+                        status.state = PlaybackState::Paused;
+                    }
                     PlayerEvent::Playing {
                         id,
                         index,

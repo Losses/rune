@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -10,13 +8,13 @@ enum DeviceOrientation {
 
 enum DeviceType {
   dock(
-    priority: 3,
+    priority: 5,
     orientation: DeviceOrientation.vertical,
     start: 0,
     end: 120,
   ),
   zune(
-    priority: 3,
+    priority: 4,
     orientation: DeviceOrientation.vertical,
     start: 121,
     end: 340,
@@ -52,19 +50,19 @@ enum DeviceType {
     end: double.infinity,
   ),
   band(
-    priority: 4,
+    priority: 6,
     orientation: DeviceOrientation.horizontal,
     start: 0,
-    end: 120,
+    end: 148,
   ),
   belt(
-    priority: 4,
+    priority: 5,
     orientation: DeviceOrientation.horizontal,
-    start: 121,
+    start: 149,
     end: 240,
   ),
   fish(
-    priority: 4,
+    priority: 3,
     orientation: DeviceOrientation.horizontal,
     start: 241,
     end: 300,
@@ -134,9 +132,6 @@ enum DeviceType {
 
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   Size _screenSize = Size.zero;
-  DateTime? _lastUpdateTime;
-  Timer? _throttleTimer;
-
   ScreenSizeProvider() {
     WidgetsBinding.instance.addObserver(this);
     _updateScreenSize();
@@ -147,21 +142,7 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeMetrics() {
     super.didChangeMetrics();
-
-    final now = DateTime.now();
-    if (_lastUpdateTime == null ||
-        now.difference(_lastUpdateTime!) >= const Duration(milliseconds: 100)) {
-      _updateScreenSize();
-      _lastUpdateTime = now;
-    } else {
-      _throttleTimer?.cancel();
-      _throttleTimer = Timer(
-        Duration(
-            milliseconds:
-                100 - now.difference(_lastUpdateTime!).inMilliseconds),
-        _updateScreenSize,
-      );
-    }
+    _updateScreenSize();
   }
 
   void _updateScreenSize() {
@@ -176,7 +157,6 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _throttleTimer?.cancel();
     super.dispose();
   }
 }
@@ -412,6 +392,31 @@ class GreaterOrEqualToScreenSize extends StatelessWidget {
         return size >= minSize;
       },
       builder: (context, isGreater, child) => builder(context, isGreater),
+    );
+  }
+}
+
+bool smallerThanWatch(Size size) {
+  return size.width <= 64 || size.height <= 64;
+}
+
+class SmallerOrEqualThanWatch extends StatelessWidget {
+  final Widget Function(BuildContext context, bool isWatch) builder;
+
+  const SmallerOrEqualThanWatch({
+    super.key,
+    required this.builder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Selector<ScreenSizeProvider, bool>(
+      selector: (_, screenSizeProvider) {
+        final width = screenSizeProvider.screenSize.width;
+        final height = screenSizeProvider.screenSize.height;
+        return width <= 64 || height <= 64;
+      },
+      builder: (context, isWatch, child) => builder(context, isWatch),
     );
   }
 }

@@ -6,7 +6,6 @@ import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
-
 enum NavigationIndicators { sticky, end }
 
 class AppTheme extends ChangeNotifier {
@@ -48,8 +47,10 @@ class AppTheme extends ChangeNotifier {
   ThemeMode _mode = ThemeMode.system;
   ThemeMode get mode => _mode;
   set mode(ThemeMode mode) {
-    _mode = mode;
-    notifyListeners();
+    if (_mode != mode) {
+      _mode = mode;
+      notifyListeners();
+    }
   }
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
@@ -72,7 +73,9 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEffect(FluentThemeData theme) {
+  void setEffect(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     Window.setEffect(
       effect: windowEffect,
       color: windowEffect != WindowEffect.mica
@@ -90,13 +93,13 @@ AccentColor get systemAccentColor {
           defaultTargetPlatform == TargetPlatform.android) &&
       !kIsWeb) {
     return AccentColor.swatch({
-      'darkest': SystemTheme.accentColor.darkest,
-      'darker': SystemTheme.accentColor.darker,
-      'dark': SystemTheme.accentColor.dark,
-      'normal': SystemTheme.accentColor.accent,
-      'light': SystemTheme.accentColor.light,
-      'lighter': SystemTheme.accentColor.lighter,
-      'lightest': SystemTheme.accentColor.lightest,
+      'darkest': SystemTheme.accentColor.darkest.withAlpha(255),
+      'darker': SystemTheme.accentColor.darker.withAlpha(255),
+      'dark': SystemTheme.accentColor.dark.withAlpha(255),
+      'normal': SystemTheme.accentColor.accent.withAlpha(255),
+      'light': SystemTheme.accentColor.light.withAlpha(255),
+      'lighter': SystemTheme.accentColor.lighter.withAlpha(255),
+      'lightest': SystemTheme.accentColor.lightest.withAlpha(255),
     });
   }
   return Colors.blue;

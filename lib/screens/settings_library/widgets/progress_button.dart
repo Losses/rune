@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 class ProgressButton extends StatelessWidget {
-  final Widget Function()? onPressed;
+  final void Function()? onPressed;
   final double? progress;
 
   const ProgressButton({

@@ -1,7 +1,10 @@
 use anyhow::Result;
+use tokio_util::sync::CancellationToken;
 
+use crate::computing_device::ComputingDevice;
 use crate::features::*;
-use crate::fft::*;
+use crate::fft_processor;
+use crate::measure_time;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioStat {
@@ -42,9 +45,20 @@ pub fn analyze_audio(
     file_path: &str,
     window_size: usize,
     overlap_size: usize,
-) -> Result<AnalysisResult> {
-    // Perform FFT on the audio file to get the spectrum
-    let audio_desc = fft(file_path, window_size, overlap_size);
+    computing_device: ComputingDevice,
+    cancel_token: Option<CancellationToken>,
+) -> Result<Option<AnalysisResult>> {
+    let audio_desc = if computing_device == ComputingDevice::Gpu {
+        measure_time!("GPU FFT", fft_processor::gpu_fft(file_path, window_size, 1024 * 8, overlap_size, cancel_token))
+    } else {
+        measure_time!("CPU FFT", fft_processor::cpu_fft(file_path, window_size, overlap_size, cancel_token))
+    };
+
+    if audio_desc.is_none() {
+        return Ok(None);
+    };
+
+    let audio_desc = audio_desc.expect("Audio desc should not be none");
 
     let amp_spectrum = amp_spectrum(&audio_desc.spectrum, window_size);
 
@@ -87,7 +101,7 @@ pub fn analyze_audio(
         .expect("Expected a Vec of length 13");
 
     // Create and return the analysis result
-    Ok(AnalysisResult {
+    Ok(Some(AnalysisResult {
         stat: AudioStat {
             sample_rate: audio_desc.sample_rate,
             duration: audio_desc.duration,
@@ -113,7 +127,7 @@ pub fn analyze_audio(
         perceptual_spread,
         perceptual_sharpness,
         mfcc,
-    })
+    }))
 }
 
 #[derive(Debug, Clone, Copy)]

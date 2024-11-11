@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use log::debug;
+use log::{debug, info, warn};
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 use tokio::task;
@@ -71,58 +71,76 @@ pub async fn scan_audio_library_request(
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             let path = request.path.clone();
-            let file_processed = scan_audio_library(
-                &main_db_clone,
-                Path::new(&path.clone()),
-                true,
-                |progress| {
-                    ScanAudioLibraryProgress {
-                        task: 0,
-                        path: path.clone(),
-                        progress: progress.try_into().unwrap(),
-                        total: 0,
+            let result: Result<()> = async {
+                let file_processed = scan_audio_library(
+                    &main_db_clone,
+                    Path::new(&path.clone()),
+                    true,
+                    |progress| {
+                        ScanAudioLibraryProgress {
+                            task: 0,
+                            path: path.clone(),
+                            progress: progress.try_into().unwrap(),
+                            total: 0,
+                        }
+                        .send_signal_to_dart()
+                    },
+                    Some(new_token.clone()),
+                )
+                .await?;
+
+                if new_token.is_cancelled() {
+                    info!("Operation cancelled during artist processing.");
+
+                    ScanAudioLibraryResponse {
+                        path: request.path.clone(),
+                        progress: -1,
                     }
-                    .send_signal_to_dart()
-                },
-                Some(new_token.clone()),
-            )
-            .await
-            .unwrap();
+                    .send_signal_to_dart();
 
-            let batch_size = determine_batch_size();
+                    return Ok(());
+                }
 
-            scan_cover_arts(
-                &main_db_clone,
-                Path::new(&path.clone()),
-                batch_size,
-                move |now, total| {
-                    ScanAudioLibraryProgress {
-                        task: 1,
-                        path: path.clone(),
-                        progress: now.try_into().unwrap(),
-                        total: total.try_into().unwrap(),
-                    }
-                    .send_signal_to_dart()
-                },
-                None,
-            )
-            .await
-            .unwrap();
+                let batch_size = determine_batch_size(0.75);
 
-            ScanAudioLibraryResponse {
-                path: request.path.clone(),
-                progress: file_processed as i32,
+                scan_cover_arts(
+                    &main_db_clone,
+                    Path::new(&path.clone()),
+                    batch_size,
+                    move |now, total| {
+                        ScanAudioLibraryProgress {
+                            task: 1,
+                            path: path.clone(),
+                            progress: now.try_into().unwrap(),
+                            total: total.try_into().unwrap(),
+                        }
+                        .send_signal_to_dart()
+                    },
+                    None,
+                )
+                .await?;
+
+                ScanAudioLibraryResponse {
+                    path: request.path.clone(),
+                    progress: file_processed as i32,
+                }
+                .send_signal_to_dart();
+
+                Ok(())
             }
-            .send_signal_to_dart();
-        });
+            .await;
+
+            result?;
+            Ok::<(), anyhow::Error>(())
+        })
     });
 
     Ok(())
 }
 
-pub fn determine_batch_size() -> usize {
+pub fn determine_batch_size(workload_factor: f32) -> usize {
     let num_cores = num_cpus::get();
-    let batch_size = num_cores / 4 * 3;
+    let batch_size = ((num_cores as f32) * workload_factor).round() as usize;
     let min_batch_size = 1;
     let max_batch_size = 1000;
 
@@ -152,7 +170,7 @@ pub async fn analyse_audio_library_request(
 
     let request_path = request.path.clone();
     let closure_request_path = request_path.clone();
-    let batch_size = determine_batch_size();
+    let batch_size = determine_batch_size(request.workload_factor);
 
     task::spawn_blocking(move || {
         let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -162,6 +180,7 @@ pub async fn analyse_audio_library_request(
                     &main_db,
                     Path::new(&request_path),
                     batch_size,
+                    request.computing_device.into(),
                     move |progress, total| {
                         AnalyseAudioLibraryProgress {
                             path: closure_request_path.clone(),
@@ -209,6 +228,7 @@ pub async fn cancel_task_request(
     let success = match request.r#type {
         0 => {
             if let Some(token) = tokens.analyse_token.take() {
+                warn!("Cancelling analyse task");
                 token.cancel();
                 true
             } else {
@@ -217,6 +237,7 @@ pub async fn cancel_task_request(
         }
         1 => {
             if let Some(token) = tokens.scan_token.take() {
+                warn!("Cancelling scan task");
                 token.cancel();
                 true
             } else {

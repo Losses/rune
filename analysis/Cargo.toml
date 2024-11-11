@@ -15,3 +15,12 @@ log = "0.4.22"
 rubato = "0.15.0"
 rustfft = "6.2.0"
 symphonia = "0.5.4"
+wgpu = "23.0.0" 
+pollster = "0.4.0"
+bytemuck = "1.19.0"
+num-complex = { version = "0.4.6", features = ["bytemuck"] }
+futures = "0.3.31"
+tokio-util = "0.7.11"
+rand = "0.8.5"
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
+tracing-subscriber = "0.3.18"

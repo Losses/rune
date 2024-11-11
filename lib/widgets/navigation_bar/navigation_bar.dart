@@ -1,12 +1,14 @@
-import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
 import '../../config/navigation_query.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
+import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'parent_link.dart';
@@ -16,58 +18,50 @@ import 'flip_animation_manager.dart';
 const List<NavigationItem> emptySlibings = [];
 
 class NavigationBar extends StatefulWidget {
-  final String defaultPath;
+  final String? path;
 
-  const NavigationBar({super.key, this.defaultPath = "/"});
+  const NavigationBar({super.key, required this.path});
 
   @override
   NavigationBarState createState() => NavigationBarState();
 }
 
 class NavigationBarState extends State<NavigationBar> {
-  String? _previousPath;
-  bool initialized = false;
-
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void didUpdateWidget(covariant NavigationBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
 
-    if (!initialized) {
-      final path = GoRouterState.of(context).fullPath;
-      _previousPath = path;
-      initialized = true;
-    } else {
-      _onRouteChanged();
+    if (oldWidget.path != widget.path) {
+      _onRouteChanged(oldWidget.path, widget.path);
     }
   }
 
-  void _onRouteChanged() {
-    final path = GoRouterState.of(context).fullPath;
-
-    if (_previousPath != null && path != _previousPath) {
-      final previousItem = navigationQuery.getItem(_previousPath, false);
-      final currentItem = navigationQuery.getItem(path, false);
+  void _onRouteChanged(String? previousPath, String? currentPath) {
+    if (previousPath != null && currentPath != previousPath) {
+      final previousItem = navigationQuery.getItem(previousPath, false);
+      final currentItem = navigationQuery.getItem(currentPath, false);
 
       if (previousItem != null && currentItem != null) {
-        if (navigationQuery.getParent(path, false)?.path == _previousPath) {
+        if (navigationQuery.getParent(currentPath, false)?.path ==
+            previousPath) {
           // parent to child
           playFlipAnimation(
-              context, 'child:$_previousPath', 'title:$_previousPath');
-        } else if (navigationQuery.getParent(_previousPath, false)?.path ==
-            path) {
+              context, 'child:$previousPath', 'title:$previousPath');
+        } else if (navigationQuery.getParent(previousPath, false)?.path ==
+            currentPath) {
           // child to parent
-          playFlipAnimation(context, 'title:$path', 'child:$path');
+          playFlipAnimation(
+              context, 'title:$currentPath', 'child:$currentPath');
         } else {}
       }
     }
-
-    _previousPath = path;
   }
 
   void _onRouteSelected(NavigationItem route) {
-    if (route.path == _previousPath) return;
+    final currentPath = $router.path;
+    if (route.path == currentPath) return;
 
-    GoRouter.of(context).replace(route.path);
+    $replace(route.path);
   }
 
   void _onHeaderTap(BuildContext context, NavigationItem? item) {
@@ -75,7 +69,7 @@ class NavigationBarState extends State<NavigationBar> {
 
     setState(() {
       if (item != null) {
-        context.go(item.path);
+        $replace(item.path);
       }
     });
   }
@@ -90,7 +84,8 @@ class NavigationBarState extends State<NavigationBar> {
     return SmallerOrEqualTo(
       deviceType: DeviceType.zune,
       builder: (context, isZune) {
-        final path = GoRouterState.of(context).fullPath;
+        final path = Provider.of<RouterPathProvider>(context).path;
+
         final item = navigationQuery.getItem(path, isZune);
         final parent = navigationQuery.getParent(path, isZune);
         final slibings = navigationQuery
@@ -160,9 +155,9 @@ class NavigationBarState extends State<NavigationBar> {
                       final index = entry.key;
                       final isCurrent = currentItemIndex == index;
 
-                      final int? delay = !isCurrent
+                      final int delay = !isCurrent
                           ? ((index - currentItemIndex).abs() * 100)
-                          : null;
+                          : 0;
 
                       return SlibingLink(
                         key: ValueKey('${parent?.path}/${route.path}'),
@@ -207,10 +202,7 @@ class NavigationBarState extends State<NavigationBar> {
                     size: 24,
                   ),
                   onPressed: () => {
-                    if (isSearch)
-                      {escapeFromSearch(context)}
-                    else
-                      {context.push('/search')}
+                    if (isSearch) {escapeFromSearch()} else {$push('/search')}
                   },
                 ),
               ),

@@ -6,6 +6,9 @@ use anyhow::Context;
 use anyhow::Result;
 use chrono::Utc;
 use log::warn;
+use migration::ExprTrait;
+use migration::Func;
+use migration::SimpleExpr;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::Condition;
 use sea_orm::sea_query::Expr;
@@ -17,6 +20,7 @@ use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySel
 use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
+use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
@@ -278,8 +282,11 @@ enum QueryOperator {
     LibAlbum(i32),
     LibPlaylist(i32),
     LibTrack(i32),
+    LibRandom(i32),
+    LibQueue(bool),
     LibDirectoryDeep(String),
     LibDirectoryShallow(String),
+    SortTrackNumber(bool),
     SortLastModified(bool),
     SortDuration(bool),
     SortPlayedthrough(bool),
@@ -414,8 +421,17 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
         "lib::track" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibTrack)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "lib::random" => parse_parameter::<i32>(parameter, operator)
+            .map(QueryOperator::LibRandom)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "lib::queue" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::LibQueue)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::directory.deep" => QueryOperator::LibDirectoryDeep(parameter.clone()),
         "lib::directory.shallow" => QueryOperator::LibDirectoryShallow(parameter.clone()),
+        "sort::track_number" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::SortTrackNumber)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "sort::last_modified" => parse_parameter::<bool>(parameter, operator)
             .map(QueryOperator::SortLastModified)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
@@ -447,21 +463,32 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
 fn apply_join_filter(
     query: Select<media_files::Entity>,
     filter_liked: Option<bool>,
+    sort_track_number: Option<bool>,
     sort_playedthrough_asc: Option<bool>,
     sort_skipped_asc: Option<bool>,
 ) -> Select<media_files::Entity> {
+    let mut _query = query;
     if filter_liked.is_some() || sort_playedthrough_asc.is_some() || sort_skipped_asc.is_some() {
-        query
+        _query = _query
             .join(
                 JoinType::LeftJoin,
                 media_file_stats::Relation::MediaFiles.def().rev(),
             )
             .column(media_file_stats::Column::Liked)
             .column(media_file_stats::Column::PlayedThrough)
-            .column(media_file_stats::Column::Skipped)
-    } else {
-        query
+            .column(media_file_stats::Column::Skipped);
     }
+
+    if sort_track_number.is_some() {
+        _query = _query
+            .join(
+                JoinType::LeftJoin,
+                media_file_albums::Relation::MediaFiles.def().rev(),
+            )
+            .column(media_file_albums::Column::TrackNumber);
+    }
+
+    _query
 }
 
 // Macro to handle sorting
@@ -469,16 +496,6 @@ macro_rules! apply_sorting_macro {
     ($query:expr, $column:expr, $sort_option:expr) => {
         if let Some(asc) = $sort_option {
             $query = $query.order_by($column, if asc { Order::Asc } else { Order::Desc });
-        }
-    };
-}
-
-// Macro to handle cursor sorting
-macro_rules! apply_cursor_sorting_macro {
-    ($query:expr, $cursor_by:expr, $column:expr, $sort_option:expr, $final_asc:expr) => {
-        if let Some(asc) = $sort_option {
-            $cursor_by = $query.clone().cursor_by($column);
-            $final_asc = asc;
         }
     };
 }
@@ -494,7 +511,7 @@ macro_rules! add_subquery_filter {
                 .into_query();
 
             $or_condition =
-                $or_condition.add(Expr::col(media_files::Column::Id).in_subquery(subquery));
+                $or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
         }
     };
 }
@@ -512,9 +529,12 @@ pub async fn query_mix_media_files(
     let mut album_ids: Vec<i32> = vec![];
     let mut playlist_ids: Vec<i32> = vec![];
     let mut track_ids: Vec<i32> = vec![];
+    let mut random_count: Vec<i32> = vec![];
     let mut directories_deep: Vec<String> = vec![];
     let mut directories_shallow: Vec<String> = vec![];
+    let mut playback_queue: Option<bool> = None;
 
+    let mut sort_track_number_asc: Option<bool> = None;
     let mut sort_last_modified_asc: Option<bool> = None;
     let mut sort_duration_asc: Option<bool> = None;
     let mut sort_playedthrough_asc: Option<bool> = None;
@@ -532,8 +552,11 @@ pub async fn query_mix_media_files(
             QueryOperator::LibAlbum(id) => album_ids.push(id),
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
             QueryOperator::LibTrack(id) => track_ids.push(id),
+            QueryOperator::LibRandom(count) => random_count.push(count),
+            QueryOperator::LibQueue(enabled) => playback_queue = Some(enabled),
             QueryOperator::LibDirectoryDeep(dir) => directories_deep.push(dir),
             QueryOperator::LibDirectoryShallow(dir) => directories_shallow.push(dir),
+            QueryOperator::SortTrackNumber(asc) => sort_track_number_asc = Some(asc),
             QueryOperator::SortLastModified(asc) => sort_last_modified_asc = Some(asc),
             QueryOperator::SortDuration(asc) => sort_duration_asc = Some(asc),
             QueryOperator::SortPlayedthrough(asc) => sort_playedthrough_asc = Some(asc),
@@ -589,7 +612,13 @@ pub async fn query_mix_media_files(
 
     // Filter by track_ids if provided
     if !track_ids.is_empty() {
-        or_condition = or_condition.add(Expr::col(media_files::Column::Id).is_in(track_ids));
+        let subquery = media_files::Entity::find()
+            .select_only()
+            .filter(media_files::Column::Id.is_in(track_ids))
+            .column(media_files::Column::Id)
+            .into_query();
+
+        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
     }
 
     // Filter by directories if provided
@@ -618,10 +647,36 @@ pub async fn query_mix_media_files(
         or_condition = or_condition.add(dir_conditions);
     }
 
+    // Filter by random tracks if provided
+    if !random_count.is_empty() {
+        let subquery = media_files::Entity::find()
+            .select_only()
+            .order_by(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+            .limit(*random_count.iter().max().unwrap_or(&30) as u64)
+            .column(media_files::Column::Id)
+            .into_query();
+
+        or_condition = or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+    }
+
+    if let Some(queue_enabled) = playback_queue {
+        if queue_enabled {
+            let queued_tracks = list_playback_queue(main_db).await?;
+
+            let subquery = media_files::Entity::find()
+                .select_only()
+                .filter(media_files::Column::Id.is_in(queued_tracks))
+                .column(media_files::Column::Id)
+                .into_query();
+
+            or_condition =
+                or_condition.add(Expr::cust("\"media_files\".\"id\"").in_subquery(subquery));
+        }
+    }
+
     let has_liked = filter_liked.is_some();
     let has_cover_art = filter_cover_art.is_some();
 
-    // if let Some(liked) = filter_liked {
     if has_liked || has_cover_art {
         let mut filter = Condition::all();
 
@@ -666,6 +721,7 @@ pub async fn query_mix_media_files(
     query = apply_join_filter(
         query,
         filter_liked,
+        sort_track_number_asc,
         sort_playedthrough_asc,
         sort_skipped_asc,
     );
@@ -677,6 +733,13 @@ pub async fn query_mix_media_files(
             sort_last_modified_asc
         );
         apply_sorting_macro!(query, media_files::Column::Duration, sort_duration_asc);
+
+        if let Some(asc) = sort_track_number_asc {
+            query = query.order_by(
+                media_file_albums::Column::TrackNumber,
+                if asc { Order::Asc } else { Order::Desc },
+            );
+        }
 
         if let Some(asc) = sort_playedthrough_asc {
             query = query.order_by(
@@ -747,38 +810,40 @@ pub async fn query_mix_media_files(
         return Ok(ordered_files);
     }
 
-    // Use cursor pagination
-    let mut cursor_by = query.clone().cursor_by(media_files::Column::Id);
-    let mut final_asc = true;
+    if let Some(asc) = sort_track_number_asc {
+        query = query.order_by(
+            media_file_albums::Column::TrackNumber,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
 
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_files::Column::LastModified,
-        sort_last_modified_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_files::Column::Duration,
-        sort_duration_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_file_stats::Column::PlayedThrough,
-        sort_playedthrough_asc,
-        final_asc
-    );
-    apply_cursor_sorting_macro!(
-        query,
-        cursor_by,
-        media_file_stats::Column::Skipped,
-        sort_skipped_asc,
-        final_asc
-    );
+    if let Some(asc) = sort_last_modified_asc {
+        query = query.order_by(
+            media_files::Column::LastModified,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_duration_asc {
+        query = query.order_by(
+            media_files::Column::Duration,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_playedthrough_asc {
+        query = query.order_by(
+            media_file_stats::Column::PlayedThrough,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
+
+    if let Some(asc) = sort_skipped_asc {
+        query = query.order_by(
+            media_file_stats::Column::Skipped,
+            if asc { Order::Asc } else { Order::Desc },
+        );
+    }
 
     if let Some(limit) = pipe_limit {
         if cursor as u64 >= limit {
@@ -792,16 +857,12 @@ pub async fn query_mix_media_files(
         page_size as u64
     };
 
-    let media_files = (if final_asc {
-        cursor_by.after(cursor as i32).first(final_page_size)
-    } else {
-        cursor_by
-            .desc()
-            .before(cursor as i32)
-            .first(final_page_size)
-    })
-    .all(main_db)
-    .await?;
+    let media_files = query
+        .offset(Some(cursor as u64))
+        .limit(final_page_size)
+        .all(main_db)
+        .await
+        .unwrap();
 
     Ok(media_files)
 }

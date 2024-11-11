@@ -1,21 +1,27 @@
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/router/navigation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/band_link_tile.dart';
 import '../../providers/responsive_providers.dart';
+
+import '../navigation_bar/page_content_frame.dart';
 
 class BandLinkTileList extends StatelessWidget {
   const BandLinkTileList({
     super.key,
     required this.links,
+    required this.topPadding,
+    this.leadingItem,
   });
 
   final List<(String, String, IconData, bool)> links;
+  final bool topPadding;
+  final Widget? leadingItem;
 
   @override
   Widget build(BuildContext context) {
-    final children = links
+    List<Widget> children = links
         .map(
           (item) => Padding(
             padding: const EdgeInsets.symmetric(
@@ -27,7 +33,7 @@ class BandLinkTileList extends StatelessWidget {
               child: BandLinkTile(
                 title: item.$1,
                 onPressed: () {
-                  context.push(item.$2);
+                  $push(item.$2);
                 },
                 icon: item.$3,
               ),
@@ -36,11 +42,16 @@ class BandLinkTileList extends StatelessWidget {
         )
         .toList();
 
+    if (leadingItem != null) {
+      children = [leadingItem!, ...children];
+    }
+
     return DeviceTypeBuilder(
       deviceType: const [DeviceType.band, DeviceType.dock, DeviceType.tv],
       builder: (context, deviceType) {
         if (deviceType == DeviceType.dock) {
           return SingleChildScrollView(
+            padding: getScrollContainerPadding(context, top: topPadding),
             child: Column(
               children: children,
             ),
@@ -51,6 +62,7 @@ class BandLinkTileList extends StatelessWidget {
           builder: (context, controller) {
             return SingleChildScrollView(
               controller: controller,
+              padding: getScrollContainerPadding(context, top: topPadding),
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: children,

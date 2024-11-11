@@ -3,12 +3,14 @@ use std::path::Path;
 use anyhow::Result;
 use image::{GenericImageView, ImageBuffer, Pixel};
 use lofty::file::TaggedFileExt;
+use palette_extract::{get_palette_rgb, Color};
 
 use crate::crc::media_crc32;
 
 pub struct CoverArt {
     pub crc: String,
     pub data: Vec<u8>,
+    pub primary_color: i32,
 }
 
 fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
@@ -31,6 +33,29 @@ fn decode_image(image_data: &[u8]) -> Result<Vec<u8>> {
     let rgb_sequence: Vec<u8> = rgb_image.into_raw();
 
     Ok(rgb_sequence)
+}
+
+pub fn get_primary_color(x: &[u8]) -> Option<i32> {
+    if x.is_empty() {
+        return None;
+    }
+    let decoded_image = decode_image(x);
+    match decoded_image {
+        Ok(x) => {
+            let primary_color = get_palette_rgb(&x)[0];
+            Some(color_to_int(&primary_color))
+        }
+        Err(_) => None,
+    }
+}
+
+pub fn color_to_int(color: &Color) -> i32 {
+    let alpha: i32 = 0xFF;
+    let r: i32 = (color.r as i32) & 0xFF;
+    let g: i32 = (color.g as i32) & 0xFF;
+    let b: i32 = (color.b as i32) & 0xFF;
+
+    (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
 pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {
@@ -56,6 +81,7 @@ pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {
 
     // Calculate the CRC
     let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
+    let primary_color = get_palette_rgb(&rgb_sequence)[0];
 
     if crc == 0 {
         return None;
@@ -66,5 +92,6 @@ pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {
     Some(CoverArt {
         crc: crc_string,
         data: cover_data,
+        primary_color: color_to_int(&primary_color),
     })
 }

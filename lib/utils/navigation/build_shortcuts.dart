@@ -6,14 +6,13 @@ import '../../config/navigation.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 
 import 'back_intent.dart';
-import 'escape_intent.dart';
 import 'navigation_item.dart';
 import 'navigation_intent.dart';
 
 Map<SingleActivator, Intent> buildShortcuts() {
   final shortcuts = <SingleActivator, Intent>{
     const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
-    const SingleActivator(LogicalKeyboardKey.escape): const EscapeIntent(),
+    const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
     const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
   };
 
@@ -41,4 +40,19 @@ Map<SingleActivator, Intent> buildShortcuts() {
   }
 
   return shortcuts;
+}
+
+Map<SingleActivator, Intent> buildNoShortcuts(Map<SingleActivator, Intent> x) {
+  final Map<SingleActivator, Intent> result = {};
+
+  for (final entry in x.entries) {
+    result[entry.key] = const DoNothingAndStopPropagationTextIntent();
+  }
+
+  result[const SingleActivator(LogicalKeyboardKey.backspace)] =
+      const DeleteCharacterIntent(forward: false);
+  result[const SingleActivator(LogicalKeyboardKey.escape)] =
+      const DismissIntent();
+
+  return result;
 }

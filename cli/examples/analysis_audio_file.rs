@@ -1,18 +1,26 @@
-use analysis::analysis::{analyze_audio, normalize_analysis_result};
+use analysis::{analysis::{analyze_audio, normalize_analysis_result}, computing_device::ComputingDevice};
 
 fn main() {
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("file path not provided");
 
-    // Process the audio file and perform FFT using Overlap-Save method.
-    let analysis_result = match analyze_audio(path, 4096, 4096 / 2) {
-        Ok(x) => normalize_analysis_result(&x),
+    let result = analyze_audio(path, 4096, 4096 / 2, ComputingDevice::Gpu.into(), None);
+
+    let analysis_result = match result {
+        Ok(x) =>
+        // Process the audio file and perform FFT using Overlap-Save method.
+        {
+            if let Some(x) = x {
+                normalize_analysis_result(&x)
+            } else {
+                panic!("Analysis canceled");
+            }
+        }
         Err(e) => {
             println!("Error: {}", e);
             panic!("Unable to analysis the track");
-
-        },
+        }
     };
 
     println!("{:#?}", analysis_result);

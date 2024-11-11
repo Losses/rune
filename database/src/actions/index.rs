@@ -1,7 +1,8 @@
+use anyhow::Result;
 use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
-use anyhow::Result;
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::search::{add_term, CollectionType};
 use crate::actions::utils::generate_group_name;
@@ -12,19 +13,44 @@ use super::metadata::get_metadata_summary_by_file_ids;
 pub async fn index_media_files(
     main_db: &DatabaseConnection,
     file_ids: Vec<i32>,
+    cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
     info!("Indexing media: {:?}", file_ids);
+
+    if let Some(token) = &cancel_token {
+        if token.is_cancelled() {
+            info!("Operation cancelled before starting.");
+            return Ok(());
+        }
+    }
+
     // Fetch metadata summary for provided file_ids
     let metadata_summaries = get_metadata_summary_by_file_ids(main_db, file_ids.clone()).await?;
 
     let txn = main_db.begin().await?;
 
     for summary in metadata_summaries {
+        if let Some(token) = &cancel_token {
+            if token.is_cancelled() {
+                info!("Operation cancelled during processing.");
+                txn.rollback().await?;
+                return Ok(());
+            }
+        }
+
         // Process artists
         let artists = metadata::artist::split_artists(&summary.artist);
         let mut artist_ids = Vec::new();
 
         for artist_name in artists {
+            if let Some(token) = &cancel_token {
+                if token.is_cancelled() {
+                    info!("Operation cancelled during artist processing.");
+                    txn.rollback().await?;
+                    return Ok(());
+                }
+            }
+
             let artist = artists::ActiveModel {
                 name: Set(artist_name.clone()),
                 group: Set(generate_group_name(&artist_name)),
@@ -45,7 +71,8 @@ pub async fn index_media_files(
                     CollectionType::Artist,
                     inserted_artist.last_insert_id,
                     &artist_name.clone(),
-                ).await?;
+                )
+                .await?;
                 inserted_artist.last_insert_id
             };
 
@@ -92,7 +119,8 @@ pub async fn index_media_files(
                 CollectionType::Album,
                 inserted_album.last_insert_id,
                 &album_name.clone(),
-            ).await?;
+            )
+            .await?;
             inserted_album.last_insert_id
         };
 
@@ -107,7 +135,7 @@ pub async fn index_media_files(
             id: ActiveValue::NotSet,
             media_file_id: Set(summary.id),
             album_id: Set(album_id),
-            track_number: Set(summary.track_number),
+            track_number: Set(Some(summary.track_number)),
         };
 
         media_file_albums::Entity::insert(media_file_album)
@@ -123,6 +151,7 @@ pub async fn index_media_files(
 pub async fn index_audio_library(
     main_db: &DatabaseConnection,
     batch_size: usize,
+    cancel_token: Option<&CancellationToken>,
 ) -> Result<(), sea_orm::DbErr> {
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
 
@@ -175,7 +204,7 @@ pub async fn index_audio_library(
             file_ids.push(file_id);
 
             if file_ids.len() >= batch_size {
-                match index_media_files(&db, file_ids).await {
+                match index_media_files(&db, file_ids, cancel_token).await {
                     Ok(_) => {}
                     Err(e) => {
                         error!("Failed to index files: {}", e);

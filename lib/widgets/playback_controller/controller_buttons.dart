@@ -1,13 +1,13 @@
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../messages/playback.pb.dart';
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
+import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
+import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -64,9 +64,11 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final List<ControllerEntry> hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
+    final path = Provider.of<RouterPathProvider>(context).path;
+
     final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
             .smallerOrEqualTo(DeviceType.phone) &&
-        GoRouterState.of(context).fullPath == '/cover_wall';
+        path == '/cover_wall';
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 
@@ -83,8 +85,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                 ? miniEntries
                 : visibleEntries)
               Tooltip(
-                  message: entry.tooltipBuilder(context),
-                  child: entry.controllerButtonBuilder(context, null)),
+                message: entry.tooltipBuilder(context),
+                child: entry.controllerButtonBuilder(context, null),
+              ),
             if (hiddenEntries.isNotEmpty)
               FlyoutTarget(
                 controller: menuController,

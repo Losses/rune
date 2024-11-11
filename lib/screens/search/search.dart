@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/smooth_horizontal_scroll.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
 import '../../utils/api/fetch_media_file_by_ids.dart';
+import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -230,6 +230,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               ),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context, top: false),
                   child: MediumScreenSearchTrackList(
                     items: items,
                   ),
@@ -254,6 +255,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               const SizedBox(height: 2),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context),
                   child: BandScreenSearchTrackList(
                     items: items,
                   ),
@@ -285,6 +287,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
                     return SingleChildScrollView(
                       controller: controller,
                       scrollDirection: Axis.horizontal,
+                      padding: getScrollContainerPadding(context),
                       child: BandScreenSearchTrackList(
                         items: items,
                         direction: Axis.horizontal,
@@ -311,6 +314,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
               ),
               Expanded(
                 child: SingleChildScrollView(
+                  padding: getScrollContainerPadding(context),
                   child: SmallScreenSearchTrackList(
                     items: items,
                   ),
@@ -327,9 +331,14 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       child: Row(
         children: [
           Expanded(
-            child: LargeScreenSearchTrackList(
-              selectedItem: selectedItem,
-              items: items,
+            child: PageContentFrame(
+              top: false,
+              left: false,
+              right: false,
+              child: LargeScreenSearchTrackList(
+                selectedItem: selectedItem,
+                items: items,
+              ),
             ),
           ),
           LargeScreenSearchSidebar(

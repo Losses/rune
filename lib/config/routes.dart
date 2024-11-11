@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:go_router/go_router.dart';
+import 'package:flutter/material.dart';
 
 import '../utils/query_list.dart';
-import '../utils/router_extra.dart';
+import '../utils/router/query_tracks_parameter.dart';
 
 import '../routes/home.dart' as home;
 import '../routes/mixes.dart' as mixes;
@@ -17,201 +17,92 @@ import '../routes/library_home.dart' as library_home;
 
 import '../messages/collection.pb.dart';
 
-final routes = <GoRoute>[
-  GoRoute(
-    path: '/welcome',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      welcome.WelcomePage(),
-    ),
-  ),
-  GoRoute(
-    path: '/welcome/scanning',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      welcome.ScanningPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/home',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      home.HomePage(),
-    ),
-  ),
-  GoRoute(
-    path: '/library',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      library_home.LibraryHomePage(),
-    ),
-  ),
-  GoRoute(
-    path: '/artists',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      collections.CollectionPage(
+final Map<String, WidgetBuilder> routes = {
+  '/': (context) => const home.HomePage(),
+  '/welcome/scanning': (context) => const welcome.ScanningPage(),
+  '/library': (context) => const library_home.LibraryHomePage(),
+  '/artists': (context) => const collections.CollectionPage(
         key: ValueKey("Artists"),
         collectionType: CollectionType.Artist,
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/artists/:artistId',
-    builder: (context, state) => GoRouterModalBarrierFix(
-      query_tracks.QueryTracksPage(
-        queries: QueryList(
-          [("lib::artist", state.pathParameters['artistId'] ?? "0")],
-        ),
-        title: state.extra is QueryTracksExtra
-            ? (state.extra as QueryTracksExtra).title
-            : null,
-        mode: 99,
+  '/artists/detail': (context) {
+    final arguments = getQueryTracksParameter();
+    if (arguments is! QueryTracksParameter) {
+      throw "Invalid router parameters";
+    }
+
+    return query_tracks.QueryTracksPage(
+      queries: QueryList(
+        [("lib::artist", arguments.id.toString())],
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/albums',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      collections.CollectionPage(
+      title: arguments.title,
+      mode: 99,
+    );
+  },
+  '/albums': (context) => const collections.CollectionPage(
         key: ValueKey("Albums"),
         collectionType: CollectionType.Album,
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/albums/:albumId',
-    builder: (context, state) => GoRouterModalBarrierFix(
-      query_tracks.QueryTracksPage(
-        queries: QueryList(
-          [("lib::album", state.pathParameters['albumId'] ?? "0")],
-        ),
-        title: state.extra is QueryTracksExtra
-            ? (state.extra as QueryTracksExtra).title
-            : null,
-        mode: 99,
+  '/albums/detail': (context) {
+    final arguments = getQueryTracksParameter();
+    if (arguments is! QueryTracksParameter) {
+      throw "Invalid router parameters";
+    }
+
+    return query_tracks.QueryTracksPage(
+      queries: QueryList(
+        [
+          ("lib::album", arguments.id.toString()),
+          ("sort::track_number", "true")
+        ],
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/playlists',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      collections.CollectionPage(
+      title: arguments.title,
+      mode: 99,
+    );
+  },
+  '/playlists': (context) => const collections.CollectionPage(
         key: ValueKey("Playlists"),
         collectionType: CollectionType.Playlist,
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/playlists/:playlistId',
-    builder: (context, state) => GoRouterModalBarrierFix(
-      query_tracks.QueryTracksPage(
-        queries: QueryList(
-          [("lib::playlist", state.pathParameters['playlistId'] ?? "0")],
-        ),
-        title: state.extra is QueryTracksExtra
-            ? (state.extra as QueryTracksExtra).title
-            : null,
-        mode: 99,
+  '/playlists/detail': (context) {
+    final arguments = getQueryTracksParameter();
+    if (arguments is! QueryTracksParameter) {
+      throw "Invalid router parameters";
+    }
+
+    return query_tracks.QueryTracksPage(
+      queries: QueryList(
+        [("lib::playlist", arguments.id.toString())],
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/mixes',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      collections.CollectionPage(
+      title: arguments.title,
+      mode: 99,
+    );
+  },
+  '/mixes': (context) => const collections.CollectionPage(
         key: ValueKey("Mixes"),
         collectionType: CollectionType.Mix,
       ),
-    ),
-  ),
-  GoRoute(
-    path: '/mixes/:mixId',
-    builder: (context, state) => GoRouterModalBarrierFix(
-      mixes.MixTrackesPage(
-        mixId: int.parse(state.pathParameters['mixId'] ?? "0"),
-        title: state.extra is QueryTracksExtra
-            ? (state.extra as QueryTracksExtra).title
-            : null,
-      ),
-    ),
-  ),
-  GoRoute(
-    path: '/tracks',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      tracks.TracksPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsHomePage(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/library',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsLibraryPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/theme',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsTheme(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/playback',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsPlayback(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/about',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsAboutPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/mix',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsTestPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/settings/media_controller',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      settings.SettingsMediaControllerPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/search',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      search.SearchPage(),
-    ),
-  ),
-  GoRoute(
-    path: '/cover_wall',
-    builder: (context, state) => const GoRouterModalBarrierFix(
-      cover_wall.CoverWallPage(),
-    ),
-  ),
-];
+  '/mixes/detail': (context) {
+    final arguments = getQueryTracksParameter();
+    if (arguments is! QueryTracksParameter) {
+      throw "Invalid router parameters";
+    }
 
-class GoRouterModalBarrierFix extends StatelessWidget {
-  const GoRouterModalBarrierFix(
-    this.child, {
-    super.key,
-  });
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        ModalBarrier(
-          dismissible: true,
-          color: Colors.transparent,
-          onDismiss: () {},
-        ),
-        child,
-      ],
+    return mixes.MixTrackesPage(
+      mixId: arguments.id,
+      title: arguments.title,
     );
-  }
-}
+  },
+  '/tracks': (context) => const tracks.TracksPage(),
+  '/settings': (context) => const settings.SettingsHomePage(),
+  '/settings/library': (context) => const settings.SettingsLibraryPage(),
+  '/settings/analysis': (context) => const settings.SettingsAnalysis(),
+  '/settings/theme': (context) => const settings.SettingsTheme(),
+  '/settings/playback': (context) => const settings.SettingsPlayback(),
+  '/settings/about': (context) => const settings.SettingsAboutPage(),
+  '/settings/mix': (context) => const settings.SettingsTestPage(),
+  '/settings/media_controller': (context) =>
+      const settings.SettingsMediaControllerPage(),
+  '/search': (context) => const search.SearchPage(),
+  '/cover_wall': (context) => const cover_wall.CoverWallPage(),
+};

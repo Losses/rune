@@ -51,7 +51,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
     return Dimensions(rows: rows, columns: columns, count: items.length);
   }
 
-  static Dimensions squareDimensionCalculator(
+  static Dimensions startLinkDimensionCalculator(
     double containerHeight,
     double cellSize,
     double gapSize,
@@ -61,10 +61,34 @@ class StartGroupImplementation<T> extends StatelessWidget {
       ((containerHeight - 32) / (cellSize + gapSize)).floor(),
       1,
     );
-    final int maxItems =
-        min(pow(sqrt(items.length).floor(), 2).floor(), pow(rows, 2).floor());
-    final int columns = min((maxItems / rows).ceil(), rows);
-    return Dimensions(rows: rows, columns: columns, count: maxItems);
+    final int columns = (items.length / rows).ceil();
+    return Dimensions(rows: rows, columns: columns, count: items.length);
+  }
+
+  static Dimensions squareDimensionCalculator(
+    double containerHeight,
+    double cellSize,
+    double gapSize,
+    List items,
+  ) {
+    final int columns = max(
+      ((containerHeight - 32) / (cellSize + gapSize)).floor(),
+      1,
+    );
+    final int maxItems = min(
+        pow(sqrt(items.length).floor(), 2).floor(), pow(columns, 2).floor());
+    final int rows = min((maxItems / columns).ceil(), columns);
+
+    final int trueColumns = max(columns, 3);
+    final int correctedMaxItems = min(trueColumns * rows, items.length);
+
+    final notEnough = items.length < trueColumns * rows;
+
+    return Dimensions(
+      rows: notEnough ? trueColumns : rows,
+      columns: notEnough ? rows : trueColumns,
+      count: correctedMaxItems,
+    );
   }
 
   static (double, double) finalSizeCalculator(

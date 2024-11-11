@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/execute_middle_click_action.dart';
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
@@ -9,7 +10,7 @@ import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
-import '../../messages/playback.pb.dart';
+import '../../messages/all.dart';
 
 import '../tile/cover_art.dart';
 
@@ -78,6 +79,13 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,
+      onMiddleClick: (_) {
+        executeMiddleClickAction(
+          context,
+          CollectionType.Track,
+          widget.item.id,
+        );
+      },
       onContextMenu: (position) {
         openTrackItemContextMenu(
           position,

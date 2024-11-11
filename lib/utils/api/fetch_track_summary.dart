@@ -1,4 +1,4 @@
-import 'package:rune/messages/media_file.pb.dart';
+import '../../messages/all.dart';
 
 Future<List<(int, String)>> fetchTrackSummary() async {
   SearchMediaFileSummaryRequest(n: 50).sendSignalToRust();

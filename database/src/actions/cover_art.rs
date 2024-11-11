@@ -8,6 +8,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::info;
+use metadata::cover_art::get_primary_color;
 use once_cell::sync::Lazy;
 use sea_orm::Condition;
 use sea_orm::{
@@ -53,6 +54,7 @@ pub async fn ensure_magic_cover_art(
             id: ActiveValue::NotSet,
             file_hash: ActiveValue::Set(String::new()),
             binary: ActiveValue::Set(Vec::new()),
+            primary_color: ActiveValue::Set(Some(0)),
         };
 
         let insert_result = media_cover_art::Entity::insert(new_magic_cover_art)
@@ -218,6 +220,7 @@ pub async fn insert_extract_result(
                 id: ActiveValue::NotSet,
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
+                primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
             };
 
             let insert_result = media_cover_art::Entity::insert(new_cover_art)
@@ -274,7 +277,7 @@ where
         cancel_token,
         cursor_query,
         lib_path,
-        move |file, lib_path| { extract_cover_art_by_file_id(file, lib_path) },
+        move |file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
         |db, file: media_files::Model, result| async move {
             match insert_extract_result(db, &file, magic_cover_art_id, result).await {
                 Ok(_) => {
@@ -327,6 +330,21 @@ where
     Ok(())
 }
 
+pub async fn get_cover_art_id_by_track_id(
+    main_db: &DatabaseConnection,
+    file_id: i32,
+) -> Result<Option<i32>> {
+    let file: Option<media_files::Model> = media_files::Entity::find_by_id(file_id)
+        .one(main_db)
+        .await?;
+
+    if let Some(file) = file {
+        return Ok(file.cover_art_id);
+    }
+
+    Ok(None)
+}
+
 pub async fn get_cover_art_by_id(main_db: &DatabaseConnection, id: i32) -> Result<Option<Vec<u8>>> {
     let result = media_cover_art::Entity::find()
         .filter(media_cover_art::Column::Id.eq(id))
@@ -358,4 +376,38 @@ pub async fn get_random_cover_art_ids(
         .await?;
 
     bake_cover_art_by_cover_arts(cover_arts)
+}
+
+pub async fn get_primary_color_by_cover_art_id(
+    main_db: &DatabaseConnection,
+    cover_art_id: i32,
+) -> Result<i32> {
+    // Step 1: Retrieve the cover art record from the database
+    let cover_art = media_cover_art::Entity::find_by_id(cover_art_id)
+        .one(main_db)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("Cover art not found"))?;
+
+    // Step 2: Check if the primary color is null
+    if let Some(primary_color) = cover_art.primary_color {
+        return Ok(primary_color);
+    }
+
+    // Step 3: Calculate the primary color
+    let primary_color_int = get_primary_color(&cover_art.binary);
+
+    match primary_color_int {
+        Some(primary_color_int) => {
+            // Step 4: Update the database with the new primary color
+            let mut cover_art_active: media_cover_art::ActiveModel = cover_art.into();
+            cover_art_active.primary_color = ActiveValue::Set(Some(primary_color_int));
+            media_cover_art::Entity::update(cover_art_active)
+                .exec(main_db)
+                .await?;
+
+            // Step 5: Return the primary color
+            Ok(primary_color_int)
+        }
+        None => Err(anyhow::anyhow!("No primary color found")),
+    }
 }

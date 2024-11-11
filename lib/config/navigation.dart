@@ -1,12 +1,12 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/navigation/navigation_item.dart';
 
 final List<NavigationItem> navigationItems = [
   NavigationItem(
     'Rune',
-    '/home',
+    '/',
     tappable: false,
     children: [
       NavigationItem(
@@ -34,7 +34,7 @@ final List<NavigationItem> navigationItems = [
             children: [
               NavigationItem(
                 'Artist Query',
-                '/artists/:artistId',
+                '/artists/detail',
                 hidden: true,
               ),
             ],
@@ -48,7 +48,7 @@ final List<NavigationItem> navigationItems = [
             children: [
               NavigationItem(
                 'Artist Query',
-                '/albums/:albumId',
+                '/albums/detail',
                 hidden: true,
               ),
             ],
@@ -62,7 +62,7 @@ final List<NavigationItem> navigationItems = [
             children: [
               NavigationItem(
                 'Playlist Query',
-                '/playlists/:playlistId',
+                '/playlists/detail',
                 hidden: true,
               ),
             ],
@@ -76,7 +76,7 @@ final List<NavigationItem> navigationItems = [
             children: [
               NavigationItem(
                 'Mix Query',
-                '/mixes/:mixId',
+                '/mixes/detail',
                 hidden: true,
               ),
             ],
@@ -102,11 +102,12 @@ final List<NavigationItem> navigationItems = [
         ],
         children: [
           NavigationItem('Library', '/settings/library'),
+          NavigationItem('Analysis', '/settings/analysis'),
           NavigationItem('Playback', '/settings/playback'),
           NavigationItem('Theme', '/settings/theme'),
           NavigationItem('Controller', '/settings/media_controller'),
           NavigationItem('About', '/settings/about'),
-          NavigationItem('Test', '/settings/mix'),
+          // NavigationItem('Test', '/settings/mix'),
         ],
       ),
     ],

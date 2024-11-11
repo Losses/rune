@@ -1,16 +1,19 @@
 use clap::{Parser, Subcommand};
-use database::actions::cover_art::scan_cover_arts;
-use database::actions::search::search_for;
 use dunce::canonicalize;
 use log::{error, info};
-use rune::index::index_audio_library;
-use rune::mix::{mixes, RecommendMixOptions};
+use prettytable::{row, Table};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
-use database::actions::metadata::{empty_progress_callback, scan_audio_library};
+use database::actions::cover_art::scan_cover_arts;
+use database::actions::metadata::{
+    empty_progress_callback, get_metadata_summary_by_file_ids, scan_audio_library,
+};
+use database::actions::search::search_for;
 use database::connection::{connect_main_db, connect_recommendation_db};
 use rune::analysis::*;
+use rune::index::index_audio_library;
+use rune::mix::{mixes, RecommendMixOptions};
 use rune::playback::*;
 use rune::recommend::*;
 
@@ -36,7 +39,18 @@ enum Commands {
     Index,
 
     /// Analyze the audio files in the library
-    Analyze,
+    Analyze {
+        /// The compute device to use (cpu/gpu)
+        #[arg(short, long, default_value = "gpu")]
+        computing_device: String,
+    },
+
+    /// Show information of the track in the library
+    Info {
+        /// A list of file IDs to retrieve information for
+        #[arg(short, long, num_args = 1..)]
+        file_ids: Vec<i32>,
+    },
 
     /// Play audio files in the library
     Play {
@@ -111,7 +125,6 @@ async fn main() {
         .with_env_filter(filter)
         .with_test_writer()
         .init();
-
     // Determine the path from either the option or the positional argument
     let path = cli.library.expect("Path is required");
 
@@ -149,22 +162,48 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            let _ = scan_audio_library(
-                &main_db,
-                &path,
-                true,
-                empty_progress_callback,
-                None,
-            )
-            .await;
+            let _ = scan_audio_library(&main_db, &path, true, empty_progress_callback, None).await;
             let _ = scan_cover_arts(&main_db, &path, 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }
         Commands::Index => {
             index_audio_library(&main_db).await;
         }
-        Commands::Analyze => {
-            analyse_audio_library(&main_db, &analysis_db, &path).await;
+        Commands::Analyze { computing_device } => {
+            analyse_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
+        }
+        Commands::Info { file_ids } => {
+            match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {
+                Ok(summaries) => {
+                    let mut table = Table::new();
+                    table.add_row(row![
+                        "ID",
+                        "Artist",
+                        "Album",
+                        "Title",
+                        "Track Number",
+                        "Duration",
+                        "Cover Art ID"
+                    ]);
+
+                    for summary in summaries {
+                        table.add_row(row![
+                            summary.id,
+                            summary.artist,
+                            summary.album,
+                            summary.title,
+                            summary.track_number,
+                            summary.duration,
+                            summary.cover_art_id.unwrap_or_default()
+                        ]);
+                    }
+
+                    table.printstd();
+                }
+                Err(e) => {
+                    error!("Failed to retrieve metadata summary: {}", e);
+                }
+            }
         }
         Commands::Play { mode } => {
             if mode.as_deref() == Some("random") {

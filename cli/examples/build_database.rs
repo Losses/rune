@@ -1,3 +1,4 @@
+use analysis::computing_device::ComputingDevice;
 use log::{error, info};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
@@ -48,6 +49,7 @@ async fn main() {
         &main_db,
         &root_path,
         10,
+        ComputingDevice::Gpu.into(),
         empty_analysis_progress_callback,
         None,
     )

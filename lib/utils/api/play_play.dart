@@ -1,4 +1,4 @@
-import '../../messages/playback.pb.dart';
+import '../../messages/all.dart';
 
 void playPlay() async {
   PlayRequest().sendSignalToRust();

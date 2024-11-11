@@ -15,6 +15,8 @@ mod m20230912_000014_create_mix_queries_table;
 mod m20230912_000015_create_media_file_stats_table;
 mod m20230923_000016_seed_mixes;
 mod m20231029_000017_create_search_index;
+mod m20231107_000018_add_column_primary_color;
+mod m20231110_000019_create_playback_queue_table;
 
 pub struct Migrator;
 
@@ -37,6 +39,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20230912_000015_create_media_file_stats_table::Migration),
             Box::new(m20230923_000016_seed_mixes::Migration),
             Box::new(m20231029_000017_create_search_index::Migration),
+            Box::new(m20231107_000018_add_column_primary_color::Migration),
+            Box::new(m20231110_000019_create_playback_queue_table::Migration),
         ]
     }
 }

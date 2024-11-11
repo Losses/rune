@@ -2,28 +2,31 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/settings_manager.dart';
+import '../screens/collection/utils/collection_data_provider.dart';
+import '../screens/settings_analysis/settings_analysis.dart';
 import '../messages/library_manage.pb.dart';
 
-enum TaskStatus { working, finished }
+enum TaskStatus { working, finished, cancelled }
 
 class AnalyseTaskProgress {
   final String path;
   int progress;
   int total;
   TaskStatus status;
-  bool initialize;
+  bool isInitializeTask;
 
   AnalyseTaskProgress({
     required this.path,
     this.progress = 0,
     this.total = 0,
     this.status = TaskStatus.working,
-    this.initialize = false,
+    this.isInitializeTask = false,
   });
 
   @override
   String toString() {
-    return 'AnalyseTaskProgress(path: $path, progress: $progress, total: $total, status: $status, initialize: $initialize)';
+    return 'AnalyseTaskProgress(path: $path, progress: $progress, total: $total, status: $status, initialize: $isInitializeTask)';
   }
 }
 
@@ -44,7 +47,7 @@ class ScanTaskProgress {
 
   @override
   String toString() {
-    return 'ScanTaskProgress(path: $path, progress: $progress, status: $status, initialize: $initialize)';
+    return 'ScanTaskProgress(path: $path, progress: $progress, status: $status, type: $type, initialize: $initialize)';
   }
 }
 
@@ -55,6 +58,7 @@ class LibraryManagerProvider with ChangeNotifier {
   StreamSubscription? _scanResultSubscription;
   StreamSubscription? _analyseProgressSubscription;
   StreamSubscription? _analyseResultSubscription;
+  StreamSubscription? _cancelTaskSubscription;
 
   final Map<String, Completer<void>> _scanCompleters = {};
   final Map<String, Completer<void>> _analyseCompleters = {};
@@ -68,12 +72,14 @@ class LibraryManagerProvider with ChangeNotifier {
         ScanAudioLibraryProgress.rustSignalStream.listen((event) {
       final scanProgress = event.message;
       _updateScanProgress(
-          scanProgress.path,
-          scanProgress.task,
-          scanProgress.progress,
-          scanProgress.total,
-          TaskStatus.working,
-          getScanTaskProgress(scanProgress.path)?.initialize ?? false);
+        scanProgress.path,
+        scanProgress.task,
+        scanProgress.progress,
+        scanProgress.total,
+        TaskStatus.working,
+        getScanTaskProgress(scanProgress.path)?.initialize ?? false,
+      );
+      CollectionCache().clearAll();
     });
 
     _scanResultSubscription =
@@ -90,6 +96,32 @@ class LibraryManagerProvider with ChangeNotifier {
         initialize,
       );
 
+      _cancelTaskSubscription =
+          CancelTaskResponse.rustSignalStream.listen((event) {
+        final cancelResponse = event.message;
+        if (cancelResponse.success) {
+          if (cancelResponse.type == CancelTaskType.ScanAudioLibrary) {
+            _updateScanProgress(
+              cancelResponse.path,
+              ScanTaskType.IndexFiles,
+              0,
+              0,
+              TaskStatus.cancelled,
+              false,
+            );
+          } else if (cancelResponse.type ==
+              CancelTaskType.AnalyseAudioLibrary) {
+            _updateAnalyseProgress(
+              cancelResponse.path,
+              0,
+              0,
+              TaskStatus.cancelled,
+              false,
+            );
+          }
+        }
+      });
+
       if (initialize) {
         analyseLibrary(scanResult.path);
       }
@@ -97,17 +129,19 @@ class LibraryManagerProvider with ChangeNotifier {
       // Complete the scan task
       _scanCompleters[scanResult.path]?.complete();
       _scanCompleters.remove(scanResult.path);
+      CollectionCache().clearAll();
     });
 
     _analyseProgressSubscription =
         AnalyseAudioLibraryProgress.rustSignalStream.listen((event) {
       final analyseProgress = event.message;
       _updateAnalyseProgress(
-          analyseProgress.path,
-          analyseProgress.progress,
-          analyseProgress.total,
-          TaskStatus.working,
-          getAnalyseTaskProgress(analyseProgress.path)?.initialize ?? false);
+        analyseProgress.path,
+        analyseProgress.progress,
+        analyseProgress.total,
+        TaskStatus.working,
+        getAnalyseTaskProgress(analyseProgress.path)?.isInitializeTask ?? false,
+      );
     });
 
     _analyseResultSubscription =
@@ -118,7 +152,8 @@ class LibraryManagerProvider with ChangeNotifier {
           analyseResult.total,
           analyseResult.total,
           TaskStatus.finished,
-          getAnalyseTaskProgress(analyseResult.path)?.initialize ?? false);
+          getAnalyseTaskProgress(analyseResult.path)?.isInitializeTask ??
+              false);
 
       // Complete the analyse task
       _analyseCompleters[analyseResult.path]?.complete();
@@ -137,6 +172,7 @@ class LibraryManagerProvider with ChangeNotifier {
     if (_scanTasks.containsKey(path)) {
       _scanTasks[path]!.progress = progress;
       _scanTasks[path]!.status = status;
+      _scanTasks[path]!.type = taskType;
     } else {
       _scanTasks[path] = ScanTaskProgress(
         path: path,
@@ -161,7 +197,7 @@ class LibraryManagerProvider with ChangeNotifier {
         progress: progress,
         total: total,
         status: status,
-        initialize: initialize,
+        isInitializeTask: initialize,
       );
     }
     notifyListeners();
@@ -173,24 +209,45 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scanLibrary(String path, [bool initialize = false]) async {
+  Future<void> scanLibrary(String path, [bool isInitializeTask = false]) async {
     _updateScanProgress(
       path,
       ScanTaskType.IndexFiles,
       0,
       0,
       TaskStatus.working,
-      initialize,
+      isInitializeTask,
     );
     ScanAudioLibraryRequest(path: path).sendSignalToRust();
   }
 
   Future<void> analyseLibrary(String path, [bool initialize = false]) async {
     _updateAnalyseProgress(path, 0, -1, TaskStatus.working, initialize);
-    AnalyseAudioLibraryRequest(path: path).sendSignalToRust();
+    final computingDevice =
+        await SettingsManager().getValue<String>(analysisComputingDeviceKey);
+
+    double workloadFactor = 0.75;
+
+    String? performanceLevel =
+        await SettingsManager().getValue<String>(analysisPerformanceLevelKey);
+
+    if (performanceLevel == "balance") {
+      workloadFactor = 0.5;
+    }
+
+    if (performanceLevel == "battery") {
+      workloadFactor = 0.25;
+    }
+
+    AnalyseAudioLibraryRequest(
+      path: path,
+      computingDevice:
+          computingDevice == 'gpu' ? ComputingDevice.Gpu : ComputingDevice.Cpu,
+      workloadFactor: workloadFactor,
+    ).sendSignalToRust();
   }
 
-  ScanTaskProgress? getScanTaskProgress(String path) {
+  ScanTaskProgress? getScanTaskProgress(String? path) {
     return _scanTasks[path];
   }
 
@@ -224,12 +281,17 @@ class LibraryManagerProvider with ChangeNotifier {
     return _analyseCompleters[path]!.future;
   }
 
+  Future<void> cancelTask(String path, CancelTaskType type) async {
+    CancelTaskRequest(path: path, type: type).sendSignalToRust();
+  }
+
   @override
   void dispose() {
     _scanProgressSubscription?.cancel();
     _scanResultSubscription?.cancel();
     _analyseProgressSubscription?.cancel();
     _analyseResultSubscription?.cancel();
+    _cancelTaskSubscription?.cancel();
     super.dispose();
   }
 }

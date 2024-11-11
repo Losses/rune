@@ -6,10 +6,16 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../providers/responsive_providers.dart';
 
 class UnavailableDialogOnBand extends StatelessWidget {
-  const UnavailableDialogOnBand({super.key, required this.child, this.icon});
+  const UnavailableDialogOnBand({
+    super.key,
+    required this.child,
+    this.icon,
+    required this.$close,
+  });
 
   final IconData? icon;
   final Widget child;
+  final void Function(Null) $close;
 
   @override
   Widget build(BuildContext context) {
@@ -30,9 +36,10 @@ class UnavailableDialogOnBand extends StatelessWidget {
                 return IconButton(
                   icon: Icon(
                     icon ?? Symbols.devices,
-                    size: (min(constraint.maxWidth, constraint.maxHeight) * 0.8).clamp(0, 48),
+                    size: (min(constraint.maxWidth, constraint.maxHeight) * 0.8)
+                        .clamp(0, 48),
                   ),
-                  onPressed: () => Navigator.pop(context, null),
+                  onPressed: () => $close(null),
                 );
               },
             ),

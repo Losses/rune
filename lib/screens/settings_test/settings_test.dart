@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/banding_animation/branding_animation.dart';
 
 class AssetHelper {
@@ -39,12 +38,6 @@ class SettingsTestPage extends StatefulWidget {
 class _SettingsTestPageState extends State<SettingsTestPage> {
   @override
   Widget build(BuildContext context) {
-    return const PageContentFrame(
-      top: false,
-      bottom: false,
-      left: false,
-      right: false,
-      child: BrandingAnimation(),
-    );
+    return const BrandingAnimation();
   }
 }

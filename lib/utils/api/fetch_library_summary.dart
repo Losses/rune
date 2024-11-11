@@ -1,4 +1,4 @@
-import 'package:rune/messages/library_home.pbserver.dart';
+import '../../messages/all.dart';
 
 Future<LibrarySummaryResponse> fetchLibrarySummary() async {
   final fetchLibrarySummary = FetchLibrarySummaryRequest(bakeCoverArts: true);

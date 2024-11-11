@@ -4,17 +4,23 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
-import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/link_tile.dart';
-import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/start_screen/start_group.dart';
+import '../../widgets/start_screen/constants/default_gap_size.dart';
+import '../../widgets/start_screen/start_group_implementation.dart';
+import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/settings_home/constants/first_column.dart';
+import '../../widgets/navigation_bar/page_content_frame.dart';
 
 class LargeScreenSettingsHomeListView extends StatefulWidget {
-  final StartScreenLayoutManager layoutManager;
+  const LargeScreenSettingsHomeListView({
+    super.key,
+    required this.layoutManager,
+    required this.topPadding,
+  });
 
-  const LargeScreenSettingsHomeListView(
-      {super.key, required this.layoutManager});
+  final StartScreenLayoutManager layoutManager;
+  final bool topPadding;
 
   @override
   LargeScreenSettingsHomeListViewState createState() =>
@@ -38,6 +44,7 @@ class LargeScreenSettingsHomeListViewState
       alignment: Alignment.centerLeft,
       child: SmoothHorizontalScroll(
         builder: (context, scrollController) => SingleChildScrollView(
+          padding: getScrollContainerPadding(context, top: widget.topPadding),
           scrollDirection: Axis.horizontal,
           controller: scrollController,
           child: LayoutBuilder(
@@ -53,6 +60,8 @@ class LargeScreenSettingsHomeListViewState
                     groupLayoutVariation:
                         StartGroupGroupLayoutVariation.stacked,
                     gridLayoutVariation: StartGroupGridLayoutVariation.initial,
+                    dimensionCalculator:
+                        StartGroupImplementation.startLinkDimensionCalculator,
                     gapSize: defaultGapSize,
                     onTitleTap: () {},
                     itemBuilder: (context, item) {

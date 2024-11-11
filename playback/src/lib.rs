@@ -1,6 +1,7 @@
 mod internal;
 mod sfx_internal;
 mod realtime_fft;
+mod output_stream;
 
 pub mod strategies;
 

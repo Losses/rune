@@ -44,7 +44,7 @@ pub struct MediaControlManager {
     pub controls: MediaControls,
     event_sender: broadcast::Sender<MediaControlEvent>,
     #[cfg(target_os = "windows")]
-    dummy_window: windows::DummyWindow,
+    _dummy_window: windows::DummyWindow,
 }
 
 impl MediaControlManager {
@@ -80,7 +80,7 @@ impl MediaControlManager {
             controls,
             event_sender,
             #[cfg(target_os = "windows")]
-            dummy_window,
+            _dummy_window: dummy_window,
         })
     }
 

@@ -1,4 +1,4 @@
-use analysis::fft::fft;
+use analysis::legacy_fft::fft;
 
 fn main() {
     // Get the first command line argument.
@@ -6,10 +6,12 @@ fn main() {
     let path = args.get(1).expect("file path not provided");
 
     // Process the audio file and perform FFT using Overlap-Save method.
-    let fft_results = fft(path, 4608, 2304);
+    let fft_results = fft(path, 4608, 2304, None);
 
-    // Print the FFT results.
-    for (i, fft_result) in fft_results.spectrum.iter().enumerate() {
-        println!("{}: {:?}", i, fft_result);
+    if let Some(fft_results) = fft_results {
+        // Print the FFT results.
+        for (i, fft_result) in fft_results.spectrum.iter().enumerate() {
+            println!("{}: {:?}", i, fft_result);
+        }
     }
 }

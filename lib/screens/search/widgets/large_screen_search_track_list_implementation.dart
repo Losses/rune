@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/start_screen/managed_start_screen_item.dart';
 import '../../../messages/collection.pb.dart';
 
@@ -14,7 +15,7 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   final double cellSize;
   final CollectionType collectionType;
   final List<SearchCard>? items;
-  final int groupId; 
+  final int groupId;
 
   const LargeScreenSearchTrackListImplementation({
     super.key,
@@ -30,13 +31,18 @@ class LargeScreenSearchTrackListImplementation extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GridView(
-      physics: const NeverScrollableScrollPhysics(),
       shrinkWrap: true,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: rows,
         mainAxisSpacing: gapSize,
         crossAxisSpacing: gapSize,
         childAspectRatio: ratio,
+      ),
+      padding: getScrollContainerPadding(
+        context,
+        top: false,
+        left: false,
+        right: false,
       ),
       children: (items ?? defaultList).asMap().entries.map(
         (x) {

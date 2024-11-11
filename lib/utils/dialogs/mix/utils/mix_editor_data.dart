@@ -1,6 +1,7 @@
 import 'package:rune/messages/collection.pb.dart';
-import 'package:rune/utils/api/fetch_collection_by_ids.dart';
-import 'package:rune/utils/api/fetch_media_file_by_ids.dart';
+
+import '../../../../utils/api/fetch_media_file_by_ids.dart';
+import '../../../../utils/api/fetch_collection_by_ids.dart';
 
 class MixEditorData {
   final String title;
@@ -9,11 +10,13 @@ class MixEditorData {
   final List<(int, String)> albums;
   final List<(int, String)> playlists;
   final List<(int, String)> tracks;
+  final int randomTracks;
   final Set<String> directories;
   final double limit;
   final String mode;
   final String recommendation;
   final String sortBy;
+  final bool sortOrder;
   final bool likedOnly;
 
   MixEditorData({
@@ -23,11 +26,13 @@ class MixEditorData {
     this.albums = const [],
     this.playlists = const [],
     this.tracks = const [],
+    this.randomTracks = 0,
     this.directories = const {},
     required this.limit,
     required this.mode,
     required this.recommendation,
     required this.sortBy,
+    required this.sortOrder,
     required this.likedOnly,
   });
 
@@ -38,11 +43,13 @@ class MixEditorData {
     List<(int, String)>? albums,
     List<(int, String)>? playlists,
     List<(int, String)>? tracks,
+    int? randomTracks,
     Set<String>? directories,
     double? limit,
     String? mode,
     String? recommendation,
     String? sortBy,
+    bool? sortOrder,
     bool? likedOnly,
   }) {
     return MixEditorData(
@@ -52,11 +59,13 @@ class MixEditorData {
       albums: albums ?? this.albums,
       playlists: playlists ?? this.playlists,
       tracks: tracks ?? this.tracks,
+      randomTracks: randomTracks ?? this.randomTracks,
       directories: directories ?? this.directories,
       limit: limit ?? this.limit,
       mode: mode ?? this.mode,
       recommendation: recommendation ?? this.recommendation,
       sortBy: sortBy ?? this.sortBy,
+      sortOrder: sortOrder ?? this.sortOrder,
       likedOnly: likedOnly ?? this.likedOnly,
     );
   }
@@ -70,11 +79,13 @@ class MixEditorData {
     albums: $albums,
     playlists: $playlists,
     tracks: $tracks,
+    limit: $limit,
     directories: $directories,
     limit: $limit,
     mode: $mode,
     recommendation: $recommendation,
     sortBy: $sortBy,
+    sortOrder: $sortOrder,
     likedOnly: $likedOnly,
 )
 ''';
@@ -90,11 +101,13 @@ Future<MixEditorData> queryToMixEditorData(
   List<int> albumsId = [];
   List<int> playlistsId = [];
   List<int> tracksId = [];
+  int randomTracks = 0;
   Set<String> directories = {};
   double limit = 0.0;
   String mode = '99';
   String recommendation = '';
   String sortBy = 'default';
+  bool sortOrder = true;
   bool likedOnly = false;
 
   for (var item in query) {
@@ -110,6 +123,9 @@ Future<MixEditorData> queryToMixEditorData(
         break;
       case 'lib::track':
         tracksId.add(int.parse(item.$2));
+        break;
+      case 'lib::random':
+        randomTracks = int.parse(item.$2);
         break;
       case 'lib::directory.deep':
         directories.add(item.$2);
@@ -128,6 +144,7 @@ Future<MixEditorData> queryToMixEditorData(
       case 'sort::playedthrough':
       case 'sort::skipped':
         sortBy = item.$1.split('::')[1];
+        sortOrder = item.$2 == 'true';
         break;
     }
   }
@@ -144,8 +161,9 @@ Future<MixEditorData> queryToMixEditorData(
       (await fetchCollectionByIds(CollectionType.Playlist, playlistsId))
           .map((x) => (x.id, x.name))
           .toList();
-  List<(int, String)> tracks =
-      (await fetchMediaFileByIds(tracksId, false)).map((x) => (x.id, x.title)).toList();
+  List<(int, String)> tracks = (await fetchMediaFileByIds(tracksId, false))
+      .map((x) => (x.id, x.title))
+      .toList();
 
   return MixEditorData(
     title: title,
@@ -154,11 +172,13 @@ Future<MixEditorData> queryToMixEditorData(
     albums: albums,
     playlists: playlists,
     tracks: tracks,
+    randomTracks: randomTracks,
     directories: directories,
     limit: limit,
     mode: mode,
     recommendation: recommendation,
     sortBy: sortBy,
+    sortOrder: sortOrder,
     likedOnly: likedOnly,
   );
 }
@@ -182,6 +202,10 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
     query.add(('lib::track', track.$1.toString()));
   }
 
+  if (data.randomTracks > 0) {
+    query.add(('lib::random', data.randomTracks.toString()));
+  }
+
   for (var directory in data.directories) {
     query.add(('lib::directory.deep', directory));
   }
@@ -199,7 +223,7 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
   }
 
   if (data.sortBy != 'default') {
-    query.add(('sort::${data.sortBy}', 'true'));
+    query.add(('sort::${data.sortBy}', data.sortOrder.toString()));
   }
 
   return query;

@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'constants/playback_controller_height.dart';
@@ -22,7 +22,8 @@ const scaleY = 0.9;
 class PlaybackControllerState extends State<PlaybackController> {
   @override
   Widget build(BuildContext context) {
-    final isCoverArtWall = GoRouterState.of(context).fullPath == '/cover_wall';
+    final path = Provider.of<RouterPathProvider>(context).path;
+    final isCoverArtWall = path == '/cover_wall';
 
     final r = Provider.of<ResponsiveProvider>(context);
 

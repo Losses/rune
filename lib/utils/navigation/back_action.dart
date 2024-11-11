@@ -7,15 +7,13 @@ import 'utils/escape_from_cover_art_wall.dart';
 import 'back_intent.dart';
 
 class BackAction extends Action<BackIntent> {
-  final BuildContext context;
-
-  BackAction(this.context);
+  BackAction();
 
   @override
   void invoke(covariant BackIntent intent) {
-    if (escapeFromSearch(context)) return;
-    if (escapeFromCoverArtWall(context)) return;
+    if (escapeFromSearch()) return;
+    if (escapeFromCoverArtWall()) return;
 
-    navigateBackwardWithPop(context);
+    navigateBackwardWithPop();
   }
 }

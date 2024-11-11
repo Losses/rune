@@ -1,14 +1,14 @@
 import 'dart:io';
 
 import 'package:provider/provider.dart';
-import 'package:go_router/go_router.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/screens/settings_library/widgets/add_library_setting_button.dart';
 
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
+import '../../utils/router/navigation.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -28,37 +28,46 @@ class SettingsLibraryPage extends StatefulWidget {
 class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
   String selectedItem = '';
 
+  bool requested = false;
+  List<String> allOpenedFiles = [];
+
+  @override
+  void didChangeDependencies() {
+    if (requested) return;
+
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
+    libraryPath.getAllOpenedFiles().then((x) {
+      if (!context.mounted) return;
+
+      setState(() {
+        allOpenedFiles = x;
+      });
+    });
+
+    super.didChangeDependencies();
+  }
+
   @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
     final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: true);
+        Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SettingsPagePadding(
           child: SingleChildScrollView(
+            padding: getScrollContainerPadding(context),
             child: SettingsBodyPadding(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SettingsButton(
-                      icon: Symbols.add,
-                      title: "Add Library",
-                      subtitle: "Add a new library and scan existing files",
-                      onPressed: () async {
-                        final path = await getDirectoryPath();
-
-                        if (path == null) return;
-
-                        if (!context.mounted) return;
-                        await closeLibrary(context);
-                        libraryPath.setLibraryPath(path, true);
-                        libraryManager.scanLibrary(path, false);
-
-                        if (!context.mounted) return;
-                        context.go('/library');
-                      }),
+                  const AddLibrarySettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                    useRootNavigate: false,
+                  ),
                   SettingsButton(
                     icon: Symbols.refresh,
                     title: "Factory Reset",
@@ -70,100 +79,88 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                     },
                   ),
                   const SizedBox(height: 2),
-                  FutureBuilder(
-                    future: libraryPath.getAllOpenedFiles(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return Container();
-                      } else if (snapshot.hasError) {
-                        return Center(child: Text('Error: ${snapshot.error}'));
-                      }
+                  SizedBox(
+                    width: double.maxFinite,
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: allOpenedFiles.length,
+                      itemBuilder: (context, index) {
+                        final itemPath = allOpenedFiles[index];
+                        final isCurrentLibrary =
+                            itemPath == libraryPath.currentPath;
+                        final isSelectedLibrary = itemPath == selectedItem;
 
-                      final allOpenedFiles = snapshot.data!;
+                        final scanProgress =
+                            libraryManager.getScanTaskProgress(itemPath);
+                        final analyseProgress =
+                            libraryManager.getAnalyseTaskProgress(itemPath);
 
-                      return SizedBox(
-                        width: double.maxFinite,
-                        child: ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: allOpenedFiles.length,
-                          itemBuilder: (context, index) {
-                            final itemPath = allOpenedFiles[index];
-                            final isCurrentLibrary =
-                                itemPath == libraryPath.currentPath;
-                            final isSelectedLibrary = itemPath == selectedItem;
+                        final scanWorking =
+                            scanProgress?.status == TaskStatus.working;
+                        final analyseWorking =
+                            analyseProgress?.status == TaskStatus.working;
 
-                            final scanProgress =
-                                libraryManager.getScanTaskProgress(itemPath);
-                            final analyseProgress =
-                                libraryManager.getAnalyseTaskProgress(itemPath);
+                        final initializing =
+                            (scanProgress?.initialize ?? false) ||
+                                (analyseProgress?.isInitializeTask ?? false);
 
-                            final scanWorking =
-                                scanProgress?.status == TaskStatus.working;
-                            final analyseWorking =
-                                analyseProgress?.status == TaskStatus.working;
+                        String fileName = File(itemPath).uri.pathSegments.last;
 
-                            final initializing =
-                                (scanProgress?.initialize ?? false) ||
-                                    (analyseProgress?.initialize ?? false);
+                        void Function()? whileWorking(void Function() x) {
+                          return isCurrentLibrary ||
+                                  (initializing &&
+                                      (scanWorking || analyseWorking))
+                              ? null
+                              : x;
+                        }
 
-                            String fileName =
-                                File(itemPath).uri.pathSegments.last;
+                        return ListTile.selectable(
+                          title: SettingsTileTitle(
+                            icon: Symbols.folder,
+                            title: fileName,
+                            subtitle: allOpenedFiles[index],
+                            showActions: isSelectedLibrary,
+                            actionsBuilder: (context) => Row(
+                              children: [
+                                Button(
+                                  onPressed: whileWorking(
+                                    () async {
+                                      await closeLibrary(context);
+                                      libraryPath.setLibraryPath(
+                                        allOpenedFiles[index],
+                                      );
 
-                            void Function()? whileWorking(void Function() x) {
-                              return isCurrentLibrary ||
-                                      (initializing &&
-                                          (scanWorking || analyseWorking))
-                                  ? null
-                                  : x;
-                            }
-
-                            return ListTile.selectable(
-                              title: SettingsTileTitle(
-                                icon: Symbols.folder,
-                                title: fileName,
-                                subtitle: allOpenedFiles[index],
-                                showActions: isSelectedLibrary,
-                                actionsBuilder: (context) => Row(
-                                  children: [
-                                    Button(
-                                      onPressed: whileWorking(
-                                        () async {
-                                          await closeLibrary(context);
-                                          libraryPath.setLibraryPath(
-                                              allOpenedFiles[index]);
-
-                                          if (!context.mounted) return;
-                                          context.go('/library');
-                                        },
-                                      ),
-                                      child: const Text("Switch to"),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Button(
-                                      onPressed: whileWorking(() async {
-                                        libraryPath.removeOpenedFile(
-                                            allOpenedFiles[index]);
-                                      }),
-                                      child: const Text("Remove"),
-                                    ),
-                                    if (isCurrentLibrary) ...[
-                                      const SizedBox(width: 12),
-                                      const ScanLibraryButton(),
-                                      const SizedBox(width: 12),
-                                      const AnalyseLibraryButton(),
-                                    ]
-                                  ],
+                                      if (!context.mounted) return;
+                                      $push('/library');
+                                    },
+                                  ),
+                                  child: const Text("Switch to"),
                                 ),
-                              ),
-                              selected: isSelectedLibrary,
-                              onSelectionChange: (v) =>
-                                  setState(() => selectedItem = itemPath),
-                            );
-                          },
-                        ),
-                      );
-                    },
-                  )
+                                const SizedBox(width: 12),
+                                Button(
+                                  onPressed: whileWorking(() async {
+                                    libraryPath.removeOpenedFile(
+                                      allOpenedFiles[index],
+                                    );
+                                  }),
+                                  child: const Text("Remove"),
+                                ),
+                                if (isCurrentLibrary) ...[
+                                  const SizedBox(width: 12),
+                                  const ScanLibraryButton(),
+                                  const SizedBox(width: 12),
+                                  const AnalyseLibraryButton(),
+                                ]
+                              ],
+                            ),
+                          ),
+                          selected: isSelectedLibrary,
+                          onSelectionChange: (v) =>
+                              setState(() => selectedItem = itemPath),
+                        );
+                      },
+                    ),
+                  ),
                 ],
               ),
             ),

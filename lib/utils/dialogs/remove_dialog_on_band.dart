@@ -10,12 +10,14 @@ class RemoveDialogOnBand extends StatelessWidget {
     super.key,
     required this.child,
     required this.onConfirm,
+    required this.$close,
     this.icon,
   });
 
   final IconData? icon;
   final Widget child;
   final VoidCallback onConfirm;
+  final void Function(Null) $close;
 
   @override
   Widget build(BuildContext context) {
@@ -49,7 +51,7 @@ class RemoveDialogOnBand extends StatelessWidget {
                     icon ?? Symbols.close,
                     size: (size * 0.2).clamp(0, 32),
                   ),
-                  onPressed: () => Navigator.pop(context, null),
+                  onPressed: () => $close(null),
                 ),
               ];
 

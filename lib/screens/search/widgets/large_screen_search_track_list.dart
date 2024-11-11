@@ -23,7 +23,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
     final typography = theme.typography;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 32),
+      padding: const EdgeInsets.only(top: 24, left: 32, right: 32),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.start,

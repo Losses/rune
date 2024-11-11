@@ -3,14 +3,15 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/get_non_replace_operate_mode.dart';
-import '../../screens/settings_playback/widgets/settings_block.dart';
-import '../../screens/settings_playback/widgets/settings_block_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/settings/settings_block_title.dart';
+import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
 
 const disabledPlaybackModesKey = 'disabled_playback_modes';
+const middleClickActionKey = 'middle_click_action';
 
 class SettingsPlayback extends StatefulWidget {
   const SettingsPlayback({super.key});
@@ -22,6 +23,7 @@ class SettingsPlayback extends StatefulWidget {
 class _SettingsPlaybackState extends State<SettingsPlayback> {
   List<PlaybackMode> disabledModes = [];
   String queueMode = "AddToEnd";
+  String middleClickAction = "StartPlaying";
 
   @override
   void initState() {
@@ -49,6 +51,15 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
         queueMode = storedQueueSetting;
       });
     }
+
+    // Load middle-click action setting
+    String? storedMiddleClickAction =
+        await SettingsManager().getValue<String>(middleClickActionKey);
+    if (storedMiddleClickAction != null) {
+      setState(() {
+        middleClickAction = storedMiddleClickAction;
+      });
+    }
   }
 
   Future<void> _updateDisabledModes(PlaybackMode mode, bool isDisabled) async {
@@ -71,35 +82,66 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
     await SettingsManager().setValue(nonReplaceOperateModeKey, newSetting);
   }
 
+  Future<void> _updateMiddleClickAction(String newAction) async {
+    setState(() {
+      middleClickAction = newAction;
+    });
+    await SettingsManager().setValue(middleClickActionKey, newAction);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: SingleChildScrollView(
+          padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
               children: [
-                SettingsBlock(
+                SettingsBoxComboBox(
                   title: "Add to Queue",
                   subtitle: "How new items to be added to the playback queue.",
-                  child: ComboBox<String>(
-                    value: queueMode,
-                    items: const [
-                      ComboBoxItem(
-                        value: "PlayNext",
-                        child: Text("Play Next"),
-                      ),
-                      ComboBoxItem(
-                        value: "AddToEnd",
-                        child: Text("Add to End"),
-                      ),
-                    ],
-                    onChanged: (newValue) {
-                      if (newValue != null) {
-                        _updateQueueSetting(newValue);
-                      }
-                    },
-                  ),
+                  value: queueMode,
+                  items: const [
+                    SettingsBoxComboBoxItem(
+                      value: "PlayNext",
+                      title: "Play Next",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "AddToEnd",
+                      title: "Add to End",
+                    ),
+                  ],
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _updateQueueSetting(newValue);
+                    }
+                  },
+                ),
+                SettingsBoxComboBox(
+                  title: "Middle Click Action",
+                  subtitle:
+                      "Action to perform when middle-clicking a track or collection.",
+                  value: middleClickAction,
+                  items: const [
+                    SettingsBoxComboBoxItem(
+                      value: "StartPlaying",
+                      title: "Start Playing",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "AddToQueue",
+                      title: "Add to Queue",
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "StartRoaming",
+                      title: "Start Roaming",
+                    ),
+                  ],
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _updateMiddleClickAction(newValue);
+                    }
+                  },
                 ),
                 Padding(
                   padding: const EdgeInsets.all(4),
