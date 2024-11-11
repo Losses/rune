@@ -1,12 +1,15 @@
 import 'package:get_storage/get_storage.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../utils/storage_key_manager.dart';
+
+const storageName = 'rune';
 
 class SettingsManager {
   static final SettingsManager _instance = SettingsManager._internal();
   factory SettingsManager() => _instance;
 
-  final GetStorage _storage = GetStorage();
+  late GetStorage _storage;
   bool _initialized = false;
   Future<void>? _initFuture;
 
@@ -15,10 +18,17 @@ class SettingsManager {
   }
 
   Future<void> _init() async {
-    if (!_initialized) {
-      await GetStorage.init();
-      _initialized = true;
-    }
+    if (_initialized) return;
+
+    final path = (await getApplicationSupportDirectory()).path;
+    // ignore: avoid_print
+    print("Initializing config file at: $path");
+
+    _storage = GetStorage(storageName, path);
+
+    await _storage.initStorage;
+
+    _initialized = true;
   }
 
   Future<T?> getValue<T>(String key) async {

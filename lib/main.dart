@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -56,9 +57,7 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();
-  await GetStorage.init();
-  await GetStorage.init(MacSecureManager.storageName);
-  await MacSecureManager.shared.loadBookmark();
+
   await initializeRust(assignRustSignal);
 
   try {
