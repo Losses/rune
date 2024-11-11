@@ -1,11 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/router/navigation.dart';
 
 import '../utils/query_list.dart';
 import '../utils/api/play_mode.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/api/set_media_library_path.dart';
+import '../utils/router/navigation.dart';
 import '../utils/file_storage/file_storage_service.dart';
 import '../utils/settings_manager.dart';
 
