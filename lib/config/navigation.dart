@@ -2,12 +2,20 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/navigation/navigation_item.dart';
+import '../providers/router_path.dart';
+import '../utils/router/navigation.dart';
 
 final List<NavigationItem> navigationItems = [
   NavigationItem(
     'Rune',
     '/',
-    tappable: false,
+    onTap: (context) {
+      final path = $router.path;
+
+      if (path != '/library') {
+        $replace('/library');
+      }
+    },
     children: [
       NavigationItem(
         'Library',

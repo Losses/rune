@@ -4,7 +4,7 @@ class NavigationItem {
   final String title;
   final String path;
   final bool hidden;
-  final bool tappable;
+  final void Function(BuildContext)? onTap;
   final bool zuneOnly;
   final List<NavigationItem>? children;
   final List<SingleActivator>? shortcuts;
@@ -13,7 +13,7 @@ class NavigationItem {
     this.title,
     this.path, {
     this.hidden = false,
-    this.tappable = true,
+    this.onTap,
     this.children = const [],
     this.zuneOnly = false,
     this.shortcuts,
