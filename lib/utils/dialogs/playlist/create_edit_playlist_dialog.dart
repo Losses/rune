@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../utils/api/update_playlist.dart';
 import '../../../utils/api/create_playlist.dart';
 import '../../../utils/api/get_playlist_by_id.dart';
@@ -131,6 +132,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                             groupController.text,
                           );
                         }
+
+                        CollectionCache().clearType(CollectionType.Playlist);
 
                         setState(() {
                           isLoading = false;

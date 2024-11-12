@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../utils/dialogs/clean_group_titles.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
@@ -138,6 +139,8 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                             operator == null ? [] : [operator],
                           );
                         }
+
+                        CollectionCache().clearType(CollectionType.Mix);
 
                         setState(() {
                           isLoading = false;
