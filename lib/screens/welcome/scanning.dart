@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:mesh_gradient/mesh_gradient.dart';
+import 'package:animated_flip_counter/animated_flip_counter.dart';
 
 import '../../utils/color_brightness.dart';
 import '../../messages/library_manage.pb.dart';
@@ -68,17 +69,18 @@ class _ScanningPageState extends State<ScanningPage>
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            Text(
-              count > 1
-                  ? task == ScanTaskType.IndexFiles
-                      ? '$count tracks found'
-                      : '$count cover arts collected'
-                  : "Sit back and relax",
-              style: typography.bodyLarge?.apply(
+            AnimatedFlipCounter(
+              value: count,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOut,
+              suffix: task == ScanTaskType.IndexFiles
+                  ? ' tracks found'
+                  : ' cover arts collected',
+              textStyle: typography.bodyLarge?.apply(
                 color: Colors.white,
                 fontWeightDelta: -50,
               ),
-            )
+            ),
           ],
         ),
       ),
