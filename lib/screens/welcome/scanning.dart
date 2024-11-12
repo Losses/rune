@@ -1,4 +1,3 @@
-import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:mesh_gradient/mesh_gradient.dart';
@@ -24,30 +23,6 @@ class _ScanningPageState extends State<ScanningPage>
   void initState() {
     super.initState();
     _animationController.start();
-
-    // Pass context to the onLibraryScanned function
-    ScanAudioLibraryResponse.rustSignalStream.listen((rustSignal) {
-      if (!mounted) return;
-      onLibraryScanned(rustSignal, context);
-    });
-  }
-
-  // Modify the function to accept BuildContext
-  void onLibraryScanned(
-      RustSignal<ScanAudioLibraryResponse> rustSignal, BuildContext context) {
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
-
-    final scanProgress =
-        libraryManager.getScanTaskProgress(libraryPath.currentPath);
-    final scanning = scanProgress?.status == TaskStatus.working;
-
-    final currentPath = libraryPath.currentPath;
-    if (scanning && currentPath != null) {
-      libraryManager.analyseLibrary(currentPath);
-    }
   }
 
   @override
