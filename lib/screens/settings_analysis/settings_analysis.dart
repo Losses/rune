@@ -48,6 +48,13 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
     await SettingsManager().setValue(analysisComputingDeviceKey, newSetting);
   }
 
+  Future<void> _updatePerformanceLevel(String newSetting) async {
+    setState(() {
+      performanceLevel = newSetting;
+    });
+    await SettingsManager().setValue(analysisPerformanceLevelKey, newSetting);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
@@ -98,7 +105,7 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
                   ],
                   onChanged: (newValue) {
                     if (newValue != null) {
-                      _updateAnalysisDevice(newValue);
+                      _updatePerformanceLevel(newValue);
                     }
                   },
                 ),
