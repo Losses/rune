@@ -66,7 +66,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                   const AddLibrarySettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
-                    useRootNavigate: false,
                   ),
                   SettingsButton(
                     icon: Symbols.refresh,

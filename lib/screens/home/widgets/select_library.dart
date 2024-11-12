@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/responsive_providers.dart';
@@ -99,7 +98,6 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           return const AddLibrarySettingButton(
                             tryClose: false,
                             navigateIfFailed: false,
-                            useRootNavigate: true,
                           );
                         }
 
@@ -117,15 +115,13 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                             final (switched, error) =
                                 await libraryPath.setLibraryPath(path);
 
-                            if (switched) {
-                              $$replace('/library');
-                            } else {
-                              if (!context.mounted) return;
-                              await showFailedToInitializeLibrary(
-                                context,
-                                error,
-                              );
-                            }
+                            if (!context.mounted) return;
+                            if (switched) return;
+
+                            await showFailedToInitializeLibrary(
+                              context,
+                              error,
+                            );
                           },
                         );
                       },

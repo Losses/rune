@@ -16,12 +16,10 @@ class AddLibrarySettingButton extends StatelessWidget {
     super.key,
     required this.tryClose,
     required this.navigateIfFailed,
-    required this.useRootNavigate,
   });
 
   final bool tryClose;
   final bool navigateIfFailed;
-  final bool useRootNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -48,11 +46,6 @@ class AddLibrarySettingButton extends StatelessWidget {
 
         if (switched) {
           libraryManager.scanLibrary(path, true);
-          if (useRootNavigate) {
-            $$replace('/library');
-          } else {
-            $push('/library');
-          }
         } else {
           if (!context.mounted) return;
           await showFailedToInitializeLibrary(context, error);

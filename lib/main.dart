@@ -179,12 +179,16 @@ class Rune extends StatelessWidget {
             final routeName = settings.name!;
 
             if (routeName == '/') {
-              final builder = routes["/"]!;
-              final page = builder(context);
-
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => page,
+                builder: (context) => routes["/"]!(context),
+              );
+            }
+
+            if (routeName == '/scanning') {
+              return NoEffectPageRoute<dynamic>(
+                settings: settings,
+                builder: (context) => routes["/scanning"]!(context),
               );
             }
 

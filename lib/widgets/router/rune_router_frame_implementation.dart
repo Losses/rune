@@ -3,9 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../main.dart';
 
-import '../../routes/welcome.dart' as welcome;
-import '../../providers/library_manager.dart';
-
 import '../../screens/bsod/bsod.dart';
 
 import '../../widgets/navigation_bar/flip_animation.dart';
@@ -48,103 +45,88 @@ class _RuneRouterFrameImplementationState
     final r = Provider.of<ResponsiveProvider>(context);
     final crash = Provider.of<CrashProvider>(context);
 
-    return Selector<LibraryManagerProvider, bool>(
-      selector: (_, libraryManager) {
-        final scanProgress =
-            libraryManager.getScanTaskProgress(library.currentPath);
-        final scanning = scanProgress?.status == TaskStatus.working;
+    final isCar = r.smallerOrEqualTo(DeviceType.car, false);
+    final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
+    final diskOnRight = r.smallerOrEqualTo(DeviceType.car, false);
 
-        return scanning && (scanProgress?.initialize ?? false);
-      },
-      builder: (context, scanning, child) {
-        final isCar = r.smallerOrEqualTo(DeviceType.car, false);
-        final isZune = r.smallerOrEqualTo(DeviceType.zune, false);
-        final diskOnRight = r.smallerOrEqualTo(DeviceType.car, false);
+    final showDisk = isZune || isCar;
 
-        final showDisk = isZune || isCar;
+    if (crash.report != null) {
+      return Bsod(report: crash.report!);
+    }
 
-        if (crash.report != null) {
-          return Bsod(report: crash.report!);
-        }
+    if (library.currentPath == null) {
+      return Container();
+    }
 
-        if (scanning) {
-          return const welcome.ScanningPage();
-        }
+    final mainContent = FocusTraversalOrder(
+      order: const NumericFocusOrder(2),
+      child: widget.child,
+    );
 
-        if (library.currentPath == null) {
-          return Container();
-        }
+    final path = Provider.of<RouterPathProvider>(context).path;
 
-        final mainContent = FocusTraversalOrder(
-          order: const NumericFocusOrder(2),
-          child: widget.child,
-        );
+    return Stack(
+      children: [
+        if (!disableBrandingAnimation) const BrandingAnimation(),
+        ScaleFadeContainer(
+          delay: disableBrandingAnimation
+              ? const Duration(milliseconds: 0)
+              : const Duration(milliseconds: 4350),
+          duration: disableBrandingAnimation
+              ? const Duration(milliseconds: 200)
+              : const Duration(milliseconds: 500),
+          child: FlipAnimationContext(
+            child: FocusTraversalGroup(
+              policy: OrderedTraversalPolicy(),
+              child: RuneStack(
+                alignment: diskOnRight
+                    ? Alignment.centerRight
+                    : Alignment.bottomCenter,
+                children: [
+                  if (path == '/cover_wall' && !showDisk) mainContent,
+                  if (!showDisk)
+                    const FocusTraversalOrder(
+                      order: NumericFocusOrder(3),
+                      child: PlaybackController(),
+                    ),
+                  FocusTraversalOrder(
+                    order: const NumericFocusOrder(1),
+                    child: DeviceTypeBuilder(
+                      deviceType: const [
+                        DeviceType.band,
+                        DeviceType.dock,
+                        DeviceType.tv
+                      ],
+                      builder: (context, activeBreakpoint) {
+                        final isSmallView =
+                            activeBreakpoint == DeviceType.band ||
+                                activeBreakpoint == DeviceType.dock;
 
-        final path = Provider.of<RouterPathProvider>(context).path;
+                        if (!isSmallView) {
+                          return NavigationBar(path: path);
+                        }
 
-        return Stack(
-          children: [
-            if (!disableBrandingAnimation) const BrandingAnimation(),
-            ScaleFadeContainer(
-              delay: disableBrandingAnimation
-                  ? const Duration(milliseconds: 0)
-                  : const Duration(milliseconds: 4350),
-              duration: disableBrandingAnimation
-                  ? const Duration(milliseconds: 200)
-                  : const Duration(milliseconds: 500),
-              child: FlipAnimationContext(
-                child: FocusTraversalGroup(
-                  policy: OrderedTraversalPolicy(),
-                  child: RuneStack(
-                    alignment: diskOnRight
-                        ? Alignment.centerRight
-                        : Alignment.bottomCenter,
-                    children: [
-                      if (path == '/cover_wall' && !showDisk) mainContent,
-                      if (!showDisk)
-                        const FocusTraversalOrder(
-                          order: NumericFocusOrder(3),
-                          child: PlaybackController(),
-                        ),
-                      FocusTraversalOrder(
-                        order: const NumericFocusOrder(1),
-                        child: DeviceTypeBuilder(
-                          deviceType: const [
-                            DeviceType.band,
-                            DeviceType.dock,
-                            DeviceType.tv
-                          ],
-                          builder: (context, activeBreakpoint) {
-                            final isSmallView =
-                                activeBreakpoint == DeviceType.band ||
-                                    activeBreakpoint == DeviceType.dock;
-
-                            if (!isSmallView) {
-                              return NavigationBar(path: path);
-                            }
-
-                            return const Positioned(
-                              top: -12,
-                              left: -12,
-                              child: NavigationBackButton(),
-                            );
-                          },
-                        ),
-                      ),
-                      if (!(path == '/cover_wall' && !showDisk)) mainContent,
-                      if (showDisk)
-                        const FocusTraversalOrder(
-                          order: NumericFocusOrder(4),
-                          child: CoverArtDisk(),
-                        ),
-                    ],
+                        return const Positioned(
+                          top: -12,
+                          left: -12,
+                          child: NavigationBackButton(),
+                        );
+                      },
+                    ),
                   ),
-                ),
+                  if (!(path == '/cover_wall' && !showDisk)) mainContent,
+                  if (showDisk)
+                    const FocusTraversalOrder(
+                      order: NumericFocusOrder(4),
+                      child: CoverArtDisk(),
+                    ),
+                ],
               ),
             ),
-          ],
-        );
-      },
+          ),
+        ),
+      ],
     );
   }
 }

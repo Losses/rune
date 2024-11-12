@@ -8,7 +8,6 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../../providers/library_manager.dart';
 import '../../../utils/ax_shadow.dart';
-import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/responsive_providers.dart';
@@ -88,7 +87,6 @@ class WelcomePage extends StatelessWidget {
 
                               if (success) {
                                 libraryManager.scanLibrary(path, true);
-                                $$replace("/library");
                               } else {
                                 if (!context.mounted) return;
                                 await showFailedToInitializeLibrary(
