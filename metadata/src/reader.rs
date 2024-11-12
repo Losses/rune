@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io;
 use std::path::Path;
+
+use anyhow::{bail, Result};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
 use symphonia::core::probe::Hint;
-use thiserror::Error;
 
 fn create_standard_tag_key_maps() -> (
     HashMap<StandardTagKey, &'static str>,
@@ -194,7 +194,7 @@ fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, Strin
             continue;
         }
 
-        let value = match &tag.value {
+        let value: String = match &tag.value {
             Value::String(val) => val.clone(),
             Value::UnsignedInt(val) => val.to_string(),
             Value::SignedInt(val) => val.to_string(),
@@ -207,19 +207,9 @@ fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, Strin
     }
 }
 
-#[derive(Error, Debug)]
-pub enum MetadataError {
-    #[error("file not found")]
-    FileNotFound,
-    #[error("io error")]
-    Io(#[from] io::Error),
-    #[error("symphonia error")]
-    Symphonia(#[from] symphonia::core::errors::Error),
-}
-
-pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Result<Vec<(String, String)>, MetadataError> {
+pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Result<Vec<(String, String)>> {
     if !Path::new(file_path).exists() {
-        return Err(MetadataError::FileNotFound);
+        bail!("File not found");
     }
 
     // Open the media source.
