@@ -1,8 +1,8 @@
-use analysis::computing_device::ComputingDevice;
 use log::{error, info};
 use std::path::PathBuf;
 use tracing_subscriber::filter::EnvFilter;
 
+use analysis::computing_device::ComputingDevice;
 use database::actions::analysis::{
     analysis_audio_library, empty_progress_callback as empty_analysis_progress_callback,
 };
@@ -14,10 +14,9 @@ use database::connection::{connect_main_db, connect_recommendation_db};
 
 #[tokio::main]
 async fn main() {
-    // std::env::set_var("RUST_LOG", "debug");
     let filter = EnvFilter::new(
         "symphonia_format_ogg=off,symphonia_core=off,sea_orm_migration::migrator=off, info",
-    ); // ,debug
+    );
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -49,7 +48,7 @@ async fn main() {
         &main_db,
         &root_path,
         10,
-        ComputingDevice::Gpu.into(),
+        ComputingDevice::Gpu,
         empty_analysis_progress_callback,
         None,
     )

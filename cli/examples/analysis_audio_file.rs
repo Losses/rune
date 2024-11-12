@@ -1,11 +1,14 @@
-use analysis::{analysis::{analyze_audio, normalize_analysis_result}, computing_device::ComputingDevice};
+use analysis::{
+    analysis::{analyze_audio, normalize_analysis_result},
+    computing_device::ComputingDevice,
+};
 
 fn main() {
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
     let path = args.get(1).expect("file path not provided");
 
-    let result = analyze_audio(path, 4096, 4096 / 2, ComputingDevice::Gpu.into(), None);
+    let result = analyze_audio(path, 4096, 4096 / 2, ComputingDevice::Gpu, None);
 
     let analysis_result = match result {
         Ok(x) =>

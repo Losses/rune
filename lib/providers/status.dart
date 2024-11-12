@@ -4,7 +4,10 @@ import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/playback.pb.dart';
+import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
+
+const lastQueueIndexKey = 'last_queue_index';
 
 class PlaybackStatusProvider with ChangeNotifier {
   PlaybackStatus? _playbackStatus;
@@ -33,6 +36,7 @@ class PlaybackStatusProvider with ChangeNotifier {
 
       if (isNewTrack && newStatus.state != "Stopped") {
         ThemeColorManager().handleCoverArtColorChange(newStatus.id);
+        SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }
 
       notifyListeners();

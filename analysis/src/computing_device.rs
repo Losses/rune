@@ -6,13 +6,13 @@ pub enum ComputingDevice {
 }
 
 impl From<i32> for ComputingDevice {
-  fn from(value: i32) -> Self {
-      match value {
-          0 => ComputingDevice::Cpu,
-          1 => ComputingDevice::Gpu,
-          _ => ComputingDevice::Gpu,
-      }
-  }
+    fn from(value: i32) -> Self {
+        match value {
+            0 => ComputingDevice::Cpu,
+            1 => ComputingDevice::Gpu,
+            _ => ComputingDevice::Gpu,
+        }
+    }
 }
 
 impl From<&str> for ComputingDevice {

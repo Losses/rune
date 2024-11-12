@@ -1,31 +1,58 @@
 import 'dart:io';
 
 import 'package:get_storage/get_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
 
-class MacSecureManager {
-  static final MacSecureManager shared = MacSecureManager();
-  static const String storageName = 'mac_secure_manager';
+const storageKey = 'mac_secure_bookmarks';
 
-  final GetStorage _storage = GetStorage(storageName);
+class MacSecureManager {
+  static final MacSecureManager _instance = MacSecureManager._internal();
+  factory MacSecureManager() => _instance;
+
+  late GetStorage _storage;
+  bool _initialized = false;
+  Future<void>? _initFuture;
+
+  MacSecureManager._internal() {
+    _initFuture = _init();
+  }
+
+  Future<void> _init() async {
+    if (!isApplePlatform()) return;
+    if (_initialized) return;
+
+    final path = (await getApplicationSupportDirectory()).path;
+    // ignore: avoid_print
+    print("Initializing secure bookmarks at: $path");
+
+    _storage = GetStorage(storageKey, path);
+
+    await _storage.initStorage;
+
+    await loadBookmark();
+
+    _initialized = true;
+  }
 
   static isApplePlatform() {
     return Platform.isMacOS || Platform.isIOS;
   }
 
   Future<void> saveBookmark(String dir) async {
-    if (!isApplePlatform()) {
-      return;
-    }
+    if (!isApplePlatform()) return;
+
+    await _initFuture;
     final secureBookmarks = SecureBookmarks();
+
     final bookmark = await secureBookmarks.bookmark(Directory(dir));
     await _storage.write(dir, bookmark);
   }
 
   Future<void> loadBookmark() async {
-    if (!isApplePlatform()) {
-      return;
-    }
+    if (!isApplePlatform()) return;
+
+    await _initFuture;
     final secureBookmarks = SecureBookmarks();
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();

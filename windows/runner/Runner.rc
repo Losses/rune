@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "player" "\0"
+            VALUE "CompanyName", "ci.not" "\0"
+            VALUE "FileDescription", "Rune Player" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "player" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2024 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "player.exe" "\0"
-            VALUE "ProductName", "player" "\0"
+            VALUE "InternalName", "rune" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2024 Rune Player Developers. Licensed under MPL 2.0." "\0"
+            VALUE "OriginalFilename", "rune.exe" "\0"
+            VALUE "ProductName", "rune" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

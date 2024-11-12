@@ -4,7 +4,6 @@ import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:get_storage/get_storage.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -12,10 +11,9 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'utils/platform.dart';
 import 'utils/settings_manager.dart';
-import 'utils/theme_color_manager.dart';
 import 'utils/update_color_mode.dart';
+import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
-import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
@@ -56,9 +54,7 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();
-  await GetStorage.init();
-  await GetStorage.init(MacSecureManager.storageName);
-  await MacSecureManager.shared.loadBookmark();
+
   await initializeRust(assignRustSignal);
 
   try {

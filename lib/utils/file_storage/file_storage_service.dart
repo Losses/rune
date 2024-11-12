@@ -21,7 +21,7 @@ class FileStorageService {
     openedFiles.remove(filePath);
     openedFiles.add(filePath);
 
-    await MacSecureManager.shared.saveBookmark(filePath);
+    await MacSecureManager().saveBookmark(filePath);
 
     // Store the updated list of file paths
     settingsManager.setValue(_openedFilesKey, openedFiles);
