@@ -115,13 +115,8 @@ void main(List<String> arguments) async {
   }
 
   if (!Platform.isLinux && !Platform.isAndroid) {
-    appTheme.addListener(() {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) {
-          appTheme.setEffect();
-        },
-      );
-    });
+    appTheme.addListener(updateTheme);
+    updateTheme();
   }
 
   initialPath = await getInitialPath();
