@@ -9,6 +9,7 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
+import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
@@ -52,6 +53,7 @@ void main(List<String> arguments) async {
       ? arguments[arguments.indexOf('--profile') + 1]
       : null;
 
+  await MacSecureManager().completed;
   StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();

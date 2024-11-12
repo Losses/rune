@@ -13,10 +13,10 @@ class MacSecureManager {
 
   late GetStorage _storage;
   bool _initialized = false;
-  Future<void>? _initFuture;
+  Future<void>? completed;
 
   MacSecureManager._internal() {
-    _initFuture = _init();
+    completed = _init();
   }
 
   Future<void> _init() async {
@@ -43,7 +43,7 @@ class MacSecureManager {
   Future<void> saveBookmark(String dir) async {
     if (!isApplePlatform()) return;
 
-    await _initFuture;
+    await completed;
     final secureBookmarks = SecureBookmarks();
 
     final bookmark = await secureBookmarks.bookmark(Directory(dir));
@@ -53,7 +53,6 @@ class MacSecureManager {
   Future<void> loadBookmark() async {
     if (!isApplePlatform()) return;
 
-    await _initFuture;
     final secureBookmarks = SecureBookmarks();
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();
