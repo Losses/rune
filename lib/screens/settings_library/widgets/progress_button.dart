@@ -18,6 +18,8 @@ class ProgressButton extends StatelessWidget {
     return Button(
         onPressed: onPressed,
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
           children: [
             SizedBox(
               width: 16,
