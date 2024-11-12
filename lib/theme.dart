@@ -73,17 +73,26 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setEffect(BuildContext context) {
-    final theme = FluentTheme.of(context);
+  void setEffect() {
+    Brightness brightness =
+        WidgetsBinding.instance.platformDispatcher.platformBrightness;
+
+    if (_mode == ThemeMode.dark) {
+      brightness = Brightness.dark;
+    } else if (_mode == ThemeMode.light) {
+      brightness = Brightness.light;
+    }
 
     Window.setEffect(
       effect: windowEffect,
       color: windowEffect != WindowEffect.mica
-          ? theme.brightness == Brightness.light
+          ? brightness == Brightness.light
               ? const Color(0xFFF6F6F6)
               : const Color(0xFF1F1F1F)
-          : theme.micaBackgroundColor.withOpacity(0.05),
-      dark: theme.brightness.isDark,
+          : brightness == Brightness.light
+              ? const Color(0xFFF3F3F3).withOpacity(0.05)
+              : const Color(0xFF202020).withOpacity(0.05),
+      dark: brightness == Brightness.dark,
     );
   }
 }

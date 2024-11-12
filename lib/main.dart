@@ -244,9 +244,7 @@ class ThemeSyncerState extends State<ThemeSyncer> {
     if (Platform.isAndroid) return;
     WidgetsBinding.instance.addPostFrameCallback(
       (_) {
-        if (mounted) {
-          appTheme.setEffect(context);
-        }
+        appTheme.setEffect();
       },
     );
   }
