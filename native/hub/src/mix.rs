@@ -105,31 +105,29 @@ pub async fn update_mix_request(
     .await
     .with_context(|| "Failed to update mix metadata")?;
 
-    if !request.queries.is_empty() {
-        replace_mix_queries(
-            &main_db,
-            request.mix_id,
-            request
-                .queries
-                .into_iter()
-                .map(|x| (x.operator, x.parameter))
-                .collect(),
-            None,
-        )
-        .await
-        .with_context(|| "Failed to update replace mix queries while updating")?;
+    replace_mix_queries(
+        &main_db,
+        request.mix_id,
+        request
+            .queries
+            .into_iter()
+            .map(|x| (x.operator, x.parameter))
+            .collect(),
+        None,
+    )
+    .await
+    .with_context(|| "Failed to update replace mix queries while updating")?;
 
-        UpdateMixResponse {
-            mix: Some(Mix {
-                id: mix.id,
-                name: mix.name,
-                group: mix.group,
-                locked: mix.locked,
-                mode: mix.mode.expect("Mix mode not exists"),
-            }),
-        }
-        .send_signal_to_dart();
+    UpdateMixResponse {
+        mix: Some(Mix {
+            id: mix.id,
+            name: mix.name,
+            group: mix.group,
+            locked: mix.locked,
+            mode: mix.mode.expect("Mix mode not exists"),
+        }),
     }
+    .send_signal_to_dart();
 
     Ok(())
 }
