@@ -9,7 +9,9 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
+import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/platform.dart';
+import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
@@ -51,6 +53,7 @@ void main(List<String> arguments) async {
       ? arguments[arguments.indexOf('--profile') + 1]
       : null;
 
+  await MacSecureManager().completed;
   StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();
@@ -66,7 +69,7 @@ void main(List<String> arguments) async {
       appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
-    debugPrint('Device is not Windows 10, skip the patch');
+    info$('Device is not Windows 10, skip the patch');
   }
 
   final SettingsManager settingsManager = SettingsManager();
@@ -243,9 +246,7 @@ class ThemeSyncerState extends State<ThemeSyncer> {
     if (Platform.isAndroid) return;
     WidgetsBinding.instance.addPostFrameCallback(
       (_) {
-        if (mounted) {
-          appTheme.setEffect(context);
-        }
+        appTheme.setEffect();
       },
     );
   }

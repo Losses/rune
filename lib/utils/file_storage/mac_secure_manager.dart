@@ -1,10 +1,11 @@
 import 'dart:io';
 
 import 'package:get_storage/get_storage.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
 
-const storageKey = 'mac_secure_bookmarks';
+import '../settings_manager.dart';
+
+const storageKey = 'rune-secure-bookmarks';
 
 class MacSecureManager {
   static final MacSecureManager _instance = MacSecureManager._internal();
@@ -12,17 +13,17 @@ class MacSecureManager {
 
   late GetStorage _storage;
   bool _initialized = false;
-  Future<void>? _initFuture;
+  Future<void>? completed;
 
   MacSecureManager._internal() {
-    _initFuture = _init();
+    completed = _init();
   }
 
   Future<void> _init() async {
     if (!isApplePlatform()) return;
     if (_initialized) return;
 
-    final path = (await getApplicationSupportDirectory()).path;
+    final path = await getSettingsPath();
     // ignore: avoid_print
     print("Initializing secure bookmarks at: $path");
 
@@ -42,7 +43,7 @@ class MacSecureManager {
   Future<void> saveBookmark(String dir) async {
     if (!isApplePlatform()) return;
 
-    await _initFuture;
+    await completed;
     final secureBookmarks = SecureBookmarks();
 
     final bookmark = await secureBookmarks.bookmark(Directory(dir));
@@ -52,7 +53,6 @@ class MacSecureManager {
   Future<void> loadBookmark() async {
     if (!isApplePlatform()) return;
 
-    await _initFuture;
     final secureBookmarks = SecureBookmarks();
 
     final bookmarks = _storage.getValues<Iterable<dynamic>>().toList();

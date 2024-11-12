@@ -65,7 +65,12 @@ class NavigationBarState extends State<NavigationBar> {
   }
 
   void _onHeaderTap(BuildContext context, NavigationItem? item) {
-    if (item?.tappable == false) return;
+    final onTap = item?.onTap;
+
+    if (onTap != null) {
+      onTap(context);
+      return;
+    }
 
     setState(() {
       if (item != null) {

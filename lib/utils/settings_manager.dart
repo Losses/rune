@@ -1,9 +1,20 @@
+import 'dart:io';
+
 import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../utils/storage_key_manager.dart';
+import 'rune_log.dart';
 
 const storageName = 'rune';
+
+getSettingsPath() async {
+  if (Platform.isLinux || Platform.isWindows) {
+    return (await getApplicationSupportDirectory()).path;
+  }
+
+  return (await getApplicationDocumentsDirectory()).path;
+}
 
 class SettingsManager {
   static final SettingsManager _instance = SettingsManager._internal();
@@ -20,9 +31,8 @@ class SettingsManager {
   Future<void> _init() async {
     if (_initialized) return;
 
-    final path = (await getApplicationSupportDirectory()).path;
-    // ignore: avoid_print
-    print("Initializing config file at: $path");
+    final path = await getSettingsPath();
+    info$("Initializing config file at: $path");
 
     _storage = GetStorage(storageName, path);
 

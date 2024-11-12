@@ -5,6 +5,7 @@ import '../utils/api/play_mode.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/api/set_media_library_path.dart';
+import '../utils/router/navigation.dart';
 import '../utils/file_storage/file_storage_service.dart';
 import '../utils/settings_manager.dart';
 
@@ -29,7 +30,12 @@ class LibraryPathProvider with ChangeNotifier {
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
-      setLibraryPath(initialPath);
+      setLibraryPath(initialPath).then((result) {
+        final success = result.$1;
+        if (!success) {
+          $$replace("/");
+        }
+      });
     }
 
     getAllOpenedFiles().then((x) {

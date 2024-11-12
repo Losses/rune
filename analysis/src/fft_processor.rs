@@ -26,8 +26,8 @@ pub struct FFTProcessor {
     window_size: usize,
     batch_size: usize,
     overlap_size: usize,
-    gpu_batch_fft: wgpu_radix4::FFTCompute,
-    cpu_batch_fft: Arc<dyn Fft<f32>>,
+    gpu_batch_fft: Option<wgpu_radix4::FFTCompute>,
+    cpu_batch_fft: Option<Arc<dyn Fft<f32>>>,
     batch_fft_buffer: Vec<Complex<f32>>,
     avg_spectrum: Vec<Complex<f32>>,
     hanning_window: Vec<f32>,
@@ -75,15 +75,23 @@ impl FFTProcessor {
         overlap_size: usize,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        let gpu_batch_fft =
-            pollster::block_on(wgpu_radix4::FFTCompute::new(window_size * batch_size));
+        let gpu_batch_fft = if computing_device == ComputingDevice::Gpu {
+            Some(pollster::block_on(wgpu_radix4::FFTCompute::new(
+                window_size * batch_size,
+            )))
+        } else {
+            None
+        };
         let batch_fft_buffer = vec![Complex::new(0.0, 0.0); window_size * batch_size];
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
         let hanning_window = build_hanning_window(window_size);
         let sample_buffer = Vec::with_capacity(window_size);
         let mut planner = FftPlanner::<f32>::new();
-        let cpu_batch_fft = planner.plan_fft_forward(window_size);
-
+        let cpu_batch_fft = if computing_device == ComputingDevice::Cpu {
+            Some(planner.plan_fft_forward(window_size))
+        } else {
+            None
+        };
         let fn_is_cancelled: Box<dyn Fn() -> bool> = Box::new(move || {
             cancel_token
                 .as_ref()
@@ -138,11 +146,11 @@ impl FFTProcessor {
 
         let track_id = track.id;
 
-        self.process_audio_stream(&mut format, &mut decoder, track_id);
-
         if self.is_cancelled || (self.fn_is_cancelled)() {
             return None;
         }
+
+        self.process_audio_stream(&mut format, &mut decoder, track_id);
 
         Some(AudioDescription {
             sample_rate: self.sample_rate,
@@ -335,9 +343,14 @@ impl FFTProcessor {
         self.batch_cache_buffer_count += 1;
         self.count += 1;
 
+        let gpu_fft = self
+            .gpu_batch_fft
+            .as_ref()
+            .expect("GPU computing device not initialized");
+
         if force {
             // Only process the valid portion of the batch buffer
-            pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
+            pollster::block_on(gpu_fft.compute_fft(&mut self.batch_fft_buffer));
 
             // Accumulate spectrums for the valid batches
             for batch_idx in 0..self.batch_cache_buffer_count {
@@ -349,7 +362,7 @@ impl FFTProcessor {
 
             self.batch_cache_buffer_count = 0;
         } else if self.batch_cache_buffer_count >= self.batch_size {
-            pollster::block_on(self.gpu_batch_fft.compute_fft(&mut self.batch_fft_buffer));
+            pollster::block_on(gpu_fft.compute_fft(&mut self.batch_fft_buffer));
 
             // Split batch_fft_buffer into batches and accumulate into avg_spectrum
             for batch_idx in 0..self.batch_size {
@@ -388,8 +401,13 @@ impl FFTProcessor {
         self.batch_cache_buffer_count += 1;
         self.count += 1;
 
+        let cpu_fft = self
+            .cpu_batch_fft
+            .as_ref()
+            .expect("CPU computing device not initialized");
+
         if force {
-            self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
+            cpu_fft.process(&mut self.batch_fft_buffer);
 
             for batch_idx in 0..self.batch_cache_buffer_count {
                 let start = batch_idx * self.window_size;
@@ -400,7 +418,7 @@ impl FFTProcessor {
 
             self.batch_cache_buffer_count = 0;
         } else if self.batch_cache_buffer_count >= self.batch_size {
-            self.cpu_batch_fft.process(&mut self.batch_fft_buffer);
+            cpu_fft.process(&mut self.batch_fft_buffer);
 
             for batch_idx in 0..self.batch_size {
                 let start = batch_idx * self.window_size;
