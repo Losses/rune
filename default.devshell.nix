@@ -55,6 +55,7 @@ pkgs.mkShell {
   };
 
   shellHook = ''
+    flutter config --jdk-dir "${pinnedJDK}"
     alias ls=exa
     alias find=fd
     alias rinf='flutter pub run rinf'
