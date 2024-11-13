@@ -1,8 +1,9 @@
 import 'dart:io';
 
 import 'package:rinf/rinf.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -117,6 +118,14 @@ void main(List<String> arguments) async {
   if (!Platform.isLinux && !Platform.isAndroid) {
     appTheme.addListener(updateTheme);
     updateTheme();
+  }
+
+  if (Platform.isMacOS) {
+    var dispatcher = SchedulerBinding.instance.platformDispatcher;
+
+    dispatcher.onPlatformBrightnessChanged = () {
+      updateTheme();
+    };
   }
 
   initialPath = await getInitialPath();
