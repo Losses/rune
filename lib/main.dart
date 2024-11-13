@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:rinf/rinf.dart';
-import 'package:flutter/scheduler.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -121,9 +120,9 @@ void main(List<String> arguments) async {
   }
 
   if (Platform.isMacOS) {
-    var dispatcher = SchedulerBinding.instance.platformDispatcher;
-
-    dispatcher.onPlatformBrightnessChanged = () {
+    WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged =
+        () {
+      WidgetsBinding.instance.handlePlatformBrightnessChanged();
       updateTheme();
     };
   }
