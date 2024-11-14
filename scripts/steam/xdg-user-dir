@@ -1,0 +1,13 @@
+#!/bin/sh
+# 
+# This script is part of the project available at https://gitlab.freedesktop.org/xdg
+#
+# Licensed Under GPLv2
+#
+
+test -f ${XDG_CONFIG_HOME:-~/.config}/user-dirs.dirs && . ${XDG_CONFIG_HOME:-~/.config}/user-dirs.dirs
+if [ "x$1" = "xDESKTOP" ]; then
+  eval echo \${XDG_${1}_DIR:-$HOME/Desktop}
+else
+  eval echo \${XDG_${1}_DIR:-$HOME}
+fi
