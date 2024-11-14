@@ -198,6 +198,12 @@ jobs:
         with:
           length: 7
       
+      - name: Copy Steam Launch Scripts
+        run: |
+          chmod +x scripts/steam/*
+          cp -r scripts/steam/* build/linux/x64/release/bundle/
+
+
       - name: Upload artifact 
         uses: actions/upload-artifact@v4
         with:
