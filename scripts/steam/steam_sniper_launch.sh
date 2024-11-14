@@ -1,7 +1,7 @@
 #!/bin/sh
 
 DIR=$(pwd)
-export PATH="$DIR/xdg-user-dir:$PATH"
+export PATH="$DIR:$PATH"
 
 chmod +x "$DIR/rune"
 
