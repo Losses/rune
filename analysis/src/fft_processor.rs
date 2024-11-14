@@ -523,7 +523,7 @@ mod tests {
             legacy_cpu_result.rms
         );
         assert!(
-            (gpu_result.energy - legacy_cpu_result.energy).abs() < 1,
+            (gpu_result.energy - legacy_cpu_result.energy).abs() < 1.0,
             "Energy difference too large: {} vs {}",
             gpu_result.energy,
             legacy_cpu_result.energy
