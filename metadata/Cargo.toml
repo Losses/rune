@@ -9,12 +9,12 @@ name = "metadata"
 path = "src/lib.rs"
 
 [dependencies]
-symphonia = "0.5.4"
+symphonia = { version = "0.5.4", features = ["all"] }
 thiserror = "1.0.61"
 lazy_static = "1.5.0"
 walkdir = "2.5.0"
 log = "0.4.22"
-lofty = "0.20.1"
+lofty = "0.21.1"
 regex = "1.10.6"
 analysis = { path = "../analysis" }
 anyhow = {version="1.0.86",  features = ["backtrace"] }
