@@ -75,7 +75,7 @@ class _ScanningPageState extends State<ScanningPage>
               curve: Curves.easeInOut,
               suffix: task == ScanTaskType.IndexFiles
                   ? ' tracks found'
-                  : ' cover arts collected',
+                  : ' album covers collected',
               textStyle: typography.bodyLarge?.apply(
                 color: Colors.white,
                 fontWeightDelta: -50,
