@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use log::{debug, info};
 
-// use rubato::Resampler;
 use rubato::{FftFixedInOut, Resampler};
 use rustfft::Fft;
 use rustfft::{num_complex::Complex, FftPlanner};
@@ -199,16 +198,6 @@ impl FFTProcessor {
         self.resample_ratio = 11025_f64 / self.sample_rate as f64;
         self.actual_data_size = ((self.window_size) as f64 / self.resample_ratio).ceil() as usize;
 
-        // self.resampler = Some(
-        //     SincFixedIn::<f32>::new(
-        //         self.resample_ratio,
-        //         2.0,
-        //         RESAMPLER_PARAMETER,
-        //         self.actual_data_size,
-        //         1,
-        //     )
-        //     .unwrap(),
-        // );
         self.resampler = Some(
             FftFixedInOut::<f32>::new(
                 self.sample_rate as usize, 
