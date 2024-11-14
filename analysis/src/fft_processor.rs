@@ -477,7 +477,7 @@ mod tests {
     #[test]
     fn test_fft_startup_sound() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/test.mp3";
+        let file_path = "../assets/startup_0.ogg";
         let window_size = 1024;
         let batch_size = 1024 * 8;
         let overlap_size = 512;
