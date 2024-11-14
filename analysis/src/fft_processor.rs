@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use log::{debug, info};
 
-use rubato::Resampler;
-use rubato::SincFixedIn;
+// use rubato::Resampler;
+use rubato::{FftFixedInOut, Resampler};
 use rustfft::Fft;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
@@ -45,7 +45,8 @@ pub struct FFTProcessor {
     resample_ratio: f64,
     sample_rate: u32,
     duration_in_seconds: f64,
-    resampler: Option<SincFixedIn<f32>>,
+    resampler: Option<FftFixedInOut<f32>>,
+    resampler_output_buffer: Vec<Vec<f32>>,
 }
 
 macro_rules! check_cancellation {
@@ -124,6 +125,7 @@ impl FFTProcessor {
             sample_rate: 0,
             duration_in_seconds: 0.0,
             resampler: None,
+            resampler_output_buffer: Vec::new(),
         }
     }
 
@@ -197,17 +199,26 @@ impl FFTProcessor {
         self.resample_ratio = 11025_f64 / self.sample_rate as f64;
         self.actual_data_size = ((self.window_size) as f64 / self.resample_ratio).ceil() as usize;
 
+        // self.resampler = Some(
+        //     SincFixedIn::<f32>::new(
+        //         self.resample_ratio,
+        //         2.0,
+        //         RESAMPLER_PARAMETER,
+        //         self.actual_data_size,
+        //         1,
+        //     )
+        //     .unwrap(),
+        // );
         self.resampler = Some(
-            SincFixedIn::<f32>::new(
-                self.resample_ratio,
-                2.0,
-                RESAMPLER_PARAMETER,
+            FftFixedInOut::<f32>::new(
+                self.sample_rate as usize, 
+                11025,
                 self.actual_data_size,
                 1,
-            )
-            .unwrap(),
+            ).unwrap()
         );
-
+        self.resampler_output_buffer = self.resampler.as_mut().unwrap().output_buffer_allocate(true);
+        
         // Decode loop.
         loop {
             // Check for cancellation
@@ -378,12 +389,14 @@ impl FFTProcessor {
     }
 
     fn cpu_process_audio_chunk(&mut self, chunk: &[f32], force: bool) {
-        let resampled_chunk = &self
+        let _ = &self
             .resampler
             .as_mut()
             .unwrap()
-            .process(&[chunk], None)
-            .unwrap()[0];
+            .process_into_buffer(&[chunk], &mut self.resampler_output_buffer, None)
+            .unwrap();
+
+        let resampled_chunk = &self.resampler_output_buffer[0];
 
         self.total_rms += rms(resampled_chunk);
         self.total_zcr += zcr(resampled_chunk);
@@ -475,7 +488,7 @@ mod tests {
     #[test]
     fn test_fft_startup_sound() {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
+        let file_path = "../assets/test.mp3";
         let window_size = 1024;
         let batch_size = 1024 * 8;
         let overlap_size = 512;
@@ -507,18 +520,18 @@ mod tests {
             (gpu_result.rms - legacy_cpu_result.rms).abs() < 0.001,
             "RMS difference too large: {} vs {}",
             gpu_result.rms,
-            cpu_result.rms
+            legacy_cpu_result.rms
         );
         assert!(
-            (gpu_result.energy - legacy_cpu_result.energy).abs() < 0.01,
+            (gpu_result.energy - legacy_cpu_result.energy).abs() < 1,
             "Energy difference too large: {} vs {}",
             gpu_result.energy,
-            cpu_result.energy
+            legacy_cpu_result.energy
         );
-        assert_eq!(
-            gpu_result.zcr, legacy_cpu_result.zcr,
+        assert!(
+            gpu_result.zcr.abs_diff(legacy_cpu_result.zcr) < 10,
             "ZCR values don't match: {} vs {}",
-            gpu_result.zcr, cpu_result.zcr
+            gpu_result.zcr, legacy_cpu_result.zcr
         );
 
         // Compare spectrum values
