@@ -1,0 +1,686 @@
+{
+  "@@locale": "ko",
+  "rune": "Rune",
+  "@rune": {
+    "description": "소프트웨어의 브랜드 이름으로 번역하지 않아야 합니다."
+  },
+  "runePlayer": "Rune 플레이어",
+  "@runePlayer": {
+    "description": "'플레이어' 부분은 일반적으로 번역되어야 하지만 'Rune'은 브랜드 이름으로 번역하지 않아야 합니다."
+  },
+  "copyright": "저작권",
+  "@copyright": {
+    "description": "설정 인터페이스의 저작권 섹션에 나타나는 항목의 제목입니다."
+  },
+  "copyrightAnnouncement": "저작권 © 2024 Rune 플레이어 개발자.",
+  "@copyrightAnnouncement": {
+    "description": "완전한 저작권 문구입니다."
+  },
+  "LicenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
+  "@LicenseAnnouncement": {
+    "description": "완전한 소프트웨어 라이선스 문구입니다."
+  },
+  "factoryReset": "공장 초기화",
+  "@factoryReset": {
+    "description": "설정 페이지에서 '라이브러리 기록 초기화' 작업을 트리거하는 버튼의 제목입니다."
+  },
+  "factoryResetSubtitle": "라이브러리 목록에서 모든 항목 제거",
+  "@factoryResetSubtitle": {
+    "description": "설정 인터페이스의 '공장 초기화' 버튼에 대한 설명 텍스트입니다."
+  },
+  "bsodBody": "플레이어에 문제가 발생하여 재시작이 필요합니다. 우리는 당신의 프라이버시를 존중하며 데이터를 수집하지 않습니다.",
+  "@bsodBody": {
+    "description": "블루 스크린 인터페이스에서 소프트웨어가 치명적인 오류를 만났음을 사용자에게 설명합니다. 두 번째 문장은 현대 소프트웨어 엔지니어링의 널리 퍼진 프라이버시 문제를 유머러스하게 다룹니다. 유머를 유지하세요."
+  },
+  "artists": "아티스트",
+  "@artists": {},
+  "albums": "앨범",
+  "@albums": {},
+  "playlists": "재생 목록",
+  "@playlists": {},
+  "unknownAlbum": "알 수 없는 앨범",
+  "@unknownAlbum": {},
+  "unknownTrack": "알 수 없는 트랙",
+  "@unknownTrack": {},
+  "unknownArtist": "알 수 없는 아티스트",
+  "@unknownArtist": {},
+  "selectDirectory": "디렉토리 선택",
+  "@selectDirectory": {},
+  "noDataAvailable": "데이터 없음",
+  "@noDataAvailable": {},
+  "start": "시작",
+  "@start": {
+    "description": "라이브러리 홈 기능 목록 근처에 나타나는 장식 텍스트입니다."
+  },
+  "search": "검색",
+  "@search": {},
+  "tracks": "트랙",
+  "@tracks": {},
+  "system": "시스템",
+  "@system": {},
+  "operatingSystem": "운영 체제",
+  "@operatingSystem": {
+    "description": "정보 페이지의 소프트웨어 정보 항목 제목 중 하나입니다."
+  },
+  "systemVersion": "시스템 버전",
+  "@systemVersion": {
+    "description": "정보 페이지의 소프트웨어 정보 항목 제목 중 하나입니다."
+  },
+  "kernelVersion": "커널 버전",
+  "@kernelVersion": {
+    "description": "진단 목적으로 운영 체제 커널의 버전을 나타내는 정보 페이지의 항목입니다."
+  },
+  "hostName": "호스트 이름",
+  "@hostName": {
+    "description": "컴퓨터의 이름을 나타내는 정보 페이지의 항목입니다."
+  },
+  "player": "플레이어",
+  "@player": {
+    "description": "소프트웨어 메타데이터에 대한 정보 페이지의 섹션 제목으로, 소프트웨어의 버전 정보를 제공합니다."
+  },
+  "buildHash": "빌드 해시",
+  "@buildHash": {},
+  "buildDate": "빌드 날짜",
+  "@buildDate": {},
+  "commitDate": "커밋 날짜",
+  "@commitDate": {},
+  "rustcVersion": "Rustc 버전",
+  "@rustcVersion": {},
+  "activation": "활성화",
+  "@activation": {},
+  "runeIsActivated": "Rune이 활성화되었습니다",
+  "@runeIsActivated": {
+    "description": "소프트웨어가 현재 활성화되어 있음을 사용자에게 알립니다. 사실, 소프트웨어는 어떤 상황에서도 항상 활성화되어 있습니다."
+  },
+  "productId": "제품 ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "정품 소프트웨어의 피해자가 될 수 있습니다.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "이 문구는 Easter egg로, 정품 소프트웨어를 사용하는 것이 불법 복제 버전을 사용하는 것보다 더 나쁜 경험을 제공하는 반-불법 복제 조치를 풍자합니다. 유머를 유지하세요."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "이 프로젝트를 지원하는 디자인 연구 조직입니다. 이름을 번역하지 않고 그대로 유지하세요."
+  },
+  "computingDevice": "컴퓨팅 장치",
+  "@computingDevice": {
+    "description": "오디오 분석 작업을 수행할 하드웨어 장치를 선택할 수 있는 설정 항목 제목입니다."
+  },
+  "computingDeviceSubtitle": "빠르거나 효율적인 처리를 위해 GPU 또는 CPU를 선택하세요.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "성능 수준",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "동시에 실행할 작업 수를 선택하세요.",
+  "@performanceLevelSubtitle": {},
+  "performance": "성능",
+  "@performance": {
+    "description": "가능한 한 빨리 계산을 완료하기 위해 사용 가능한 하드웨어 리소스를 활용하는 고성능 모드입니다."
+  },
+  "balance": "밸런스",
+  "@balance": {
+    "description": "시스템이 지연되지 않도록 계산 작업을 균등하게 분배하는 균형 모드입니다."
+  },
+  "batterySaving": "배터리 절약",
+  "@batterySaving": {
+    "description": "리소스 사용을 최소화하여 과열을 방지하는 에너지 절약 모드로, 덜 강력한 장치에 적합합니다."
+  },
+  "switchTo": "전환",
+  "@switchTo": {
+    "description": "미디어 라이브러리를 전환하기 위한 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 현재 라이브러리가 닫히고 새 라이브러리가 열립니다."
+  },
+  "removeLibrary": "제거",
+  "@removeLibrary": {
+    "description": "미디어 라이브러리를 제거하기 위한 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 기록에서 라이브러리 항목이 삭제됩니다."
+  },
+  "addLibrary": "라이브러리 추가",
+  "@addLibrary": {
+    "description": "새 미디어 라이브러리를 만들기 위한 설정 인터페이스의 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 사용자가 디렉토리를 선택하고 라이브러리를 만들 수 있도록 안내합니다."
+  },
+  "addLibrarySubtitle": "새 라이브러리를 추가하고 기존 파일을 스캔합니다.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "작업 메뉴",
+  "@actionMenu": {
+    "description": "설정 인터페이스 요소 목록의 구분선입니다. 이 구분선 아래의 모든 항목은 화면에 직접 표시되지 않고 팝업 버튼에 숨겨집니다."
+  },
+  "addToQueue": "큐에 추가",
+  "@addToQueue": {
+    "description": "컨텍스트 메뉴의 항목입니다. 이 항목을 누르면 해당 트랙이나 앨범이 재생 큐에 추가됩니다."
+  },
+  "addToQueueSubtitle": "새 항목이 재생 큐에 추가되는 방법입니다.",
+  "@addToQueueSubtitle": {},
+  "playNext": "다음에 재생",
+  "@playNext": {
+    "description": "재생 목록에서 다음에 재생할 트랙이나 앨범을 큐에 추가하는 작업입니다."
+  },
+  "addToEnd": "끝에 추가",
+  "@addToEnd": {
+    "description": "재생 목록 끝에 트랙이나 앨범을 큐에 추가하는 작업입니다."
+  },
+  "middleClickAction": "중간 클릭 동작",
+  "@middleClickAction": {
+    "description": "사용자가 트랙이나 앨범을 중간 클릭할 때의 동작을 제어하는 설정 인터페이스의 제목입니다."
+  },
+  "middleClickActionSubtitle": "트랙이나 컬렉션을 중간 클릭할 때 수행할 작업입니다.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "재생 시작",
+  "@startPlaying": {
+    "description": "사용자가 음악 재생을 시작할 수 있는 작업입니다."
+  },
+  "startRoaming": "로밍 시작",
+  "@startRoaming": {
+    "description": "현재 트랙이나 앨범과 유사한 음악을 재생하기 시작할 수 있는 작업입니다."
+  },
+  "playbackMode": "재생 모드",
+  "@playbackMode": {
+    "description": "사용자가 셔플 또는 순차 재생과 같은 원하는 재생 모드를 선택할 수 있도록 돕는 설정 인터페이스의 제목입니다."
+  },
+  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다.",
+  "@playbackModeSubtitle": {},
+  "colorMode": "색상 모드",
+  "@colorMode": {
+    "description": "사용자가 인터페이스 색상 모드를 선택할 수 있도록 돕는 설정 항목으로, 라이트 및 다크 모드를 포함합니다."
+  },
+  "colorModeSubtitle": "Rune에 나타나는 색상 모드를 변경하세요.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "시스템",
+  "@systemColorMode": {
+    "description": "활성화되면 소프트웨어의 라이트 또는 다크 모드가 시스템 설정과 일치하도록 조정하는 색상 설정 항목입니다."
+  },
+  "dark": "다크",
+  "@dark": {
+    "description": "선택 시 다크 모드를 활성화하는 색상 설정 항목입니다."
+  },
+  "light": "라이트",
+  "@light": {
+    "description": "선택 시 라이트 모드를 활성화하는 색상 설정 항목입니다."
+  },
+  "themeColor": "테마 색상",
+  "@themeColor": {
+    "description": "사용자가 선호하는 테마 색상을 선택할 수 있도록 돕는 설정 항목입니다."
+  },
+  "themeColorSubtitle": "Rune에 새롭고 신선한 느낌을 주기 위해 색상을 선택하세요.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "시스템 테마 따르기",
+  "@followSystemTheme": {
+    "description": "테마 색상 설정의 항목입니다. 활성화되면 소프트웨어의 테마 색상이 시스템 설정을 따릅니다."
+  },
+  "dynamicColors": "동적 색상",
+  "@dynamicColors": {
+    "description": "활성화되면 현재 재생 중인 트랙의 커버 아트에 따라 소프트웨어의 테마 색상이 변경되는 색상 설정 항목입니다."
+  },
+  "dynamicColorsSubtitle": "재생 중인 트랙의 커버 아트에 따라 Rune의 테마 색상을 조정하세요.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "브랜딩 애니메이션",
+  "@brandingAnimation": {
+    "description": "소프트웨어 시작 시 환영 애니메이션을 재생할지 제어할 수 있는 설정 항목입니다."
+  },
+  "brandingAnimationSubtitle": "Rune 시작 시 브랜딩 애니메이션을 재생합니다.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "몇 분이 걸릴 수 있습니다.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "스캔 대기 화면의 제목으로, 사용자에게 인내심을 가지라고 상기시킵니다."
+  },
+  "tracksFound": " 트랙 발견",
+  "@tracksFound": {
+    "description": "스캔 대기 화면에서 몇 개의 트랙이 스캔되었는지 사용자에게 알리는 프롬프트 텍스트입니다."
+  },
+  "albumCoversCollected": " 앨범 커버 수집됨",
+  "@albumCoversCollected": {
+    "description": "스캔 대기 화면에서 몇 개의 앨범 커버가 스캔되었는지 사용자에게 알리는 프롬프트 텍스트입니다."
+  },
+  "editPlaylist": "재생 목록 편집",
+  "@editPlaylist": {
+    "description": "사용자가 재생 목록의 메타데이터를 편집할 수 있는 컨텍스트 메뉴의 항목입니다."
+  },
+  "editMix": "믹스 편집",
+  "@editMix": {
+    "description": "사용자가 믹스의 메타데이터를 편집할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "edit": "편집",
+  "@edit": {
+    "description": "소프트웨어가 무엇을 편집해야 하는지 식별할 수 없을 때, 사용자가 콘텐츠를 편집하도록 안내하는 컨텍스트 메뉴의 동사입니다."
+  },
+  "remove": "제거",
+  "@remove": {
+    "description": "소프트웨어가 무엇을 제거해야 하는지 식별할 수 없을 때, 사용자가 콘텐츠를 제거하도록 안내하는 컨텍스트 메뉴의 동사입니다."
+  },
+  "removePlaylist": "재생 목록 제거",
+  "@removePlaylist": {
+    "description": "사용자가 재생 목록을 삭제할 수 있는 컨텍스트 메뉴의 항목입니다."
+  },
+  "removeMix": "믹스 제거",
+  "@removeMix": {
+    "description": "사용자가 믹스를 삭제할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "addToMix": "믹스에 추가",
+  "@addToMix": {
+    "description": "사용자가 트랙이나 앨범을 믹스에 추가할 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "newMix": "새 믹스",
+  "@newMix": {
+    "description": "사용자가 새 믹스를 만들 수 있는 컨텍스트 메뉴의 항목입니다. '리믹스' 개념과 혼동하지 마세요."
+  },
+  "selectAGroup": "그룹 선택",
+  "@selectAGroup": {
+    "description": "믹스 또는 재생 목록 편집 모달에 있는 입력 필드의 자리 표시자 텍스트로, 사용자가 콘텐츠 그룹을 선택하도록 안내합니다."
+  },
+  "likedOnly": "좋아요만",
+  "@likedOnly": {
+    "description": "믹스 편집 인터페이스의 항목으로, 사용자가 '좋아요'를 누른 트랙만 필터링하고 유지하는 체크박스 옵션입니다."
+  },
+  "allTracks": "모든 트랙",
+  "@allTracks": {
+    "description": "믹스 편집 인터페이스의 항목으로, 사용자가 '좋아요'를 누른 트랙뿐만 아니라 모든 트랙을 필터링하고 유지하는 체크박스 옵션입니다."
+  },
+  "defaultMode": "기본",
+  "@defaultMode": {
+    "description": "현재 시스템 동작을 유지하면서 모드를 지정하지 않고 재생 목록에서 트랙을 탐색하는 방법입니다."
+  },
+  "sequential": "순차적",
+  "@sequential": {
+    "description": "재생 목록에서 시작부터 끝까지 순서대로 재생하는 방법입니다."
+  },
+  "repeatAll": "모두 반복",
+  "@repeatAll": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 끝난 후 처음부터 반복합니다."
+  },
+  "repeatOne": "하나 반복",
+  "@repeatOne": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 하나의 트랙을 계속 반복합니다."
+  },
+  "shuffle": "셔플",
+  "@shuffle": {
+    "description": "재생 목록에서 트랙을 탐색하는 방법으로, 무작위 순서로 재생합니다."
+  },
+  "title": "제목",
+  "@title": {
+    "description": "재생 목록 또는 믹스 편집 모달에서 사용자가 제목을 편집하도록 안내합니다."
+  },
+  "group": "그룹",
+  "@group": {
+    "description": "재생 목록 또는 믹스 편집 모달에서 사용자가 그룹을 편집하도록 안내합니다."
+  },
+  "save": "저장",
+  "@save": {
+    "description": "모달에서 변경 사항을 저장할 때 누르는 동작 버튼입니다."
+  },
+  "create": "생성",
+  "@create": {
+    "description": "모달에서 새 항목을 생성할 때 누르는 동작 버튼입니다."
+  },
+  "cancel": "취소",
+  "@cancel": {
+    "description": "모달을 변경 없이 닫는 동작 버튼입니다."
+  },
+  "noRecommendation": "추천 없음",
+  "@noRecommendation": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 사용자가 쿼리 결과를 기반으로 추천하지 않겠다는 의도를 나타냅니다."
+  },
+  "basedOnAll": "모두 기반",
+  "@basedOnAll": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 전체 쿼리 결과를 기반으로 유사한 트랙을 추천합니다."
+  },
+  "group1": "그룹 1",
+  "@group1": {},
+  "group2": "그룹 2",
+  "@group2": {},
+  "group3": "그룹 3",
+  "@group3": {},
+  "group4": "그룹 4",
+  "@group4": {},
+  "group5": "그룹 5",
+  "@group5": {},
+  "group6": "그룹 6",
+  "@group6": {},
+  "group7": "그룹 7",
+  "@group7": {},
+  "group8": "그룹 8",
+  "@group8": {},
+  "group9": "그룹 9",
+  "@group9": {},
+  "ascending": "오름차순",
+  "@ascending": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 쿼리 결과를 오름차순으로 정렬합니다."
+  },
+  "descending": "내림차순",
+  "@descending": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 쿼리 결과를 내림차순으로 정렬합니다."
+  },
+  "lastModified": "마지막 수정",
+  "@lastModified": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 파일 메타데이터의 마지막 수정 시간으로 정렬합니다."
+  },
+  "duration": "재생 시간",
+  "@duration": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오 길이로 정렬합니다."
+  },
+  "timesPlayedThrough": "완전히 재생된 횟수",
+  "@timesPlayedThrough": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오가 완전히 재생된 횟수로 정렬합니다."
+  },
+  "timesSkipped": "건너뛴 횟수",
+  "@timesSkipped": {
+    "description": "믹스 편집 모달 드롭다운의 항목입니다. 이 옵션을 선택하면 오디오가 건너뛰어진 횟수로 정렬합니다."
+  },
+  "pickDirectory": "디렉토리 선택",
+  "@pickDirectory": {
+    "description": "믹스 편집 모달의 버튼 프롬프트 텍스트입니다. 이 버튼을 누르면 사용자가 디렉토리를 선택하도록 안내하는 모달이 열립니다."
+  },
+  "oneDirectory": "1개의 디렉토리",
+  "@oneDirectory": {
+    "description": "하나의 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다."
+  },
+  "manyDirectories": "${count}개의 디렉토리",
+  "@manyDirectories": {
+    "description": "여러 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다.",
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "confirm": "확인",
+  "@confirm": {
+    "description": "사용자의 작업을 확인하는 의도를 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "directories": "디렉토리",
+  "@directories": {
+    "description": "트랙을 폴더별로 필터링하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "allDirectories": "모든 디렉토리",
+  "@allDirectories": {
+    "description": "모든 디렉토리가 선택되었음을 나타내는 프롬프트입니다."
+  },
+  "randomTracks": "무작위 트랙",
+  "@randomTracks": {
+    "description": "무작위로 선택된 트랙 수를 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "amount": "수량",
+  "@amount": {
+    "description": "슬라이더 또는 입력 상자를 통해 선택된 트랙 수를 나타내는 모달의 프롬프트 텍스트입니다."
+  },
+  "mode": "모드",
+  "@mode": {
+    "description": "트랙의 재생 모드입니다."
+  },
+  "recommendation": "추천",
+  "@recommendation": {
+    "description": "플레이어의 추천 동작을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "sortBy": "정렬 기준",
+  "@sortBy": {
+    "description": "트랙의 정렬 방법을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "sortOrder": "정렬 순서",
+  "@sortOrder": {
+    "description": "트랙의 정렬 방향을 제어하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "liked": "좋아요",
+  "@liked": {
+    "description": "사용자가 '좋아요'로 표시한 트랙을 필터링하는 옵션을 사용자에게 알리는 모달 설정 옵션의 제목입니다."
+  },
+  "noRoamingCollection": "로밍을 시작할 수 없습니다. 컬렉션의 트랙이 아직 분석되지 않았습니다.",
+  "@noRoamingCollection": {},
+  "noRomaingTrack": "로밍을 시작할 수 없습니다. 이 트랙이 아직 분석되지 않았습니다.",
+  "@noRomaingTrack": {},
+  "noAnalysisScanning": "${baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "${baseMessage} 라이브러리가 분석 중입니다. 프로세스가 완료될 때까지 기다려 주십시오.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "${baseMessage} 최상의 경험을 위해 라이브러리를 분석하십시오.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "준비되지 않음",
+  "@notReady": {
+    "description": "트랙이 분석되지 않아 추천을 할 수 없음을 나타내는 모달 제목입니다."
+  },
+  "createPlaylist": "재생 목록 만들기",
+  "@createPlaylist": {
+    "description": "재생 목록을 만드는 모달 제목입니다."
+  },
+  "scanLibrary": "라이브러리 스캔",
+  "@scanLibrary": {
+    "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리 스캔을 시작합니다."
+  },
+  "analyseTracks": "트랙 분석",
+  "@analyseTracks": {
+    "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
+  },
+  "scan": "스캔",
+  "@scan": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 누르면 미디어 라이브러리 스캔을 시작합니다."
+  },
+  "scanning": "스캔 중",
+  "@scanning": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 스캔 중임을 나타냅니다."
+  },
+  "analyse": "분석",
+  "@analyse": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
+  },
+  "analysing": "분석 중",
+  "@analysing": {
+    "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 분석 중임을 나타냅니다."
+  },
+  "tryCreatingYourOwnCollection": "자신만의 컬렉션을 만들어 보세요",
+  "@tryCreatingYourOwnCollection": {
+    "description": "컬렉션 뷰의 빈 페이지에 표시되는 텍스트로, 사용자가 새 컬렉션을 만들도록 제안합니다."
+  },
+  "theseActionsMayHelp": "이러한 조치가 도움이 될 수 있습니다",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "새 파일을 스캔해 보세요",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "컬렉션을 찾을 수 없음",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "재생 목록에 항목이 없음",
+  "@noItemsInPlaylist": {},
+  "previous": "이전",
+  "@previous": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 이전 트랙으로 건너뛰는 데 사용됩니다."
+  },
+  "previousSubtitle": "이전 트랙으로 이동",
+  "@previousSubtitle": {},
+  "playPause": "재생/일시 정지",
+  "@playPause": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 재생 및 일시 정지 상태 간 전환에 사용됩니다."
+  },
+  "playPauseSubtitle": "재생 및 일시 정지 간 전환",
+  "@playPauseSubtitle": {},
+  "next": "다음",
+  "@next": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 다음 트랙으로 건너뛰는 데 사용됩니다."
+  },
+  "nextSubtitle": "다음 트랙으로 이동",
+  "@nextSubtitle": {},
+  "volume": "볼륨",
+  "@volume": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 볼륨 조절에 사용됩니다."
+  },
+  "volumeSubtitle": "볼륨 조절",
+  "@volumeSubtitle": {},
+  "playlist": "재생 목록",
+  "@playlist": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 재생 목록을 표시하는 데 사용됩니다."
+  },
+  "playlistSubtitle": "재생 대기열 보기",
+  "@playlistSubtitle": {},
+  "hidden": "숨김",
+  "@hidden": {
+    "description": "숨겨진 버튼을 나타내는 버튼 프롬프트 텍스트로, 일반적으로 사용되지 않습니다."
+  },
+  "hiddenSubtitle": "아래 내용이 다른 목록에서 숨겨집니다",
+  "@hiddenSubtitle": {},
+  "coverWall": "커버 월",
+  "@coverWall": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 앨범 커버로 구성된 데코레이션 페이지인 커버 월 페이지로 전환하는 데 사용됩니다."
+  },
+  "coverWallSubtitle": "독특한 분위기를 위한 커버 아트 표시",
+  "@coverWallSubtitle": {},
+  "fullscreen": "전체 화면",
+  "@fullscreen": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 전체 화면 모드를 전환하는 데 사용됩니다."
+  },
+  "fullscreenSubtitle": "전체 화면 모드로 전환 또는 종료",
+  "@fullscreenSubtitle": {},
+  "pause": "일시 정지",
+  "@pause": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 현재 재생 중인 트랙을 일시 정지하는 데 사용됩니다."
+  },
+  "play": "재생",
+  "@play": {
+    "description": "재생을 제어하기 위한 버튼 프롬프트 텍스트로, 일시 정지 상태에서 재생을 재개하는 데 사용됩니다."
+  },
+  "enable": "활성화",
+  "@enable": {
+    "description": "설정 인터페이스의 라디오 버튼 프롬프트 텍스트로, 기능이 활성화되었음을 나타냅니다."
+  },
+  "disable": "비활성화",
+  "@disable": {
+    "description": "설정 인터페이스의 라디오 버튼 프롬프트 텍스트로, 기능이 활성화되지 않았음을 나타냅니다."
+  },
+  "noTracksFound": "트랙을 찾을 수 없음",
+  "@noTracksFound": {},
+  "library": "라이브러리",
+  "@library": {
+    "description": "미디어 라이브러리 설정 인터페이스의 제목입니다."
+  },
+  "artistQuery": "아티스트 쿼리",
+  "@artistQuery": {},
+  "playlistQuery": "재생 목록 쿼리",
+  "@playlistQuery": {},
+  "mixes": "믹스",
+  "@mixes": {
+    "description": "믹스 인터페이스의 제목으로, 스마트 재생 목록의 한 유형을 의미합니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "mixQuery": "믹스 쿼리",
+  "@mixQuery": {},
+  "settings": "설정",
+  "@settings": {
+    "description": "설정 인터페이스의 제목입니다."
+  },
+  "analysis": "분석",
+  "@analysis": {
+    "description": "분석 설정 인터페이스의 제목입니다."
+  },
+  "playback": "재생",
+  "@playback": {
+    "description": "재생 설정 인터페이스의 제목입니다."
+  },
+  "theme": "테마",
+  "@theme": {
+    "description": "테마 설정 인터페이스의 제목입니다."
+  },
+  "controller": "컨트롤러",
+  "@controller": {
+    "description": "재생 제어 버튼 설정 인터페이스의 제목입니다."
+  },
+  "about": "정보",
+  "@about": {
+    "description": "정보 인터페이스의 제목입니다."
+  },
+  "selectLibraryDirectorySubtitle": "오디오 라이브러리 디렉토리를 선택하면 모든 트랙을 스캔하고 분석합니다.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "라이브러리 재설정",
+  "@resetLibrary": {
+    "description": "사용자가 라이브러리를 재설정하려는 의도를 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "resetLibraryQuestion": "라이브러리 재설정",
+  "@resetLibraryQuestion": {
+    "description": "사용자에게 라이브러리를 재설정할 것인지 묻는 모달 제목입니다."
+  },
+  "resetLibrarySubtitle": "라이브러리를 재설정하면 파일 열기 기록이 지워집니다. 기존 미디어 라이브러리는 변경되지 않습니다. 계속하시겠습니까?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "사용 불가",
+  "@unavailable": {
+    "description": "버그가 있을 때만 나타나는 사용 불가능한 컨텍스트 메뉴 요소입니다."
+  },
+  "goToArtist": "아티스트로 이동",
+  "@goToArtist": {
+    "description": "사용자를 아티스트 페이지로 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "goToAlbum": "앨범으로 이동",
+  "@goToAlbum": {
+    "description": "사용자를 앨범 페이지로 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "addToPlaylist": "재생 목록에 추가",
+  "@addToPlaylist": {
+    "description": "트랙이나 앨범을 재생 목록에 추가하도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "newPlaylist": "새 재생 목록",
+  "@newPlaylist": {
+    "description": "새 재생 목록을 만들도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "unableToOpenLibrary": "라이브러리를 열 수 없음",
+  "@unableToOpenLibrary": {
+    "description": "라이브러리를 열 수 없음을 사용자에게 알리는 모달 제목입니다."
+  },
+  "unableToOpenLibrarySubtitle": "다음 오류로 인해 라이브러리를 열 수 없습니다:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "알 수 없는 오류",
+  "@unknownError": {
+    "description": "알 수 없는 오류를 나타내는 모달 오류 내용입니다."
+  },
+  "close": "닫기",
+  "@close": {
+    "description": "사용자가 모달을 닫도록 안내하는 액션 버튼입니다."
+  },
+  "queue": "대기열",
+  "@queue": {
+    "description": "재생 목록 모달의 제목입니다."
+  },
+  "createMix": "믹스 만들기",
+  "@createMix": {
+    "description": "새 믹스, 즉 스마트 재생 목록의 한 유형을 만들도록 사용자를 안내하는 컨텍스트 메뉴 항목입니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "removeMixTitle": "믹스 제거",
+  "@removeMixTitle": {
+    "description": "사용자가 믹스, 즉 스마트 재생 목록의 한 유형을 삭제하려고 함을 알리는 모달 제목입니다. '리믹스'와 혼동하지 마십시오."
+  },
+  "removeMixSubtitle": "이 믹스를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removeMixSubtitle": {},
+  "delete": "삭제",
+  "@delete": {
+    "description": "정보를 삭제할 것임을 나타내는 모달의 액션 버튼 텍스트입니다."
+  },
+  "removePlaylistTitle": "재생 목록 삭제",
+  "@removePlaylistTitle": {
+    "description": "사용자에게 재생 목록을 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "removePlaylistSubtitle": "이 재생 목록을 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "작업 취소",
+  "@cancelTaskTitle": {
+    "description": "사용자에게 작업을 취소하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "cancelTaskSubtitle": "이 작업을 취소하면 현재 완료 상태에서 중지됩니다. 취소하시겠습니까?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "작업 취소",
+  "@cancelTask": {
+    "description": "작업을 취소하는 모달의 동작 버튼 텍스트입니다."
+  },
+  "continueTask": "계속",
+  "@continueTask": {
+    "description": "작업을 계속 진행하는 모달의 동작 버튼 텍스트입니다."
+  },
+  "refresh": "새로 고침",
+  "@refresh": {
+    "description": "현재 페이지의 정보를 새로 고치도록 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "explore": "탐색",
+  "@explore": {
+    "description": "기능 영역의 제목입니다."
+  }
+}

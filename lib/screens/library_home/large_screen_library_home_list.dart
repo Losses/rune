@@ -60,12 +60,14 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     final groups = [
       Group<InternalCollection>(
         groupTitle: S.of(context).artists,
+        groupLink: "artists",
         items: librarySummary.artists
             .map(InternalCollection.fromRawCollection)
             .toList(),
       ),
       Group<InternalCollection>(
         groupTitle: S.of(context).albums,
+        groupLink: "albums",
         items: librarySummary.albums
             .map(InternalCollection.fromRawCollection)
             .toList(),
@@ -113,7 +115,13 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                       mainAxisAlignment: MainAxisAlignment.start,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        StartGroup<(String Function(BuildContext), String, IconData, bool)>(
+                        StartGroup<
+                            (
+                              String Function(BuildContext),
+                              String,
+                              IconData,
+                              bool
+                            )>(
                           groupIndex: 0,
                           groupTitle: S.of(context).start,
                           items: smallScreenFirstColumn
@@ -142,6 +150,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                               return StartGroup<InternalCollection>(
                                 groupIndex: item.groupTitle.hashCode,
                                 groupTitle: item.groupTitle,
+                                groupLink: item.groupLink,
                                 items: item.items,
                                 constraints: trueConstraints,
                                 groupLayoutVariation:
@@ -149,9 +158,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 gridLayoutVariation:
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
-                                onTitleTap: () => {
-                                  $push('/${item.groupTitle.toLowerCase()}')
-                                },
+                                onTitleTap: () => $push('/${item.groupLink}'),
                                 itemBuilder: (context, item) {
                                   return CollectionItem(
                                     collectionType: item.collectionType,

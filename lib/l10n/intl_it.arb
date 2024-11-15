@@ -1,0 +1,686 @@
+{
+  "@@locale": "it",
+  "rune": "Rune",
+  "@rune": {
+    "description": "Il nome del marchio del software, che non deve essere tradotto."
+  },
+  "runePlayer": "Rune Player",
+  "@runePlayer": {
+    "description": "Il nome completo del software. La parte 'Player' deve essere tradotta normalmente, ma 'Rune' come nome del marchio non deve essere tradotto."
+  },
+  "copyright": "Copyright",
+  "@copyright": {
+    "description": "Questo è il titolo di una voce che appare nell'interfaccia delle impostazioni nella sezione del copyright."
+  },
+  "copyrightAnnouncement": "Copyright © 2024 Rune Player Developers.",
+  "@copyrightAnnouncement": {
+    "description": "La dichiarazione completa sul copyright."
+  },
+  "LicenseAnnouncement": "Questo prodotto è concesso in licenza sotto la licenza MPL.",
+  "@LicenseAnnouncement": {
+    "description": "La dichiarazione completa della licenza del software."
+  },
+  "factoryReset": "Ripristino di fabbrica",
+  "@factoryReset": {
+    "description": "Il titolo del pulsante nella pagina delle impostazioni che attiva l'azione 'Resetta cronologia libreria'."
+  },
+  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria",
+  "@factoryResetSubtitle": {
+    "description": "Il testo descrittivo per il pulsante 'Ripristino di fabbrica' nell'interfaccia delle impostazioni."
+  },
+  "bsodBody": "Il tuo player ha riscontrato un problema e necessita di un riavvio. Rispettiamo la tua privacy e non raccoglieremo alcun dato.",
+  "@bsodBody": {
+    "description": "Sulla schermata blu, spiega all'utente che il software ha riscontrato un errore fatale. La seconda frase affronta in modo giocoso le diffuse preoccupazioni sulla privacy nell'ingegneria del software moderna. Sentiti libero di mantenere un tono giocoso."
+  },
+  "artists": "Artisti",
+  "@artists": {},
+  "albums": "Album",
+  "@albums": {},
+  "playlists": "Playlist",
+  "@playlists": {},
+  "unknownAlbum": "Album sconosciuto",
+  "@unknownAlbum": {},
+  "unknownTrack": "Traccia sconosciuta",
+  "@unknownTrack": {},
+  "unknownArtist": "Artista sconosciuto",
+  "@unknownArtist": {},
+  "selectDirectory": "Seleziona directory",
+  "@selectDirectory": {},
+  "noDataAvailable": "Nessun dato disponibile",
+  "@noDataAvailable": {},
+  "start": "Inizia",
+  "@start": {
+    "description": "Testo decorativo che appare vicino alla lista delle funzioni della Libreria Home."
+  },
+  "search": "Cerca",
+  "@search": {},
+  "tracks": "Tracce",
+  "@tracks": {},
+  "system": "Sistema",
+  "@system": {},
+  "operatingSystem": "Sistema operativo",
+  "@operatingSystem": {
+    "description": "Uno dei titoli per le voci di informazione sul software nella pagina delle informazioni."
+  },
+  "systemVersion": "Versione del sistema",
+  "@systemVersion": {
+    "description": "Uno dei titoli per le voci di informazione sul software nella pagina delle informazioni."
+  },
+  "kernelVersion": "Versione del kernel",
+  "@kernelVersion": {
+    "description": "Una voce sulla pagina delle informazioni, solitamente indicante la versione del kernel del sistema operativo per scopi diagnostici."
+  },
+  "hostName": "Nome host",
+  "@hostName": {
+    "description": "Una voce sulla pagina delle informazioni, solitamente indicante il nome del computer."
+  },
+  "player": "Player",
+  "@player": {
+    "description": "Un titolo di sezione per i metadati del software sulla pagina delle informazioni, che fornisce una panoramica delle informazioni sulla versione del software."
+  },
+  "buildHash": "Hash della build",
+  "@buildHash": {},
+  "buildDate": "Data della build",
+  "@buildDate": {},
+  "commitDate": "Data del commit",
+  "@commitDate": {},
+  "rustcVersion": "Versione Rustc",
+  "@rustcVersion": {},
+  "activation": "Attivazione",
+  "@activation": {},
+  "runeIsActivated": "Rune è attivato",
+  "@runeIsActivated": {
+    "description": "Informa l'utente che il software è attualmente attivato. In effetti, il software è sempre attivato in qualsiasi circostanza."
+  },
+  "productId": "ID prodotto",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Potresti essere una vittima del software genuino.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "Questa frase è un easter egg, che satira su come le misure anti-pirateria spesso peggiorano l'esperienza per gli utenti legittimi rispetto a quelli che usano versioni piratate. Sentiti libero di mantenere un tono giocoso."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "L'organizzazione di ricerca sul design che supporta questo progetto. Dovresti mantenere il nome così com'è, senza traduzione."
+  },
+  "computingDevice": "Dispositivo di calcolo",
+  "@computingDevice": {
+    "description": "Un titolo di voce delle impostazioni che permette agli utenti di selezionare il dispositivo hardware responsabile dell'esecuzione dei compiti di analisi audio."
+  },
+  "computingDeviceSubtitle": "Seleziona GPU o CPU per una elaborazione più veloce o efficiente.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Livello di prestazioni",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Scegli quanti compiti eseguire contemporaneamente.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Prestazioni",
+  "@performance": {
+    "description": "Modalità ad alte prestazioni, che utilizza le risorse hardware disponibili per completare i calcoli il più rapidamente possibile."
+  },
+  "balance": "Bilanciato",
+  "@balance": {
+    "description": "Modalità bilanciata, che distribuisce equamente le risorse per evitare che i compiti di calcolo sovraccarichino il sistema e causino ritardi."
+  },
+  "batterySaving": "Risparmio energetico",
+  "@batterySaving": {
+    "description": "Modalità di risparmio energetico, che minimizza l'uso delle risorse per evitare surriscaldamenti, adatta per dispositivi meno potenti."
+  },
+  "switchTo": "Passa a",
+  "@switchTo": {
+    "description": "Testo del pulsante per cambiare librerie multimediali. Premendo questo pulsante si chiuderà la libreria corrente e se ne aprirà una nuova."
+  },
+  "removeLibrary": "Rimuovi",
+  "@removeLibrary": {
+    "description": "Testo del pulsante per rimuovere una libreria multimediale. Premendo questo pulsante si eliminerà la voce della libreria dalla cronologia."
+  },
+  "addLibrary": "Aggiungi libreria",
+  "@addLibrary": {
+    "description": "Testo del pulsante nell'interfaccia delle impostazioni per creare una nuova libreria multimediale. Premendo questo pulsante si guiderà l'utente a selezionare una directory e creare una libreria."
+  },
+  "addLibrarySubtitle": "Aggiungi una nuova libreria e scansiona i file esistenti.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Menu azioni",
+  "@actionMenu": {
+    "description": "Un separatore nella lista degli elementi dell'interfaccia delle impostazioni. Tutti gli elementi sotto questo separatore saranno nascosti in un pulsante a comparsa invece di essere visualizzati direttamente sullo schermo."
+  },
+  "addToQueue": "Aggiungi alla coda",
+  "@addToQueue": {
+    "description": "Una voce nel menu contestuale. Premendo questa voce si aggiungerà la traccia o l'album corrispondente alla coda di riproduzione."
+  },
+  "addToQueueSubtitle": "Come verranno aggiunti i nuovi elementi alla coda di riproduzione.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Riproduci dopo",
+  "@playNext": {
+    "description": "Un'azione che mette in coda una traccia o un album da riprodurre successivamente nella playlist."
+  },
+  "addToEnd": "Aggiungi alla fine",
+  "@addToEnd": {
+    "description": "Un'azione che mette in coda una traccia o un album alla fine della playlist."
+  },
+  "middleClickAction": "Azione clic centrale",
+  "@middleClickAction": {
+    "description": "Un titolo nell'interfaccia delle impostazioni che controlla il comportamento quando l'utente fa clic centrale su una traccia o un album."
+  },
+  "middleClickActionSubtitle": "Azione da eseguire quando si fa clic centrale su una traccia o una collezione.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Inizia a riprodurre",
+  "@startPlaying": {
+    "description": "Un'azione che l'utente può attivare per iniziare a riprodurre musica."
+  },
+  "startRoaming": "Inizia a vagare",
+  "@startRoaming": {
+    "description": "Un'azione che l'utente può attivare per iniziare a riprodurre musica simile alla traccia o all'album corrente."
+  },
+  "playbackMode": "Modalità di riproduzione",
+  "@playbackMode": {
+    "description": "Un titolo nell'interfaccia delle impostazioni che aiuta gli utenti a selezionare la modalità di riproduzione desiderata, come la riproduzione casuale o sequenziale."
+  },
+  "playbackModeSubtitle": "Modalità di riproduzione preferita per come viene riprodotta la tua musica.",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Modalità colore",
+  "@colorMode": {
+    "description": "Una voce delle impostazioni che aiuta gli utenti a scegliere la modalità colore dell'interfaccia, comprese le modalità chiara e scura."
+  },
+  "colorModeSubtitle": "Cambia la modalità colore che appare in Rune.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "Sistema",
+  "@systemColorMode": {
+    "description": "Una voce delle impostazioni del colore che, quando abilitata, allinea la modalità chiara o scura del software con le impostazioni di sistema."
+  },
+  "dark": "Scuro",
+  "@dark": {
+    "description": "Una voce delle impostazioni del colore che abilita la modalità scura quando selezionata."
+  },
+  "light": "Chiaro",
+  "@light": {
+    "description": "Una voce delle impostazioni del colore che abilita la modalità chiara quando selezionata."
+  },
+  "themeColor": "Colore del tema",
+  "@themeColor": {
+    "description": "Una voce delle impostazioni che permette agli utenti di scegliere il colore del tema preferito."
+  },
+  "themeColorSubtitle": "Seleziona un colore per dare a Rune un aspetto e una sensazione rinnovati.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Segui il tema del sistema",
+  "@followSystemTheme": {
+    "description": "Una voce nelle impostazioni del colore del tema. Quando abilitato, il colore del tema del software segue le impostazioni di sistema."
+  },
+  "dynamicColors": "Colori dinamici",
+  "@dynamicColors": {
+    "description": "Una voce delle impostazioni del colore. Quando abilitata, il colore del tema del software cambia in base alla copertina del brano attualmente in riproduzione."
+  },
+  "dynamicColorsSubtitle": "Regola i colori del tema di Rune in base alla copertina del brano in riproduzione.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Animazione del marchio",
+  "@brandingAnimation": {
+    "description": "Una voce delle impostazioni che permette agli utenti di controllare se un'animazione di benvenuto viene riprodotta quando il software si avvia."
+  },
+  "brandingAnimationSubtitle": "Riproduci l'animazione del marchio quando Rune si avvia.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Questo potrebbe richiedere alcuni minuti.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Titolo sulla schermata di attesa della scansione, ricordando agli utenti di essere pazienti."
+  },
+  "tracksFound": " tracce trovate",
+  "@tracksFound": {
+    "description": "Testo di prompt sulla schermata di attesa della scansione, informando gli utenti su quante tracce sono state scansionate."
+  },
+  "albumCoversCollected": " copertine degli album raccolte",
+  "@albumCoversCollected": {
+    "description": "Testo di prompt sulla schermata di attesa della scansione, informando gli utenti su quante copertine di album sono state scansionate."
+  },
+  "editPlaylist": "Modifica playlist",
+  "@editPlaylist": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di modificare i metadati di una playlist."
+  },
+  "editMix": "Modifica Mix",
+  "@editMix": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di modificare i metadati di un Mix, una playlist intelligente. Nota: non confondere con il concetto di 'remix'."
+  },
+  "edit": "Modifica",
+  "@edit": {
+    "description": "Un verbo nel menu contestuale come testo di riserva, guidando gli utenti a modificare il contenuto quando il software non riesce a identificare cosa deve essere modificato."
+  },
+  "remove": "Rimuovi",
+  "@remove": {
+    "description": "Un verbo nel menu contestuale come testo di riserva, guidando gli utenti a rimuovere il contenuto quando il software non riesce a identificare cosa deve essere rimosso."
+  },
+  "removePlaylist": "Rimuovi playlist",
+  "@removePlaylist": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di eliminare una playlist."
+  },
+  "removeMix": "Rimuovi Mix",
+  "@removeMix": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di eliminare un Mix, una playlist intelligente. Nota: non confondere con il concetto di 'remix'."
+  },
+  "addToMix": "Aggiungi al Mix",
+  "@addToMix": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di aggiungere una traccia o un album a un Mix, una playlist intelligente. Nota: non confondere con il concetto di 'remix'."
+  },
+  "newMix": "Nuovo Mix",
+  "@newMix": {
+    "description": "Una voce nel menu contestuale che permette agli utenti di creare un nuovo Mix, una playlist intelligente. Nota: non confondere con il concetto di 'remix'."
+  },
+  "selectAGroup": "Seleziona un gruppo",
+  "@selectAGroup": {
+    "description": "Testo segnaposto nel campo di input situato nel modale di modifica Mix o playlist, guidando gli utenti a selezionare un gruppo di contenuti."
+  },
+  "likedOnly": "Solo preferiti",
+  "@likedOnly": {
+    "description": "Una voce nell'interfaccia di modifica Mix, un'opzione di checkbox per filtrare e mantenere solo le tracce che l'utente ha 'preferito'."
+  },
+  "allTracks": "Tutte le tracce",
+  "@allTracks": {
+    "description": "Una voce nell'interfaccia di modifica Mix, un'opzione di checkbox per filtrare e mantenere tutte le tracce, non solo quelle che l'utente ha 'preferito'."
+  },
+  "defaultMode": "Predefinito",
+  "@defaultMode": {
+    "description": "Un modo per attraversare le tracce in una playlist, mantenendo il comportamento attuale del sistema senza specificare una modalità."
+  },
+  "sequential": "Sequenziale",
+  "@sequential": {
+    "description": "Un modo per attraversare le tracce in una playlist, riproducendo in ordine dall'inizio alla fine."
+  },
+  "repeatAll": "Ripeti tutto",
+  "@repeatAll": {
+    "description": "Un modo per attraversare le tracce in una playlist, ripetendo dall'inizio dopo aver terminato."
+  },
+  "repeatOne": "Ripeti uno",
+  "@repeatOne": {
+    "description": "Un modo per attraversare le tracce in una playlist, ripetendo continuamente una traccia."
+  },
+  "shuffle": "Casuale",
+  "@shuffle": {
+    "description": "Un modo per attraversare le tracce in una playlist, riproducendo in ordine casuale."
+  },
+  "title": "Titolo",
+  "@title": {
+    "description": "Una voce nel modale di modifica playlist o Mix, guidando gli utenti a modificarne il titolo."
+  },
+  "group": "Gruppo",
+  "@group": {
+    "description": "Una voce nel modale di modifica playlist o Mix, guidando gli utenti a modificarne il gruppo."
+  },
+  "save": "Salva",
+  "@save": {
+    "description": "Un pulsante di azione nel modale che salva le modifiche quando premuto."
+  },
+  "create": "Crea",
+  "@create": {
+    "description": "Un pulsante di azione nel modale che crea una nuova voce quando premuto."
+  },
+  "cancel": "Annulla",
+  "@cancel": {
+    "description": "Un pulsante di azione nel modale che chiude il modale senza apportare modifiche."
+  },
+  "noRecommendation": "Nessuna Raccomandazione",
+  "@noRecommendation": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Selezionare questa opzione indica l'intento dell'utente di non basare le raccomandazioni sui risultati della query."
+  },
+  "basedOnAll": "Basato su Tutto",
+  "@basedOnAll": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Selezionare questa opzione consiglia brani simili basati sull'intero insieme dei risultati della query."
+  },
+  "group1": "Gruppo 1",
+  "@group1": {},
+  "group2": "Gruppo 2",
+  "@group2": {},
+  "group3": "Gruppo 3",
+  "@group3": {},
+  "group4": "Gruppo 4",
+  "@group4": {},
+  "group5": "Gruppo 5",
+  "@group5": {},
+  "group6": "Gruppo 6",
+  "@group6": {},
+  "group7": "Gruppo 7",
+  "@group7": {},
+  "group8": "Gruppo 8",
+  "@group8": {},
+  "group9": "Gruppo 9",
+  "@group9": {},
+  "ascending": "Ascendente",
+  "@ascending": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Selezionare questa opzione ordina i risultati della query in ordine ascendente."
+  },
+  "descending": "Discendente",
+  "@descending": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Selezionare questa opzione ordina i risultati della query in ordine discendente."
+  },
+  "lastModified": "Ultima Modifica",
+  "@lastModified": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Questa opzione consente agli utenti di ordinare per l'ultima modifica dei metadati del file."
+  },
+  "duration": "Durata",
+  "@duration": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Questa opzione consente agli utenti di ordinare per lunghezza audio."
+  },
+  "timesPlayedThrough": "Volte Riprodotto",
+  "@timesPlayedThrough": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Questa opzione consente agli utenti di ordinare per il numero di volte in cui l'audio è stato riprodotto completamente."
+  },
+  "timesSkipped": "Volte Saltato",
+  "@timesSkipped": {
+    "description": "Un'opzione nel menu a tendina del modale di modifica Mix. Questa opzione consente agli utenti di ordinare per il numero di volte in cui l'audio è stato saltato."
+  },
+  "pickDirectory": "Seleziona Directory",
+  "@pickDirectory": {
+    "description": "Testo del pulsante nel modale di modifica Mix. Premendo questo pulsante si apre un modale per guidare gli utenti nella selezione di una directory."
+  },
+  "oneDirectory": "1 Directory",
+  "@oneDirectory": {
+    "description": "Testo di stato che indica che è stata selezionata una directory."
+  },
+  "manyDirectories": "${count} Directory",
+  "@manyDirectories": {
+    "description": "Testo di stato che indica che sono state selezionate più directory.",
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "confirm": "Conferma",
+  "@confirm": {
+    "description": "Testo del pulsante di azione nel modale, che indica l'intento dell'utente di confermare un'azione."
+  },
+  "directories": "Directory",
+  "@directories": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni servono per filtrare i brani per cartella."
+  },
+  "allDirectories": "Tutte le Directory",
+  "@allDirectories": {
+    "description": "Prompt che indica che tutte le directory sono state selezionate."
+  },
+  "randomTracks": "Brani Casuali",
+  "@randomTracks": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni servono per selezionare un numero di brani casuali."
+  },
+  "amount": "Quantità",
+  "@amount": {
+    "description": "Testo del prompt nel modale che indica il numero di brani selezionati tramite cursore o casella di input."
+  },
+  "mode": "Modalità",
+  "@mode": {
+    "description": "La modalità di riproduzione per i brani."
+  },
+  "recommendation": "Raccomandazione",
+  "@recommendation": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni controllano il comportamento di raccomandazione del lettore."
+  },
+  "sortBy": "Ordina Per",
+  "@sortBy": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni controllano il metodo di ordinamento per i brani."
+  },
+  "sortOrder": "Ordine di Ordinamento",
+  "@sortOrder": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni controllano la direzione di ordinamento per i brani."
+  },
+  "liked": "Piaciuto",
+  "@liked": {
+    "description": "Un titolo per un'opzione nelle impostazioni del modale, informando gli utenti che le seguenti opzioni filtrano i brani contrassegnati come 'piaciuti' dall'utente."
+  },
+  "noRoamingCollection": "Impossibile avviare il roaming. I brani nella collezione non sono ancora stati analizzati.",
+  "@noRoamingCollection": {},
+  "noRomaingTrack": "Impossibile avviare il roaming. Questo brano non è ancora stato analizzato.",
+  "@noRomaingTrack": {},
+  "noAnalysisScanning": "${baseMessage} La libreria è in fase di scansione, quindi non è possibile eseguire l'analisi.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "${baseMessage} La libreria è in fase di analisi; attendere il completamento del processo.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "${baseMessage} Analizza la tua libreria per la migliore esperienza.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "Non Pronto",
+  "@notReady": {
+    "description": "Titolo del modale che indica che i brani non sono stati analizzati e non possono essere fatte raccomandazioni."
+  },
+  "createPlaylist": "Crea Playlist",
+  "@createPlaylist": {
+    "description": "Titolo del modale per la creazione di una playlist."
+  },
+  "scanLibrary": "Scansiona Libreria",
+  "@scanLibrary": {
+    "description": "Testo del pulsante di azione nel modale, che avvia una scansione della libreria multimediale quando premuto."
+  },
+  "analyseTracks": "Analizza Brani",
+  "@analyseTracks": {
+    "description": "Testo del pulsante di azione nel modale, che avvia l'analisi di tutti i brani nella libreria multimediale quando premuto."
+  },
+  "scan": "Scansiona",
+  "@scan": {
+    "description": "Testo del pulsante nel'interfaccia delle impostazioni, che avvia una scansione della libreria multimediale quando premuto."
+  },
+  "scanning": "Scansione in Corso",
+  "@scanning": {
+    "description": "Testo del pulsante nell'interfaccia delle impostazioni, che indica che la libreria multimediale è attualmente in fase di scansione."
+  },
+  "analyse": "Analizza",
+  "@analyse": {
+    "description": "Testo del pulsante nell'interfaccia delle impostazioni, che avvia l'analisi di tutti i brani nella libreria multimediale quando premuto."
+  },
+  "analysing": "Analisi in Corso",
+  "@analysing": {
+    "description": "Testo del pulsante nell'interfaccia delle impostazioni, che indica che la libreria multimediale è attualmente in fase di analisi."
+  },
+  "tryCreatingYourOwnCollection": "Prova a creare la tua collezione",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Testo visualizzato su una pagina vuota nella vista Collezione, suggerendo agli utenti di creare una nuova collezione."
+  },
+  "theseActionsMayHelp": "Queste azioni possono aiutare",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Prova a scansionare nuovi file",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Nessuna collezione trovata",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Nessun elemento nella playlist",
+  "@noItemsInPlaylist": {},
+  "previous": "Precedente",
+  "@previous": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per saltare al brano precedente."
+  },
+  "previousSubtitle": "Vai al brano precedente",
+  "@previousSubtitle": {},
+  "playPause": "Riproduci/Pausa",
+  "@playPause": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per alternare tra gli stati di riproduzione e pausa."
+  },
+  "playPauseSubtitle": "Alterna tra riproduzione e pausa",
+  "@playPauseSubtitle": {},
+  "next": "Successivo",
+  "@next": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per saltare al brano successivo."
+  },
+  "nextSubtitle": "Vai al brano successivo",
+  "@nextSubtitle": {},
+  "volume": "Volume",
+  "@volume": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per regolare il volume."
+  },
+  "volumeSubtitle": "Regola il volume",
+  "@volumeSubtitle": {},
+  "playlist": "Playlist",
+  "@playlist": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per visualizzare la playlist."
+  },
+  "playlistSubtitle": "Visualizza la coda di riproduzione",
+  "@playlistSubtitle": {},
+  "hidden": "Nascosto",
+  "@hidden": {
+    "description": "Testo del pulsante che indica un pulsante nascosto; questo testo di solito non viene utilizzato."
+  },
+  "hiddenSubtitle": "Il contenuto sottostante sarà nascosto nella lista degli altri",
+  "@hiddenSubtitle": {},
+  "coverWall": "Muro di Copertine",
+  "@coverWall": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per passare alla pagina del muro di copertine, una pagina decorativa composta da copertine di album."
+  },
+  "coverWallSubtitle": "Mostra le copertine per un'atmosfera unica",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Schermo Intero",
+  "@fullscreen": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per alternare la modalità a schermo intero."
+  },
+  "fullscreenSubtitle": "Entra o esci dalla modalità a schermo intero",
+  "@fullscreenSubtitle": {},
+  "pause": "Pausa",
+  "@pause": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per mettere in pausa il brano attualmente in riproduzione."
+  },
+  "play": "Riproduci",
+  "@play": {
+    "description": "Testo del pulsante per controllare la riproduzione, usato per riprendere la riproduzione da uno stato di pausa."
+  },
+  "enable": "Abilita",
+  "@enable": {
+    "description": "Testo del pulsante radio nell'interfaccia delle impostazioni, che indica che una funzione è abilitata."
+  },
+  "disable": "Disabilita",
+  "@disable": {
+    "description": "Testo del pulsante radio nell'interfaccia delle impostazioni, che indica che una funzione non è abilitata."
+  },
+  "noTracksFound": "Nessun brano trovato",
+  "@noTracksFound": {},
+  "library": "Libreria",
+  "@library": {
+    "description": "Titolo dell'interfaccia delle impostazioni della libreria multimediale."
+  },
+  "artistQuery": "Ricerca Artista",
+  "@artistQuery": {},
+  "playlistQuery": "Ricerca Playlist",
+  "@playlistQuery": {},
+  "mixes": "Mix",
+  "@mixes": {
+    "description": "Titolo dell'interfaccia Mix, riferendosi a un tipo di playlist intelligente. Non confondere con 'remix'."
+  },
+  "mixQuery": "Ricerca Mix",
+  "@mixQuery": {},
+  "settings": "Impostazioni",
+  "@settings": {
+    "description": "Titolo dell'interfaccia delle impostazioni."
+  },
+  "analysis": "Analisi",
+  "@analysis": {
+    "description": "Titolo dell'interfaccia delle impostazioni di analisi."
+  },
+  "playback": "Riproduzione",
+  "@playback": {
+    "description": "Titolo dell'interfaccia delle impostazioni di riproduzione."
+  },
+  "theme": "Tema",
+  "@theme": {
+    "description": "Titolo dell'interfaccia delle impostazioni del tema."
+  },
+  "controller": "Controllo",
+  "@controller": {
+    "description": "Titolo dell'interfaccia delle impostazioni dei pulsanti di controllo della riproduzione."
+  },
+  "about": "Informazioni",
+  "@about": {
+    "description": "Titolo dell'interfaccia delle informazioni."
+  },
+  "selectLibraryDirectorySubtitle": "Seleziona la directory della tua libreria audio e scansioneremo e analizzeremo tutti i brani al suo interno.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Reimposta Libreria",
+  "@resetLibrary": {
+    "description": "Testo del pulsante di azione nel modale, che indica che l'utente vuole reimpostare la libreria."
+  },
+  "resetLibraryQuestion": "Reimposta Libreria",
+  "@resetLibraryQuestion": {
+    "description": "Titolo del modale che chiede agli utenti se vogliono reimpostare la libreria."
+  },
+  "resetLibrarySubtitle": "Reimpostare la libreria cancellerà la cronologia di apertura dei file. La tua libreria multimediale esistente rimarrà invariata. Vuoi procedere?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Non Disponibile",
+  "@unavailable": {
+    "description": "Elemento del menu contestuale non disponibile, che appare solo quando c'è un bug."
+  },
+  "goToArtist": "Vai all'Artista",
+  "@goToArtist": {
+    "description": "Elemento del menu contestuale che guida gli utenti alla pagina dell'artista."
+  },
+  "goToAlbum": "Vai all'Album",
+  "@goToAlbum": {
+    "description": "Elemento del menu contestuale che guida gli utenti alla pagina dell'album."
+  },
+  "addToPlaylist": "Aggiungi alla Playlist",
+  "@addToPlaylist": {
+    "description": "Elemento del menu contestuale che guida gli utenti ad aggiungere un brano o un album a una playlist."
+  },
+  "newPlaylist": "Nuova Playlist",
+  "@newPlaylist": {
+    "description": "Elemento del menu contestuale che guida gli utenti a creare una nuova playlist."
+  },
+  "unableToOpenLibrary": "Impossibile Aprire la Libreria",
+  "@unableToOpenLibrary": {
+    "description": "Titolo del modale che informa gli utenti che la libreria non può essere aperta."
+  },
+  "unableToOpenLibrarySubtitle": "La Libreria non può essere aperta a causa del seguente errore:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Errore Sconosciuto",
+  "@unknownError": {
+    "description": "Contenuto dell'errore nel modale che indica un errore sconosciuto."
+  },
+  "close": "Chiudi",
+  "@close": {
+    "description": "Pulsante di azione nel modale che guida gli utenti a chiuderlo."
+  },
+  "queue": "Coda",
+  "@queue": {
+    "description": "Titolo del modale della playlist."
+  },
+  "createMix": "Crea Mix",
+  "@createMix": {
+    "description": "Elemento del menu contestuale che guida gli utenti a creare un nuovo Mix, un tipo di playlist intelligente. Non confondere con 'remix'."
+  },
+  "removeMixTitle": "Rimuovi Mix",
+  "@removeMixTitle": {
+    "description": "Titolo del modale che informa gli utenti che stanno per eliminare un Mix, un tipo di playlist intelligente. Non confondere con 'remix'."
+  },
+  "removeMixSubtitle": "Se elimini questo mix, non potrai recuperarlo. Vuoi eliminarlo?",
+  "@removeMixSubtitle": {},
+  "delete": "Elimina",
+  "@delete": {
+    "description": "Testo del pulsante di azione nel modale che indica che premendolo si elimineranno le informazioni."
+  },
+  "removePlaylistTitle": "Rimuovi Playlist",
+  "@removePlaylistTitle": {
+    "description": "Titolo del modale che informa gli utenti che stanno per eliminare una playlist."
+  },
+  "removePlaylistSubtitle": "Se elimini questa playlist, non potrai recuperarla. Vuoi eliminarla?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Annulla Attività",
+  "@cancelTaskTitle": {
+    "description": "Titolo del modale che informa gli utenti che stanno per annullare un'attività."
+  },
+  "cancelTaskSubtitle": "Se annulli questa attività, si fermerà allo stato di completamento attuale. Vuoi annullarla?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Annulla Attività",
+  "@cancelTask": {
+    "description": "Testo del pulsante di azione nel modale che indica che premendolo si annullerà l'attività."
+  },
+  "continueTask": "Continua",
+  "@continueTask": {
+    "description": "Testo del pulsante di azione nel modale che indica che premendolo si continuerà l'attività."
+  },
+  "refresh": "Aggiorna",
+  "@refresh": {
+    "description": "Elemento del menu contestuale che guida gli utenti ad aggiornare le informazioni della pagina corrente."
+  },
+  "explore": "Esplora",
+  "@explore": {
+    "description": "Titolo di un'area funzionale."
+  }
+}

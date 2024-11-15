@@ -15,6 +15,7 @@ const double defaultCellSize = 120;
 class StartGroup<T> extends StatelessWidget {
   final List<T> items;
   final String groupTitle;
+  final String? groupLink;
   final int groupIndex;
   final Widget Function(BuildContext, T) itemBuilder;
   final StartGroupGridLayoutVariation gridLayoutVariation;
@@ -33,6 +34,7 @@ class StartGroup<T> extends StatelessWidget {
     required this.items,
     required this.itemBuilder,
     required this.constraints,
+    this.groupLink,
     this.gapSize = 4,
     this.onTitleTap,
     this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
