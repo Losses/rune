@@ -413,5 +413,7 @@
   "continueTask": "Continue",
   "@continueTask": {},
   "refresh": "Refresh",
-  "@refresh": {}
+  "@refresh": {},
+  "explore": "Explore",
+  "@explore": {}
 }
