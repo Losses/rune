@@ -15,6 +15,7 @@ import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
 
+import 'utils/show_reset_library_dialog.dart';
 import 'widgets/settings_button.dart';
 import 'widgets/settings_tile_title.dart';
 
@@ -72,6 +73,11 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                     title: "Factory Reset",
                     subtitle: "Remove all items from the library list",
                     onPressed: () async {
+                      final result = await showResetLibraryDialog(context);
+
+                      if (!context.mounted) return;
+                      if (result != true) return;
+
                       await closeLibrary(context);
                       libraryPath.clearAllOpenedFiles();
                       $$replace("/");
