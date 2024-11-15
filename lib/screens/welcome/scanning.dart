@@ -7,6 +7,7 @@ import '../../utils/color_brightness.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../generated/l10n.dart';
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});
@@ -61,7 +62,7 @@ class _ScanningPageState extends State<ScanningPage>
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
-              "This might take a few minutes.",
+              S.of(context).thisMightTakeAFewMinutes,
               style: typography.title?.apply(
                 fontWeightDelta: -20,
                 color: Colors.white,
@@ -74,8 +75,8 @@ class _ScanningPageState extends State<ScanningPage>
               duration: const Duration(milliseconds: 400),
               curve: Curves.easeInOut,
               suffix: task == ScanTaskType.IndexFiles
-                  ? ' tracks found'
-                  : ' album covers collected',
+                  ? S.of(context).tracksFound
+                  : S.of(context).albumCoversCollected,
               textStyle: typography.bodyLarge?.apply(
                 color: Colors.white,
                 fontWeightDelta: -50,

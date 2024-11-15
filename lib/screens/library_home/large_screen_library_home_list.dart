@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../generated/l10n.dart';
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
 import '../../utils/router/navigation.dart';
@@ -54,15 +55,17 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<InternalCollection>>> fetchSummary() async {
     final librarySummary = await fetchLibrarySummary();
 
+    if (!mounted) return [];
+
     final groups = [
       Group<InternalCollection>(
-        groupTitle: "Artists",
+        groupTitle: S.of(context).artists,
         items: librarySummary.artists
             .map(InternalCollection.fromRawCollection)
             .toList(),
       ),
       Group<InternalCollection>(
-        groupTitle: "Albums",
+        groupTitle: S.of(context).albums,
         items: librarySummary.albums
             .map(InternalCollection.fromRawCollection)
             .toList(),
@@ -87,7 +90,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         } else if (snapshot.hasError) {
           return Center(child: Text('Error: ${snapshot.error}'));
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-          return const Center(child: Text('No data available'));
+          return Center(child: Text(S.of(context).noDataAvailable));
         } else {
           return LayoutBuilder(
             builder: (context, constraints) {
@@ -104,15 +107,15 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                   builder: (context, scrollController) => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     controller: scrollController,
-                    padding:
-                        getScrollContainerPadding(context, top: widget.topPadding),
+                    padding: getScrollContainerPadding(context,
+                        top: widget.topPadding),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.start,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        StartGroup<(String, String, IconData, bool)>(
+                        StartGroup<(String Function(BuildContext), String, IconData, bool)>(
                           groupIndex: 0,
-                          groupTitle: 'Start',
+                          groupTitle: S.of(context).start,
                           items: smallScreenFirstColumn
                               .where((x) => !x.$4)
                               .toList(),
@@ -127,7 +130,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                           onTitleTap: () {},
                           itemBuilder: (context, item) {
                             return LinkTile(
-                              title: item.$1,
+                              title: item.$1(context),
                               path: item.$2,
                               icon: item.$3,
                             );

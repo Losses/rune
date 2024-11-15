@@ -10,6 +10,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/settings_button.dart';
 import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
+import '../../generated/l10n.dart';
 
 class SettingsMediaControllerPage extends StatefulWidget {
   const SettingsMediaControllerPage({super.key});
@@ -66,7 +67,7 @@ class _SettingsMediaControllerPageState
                                             horizontal: 24,
                                           ),
                                           child: Text(
-                                            "Action Menu",
+                                            S.of(context).actionMenu,
                                             style: TextStyle(
                                               color: theme.inactiveColor
                                                   .withAlpha(160),
@@ -88,8 +89,8 @@ class _SettingsMediaControllerPageState
                                     key: ValueKey(item.id),
                                     icon: item.icon(context),
                                     suffixIcon: Symbols.drag_indicator,
-                                    title: item.title,
-                                    subtitle: item.subtitle,
+                                    title: item.titleBuilder(context),
+                                    subtitle: item.subtitleBuilder(context),
                                     onPressed: () {},
                                   ),
                           )

@@ -9,6 +9,7 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
+import '../../generated/l10n.dart';
 
 const disabledPlaybackModesKey = 'disabled_playback_modes';
 const middleClickActionKey = 'middle_click_action';
@@ -99,17 +100,17 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
             child: Column(
               children: [
                 SettingsBoxComboBox(
-                  title: "Add to Queue",
-                  subtitle: "How new items to be added to the playback queue.",
+                  title: S.of(context).addToQueue,
+                  subtitle: S.of(context).addToQueueSubtitle,
                   value: queueMode,
-                  items: const [
+                  items: [
                     SettingsBoxComboBoxItem(
                       value: "PlayNext",
-                      title: "Play Next",
+                      title: S.of(context).playNext,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "AddToEnd",
-                      title: "Add to End",
+                      title: S.of(context).addToEnd,
                     ),
                   ],
                   onChanged: (newValue) {
@@ -119,22 +120,21 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                   },
                 ),
                 SettingsBoxComboBox(
-                  title: "Middle Click Action",
-                  subtitle:
-                      "Action to perform when middle-clicking a track or collection.",
+                  title: S.of(context).middleClickAction,
+                  subtitle: S.of(context).middleClickActionSubtitle,
                   value: middleClickAction,
-                  items: const [
+                  items: [
                     SettingsBoxComboBoxItem(
                       value: "StartPlaying",
-                      title: "Start Playing",
+                      title: S.of(context).startPlaying,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "AddToQueue",
-                      title: "Add to Queue",
+                      title: S.of(context).addToQueue,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "StartRoaming",
-                      title: "Start Roaming",
+                      title: S.of(context).startRoaming,
                     ),
                   ],
                   onChanged: (newValue) {
@@ -146,12 +146,11 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                 Padding(
                   padding: const EdgeInsets.all(4),
                   child: Expander(
-                    header: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 11),
+                    header: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
                       child: SettingsBlockTitle(
-                        title: "Playback Mode",
-                        subtitle:
-                            "Preferred playback mode about how your music plays.",
+                        title: S.of(context).playbackMode,
+                        subtitle: S.of(context).playbackModeSubtitle,
                       ),
                     ),
                     content: Column(
@@ -160,7 +159,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           child: Checkbox(
-                            content: Text(modeToLabel(mode)),
+                            content: Text(modeToLabel(context, mode)),
                             checked: !disabledModes.contains(mode),
                             onChanged: (isChecked) {
                               if (isChecked != null) {

@@ -13,6 +13,7 @@ import '../../widgets/infinite_list_loading.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../providers/responsive_providers.dart';
+import '../../generated/l10n.dart';
 
 import '../start_screen/utils/group.dart';
 import '../start_screen/utils/internal_collection.dart';
@@ -115,7 +116,7 @@ class BandScreenState extends State<BandScreen> {
       emptyBuilder: (context) => Center(
         child: data.initialized
             ? NoItems(
-                title: "No collection found",
+                title: S.of(context).noCollectionFound,
                 hasRecommendation: false,
                 reloadData: data.reloadData,
                 userGenerated: isUserGenerated,

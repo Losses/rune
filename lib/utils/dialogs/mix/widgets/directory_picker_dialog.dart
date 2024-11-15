@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../widgets/directory/directory_tree.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
+import '../../../../generated/l10n.dart';
 
 import '../../unavailable_dialog_on_band.dart';
 
@@ -19,10 +20,10 @@ class DirectoryPickerDialog extends StatelessWidget {
     return UnavailableDialogOnBand(
       $close: $close,
       child: ContentDialog(
-        title: const Column(
+        title: Column(
           children: [
-            SizedBox(height: 8),
-            Text("Pick Directory"),
+            const SizedBox(height: 8),
+            Text(S.of(context).pickDirectory),
           ],
         ),
         content: Column(
@@ -37,13 +38,13 @@ class DirectoryPickerDialog extends StatelessWidget {
         actions: [
           ResponsiveDialogActions(
             FilledButton(
-              child: const Text('Confirm'),
+              child: Text(S.of(context).confirm),
               onPressed: () {
                 $close(controller.value);
               },
             ),
             Button(
-              child: const Text('Cancel'),
+              child: Text(S.of(context).cancel),
               onPressed: () => $close(null),
             ),
           ),

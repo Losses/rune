@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../generated/l10n.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../providers/status.dart';
 import '../../../providers/responsive_providers.dart';
@@ -46,8 +47,8 @@ class SmallScreenPlayingTrack extends StatelessWidget {
 
             if (coverArtPath == null) return Container();
 
-            final artist = p.$2 ?? "Unknown Artist";
-            final album = p.$3 ?? "Unknown Album";
+            final artist = p.$2 ?? S.of(context).unknownArtist;
+            final album = p.$3 ?? S.of(context).unknownAlbum;
 
             final result = Container(
               padding: isCar
@@ -79,7 +80,7 @@ class SmallScreenPlayingTrack extends StatelessWidget {
                     ),
                   if (!isZune) const SizedBox(height: 8),
                   Text(
-                    title ?? "Unknown Track",
+                    title ?? S.of(context).unknownTrack,
                     style: typography.subtitle?.apply(shadows: shadows),
                     textAlign: TextAlign.center,
                     overflow: TextOverflow.ellipsis,

@@ -8,6 +8,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/library_path.dart';
+import '../../../generated/l10n.dart';
 
 import 'settings_button.dart';
 
@@ -29,8 +30,8 @@ class AddLibrarySettingButton extends StatelessWidget {
 
     return SettingsButton(
       icon: Symbols.add,
-      title: "Add Library",
-      subtitle: "Add a new library and scan existing files",
+      title: S.of(context).addLibrary,
+      subtitle: S.of(context).addLibrarySubtitle,
       onPressed: () async {
         final path = await getDirectoryPath();
 

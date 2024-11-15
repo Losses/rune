@@ -12,6 +12,7 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../generated/l10n.dart';
 
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
@@ -179,21 +180,21 @@ class _SettingsThemeState extends State<SettingsTheme> {
             child: Column(
               children: [
                 SettingsBoxComboBox(
-                  title: "Color Mode",
-                  subtitle: "Change the color mode that appears in Rune.",
+                  title: S.of(context).colorMode,
+                  subtitle: S.of(context).colorModeSubtitle,
                   value: colorMode,
-                  items: const [
+                  items: [
                     SettingsBoxComboBoxItem(
                       value: "system",
-                      title: "System",
+                      title: S.of(context).systemColorMode,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "dark",
-                      title: "Dark",
+                      title: S.of(context).dark,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "light",
-                      title: "Light",
+                      title: S.of(context).light,
                     ),
                   ],
                   onChanged: (newValue) {
@@ -205,19 +206,18 @@ class _SettingsThemeState extends State<SettingsTheme> {
                 Padding(
                   padding: const EdgeInsets.all(4),
                   child: Expander(
-                    header: const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 11),
+                    header: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 11),
                       child: SettingsBlockTitle(
-                        title: "Theme Color",
-                        subtitle:
-                            "Select a color to give your Rune a refreshed look and feel.",
+                        title: S.of(context).themeColor,
+                        subtitle: S.of(context).themeColorSubtitle,
                       ),
                     ),
                     content: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Checkbox(
-                          content: const Text("Follow system theme"),
+                          content: Text(S.of(context).followSystemTheme),
                           checked: themeColor == null,
                           onChanged: (isChecked) {
                             setState(() {
@@ -260,9 +260,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   ),
                 ),
                 SettingsBoxToggle(
-                  title: "Dynamic Colors",
-                  subtitle:
-                      "Adjust Rune's theme colors based on the cover art of the playing track.",
+                  title: S.of(context).dynamicColors,
+                  subtitle: S.of(context).dynamicColorsSubtitle,
                   value: enableDynamicColors ?? false,
                   onChanged: (value) {
                     settingsManager.setValue(
@@ -274,8 +273,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   },
                 ),
                 SettingsBoxToggle(
-                  title: "Branding Animation",
-                  subtitle: "Play branding animation when Rune starts.",
+                  title: S.of(context).brandingAnimation,
+                  subtitle: S.of(context).brandingAnimationSubtitle,
                   value: !(disableBrandingAnimation ?? false),
                   onChanged: (value) {
                     settingsManager.setValue(

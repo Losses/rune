@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../router/navigation.dart';
 import '../../widgets/playback_controller/queue.dart';
+import '../../generated/l10n.dart';
+
+import '../router/navigation.dart';
 
 Future<void> showPlayQueueDialog(
   BuildContext context, {
@@ -16,7 +18,7 @@ Future<void> showPlayQueueDialog(
       title: Row(
         children: [
           const SizedBox(width: 12),
-          const Text('Queue'),
+          Text(S.of(context).queue),
           Expanded(
             child: Container(),
           ),

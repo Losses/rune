@@ -8,6 +8,7 @@ import '../../../../utils/api/fetch_collection_group_summary_title.dart';
 import '../../../../messages/search.pb.dart';
 import '../../../../messages/collection.pb.dart';
 import '../../../../providers/responsive_providers.dart';
+import '../../../../generated/l10n.dart';
 
 import '../../../api/fetch_track_summary.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';
@@ -65,17 +66,17 @@ class _MixEditorState extends State<MixEditor> {
             children: [
               InputSection(
                 controller: _controller.titleController,
-                title: 'Title',
+                title: S.of(context).title,
               ),
               EditableComboBoxSection(
                 controller: _controller.groupController,
-                title: 'Group',
+                title: S.of(context).group,
                 getItems: () =>
                     fetchCollectionGroupSummaryTitle(CollectionType.Mix),
               ),
               SearchChipInputSection(
                 controller: _controller.artistsController,
-                title: 'Artists',
+                title: S.of(context).artists,
                 getInitResult: () => getInitResult(CollectionType.Artist),
                 searchForItems: (query) => _searchItems(
                   query,
@@ -90,7 +91,7 @@ class _MixEditorState extends State<MixEditor> {
               ),
               SearchChipInputSection(
                 controller: _controller.albumsController,
-                title: 'Albums',
+                title: S.of(context).albums,
                 getInitResult: () => getInitResult(CollectionType.Album),
                 searchForItems: (query) => _searchItems(
                   query,
@@ -104,14 +105,16 @@ class _MixEditorState extends State<MixEditor> {
               ),
               SearchChipInputSection(
                 controller: _controller.playlistsController,
-                title: 'Playlists',
+                title: S.of(context).playlists,
                 getInitResult: () => getInitResult(CollectionType.Playlist),
                 searchForItems: (query) => _searchItems(
                   query,
                   'playlists',
                   (x) async {
                     return (await fetchCollectionByIds(
-                            CollectionType.Playlist, x))
+                      CollectionType.Playlist,
+                      x,
+                    ))
                         .map((x) => (x.id, x.name))
                         .toList();
                   },
@@ -119,7 +122,7 @@ class _MixEditorState extends State<MixEditor> {
               ),
               SearchChipInputSection(
                 controller: _controller.tracksController,
-                title: 'Tracks',
+                title: S.of(context).tracks,
                 getInitResult: () async {
                   return (await fetchTrackSummary())
                       .map((x) =>
@@ -138,34 +141,34 @@ class _MixEditorState extends State<MixEditor> {
               ),
               NumberSection(
                 controller: _controller.randomTrackController,
-                title: 'Random Tracks',
+                title: S.of(context).randomTracks,
               ),
               DirectorySection(controller: _controller.directoryController),
               SliderSection(
-                title: 'Amount',
+                title: S.of(context).amount,
                 controller: _controller.limitController,
               ),
               SelectInputSection(
                 controller: _controller.modeController,
-                title: "Mode",
+                title: S.of(context).mode,
                 items: modeSelectItems,
                 defaultValue: '99',
               ),
               SelectInputSection(
                 controller: _controller.recommendationController,
-                title: "Recommendation",
+                title: S.of(context).recommendation,
                 items: recommendSelectItems,
                 defaultValue: '',
               ),
               SelectInputSection(
                 controller: _controller.sortByController,
-                title: "Sort By",
+                title: S.of(context).sortBy,
                 items: sortSelectItems,
                 defaultValue: 'default',
               ),
               SelectButtonsSection(
                 controller: _controller.sortOrderController,
-                title: "Sort Order",
+                title: S.of(context).sortOrder,
                 items: sortOrderItems,
                 defaultValue: 'true',
                 disabled:
@@ -173,7 +176,7 @@ class _MixEditorState extends State<MixEditor> {
               ),
               SelectButtonsSection(
                 controller: _controller.likedController,
-                title: "Liked",
+                title: S.of(context).liked,
                 items: likedItems,
                 defaultValue: 'false',
               ),

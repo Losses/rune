@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../widgets/library_task_button.dart';
+import '../generated/l10n.dart';
 
 class ActionButtons extends StatelessWidget {
   const ActionButtons({
@@ -19,13 +20,13 @@ class ActionButtons extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         ScanLibraryButton(
-          title: "Scan Library",
+          title: S.of(context).scanLibrary,
           onFinished: reloadData,
         ),
         if (hasRecommendation) ...[
           const SizedBox(width: 12),
           AnalyseLibraryButton(
-            title: "Analyse Tracks",
+            title: S.of(context).analyseTracks,
             onFinished: reloadData,
           ),
         ]

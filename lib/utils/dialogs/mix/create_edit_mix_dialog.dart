@@ -1,11 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../utils/dialogs/clean_group_titles.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
+import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../messages/mix.pb.dart';
 import '../../../messages/collection.pb.dart';
+import '../../../generated/l10n.dart';
 
 import '../../api/create_mix.dart';
 import '../../api/update_mix.dart';
@@ -83,7 +84,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
             children: [
               const SizedBox(height: 16),
               InfoLabel(
-                label: 'Title',
+                label: S.of(context).title,
                 child: TextBox(
                   controller: titleController,
                   enabled: !isLoading,
@@ -91,7 +92,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
               ),
               const SizedBox(height: 16),
               InfoLabel(
-                label: 'Group',
+                label: S.of(context).group,
                 child: AutoSuggestBox<String>(
                   controller: groupController,
                   items: groupList.map<AutoSuggestBoxItem<String>>(
@@ -102,7 +103,7 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                       );
                     },
                   ).toList(),
-                  placeholder: "Select a group",
+                  placeholder: S.of(context).selectAGroup,
                 ),
               ),
               const SizedBox(height: 8),
@@ -149,11 +150,13 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
                         if (!context.mounted) return;
                         widget.$close(response);
                       },
-                child: Text(widget.mixId != null ? 'Save' : 'Create'),
+                child: Text(widget.mixId != null
+                    ? S.of(context).save
+                    : S.of(context).create),
               ),
               Button(
                 onPressed: isLoading ? null : () => widget.$close(null),
-                child: const Text('Cancel'),
+                child: Text(S.of(context).cancel),
               ),
             ),
           ],

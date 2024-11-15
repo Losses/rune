@@ -10,6 +10,7 @@ import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';
+import '../../../generated/l10n.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';
@@ -179,7 +180,11 @@ class _MixStudioDialogImplementationState
           title: Column(
             children: [
               const SizedBox(height: 8),
-              Text(widget.mixId != null ? 'Edit Mix' : 'Create Mix'),
+              Text(
+                widget.mixId != null
+                    ? S.of(context).editMix
+                    : S.of(context).createMix,
+              ),
             ],
           ),
           content: Container(
@@ -268,11 +273,15 @@ class _MixStudioDialogImplementationState
             ResponsiveDialogActions(
               FilledButton(
                 onPressed: isLoading ? null : () => saveMix(context),
-                child: Text(widget.mixId != null ? 'Save' : 'Create'),
+                child: Text(
+                  widget.mixId != null
+                      ? S.of(context).save
+                      : S.of(context).create,
+                ),
               ),
               Button(
                 onPressed: isLoading ? null : () => widget.$close(null),
-                child: const Text('Cancel'),
+                child: Text(S.of(context).cancel),
               ),
             ),
           ],

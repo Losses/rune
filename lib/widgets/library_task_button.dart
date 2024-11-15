@@ -6,24 +6,23 @@ import '../screens/settings_library/widgets/progress_button.dart';
 import '../messages/library_manage.pbenum.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
+import '../generated/l10n.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
-      title: const Text('Cancel ongoing task?'),
-      content: const Text(
-        'If you cancel this task, it will stop at its current completion state. Do you want to cancel it?',
-      ),
+      title: Text(S.of(context).cancelTaskTitle),
+      content: Text(S.of(context).cancelTaskSubtitle),
       actions: [
         FilledButton(
-          child: const Text('Cancel Task'),
+          child: Text(S.of(context).cancelTask),
           onPressed: () {
             $close(true);
           },
         ),
         Button(
-          child: const Text('Continue'),
+          child: Text(S.of(context).continueTask),
           onPressed: () => $close(false),
         ),
       ],
@@ -99,8 +98,8 @@ class ScanLibraryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return LibraryTaskButton(
-      title: title ?? "Scan",
-      progressTitle: "Scanning",
+      title: title ?? S.of(context).scan,
+      progressTitle: S.of(context).scanning,
       progress: null,
       onPressedCancel: (libraryManager, itemPath) async {
         final confirm = await showCancelDialog(context);
@@ -149,8 +148,8 @@ class AnalyseLibraryButton extends StatelessWidget {
         : analyseProgress.progress / analyseProgress.total;
 
     return LibraryTaskButton(
-      title: title ?? "Analyse",
-      progressTitle: "Analysing",
+      title: title ?? S.of(context).analyse,
+      progressTitle: S.of(context).analysing,
       onPressedCancel: (libraryManager, itemPath) async {
         final confirm = await showCancelDialog(context);
 

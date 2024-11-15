@@ -18,7 +18,7 @@ class BandScreenFeatureList extends StatefulWidget {
   });
 
   final StartScreenLayoutManager layoutManager;
-  final List<(String, String, IconData, bool)> items;
+  final List<(String Function(BuildContext), String, IconData, bool)> items;
   final bool topPadding;
   final Widget? leadingItem;
 

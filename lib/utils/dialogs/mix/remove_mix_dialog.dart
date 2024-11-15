@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/responsive_dialog_actions.dart';
+import '../../../generated/l10n.dart';
 
 import '../../api/remove_mix.dart';
 import '../../router/navigation.dart';
@@ -55,24 +56,24 @@ class _RemoveMixDialogState extends State<RemoveMixDialog> {
       $close: widget.$close,
       onConfirm: _onConfirm,
       child: ContentDialog(
-        title: const Column(
+        title: Column(
           children: [
             SizedBox(height: 8),
-            Text('Remove Mix'),
+            Text(S.of(context).removeMixTitle),
           ],
         ),
-        content: const Text(
-          'If you delete this mix, you won\'t be able to recover it. Do you want to delete it?',
+        content: Text(
+          S.of(context).removeMixSubtitle,
         ),
         actions: [
           ResponsiveDialogActions(
             Button(
               onPressed: isLoading ? null : _onConfirm,
-              child: const Text('Delete'),
+              child: Text(S.of(context).delete),
             ),
             FilledButton(
               onPressed: isLoading ? null : () => widget.$close(false),
-              child: const Text('Cancel'),
+              child: Text(S.of(context).cancel),
             ),
           ),
         ],

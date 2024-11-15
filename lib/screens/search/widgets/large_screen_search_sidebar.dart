@@ -4,6 +4,7 @@ import '../../../widgets/slide_fade_transition.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../messages/search.pb.dart';
 import '../../../messages/collection.pbenum.dart';
+import '../../../generated/l10n.dart';
 
 import '../constants/search_icons.dart';
 import '../constants/search_categories.dart';
@@ -48,7 +49,8 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                     vertical: 13,
                     horizontal: 16,
                   ),
-                  child: Text("Search", style: typography.bodyLarge),
+                  child:
+                      Text(S.of(context).search, style: typography.bodyLarge),
                 ),
                 Padding(
                   padding: const EdgeInsets.symmetric(

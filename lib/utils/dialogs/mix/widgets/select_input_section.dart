@@ -17,7 +17,7 @@ class SelectItem {
 class SelectInputSection extends StatefulWidget {
   final String title;
   final String defaultValue;
-  final List<SelectItem> items;
+  final List<SelectItem> Function(BuildContext) items;
   final SelectInputController? controller;
 
   const SelectInputSection({
@@ -67,7 +67,7 @@ class _SelectInputSectionState extends State<SelectInputSection> {
               Expanded(
                 child: ComboBox<String>(
                   value: _controller.selectedValue,
-                  items: widget.items.map<ComboBoxItem<String>>(
+                  items: widget.items(context).map<ComboBoxItem<String>>(
                     (item) {
                       return ComboBoxItem<String>(
                         value: item.value,

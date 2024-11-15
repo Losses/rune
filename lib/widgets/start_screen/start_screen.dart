@@ -16,6 +16,7 @@ import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../messages/all.dart';
+import '../../generated/l10n.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -157,7 +158,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
           items: [
             MenuFlyoutItem(
               leading: const Icon(Symbols.refresh),
-              text: Text('Refresh'),
+              text: Text(S.of(context).refresh),
               onPressed: () async {
                 layoutManager.resetAnimations();
                 await data.reloadData();
@@ -170,7 +171,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
             if (data.collectionType == CollectionType.Mix)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
-                text: Text('New Mix'),
+                text: Text(S.of(context).newMix),
                 onPressed: () async {
                   final x = await showMixStudioDialog(context);
 
@@ -180,7 +181,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
             if (data.collectionType == CollectionType.Playlist)
               MenuFlyoutItem(
                 leading: const Icon(Symbols.add),
-                text: Text('New Playlist'),
+                text: Text(S.of(context).newPlaylist),
                 onPressed: () async {
                   final x = await showCreateEditPlaylistDialog(context);
 
@@ -237,7 +238,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                     emptyBuilder: (context) => Center(
                       child: data.initialized
                           ? NoItems(
-                              title: "No collection found",
+                              title: S.of(context).noCollectionFound,
                               hasRecommendation: false,
                               reloadData: data.reloadData,
                               userGenerated: isUserGenerated,

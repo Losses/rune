@@ -18,7 +18,7 @@ class SmallScreenFeatureListView extends StatefulWidget {
     required this.topPadding,
   });
   final StartScreenLayoutManager layoutManager;
-  final List<(String, String, IconData, bool)> items;
+  final List<(String Function(BuildContext), String, IconData, bool)> items;
   final bool topPadding;
 
   @override
@@ -41,7 +41,7 @@ class LibraryHomeListState extends State<SmallScreenFeatureListView> {
     return Center(
       child: SingleChildScrollView(
         padding: getScrollContainerPadding(context, top: widget.topPadding),
-        child: TurntileGroup<(String, String, IconData, bool)>(
+        child: TurntileGroup<(String Function(BuildContext), String, IconData, bool)>(
           groupIndex: 0,
           items: widget.items,
           gridLayoutVariation: TurntileGroupGridLayoutVariation.list,
@@ -49,7 +49,7 @@ class LibraryHomeListState extends State<SmallScreenFeatureListView> {
           onTitleTap: () {},
           itemBuilder: (context, item) {
             return LinkTurntile(
-              title: item.$1,
+              title: item.$1(context),
               path: item.$2,
             );
           },

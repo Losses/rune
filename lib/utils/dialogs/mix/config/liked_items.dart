@@ -1,8 +1,17 @@
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+
+import '../../../../generated/l10n.dart';
 
 import '../widgets/select_input_section.dart';
 
-final likedItems = [
-  SelectItem(value: "true", title: "Liked Only", icon: Symbols.heart_check),
-  SelectItem(value: "false", title: "All Tracks", icon: Symbols.done_all),
-];
+List<SelectItem> likedItems(BuildContext context) => [
+      SelectItem(
+          value: "true",
+          title: S.of(context).likedOnly,
+          icon: Symbols.heart_check),
+      SelectItem(
+          value: "false",
+          title: S.of(context).allTracks,
+          icon: Symbols.done_all),
+    ];

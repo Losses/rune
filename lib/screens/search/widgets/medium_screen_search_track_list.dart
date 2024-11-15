@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../generated/l10n.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../messages/collection.pb.dart';
 
@@ -40,7 +41,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (items[CollectionType.Artist]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Artists"),
+                    SearchListSectionTitle(text: S.of(context).artists),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
@@ -51,7 +52,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     groupId: 0,
                   ),
                   if (items[CollectionType.Album]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Albums"),
+                    SearchListSectionTitle(text: S.of(context).albums),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
@@ -62,7 +63,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     groupId: 1,
                   ),
                   if (items[CollectionType.Playlist]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Playlists"),
+                    SearchListSectionTitle(text: S.of(context).playlists),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
@@ -73,7 +74,7 @@ class MediumScreenSearchTrackList extends StatelessWidget {
                     groupId: 2,
                   ),
                   if (items[CollectionType.Track]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Tracks"),
+                    SearchListSectionTitle(text: S.of(context).tracks),
                   LargeScreenSearchTrackListImplementation(
                     rows: rows,
                     ratio: ratio,
