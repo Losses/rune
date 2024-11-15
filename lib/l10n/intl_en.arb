@@ -1,21 +1,37 @@
 {
   "@@locale": "en",
   "rune": "Rune",
-  "@rune": {},
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
   "runePlayer": "Rune Player",
-  "@runePlayer": {},
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
   "copyright": "Copyright",
-  "@copyright": {},
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
   "copyrightAnnouncement": "Copyright © 2024 Rune Player Developers.",
-  "@copyrightAnnouncement": {},
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
   "LicenseAnnouncement": "This product is licensed under the MPL license.",
-  "@LicenseAnnouncement": {},
+  "@LicenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
   "factoryReset": "Factory Reset",
-  "@factoryReset": {},
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
   "factoryResetSubtitle": "Remove all items from the library list",
-  "@factoryResetSubtitle": {},
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
   "bsodBody": "Your player ran into a problem and needs a restart. We respect your privacy and won't collect any data.",
-  "@bsodBody": {},
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
   "artists": "Artists",
   "@artists": {},
   "albums": "Albums",
@@ -33,7 +49,9 @@
   "noDataAvailable": "No data available",
   "@noDataAvailable": {},
   "start": "Start",
-  "@start": {},
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
   "search": "Search",
   "@search": {},
   "tracks": "Tracks",
@@ -41,15 +59,25 @@
   "system": "System",
   "@system": {},
   "operatingSystem": "Operating system",
-  "@operatingSystem": {},
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
   "systemVersion": "System Version",
-  "@systemVersion": {},
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
   "kernelVersion": "Kernel Version",
-  "@kernelVersion": {},
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
   "hostName": "Host Name",
-  "@hostName": {},
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
   "player": "Player",
-  "@player": {},
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
   "buildHash": "Build Hash",
   "@buildHash": {},
   "buildDate": "Build Date",
@@ -61,15 +89,23 @@
   "activation": "Activation",
   "@activation": {},
   "runeIsActivated": "Rune is activated",
-  "@runeIsActivated": {},
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
   "productId": "Product ID",
   "@productId": {},
   "youMayBeAVictimOfGenuineSoftware": "You may be a victim of genuine software.",
-  "@youMayBeAVictimOfGenuineSoftware": {},
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
   "axiomDesign": "Axiom Design",
-  "@axiomDesign": {},
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
   "computingDevice": "Computing Device",
-  "@computingDevice": {},
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
   "computingDeviceSubtitle": "Select GPU or CPU for faster or more efficient processing.",
   "@computingDeviceSubtitle": {},
   "gpu": "GPU",
@@ -81,115 +117,213 @@
   "performanceLevelSubtitle": "Choose how many tasks to run simultaneously.",
   "@performanceLevelSubtitle": {},
   "performance": "Performance",
-  "@performance": {},
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
   "balance": "Balance",
-  "@balance": {},
-  "batterySaving": "Battery saving",
-  "@batterySaving": {},
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
+  "batterySaving": "Battery Saving",
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
   "switchTo": "Switch to",
-  "@switchTo": {},
-  "remove": "Remove",
-  "@remove": {},
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
+  "removeLibrary": "Remove",
+  "@removeLibrary": {
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
+  },
   "addLibrary": "Add Library",
-  "@addLibrary": {},
-  "addLibrarySubtitle": "Add a new library and scan existing files",
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
+  "addLibrarySubtitle": "Add a new library and scan existing files.",
   "@addLibrarySubtitle": {},
   "actionMenu": "Action Menu",
-  "@actionMenu": {},
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
   "addToQueue": "Add to Queue",
-  "@addToQueue": {},
-  "addToQueueSubtitle": "How new items to be added to the playback queue.",
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
+  "addToQueueSubtitle": "How new items will be added to the playback queue.",
   "@addToQueueSubtitle": {},
   "playNext": "Play Next",
-  "@playNext": {},
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
   "addToEnd": "Add to End",
-  "@addToEnd": {},
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
   "middleClickAction": "Middle Click Action",
-  "@middleClickAction": {},
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
   "middleClickActionSubtitle": "Action to perform when middle-clicking a track or collection.",
   "@middleClickActionSubtitle": {},
   "startPlaying": "Start Playing",
-  "@startPlaying": {},
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
   "startRoaming": "Start Roaming",
-  "@startRoaming": {},
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
   "playbackMode": "Playback Mode",
-  "@playbackMode": {},
-  "playbackModeSubtitle": "Preferred playback mode about how your music plays.",
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
+  "playbackModeSubtitle": "Preferred playback mode for how your music plays.",
   "@playbackModeSubtitle": {},
   "colorMode": "Color Mode",
-  "@colorMode": {},
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
   "colorModeSubtitle": "Change the color mode that appears in Rune.",
   "@colorModeSubtitle": {},
   "systemColorMode": "System",
-  "@systemColorMode": {},
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
   "dark": "Dark",
-  "@dark": {},
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
   "light": "Light",
-  "@light": {},
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
   "themeColor": "Theme Color",
-  "@themeColor": {},
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
   "themeColorSubtitle": "Select a color to give your Rune a refreshed look and feel.",
   "@themeColorSubtitle": {},
-  "followSystemTheme": "Follow system theme",
-  "@followSystemTheme": {},
+  "followSystemTheme": "Follow System Theme",
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
   "dynamicColors": "Dynamic Colors",
-  "@dynamicColors": {},
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
   "dynamicColorsSubtitle": "Adjust Rune's theme colors based on the cover art of the playing track.",
   "@dynamicColorsSubtitle": {},
   "brandingAnimation": "Branding Animation",
-  "@brandingAnimation": {},
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
   "brandingAnimationSubtitle": "Play branding animation when Rune starts.",
   "@brandingAnimationSubtitle": {},
   "thisMightTakeAFewMinutes": "This might take a few minutes.",
-  "@thisMightTakeAFewMinutes": {},
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
   "tracksFound": " tracks found",
-  "@tracksFound": {},
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
   "albumCoversCollected": " album covers collected",
-  "@albumCoversCollected": {},
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
   "editPlaylist": "Edit Playlist",
-  "@editPlaylist": {},
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
   "editMix": "Edit Mix",
-  "@editMix": {},
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "edit": "Edit",
-  "@edit": {},
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "Remove",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
   "removePlaylist": "Remove Playlist",
-  "@removePlaylist": {},
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
   "removeMix": "Remove Mix",
-  "@removeMix": {},
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "addToMix": "Add to Mix",
-  "@addToMix": {},
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "newMix": "New Mix",
-  "@newMix": {},
-  "selectAGroup": "Select a group",
-  "@selectAGroup": {},
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "selectAGroup": "Select a Group",
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
   "likedOnly": "Liked Only",
-  "@likedOnly": {},
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
   "allTracks": "All Tracks",
-  "@allTracks": {},
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
   "defaultMode": "Default",
-  "@defaultMode": {},
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
   "sequential": "Sequential",
-  "@sequential": {},
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
   "repeatAll": "Repeat All",
-  "@repeatAll": {},
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
   "repeatOne": "Repeat One",
-  "@repeatOne": {},
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
   "shuffle": "Shuffle",
-  "@shuffle": {},
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
   "title": "Title",
-  "@title": {},
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
   "group": "Group",
-  "@group": {},
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
   "save": "Save",
-  "@save": {},
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
   "create": "Create",
-  "@create": {},
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
   "cancel": "Cancel",
-  "@cancel": {},
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
   "noRecommendation": "No Recommendation",
-  "@noRecommendation": {},
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
   "basedOnAll": "Based on All",
-  "@basedOnAll": {},
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
   "group1": "Group 1",
   "@group1": {},
   "group2": "Group 2",
@@ -209,40 +343,85 @@
   "group9": "Group 9",
   "@group9": {},
   "ascending": "Ascending",
-  "@ascending": {},
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
   "descending": "Descending",
-  "@descending": {},
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
   "lastModified": "Last Modified",
-  "@lastModified": {},
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
   "duration": "Duration",
-  "@duration": {},
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
   "timesPlayedThrough": "Times Played Through",
-  "@timesPlayedThrough": {},
+  "@timesPlayedThrough": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been played through completely."
+  },
   "timesSkipped": "Times Skipped",
-  "@timesSkipped": {},
+  "@timesSkipped": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been skipped."
+  },
   "pickDirectory": "Pick Directory",
-  "@pickDirectory": {},
+  "@pickDirectory": {
+    "description": "Button prompt text in the Mix edit modal. Pressing this button opens a modal to guide users in selecting a directory."
+  },
+  "oneDirectory": "1 Directory",
+  "@oneDirectory": {
+    "description": "Status text indicating one directory has been selected."
+  },
+  "manyDirectories": "${count} Directories",
+  "@manyDirectories": {
+    "description": "Status text indicating multiple directories have been selected.",
+    "placeholders": {
+      "count": {}
+    }
+  },
   "confirm": "Confirm",
-  "@confirm": {},
+  "@confirm": {
+    "description": "Action button text in the modal, indicating the user's intent to confirm an action."
+  },
   "directories": "Directories",
-  "@directories": {},
-  "allDirectories": "All directories",
-  "@allDirectories": {},
+  "@directories": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
+  },
+  "allDirectories": "All Directories",
+  "@allDirectories": {
+    "description": "Prompt indicating that all directories have been selected."
+  },
   "randomTracks": "Random Tracks",
-  "@randomTracks": {},
+  "@randomTracks": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
+  },
   "amount": "Amount",
-  "@amount": {},
+  "@amount": {
+    "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
+  },
   "mode": "Mode",
-  "@mode": {},
+  "@mode": {
+    "description": "The playback mode for tracks."
+  },
   "recommendation": "Recommendation",
-  "@recommendation": {},
+  "@recommendation": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the player's recommendation behavior."
+  },
   "sortBy": "Sort By",
-  "@sortBy": {},
+  "@sortBy": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting method for tracks."
+  },
   "sortOrder": "Sort Order",
-  "@sortOrder": {},
+  "@sortOrder": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
+  },
   "liked": "Liked",
-  "@liked": {},
-  "noRoamingCollection": "Unable to start roaming. Tracks in the collection hasn't been analyzed yet.",
+  "@liked": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
+  },
+  "noRoamingCollection": "Unable to start roaming. Tracks in the collection haven't been analyzed yet.",
   "@noRoamingCollection": {},
   "noRomaingTrack": "Unable to start roaming. This track hasn't been analyzed yet.",
   "@noRomaingTrack": {},
@@ -252,7 +431,7 @@
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} The library is being analyzed; please wait until the process finished.",
+  "noAnalysisAnalyzing": "${baseMessage} The library is being analyzed; please wait until the process is finished.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
@@ -265,23 +444,41 @@
     }
   },
   "notReady": "Not Ready",
-  "@notReady": {},
+  "@notReady": {
+    "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
+  },
   "createPlaylist": "Create Playlist",
-  "@createPlaylist": {},
+  "@createPlaylist": {
+    "description": "Modal title for creating a playlist."
+  },
   "scanLibrary": "Scan Library",
-  "@scanLibrary": {},
+  "@scanLibrary": {
+    "description": "Action button text in the modal, initiating a media library scan when pressed."
+  },
   "analyseTracks": "Analyse Tracks",
-  "@analyseTracks": {},
+  "@analyseTracks": {
+    "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
+  },
   "scan": "Scan",
-  "@scan": {},
+  "@scan": {
+    "description": "Button prompt text in the settings interface, initiating a media library scan when pressed."
+  },
   "scanning": "Scanning",
-  "@scanning": {},
+  "@scanning": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
+  },
   "analyse": "Analyse",
-  "@analyse": {},
+  "@analyse": {
+    "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
+  },
   "analysing": "Analysing",
-  "@analysing": {},
+  "@analysing": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
+  },
   "tryCreatingYourOwnCollection": "Try creating your own collection",
-  "@tryCreatingYourOwnCollection": {},
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text displayed on a blank page in the Collection view, suggesting users create a new collection."
+  },
   "theseActionsMayHelp": "These actions may help",
   "@theseActionsMayHelp": {},
   "tryScanningNewFiles": "Try scanning new files",
@@ -291,129 +488,199 @@
   "noItemsInPlaylist": "No items in playlist",
   "@noItemsInPlaylist": {},
   "previous": "Previous",
-  "@previous": {},
+  "@previous": {
+    "description": "Button prompt text for controlling playback, used to skip to the previous track."
+  },
   "previousSubtitle": "Go to the previous track",
   "@previousSubtitle": {},
   "playPause": "Play/Pause",
-  "@playPause": {},
+  "@playPause": {
+    "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
+  },
   "playPauseSubtitle": "Toggle between play and pause",
   "@playPauseSubtitle": {},
   "next": "Next",
-  "@next": {},
+  "@next": {
+    "description": "Button prompt text for controlling playback, used to skip to the next track."
+  },
   "nextSubtitle": "Go to the next track",
   "@nextSubtitle": {},
   "volume": "Volume",
-  "@volume": {},
+  "@volume": {
+    "description": "Button prompt text for controlling playback, used to adjust the volume."
+  },
   "volumeSubtitle": "Adjust the volume",
   "@volumeSubtitle": {},
   "playlist": "Playlist",
-  "@playlist": {},
+  "@playlist": {
+    "description": "Button prompt text for controlling playback, used to display the playlist."
+  },
   "playlistSubtitle": "View the playback queue",
   "@playlistSubtitle": {},
   "hidden": "Hidden",
-  "@hidden": {},
+  "@hidden": {
+    "description": "Button prompt text indicating a hidden button; this text is typically not used."
+  },
   "hiddenSubtitle": "Content below will be hidden in the others list",
   "@hiddenSubtitle": {},
   "coverWall": "Cover Wall",
-  "@coverWall": {},
+  "@coverWall": {
+    "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
+  },
   "coverWallSubtitle": "Display cover art for a unique ambience",
   "@coverWallSubtitle": {},
   "fullscreen": "Fullscreen",
-  "@fullscreen": {},
+  "@fullscreen": {
+    "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
+  },
   "fullscreenSubtitle": "Enter or exit fullscreen mode",
   "@fullscreenSubtitle": {},
   "pause": "Pause",
-  "@pause": {},
+  "@pause": {
+    "description": "Button prompt text for controlling playback, used to pause the currently playing track."
+  },
   "play": "Play",
-  "@play": {},
+  "@play": {
+    "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
+  },
   "enable": "Enable",
-  "@enable": {},
+  "@enable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
+  },
   "disable": "Disable",
-  "@disable": {},
+  "@disable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
+  },
   "noTracksFound": "No tracks found",
   "@noTracksFound": {},
   "library": "Library",
-  "@library": {},
+  "@library": {
+    "description": "Title of the media library settings interface."
+  },
   "artistQuery": "Artist Query",
   "@artistQuery": {},
   "playlistQuery": "Playlist Query",
   "@playlistQuery": {},
   "mixes": "Mixes",
-  "@mixes": {},
+  "@mixes": {
+    "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
+  },
   "mixQuery": "Mix Query",
   "@mixQuery": {},
   "settings": "Settings",
-  "@settings": {},
+  "@settings": {
+    "description": "Title of the settings interface."
+  },
   "analysis": "Analysis",
-  "@analysis": {},
+  "@analysis": {
+    "description": "Title of the analysis settings interface."
+  },
   "playback": "Playback",
-  "@playback": {},
+  "@playback": {
+    "description": "Title of the playback settings interface."
+  },
   "theme": "Theme",
-  "@theme": {},
+  "@theme": {
+    "description": "Title of the theme settings interface."
+  },
   "controller": "Controller",
-  "@controller": {},
+  "@controller": {
+    "description": "Title of the playback control button settings interface."
+  },
   "about": "About",
-  "@about": {},
-  "selectLibraryDirectorySubtitle": "Select your audio library directory, and we will scan and analysis all tracks within it.",
+  "@about": {
+    "description": "Title of the about interface."
+  },
+  "selectLibraryDirectorySubtitle": "Select your audio library directory, and we will scan and analyze all tracks within it.",
   "@selectLibraryDirectorySubtitle": {},
   "resetLibrary": "Reset Library",
-  "@resetLibrary": {},
+  "@resetLibrary": {
+    "description": "Action button text in the modal, indicating the user wants to reset the library."
+  },
   "resetLibraryQuestion": "Reset Library",
-  "@resetLibraryQuestion": {},
+  "@resetLibraryQuestion": {
+    "description": "Modal title asking users if they want to reset the library."
+  },
   "resetLibrarySubtitle": "Resetting the library will clear your file open history. Your existing media library will remain unchanged. Do you want to proceed?",
   "@resetLibrarySubtitle": {},
   "unavailable": "Unavailable",
-  "@unavailable": {},
+  "@unavailable": {
+    "description": "Context menu element that is unavailable, appearing only when there is a bug."
+  },
   "goToArtist": "Go to Artist",
-  "@goToArtist": {},
+  "@goToArtist": {
+    "description": "Context menu item guiding users to the artist's page."
+  },
   "goToAlbum": "Go to Album",
-  "@goToAlbum": {},
+  "@goToAlbum": {
+    "description": "Context menu item guiding users to the album's page."
+  },
   "addToPlaylist": "Add to Playlist",
-  "@addToPlaylist": {},
+  "@addToPlaylist": {
+    "description": "Context menu item guiding users to add a track or album to a playlist."
+  },
   "newPlaylist": "New Playlist",
-  "@newPlaylist": {},
+  "@newPlaylist": {
+    "description": "Context menu item guiding users to create a new playlist."
+  },
   "unableToOpenLibrary": "Unable to Open Library",
-  "@unableToOpenLibrary": {},
+  "@unableToOpenLibrary": {
+    "description": "Modal title informing users that the library cannot be opened."
+  },
   "unableToOpenLibrarySubtitle": "The Library could not be opened due to the following error:",
   "@unableToOpenLibrarySubtitle": {},
   "unknownError": "Unknown Error",
-  "@unknownError": {},
+  "@unknownError": {
+    "description": "Modal error content indicating an unknown error."
+  },
   "close": "Close",
-  "@close": {},
+  "@close": {
+    "description": "Action button in the modal guiding users to close it."
+  },
   "queue": "Queue",
-  "@queue": {},
+  "@queue": {
+    "description": "Title of the playlist modal."
+  },
   "createMix": "Create Mix",
-  "@createMix": {},
+  "@createMix": {
+    "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
   "removeMixTitle": "Remove Mix",
-  "@removeMixTitle": {},
-  "removeMixSubtitle": "If you delete this mix, you won\\'t be able to recover it. Do you want to delete it?",
+  "@removeMixTitle": {
+    "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
+  "removeMixSubtitle": "If you delete this mix, you won't be able to recover it. Do you want to delete it?",
   "@removeMixSubtitle": {},
   "delete": "Delete",
-  "@delete": {},
-  "oneDirectory": "1 Directory",
-  "@oneDirectory": {},
-  "manyDirectories": "${count} Directories",
-  "@manyDirectories": {
-    "placeholders": {
-      "count": {}
-    }
+  "@delete": {
+    "description": "Action button text in the modal indicating that pressing it will delete information."
   },
   "removePlaylistTitle": "Remove Playlist",
-  "@removePlaylistTitle": {},
-  "removePlaylistSubtitle": "If you delete this playlist, you won\\'t be able to recover it. Do you want to delete it?",
+  "@removePlaylistTitle": {
+    "description": "Modal title informing users they are about to delete a playlist."
+  },
+  "removePlaylistSubtitle": "If you delete this playlist, you won't be able to recover it. Do you want to delete it?",
   "@removePlaylistSubtitle": {},
-  "cancelTaskTitle": "Cancel task",
-  "@cancelTaskTitle": {},
+  "cancelTaskTitle": "Cancel Task",
+  "@cancelTaskTitle": {
+    "description": "Modal title informing users they are about to cancel a task."
+  },
   "cancelTaskSubtitle": "If you cancel this task, it will stop at its current completion state. Do you want to cancel it?",
   "@cancelTaskSubtitle": {},
   "cancelTask": "Cancel Task",
-  "@cancelTask": {},
-  "continueText": "Continue",
-  "@continueText": {},
+  "@cancelTask": {
+    "description": "Action button text in the modal indicating that pressing it will cancel the task."
+  },
   "continueTask": "Continue",
-  "@continueTask": {},
+  "@continueTask": {
+    "description": "Action button text in the modal indicating that pressing it will continue the task."
+  },
   "refresh": "Refresh",
-  "@refresh": {},
+  "@refresh": {
+    "description": "Context menu item guiding users to refresh the current page's information."
+  },
   "explore": "Explore",
-  "@explore": {}
+  "@explore": {
+    "description": "Title of a functional area."
+  }
 }

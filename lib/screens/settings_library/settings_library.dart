@@ -149,7 +149,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       allOpenedFiles[index],
                                     );
                                   }),
-                                  child: Text(S.of(context).remove),
+                                  child: Text(S.of(context).removeLibrary),
                                 ),
                                 if (isCurrentLibrary) ...[
                                   const SizedBox(width: 12),
