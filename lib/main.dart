@@ -1,14 +1,16 @@
 import 'dart:io';
 
 import 'package:rinf/rinf.dart';
-import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:intl/intl_standalone.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
+import 'generated/l10n.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
@@ -129,6 +131,8 @@ void main(List<String> arguments) async {
 
   initialPath = await getInitialPath();
 
+  await findSystemLocale();
+
   runApp(
     MultiProvider(
       providers: [
@@ -227,6 +231,9 @@ class Rune extends StatelessWidget {
             visualDensity: VisualDensity.standard,
           ),
           locale: appTheme.locale,
+          localizationsDelegates: [
+            S.delegate,
+          ],
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 
