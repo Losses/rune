@@ -89,7 +89,6 @@ class StartScreenLayoutManager with ChangeNotifier {
   }
 
   void playAnimations([double speed = 0.3]) {
-    print("_animationFinished: $_animationFinished, _animationTimer: $_animationTimer");
     if (_animationFinished) return;
     // This means the animation is already playing
     if (_animationTimer != null) return;

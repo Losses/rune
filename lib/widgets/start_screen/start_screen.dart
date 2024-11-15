@@ -5,7 +5,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/show_group_list_dialog.dart';
+import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/context_menu_wrapper.dart';
@@ -13,6 +15,7 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
+import '../../messages/all.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
@@ -163,7 +166,27 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                   () => layoutManager.playAnimations(),
                 );
               },
-            )
+            ),
+            if (data.collectionType == CollectionType.Mix)
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.add),
+                text: Text('New Mix'),
+                onPressed: () async {
+                  final x = await showMixStudioDialog(context);
+
+                  if (x != null) data.reloadData();
+                },
+              ),
+            if (data.collectionType == CollectionType.Playlist)
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.add),
+                text: Text('New Playlist'),
+                onPressed: () async {
+                  final x = await showCreateEditPlaylistDialog(context);
+
+                  if (x != null) data.reloadData();
+                },
+              ),
           ],
         );
       },
