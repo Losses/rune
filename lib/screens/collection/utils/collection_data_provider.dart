@@ -144,11 +144,13 @@ class CollectionDataProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void reloadData() async {
+  Future<void> reloadData() async {
     _cache.clearType(collectionType);
     cursor = 0;
     items = [];
-    fetchData();
+    notifyListeners();
+    await fetchData();
+    notifyListeners();
   }
 
   static void clearAllCache() {

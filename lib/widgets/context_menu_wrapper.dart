@@ -21,24 +21,16 @@ class ContextMenuWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Listener(
-      onPointerDown: (event) {
-        if (event.buttons == kMiddleMouseButton) {
-          onMiddleClick(event.localPosition);
-        }
-      },
-      child: GestureDetector(
-        onSecondaryTapDown: isDesktop
-            ? (details) => onContextMenu(details.localPosition)
-            : null,
-        onLongPressEnd: isDesktop
-            ? null
-            : (details) => onContextMenu(details.localPosition),
-        child: FlyoutTarget(
-          key: contextAttachKey,
-          controller: contextController,
-          child: child,
-        ),
+    return GestureDetector(
+      onTertiaryTapUp: (event) => onMiddleClick(event.localPosition),
+      onSecondaryTapUp:
+          isDesktop ? (details) => onContextMenu(details.localPosition) : null,
+      onLongPressEnd:
+          isDesktop ? null : (details) => onContextMenu(details.localPosition),
+      child: FlyoutTarget(
+        key: contextAttachKey,
+        controller: contextController,
+        child: child,
       ),
     );
   }
