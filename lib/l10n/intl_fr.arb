@@ -1,0 +1,686 @@
+{
+  "@@locale": "fr",
+  "rune": "Rune",
+  "@rune": {
+    "description": "Le nom de marque du logiciel, qui ne doit pas être traduit."
+  },
+  "runePlayer": "Lecteur Rune",
+  "@runePlayer": {
+    "description": "Le nom complet du logiciel. La partie 'Player' doit être traduite normalement, mais 'Rune' en tant que nom de marque ne doit pas être traduit."
+  },
+  "copyright": "Droit d'auteur",
+  "@copyright": {
+    "description": "Ceci est le titre d'une entrée qui apparaît dans l'interface des paramètres sous la section des droits d'auteur."
+  },
+  "copyrightAnnouncement": "Droit d'auteur © 2024 Développeurs de Rune Player.",
+  "@copyrightAnnouncement": {
+    "description": "La déclaration complète des droits d'auteur."
+  },
+  "LicenseAnnouncement": "Ce produit est sous licence MPL.",
+  "@LicenseAnnouncement": {
+    "description": "La déclaration complète de la licence logicielle."
+  },
+  "factoryReset": "Réinitialisation d'usine",
+  "@factoryReset": {
+    "description": "Le titre du bouton dans la page des paramètres qui déclenche l'action 'Réinitialiser l'historique de la bibliothèque'."
+  },
+  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque",
+  "@factoryResetSubtitle": {
+    "description": "Le texte descriptif pour le bouton 'Réinitialisation d'usine' dans l'interface des paramètres."
+  },
+  "bsodBody": "Votre lecteur a rencontré un problème et doit redémarrer. Nous respectons votre vie privée et ne collecterons aucune donnée.",
+  "@bsodBody": {
+    "description": "Sur l'interface de l'écran bleu, cela explique à l'utilisateur que le logiciel a rencontré une erreur fatale. La deuxième phrase aborde avec humour les préoccupations généralisées en matière de confidentialité dans l'ingénierie logicielle moderne. N'hésitez pas à garder un ton ludique."
+  },
+  "artists": "Artistes",
+  "@artists": {},
+  "albums": "Albums",
+  "@albums": {},
+  "playlists": "Listes de lecture",
+  "@playlists": {},
+  "unknownAlbum": "Album inconnu",
+  "@unknownAlbum": {},
+  "unknownTrack": "Piste inconnue",
+  "@unknownTrack": {},
+  "unknownArtist": "Artiste inconnu",
+  "@unknownArtist": {},
+  "selectDirectory": "Sélectionner le répertoire",
+  "@selectDirectory": {},
+  "noDataAvailable": "Aucune donnée disponible",
+  "@noDataAvailable": {},
+  "start": "Commencer",
+  "@start": {
+    "description": "Texte décoratif apparaissant près de la liste des fonctions de la bibliothèque d'accueil."
+  },
+  "search": "Rechercher",
+  "@search": {},
+  "tracks": "Pistes",
+  "@tracks": {},
+  "system": "Système",
+  "@system": {},
+  "operatingSystem": "Système d'exploitation",
+  "@operatingSystem": {
+    "description": "Un des titres pour les entrées d'informations sur le logiciel dans la page à propos."
+  },
+  "systemVersion": "Version du système",
+  "@systemVersion": {
+    "description": "Un des titres pour les entrées d'informations sur le logiciel dans la page à propos."
+  },
+  "kernelVersion": "Version du noyau",
+  "@kernelVersion": {
+    "description": "Une entrée sur la page à propos, indiquant généralement la version du noyau du système d'exploitation à des fins de diagnostic."
+  },
+  "hostName": "Nom d'hôte",
+  "@hostName": {
+    "description": "Une entrée sur la page à propos, indiquant généralement le nom de l'ordinateur."
+  },
+  "player": "Lecteur",
+  "@player": {
+    "description": "Un titre de section pour les métadonnées du logiciel sur la page à propos, fournissant un aperçu des informations de version du logiciel."
+  },
+  "buildHash": "Hachage de build",
+  "@buildHash": {},
+  "buildDate": "Date de build",
+  "@buildDate": {},
+  "commitDate": "Date de commit",
+  "@commitDate": {},
+  "rustcVersion": "Version rustc",
+  "@rustcVersion": {},
+  "activation": "Activation",
+  "@activation": {},
+  "runeIsActivated": "Rune est activé",
+  "@runeIsActivated": {
+    "description": "Informe l'utilisateur que le logiciel est actuellement activé. En fait, le logiciel est toujours activé dans toutes les circonstances."
+  },
+  "productId": "ID du produit",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Vous pourriez être victime de logiciels authentiques.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "Cette phrase est un œuf de Pâques, satirisant la façon dont les mesures anti-piratage rendent souvent l'expérience pire pour les utilisateurs légitimes que pour ceux utilisant des versions piratées. N'hésitez pas à garder un ton ludique."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "L'organisation de recherche en design qui soutient ce projet. Vous devriez garder le nom tel quel, sans traduction."
+  },
+  "computingDevice": "Appareil informatique",
+  "@computingDevice": {
+    "description": "Un titre d'entrée des paramètres permettant aux utilisateurs de sélectionner le périphérique matériel responsable des tâches d'analyse audio."
+  },
+  "computingDeviceSubtitle": "Sélectionnez GPU ou CPU pour un traitement plus rapide ou plus efficace.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Niveau de performance",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Choisissez combien de tâches exécuter simultanément.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Performance",
+  "@performance": {
+    "description": "Mode haute performance, qui utilise les ressources matérielles disponibles pour effectuer les calculs aussi rapidement que possible."
+  },
+  "balance": "Équilibre",
+  "@balance": {
+    "description": "Mode équilibré, qui distribue uniformément les ressources pour éviter que les tâches de calcul n'accaparent le système et ne provoquent des retards."
+  },
+  "batterySaving": "Économie de batterie",
+  "@batterySaving": {
+    "description": "Mode d'économie d'énergie, qui minimise l'utilisation des ressources pour éviter la surchauffe, adapté aux appareils moins puissants."
+  },
+  "switchTo": "Passer à",
+  "@switchTo": {
+    "description": "Texte d'invite de bouton pour changer de bibliothèques multimédias. En appuyant sur ce bouton, la bibliothèque actuelle sera fermée et une nouvelle sera ouverte."
+  },
+  "removeLibrary": "Supprimer",
+  "@removeLibrary": {
+    "description": "Texte d'invite de bouton pour supprimer une bibliothèque multimédia. En appuyant sur ce bouton, l'entrée de la bibliothèque sera supprimée de l'historique."
+  },
+  "addLibrary": "Ajouter une bibliothèque",
+  "@addLibrary": {
+    "description": "Texte d'invite de bouton dans l'interface des paramètres pour créer une nouvelle bibliothèque multimédia. En appuyant sur ce bouton, l'utilisateur est guidé pour sélectionner un répertoire et créer une bibliothèque."
+  },
+  "addLibrarySubtitle": "Ajoutez une nouvelle bibliothèque et scannez les fichiers existants.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Menu d'action",
+  "@actionMenu": {
+    "description": "Un séparateur dans la liste des éléments de l'interface des paramètres. Tous les éléments sous ce séparateur seront masqués dans un bouton contextuel au lieu d'être affichés directement à l'écran."
+  },
+  "addToQueue": "Ajouter à la file d'attente",
+  "@addToQueue": {
+    "description": "Une entrée dans le menu contextuel. En appuyant sur cette entrée, la piste ou l'album correspondant sera ajouté à la file d'attente de lecture."
+  },
+  "addToQueueSubtitle": "Comment les nouveaux éléments seront ajoutés à la file d'attente de lecture.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Jouer ensuite",
+  "@playNext": {
+    "description": "Une action qui met en file d'attente une piste ou un album pour être joué ensuite dans la liste de lecture."
+  },
+  "addToEnd": "Ajouter à la fin",
+  "@addToEnd": {
+    "description": "Une action qui met en file d'attente une piste ou un album à la fin de la liste de lecture."
+  },
+  "middleClickAction": "Action du clic milieu",
+  "@middleClickAction": {
+    "description": "Un titre dans l'interface des paramètres contrôlant le comportement lorsque l'utilisateur clique avec le bouton du milieu sur une piste ou un album."
+  },
+  "middleClickActionSubtitle": "Action à effectuer lors du clic milieu sur une piste ou une collection.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Commencer la lecture",
+  "@startPlaying": {
+    "description": "Une action que l'utilisateur peut déclencher pour commencer à lire de la musique."
+  },
+  "startRoaming": "Commencer l'exploration",
+  "@startRoaming": {
+    "description": "Une action que l'utilisateur peut déclencher pour commencer à lire de la musique similaire à la piste ou l'album actuel."
+  },
+  "playbackMode": "Mode de lecture",
+  "@playbackMode": {
+    "description": "Un titre dans l'interface des paramètres qui aide les utilisateurs à sélectionner le mode de lecture souhaité, tel que la lecture aléatoire ou séquentielle."
+  },
+  "playbackModeSubtitle": "Mode de lecture préféré pour la façon dont votre musique est jouée.",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Mode couleur",
+  "@colorMode": {
+    "description": "Une entrée de paramètres qui aide les utilisateurs à choisir le mode couleur de l'interface, y compris les modes clair et sombre."
+  },
+  "colorModeSubtitle": "Changez le mode couleur qui apparaît dans Rune.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "Système",
+  "@systemColorMode": {
+    "description": "Une entrée de paramètres de couleur qui, lorsqu'elle est activée, aligne le mode clair ou sombre du logiciel avec les paramètres du système."
+  },
+  "dark": "Sombre",
+  "@dark": {
+    "description": "Une entrée de paramètres de couleur qui active le mode sombre lorsqu'elle est sélectionnée."
+  },
+  "light": "Clair",
+  "@light": {
+    "description": "Une entrée de paramètres de couleur qui active le mode clair lorsqu'elle est sélectionnée."
+  },
+  "themeColor": "Couleur du thème",
+  "@themeColor": {
+    "description": "Une entrée de paramètres qui permet aux utilisateurs de choisir leur couleur de thème préférée."
+  },
+  "themeColorSubtitle": "Sélectionnez une couleur pour donner à votre Rune un aspect et une sensation renouvelés.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Suivre le thème du système",
+  "@followSystemTheme": {
+    "description": "Une entrée dans les paramètres de couleur du thème. Lorsqu'elle est activée, la couleur du thème du logiciel suit les paramètres du système."
+  },
+  "dynamicColors": "Couleurs dynamiques",
+  "@dynamicColors": {
+    "description": "Une entrée de paramètres de couleur. Lorsqu'elle est activée, la couleur du thème du logiciel change en fonction de la pochette de la piste en cours de lecture."
+  },
+  "dynamicColorsSubtitle": "Ajustez les couleurs du thème de Rune en fonction de la pochette de la piste en cours de lecture.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Animation de marque",
+  "@brandingAnimation": {
+    "description": "Une entrée de paramètres qui permet aux utilisateurs de contrôler si une animation de bienvenue est jouée au démarrage du logiciel."
+  },
+  "brandingAnimationSubtitle": "Jouer l'animation de marque au démarrage de Rune.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Cela pourrait prendre quelques minutes.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Titre sur l'écran d'attente de numérisation, rappelant aux utilisateurs d'être patients."
+  },
+  "tracksFound": " pistes trouvées",
+  "@tracksFound": {
+    "description": "Texte d'invite sur l'écran d'attente de numérisation, informant les utilisateurs du nombre de pistes scannées."
+  },
+  "albumCoversCollected": " pochettes d'album collectées",
+  "@albumCoversCollected": {
+    "description": "Texte d'invite sur l'écran d'attente de numérisation, informant les utilisateurs du nombre de pochettes d'album scannées."
+  },
+  "editPlaylist": "Modifier la liste de lecture",
+  "@editPlaylist": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs de modifier les métadonnées d'une liste de lecture."
+  },
+  "editMix": "Modifier le Mix",
+  "@editMix": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs de modifier les métadonnées d'un Mix, une liste de lecture intelligente. Remarque : ne pas confondre avec le concept de 'remix'."
+  },
+  "edit": "Modifier",
+  "@edit": {
+    "description": "Un verbe dans le menu contextuel comme texte de secours, guidant les utilisateurs pour modifier le contenu lorsque le logiciel ne peut pas identifier ce qui doit être modifié."
+  },
+  "remove": "Supprimer",
+  "@remove": {
+    "description": "Un verbe dans le menu contextuel comme texte de secours, guidant les utilisateurs pour supprimer le contenu lorsque le logiciel ne peut pas identifier ce qui doit être supprimé."
+  },
+  "removePlaylist": "Supprimer la liste de lecture",
+  "@removePlaylist": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs de supprimer une liste de lecture."
+  },
+  "removeMix": "Supprimer le Mix",
+  "@removeMix": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs de supprimer un Mix, une liste de lecture intelligente. Remarque : ne pas confondre avec le concept de 'remix'."
+  },
+  "addToMix": "Ajouter au Mix",
+  "@addToMix": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs d'ajouter une piste ou un album à un Mix, une liste de lecture intelligente. Remarque : ne pas confondre avec le concept de 'remix'."
+  },
+  "newMix": "Nouveau Mix",
+  "@newMix": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs de créer un nouveau Mix, une liste de lecture intelligente. Remarque : ne pas confondre avec le concept de 'remix'."
+  },
+  "selectAGroup": "Sélectionner un groupe",
+  "@selectAGroup": {
+    "description": "Texte de l'espace réservé dans le champ de saisie situé dans le modale de modification de Mix ou de liste de lecture, guidant les utilisateurs pour sélectionner un groupe de contenu."
+  },
+  "likedOnly": "Seulement les aimés",
+  "@likedOnly": {
+    "description": "Une entrée dans l'interface de modification de Mix, une option de case à cocher pour filtrer et conserver uniquement les pistes que l'utilisateur a 'aimées'."
+  },
+  "allTracks": "Toutes les pistes",
+  "@allTracks": {
+    "description": "Une entrée dans l'interface de modification de Mix, une option de case à cocher pour filtrer et conserver toutes les pistes, pas seulement celles que l'utilisateur a 'aimées'."
+  },
+  "defaultMode": "Par défaut",
+  "@defaultMode": {
+    "description": "Une manière pour les pistes d'être parcourues dans une liste de lecture, en maintenant le comportement actuel du système sans spécifier de mode."
+  },
+  "sequential": "Séquentiel",
+  "@sequential": {
+    "description": "Une manière pour les pistes d'être parcourues dans une liste de lecture, en jouant dans l'ordre du début à la fin."
+  },
+  "repeatAll": "Répéter tout",
+  "@repeatAll": {
+    "description": "Une manière pour les pistes d'être parcourues dans une liste de lecture, en répétant depuis le début après la fin."
+  },
+  "repeatOne": "Répéter une",
+  "@repeatOne": {
+    "description": "Une manière pour les pistes d'être parcourues dans une liste de lecture, en répétant continuellement une piste."
+  },
+  "shuffle": "Aléatoire",
+  "@shuffle": {
+    "description": "Une manière pour les pistes d'être parcourues dans une liste de lecture, en jouant dans un ordre aléatoire."
+  },
+  "title": "Titre",
+  "@title": {
+    "description": "Une entrée dans le modale de modification de liste de lecture ou de Mix, guidant les utilisateurs pour modifier son titre."
+  },
+  "group": "Groupe",
+  "@group": {
+    "description": "Une entrée dans le modale de modification de liste de lecture ou de Mix, guidant les utilisateurs pour modifier son groupe."
+  },
+  "save": "Enregistrer",
+  "@save": {
+    "description": "Un bouton d'action dans le modale qui enregistre les modifications lorsqu'il est pressé."
+  },
+  "create": "Créer",
+  "@create": {
+    "description": "Un bouton d'action dans le modale qui crée une nouvelle entrée lorsqu'il est pressé."
+  },
+  "cancel": "Annuler",
+  "@cancel": {
+    "description": "Un bouton d'action dans le modale qui ferme le modale sans apporter de modifications."
+  },
+  "noRecommendation": "Pas de recommandation",
+  "@noRecommendation": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Sélectionner cette option indique l'intention de ne pas baser les recommandations sur les résultats de la requête."
+  },
+  "basedOnAll": "Basé sur tout",
+  "@basedOnAll": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Sélectionner cette option recommande des pistes similaires basées sur l'ensemble des résultats de la requête."
+  },
+  "group1": "Groupe 1",
+  "@group1": {},
+  "group2": "Groupe 2",
+  "@group2": {},
+  "group3": "Groupe 3",
+  "@group3": {},
+  "group4": "Groupe 4",
+  "@group4": {},
+  "group5": "Groupe 5",
+  "@group5": {},
+  "group6": "Groupe 6",
+  "@group6": {},
+  "group7": "Groupe 7",
+  "@group7": {},
+  "group8": "Groupe 8",
+  "@group8": {},
+  "group9": "Groupe 9",
+  "@group9": {},
+  "ascending": "Ascendant",
+  "@ascending": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Sélectionner cette option trie les résultats de la requête par ordre croissant."
+  },
+  "descending": "Descendant",
+  "@descending": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Sélectionner cette option trie les résultats de la requête par ordre décroissant."
+  },
+  "lastModified": "Dernière modification",
+  "@lastModified": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Cette option permet de trier par la dernière date de modification des métadonnées de fichier."
+  },
+  "duration": "Durée",
+  "@duration": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Cette option permet de trier par longueur audio."
+  },
+  "timesPlayedThrough": "Nombre de lectures complètes",
+  "@timesPlayedThrough": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Cette option permet de trier par le nombre de fois qu'un audio a été lu complètement."
+  },
+  "timesSkipped": "Nombre de sauts",
+  "@timesSkipped": {
+    "description": "Une entrée dans le menu déroulant de modification du mix. Cette option permet de trier par le nombre de fois qu'un audio a été sauté."
+  },
+  "pickDirectory": "Choisir le répertoire",
+  "@pickDirectory": {
+    "description": "Texte du bouton dans le modal de modification du mix. Appuyer sur ce bouton ouvre une fenêtre modale pour guider l'utilisateur dans la sélection d'un répertoire."
+  },
+  "oneDirectory": "1 Répertoire",
+  "@oneDirectory": {
+    "description": "Texte de statut indiquant qu'un répertoire a été sélectionné."
+  },
+  "manyDirectories": "${count} Répertoires",
+  "@manyDirectories": {
+    "description": "Texte de statut indiquant que plusieurs répertoires ont été sélectionnés.",
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "confirm": "Confirmer",
+  "@confirm": {
+    "description": "Texte du bouton d'action dans le modal, indiquant l'intention de l'utilisateur de confirmer une action."
+  },
+  "directories": "Répertoires",
+  "@directories": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes servent à filtrer les pistes par dossier."
+  },
+  "allDirectories": "Tous les répertoires",
+  "@allDirectories": {
+    "description": "Indication que tous les répertoires ont été sélectionnés."
+  },
+  "randomTracks": "Pistes aléatoires",
+  "@randomTracks": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes servent à sélectionner un certain nombre de pistes aléatoires."
+  },
+  "amount": "Quantité",
+  "@amount": {
+    "description": "Texte d'invite dans le modal indiquant le nombre de pistes sélectionnées via un curseur ou une boîte de saisie."
+  },
+  "mode": "Mode",
+  "@mode": {
+    "description": "Le mode de lecture des pistes."
+  },
+  "recommendation": "Recommandation",
+  "@recommendation": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes contrôlent le comportement de recommandation du lecteur."
+  },
+  "sortBy": "Trier par",
+  "@sortBy": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes contrôlent la méthode de tri des pistes."
+  },
+  "sortOrder": "Ordre de tri",
+  "@sortOrder": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes contrôlent la direction de tri des pistes."
+  },
+  "liked": "Aimé",
+  "@liked": {
+    "description": "Un titre pour une entrée dans les options de paramètres modaux, informant les utilisateurs que les options suivantes filtrent les pistes marquées comme 'aimées' par l'utilisateur."
+  },
+  "noRoamingCollection": "Impossible de commencer l'itinérance. Les pistes de la collection n'ont pas encore été analysées.",
+  "@noRoamingCollection": {},
+  "noRomaingTrack": "Impossible de commencer l'itinérance. Cette piste n'a pas encore été analysée.",
+  "@noRomaingTrack": {},
+  "noAnalysisScanning": "${baseMessage} La bibliothèque est en cours de balayage, l'analyse ne peut donc pas être effectuée.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "${baseMessage} La bibliothèque est en cours d'analyse ; veuillez attendre la fin du processus.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "${baseMessage} Veuillez analyser votre bibliothèque pour une meilleure expérience.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "Pas prêt",
+  "@notReady": {
+    "description": "Titre du modal indiquant que les pistes n'ont pas été analysées et que des recommandations ne peuvent pas être faites."
+  },
+  "createPlaylist": "Créer une playlist",
+  "@createPlaylist": {
+    "description": "Titre du modal pour la création d'une playlist."
+  },
+  "scanLibrary": "Scanner la bibliothèque",
+  "@scanLibrary": {
+    "description": "Texte du bouton d'action dans le modal, initiant un balayage de la bibliothèque multimédia lorsqu'il est pressé."
+  },
+  "analyseTracks": "Analyser les pistes",
+  "@analyseTracks": {
+    "description": "Texte du bouton d'action dans le modal, initiant l'analyse de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
+  },
+  "scan": "Scanner",
+  "@scan": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, initiant un balayage de la bibliothèque multimédia lorsqu'il est pressé."
+  },
+  "scanning": "Balayage",
+  "@scanning": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, indiquant que la bibliothèque multimédia est en cours de balayage."
+  },
+  "analyse": "Analyser",
+  "@analyse": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, initiant l'analyse de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
+  },
+  "analysing": "Analyse en cours",
+  "@analysing": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, indiquant que la bibliothèque multimédia est en cours d'analyse."
+  },
+  "tryCreatingYourOwnCollection": "Essayez de créer votre propre collection",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Texte affiché sur une page blanche dans la vue Collection, suggérant aux utilisateurs de créer une nouvelle collection."
+  },
+  "theseActionsMayHelp": "Ces actions peuvent aider",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Essayez de scanner de nouveaux fichiers",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Aucune collection trouvée",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Aucun élément dans la playlist",
+  "@noItemsInPlaylist": {},
+  "previous": "Précédent",
+  "@previous": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour passer à la piste précédente."
+  },
+  "previousSubtitle": "Aller à la piste précédente",
+  "@previousSubtitle": {},
+  "playPause": "Lecture/Pause",
+  "@playPause": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour basculer entre les états de lecture et de pause."
+  },
+  "playPauseSubtitle": "Basculer entre lecture et pause",
+  "@playPauseSubtitle": {},
+  "next": "Suivant",
+  "@next": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour passer à la piste suivante."
+  },
+  "nextSubtitle": "Aller à la piste suivante",
+  "@nextSubtitle": {},
+  "volume": "Volume",
+  "@volume": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour ajuster le volume."
+  },
+  "volumeSubtitle": "Ajuster le volume",
+  "@volumeSubtitle": {},
+  "playlist": "Playlist",
+  "@playlist": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour afficher la playlist."
+  },
+  "playlistSubtitle": "Voir la file d'attente de lecture",
+  "@playlistSubtitle": {},
+  "hidden": "Caché",
+  "@hidden": {
+    "description": "Texte du bouton d'invite indiquant un bouton caché ; ce texte n'est généralement pas utilisé."
+  },
+  "hiddenSubtitle": "Le contenu ci-dessous sera caché dans la liste des autres",
+  "@hiddenSubtitle": {},
+  "coverWall": "Mur de pochettes",
+  "@coverWall": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour passer à la page du mur de pochettes, une page décorative composée de pochettes d'albums."
+  },
+  "coverWallSubtitle": "Afficher les pochettes pour une ambiance unique",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Plein écran",
+  "@fullscreen": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour basculer en mode plein écran."
+  },
+  "fullscreenSubtitle": "Entrer ou sortir du mode plein écran",
+  "@fullscreenSubtitle": {},
+  "pause": "Pause",
+  "@pause": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour mettre en pause la piste en cours de lecture."
+  },
+  "play": "Lecture",
+  "@play": {
+    "description": "Texte du bouton d'invite pour contrôler la lecture, utilisé pour reprendre la lecture après une pause."
+  },
+  "enable": "Activer",
+  "@enable": {
+    "description": "Texte du bouton radio dans l'interface des paramètres, indiquant qu'une fonctionnalité est activée."
+  },
+  "disable": "Désactiver",
+  "@disable": {
+    "description": "Texte du bouton radio dans l'interface des paramètres, indiquant qu'une fonctionnalité n'est pas activée."
+  },
+  "noTracksFound": "Aucune piste trouvée",
+  "@noTracksFound": {},
+  "library": "Bibliothèque",
+  "@library": {
+    "description": "Titre de l'interface des paramètres de la bibliothèque multimédia."
+  },
+  "artistQuery": "Requête d'artiste",
+  "@artistQuery": {},
+  "playlistQuery": "Requête de playlist",
+  "@playlistQuery": {},
+  "mixes": "Mixes",
+  "@mixes": {
+    "description": "Titre de l'interface Mix, se référant à un type de playlist intelligente. Ne pas confondre avec 'remix'."
+  },
+  "mixQuery": "Requête de mix",
+  "@mixQuery": {},
+  "settings": "Paramètres",
+  "@settings": {
+    "description": "Titre de l'interface des paramètres."
+  },
+  "analysis": "Analyse",
+  "@analysis": {
+    "description": "Titre de l'interface des paramètres d'analyse."
+  },
+  "playback": "Lecture",
+  "@playback": {
+    "description": "Titre de l'interface des paramètres de lecture."
+  },
+  "theme": "Thème",
+  "@theme": {
+    "description": "Titre de l'interface des paramètres de thème."
+  },
+  "controller": "Contrôleur",
+  "@controller": {
+    "description": "Titre de l'interface des paramètres des boutons de contrôle de lecture."
+  },
+  "about": "À propos",
+  "@about": {
+    "description": "Titre de l'interface à propos."
+  },
+  "selectLibraryDirectorySubtitle": "Sélectionnez votre répertoire de bibliothèque audio, et nous scannerons et analyserons toutes les pistes qu'il contient.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Réinitialiser la bibliothèque",
+  "@resetLibrary": {
+    "description": "Texte du bouton d'action dans le modal, indiquant que l'utilisateur souhaite réinitialiser la bibliothèque."
+  },
+  "resetLibraryQuestion": "Réinitialiser la bibliothèque",
+  "@resetLibraryQuestion": {
+    "description": "Titre du modal demandant aux utilisateurs s'ils souhaitent réinitialiser la bibliothèque."
+  },
+  "resetLibrarySubtitle": "La réinitialisation de la bibliothèque effacera votre historique d'ouverture de fichiers. Votre bibliothèque multimédia existante restera inchangée. Voulez-vous continuer ?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Indisponible",
+  "@unavailable": {
+    "description": "Élément de menu contextuel qui est indisponible, n'apparaissant que lorsqu'il y a un bug."
+  },
+  "goToArtist": "Aller à l'artiste",
+  "@goToArtist": {
+    "description": "Élément de menu contextuel guidant les utilisateurs vers la page de l'artiste."
+  },
+  "goToAlbum": "Aller à l'album",
+  "@goToAlbum": {
+    "description": "Élément de menu contextuel guidant les utilisateurs vers la page de l'album."
+  },
+  "addToPlaylist": "Ajouter à la playlist",
+  "@addToPlaylist": {
+    "description": "Élément de menu contextuel guidant les utilisateurs à ajouter une piste ou un album à une playlist."
+  },
+  "newPlaylist": "Nouvelle playlist",
+  "@newPlaylist": {
+    "description": "Élément de menu contextuel guidant les utilisateurs à créer une nouvelle playlist."
+  },
+  "unableToOpenLibrary": "Impossible d'ouvrir la bibliothèque",
+  "@unableToOpenLibrary": {
+    "description": "Titre du modal informant les utilisateurs que la bibliothèque ne peut pas être ouverte."
+  },
+  "unableToOpenLibrarySubtitle": "La bibliothèque n'a pas pu être ouverte en raison de l'erreur suivante :",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Erreur inconnue",
+  "@unknownError": {
+    "description": "Contenu d'erreur du modal indiquant une erreur inconnue."
+  },
+  "close": "Fermer",
+  "@close": {
+    "description": "Bouton d'action dans le modal guidant les utilisateurs à le fermer."
+  },
+  "queue": "File d'attente",
+  "@queue": {
+    "description": "Titre du modal de la playlist."
+  },
+  "createMix": "Créer un mix",
+  "@createMix": {
+    "description": "Élément de menu contextuel guidant les utilisateurs à créer un nouveau mix, un type de playlist intelligente. Ne pas confondre avec 'remix'."
+  },
+  "removeMixTitle": "Supprimer le mix",
+  "@removeMixTitle": {
+    "description": "Titre du modal informant les utilisateurs qu'ils sont sur le point de supprimer un mix, un type de playlist intelligente. Ne pas confondre avec 'remix'."
+  },
+  "removeMixSubtitle": "Si vous supprimez ce mix, vous ne pourrez pas le récupérer. Voulez-vous le supprimer ?",
+  "@removeMixSubtitle": {},
+  "delete": "Supprimer",
+  "@delete": {
+    "description": "Texte du bouton d'action dans le modal indiquant qu'en appuyant dessus, des informations seront supprimées."
+  },
+  "removePlaylistTitle": "Supprimer la playlist",
+  "@removePlaylistTitle": {
+    "description": "Titre du modal informant les utilisateurs qu'ils sont sur le point de supprimer une playlist."
+  },
+  "removePlaylistSubtitle": "Si vous supprimez cette playlist, vous ne pourrez pas la récupérer. Voulez-vous la supprimer ?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Annuler la tâche",
+  "@cancelTaskTitle": {
+    "description": "Titre du modal informant les utilisateurs qu'ils sont sur le point d'annuler une tâche."
+  },
+  "cancelTaskSubtitle": "Si vous annulez cette tâche, elle s'arrêtera à son état d'avancement actuel. Voulez-vous l'annuler ?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Annuler la tâche",
+  "@cancelTask": {
+    "description": "Texte du bouton d'action dans le modal indiquant qu'en appuyant dessus, la tâche sera annulée."
+  },
+  "continueTask": "Continuer",
+  "@continueTask": {
+    "description": "Texte du bouton d'action dans la fenêtre modale indiquant que l'appuyer continuera la tâche."
+  },
+  "refresh": "Actualiser",
+  "@refresh": {
+    "description": "Élément du menu contextuel guidant les utilisateurs pour actualiser les informations de la page actuelle."
+  },
+  "explore": "Explorer",
+  "@explore": {
+    "description": "Titre d'une zone fonctionnelle."
+  }
+}

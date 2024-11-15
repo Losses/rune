@@ -1,0 +1,686 @@
+{
+  "@@locale": "eo",
+  "rune": "Rune",
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
+  "runePlayer": "Rune Ludilo",
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
+  "copyright": "Kopirajto",
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
+  "copyrightAnnouncement": "Kopirajto © 2024 Rune Ludilo Programistoj.",
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
+  "LicenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
+  "@LicenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
+  "factoryReset": "Fabrika Restarigo",
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
+  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko",
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
+  "bsodBody": "Via ludilo renkontis problemon kaj bezonas rekomenci. Ni respektas vian privatecon kaj ne kolektos datumojn.",
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
+  "artists": "Artistoj",
+  "@artists": {},
+  "albums": "Albumoj",
+  "@albums": {},
+  "playlists": "Ludlistoj",
+  "@playlists": {},
+  "unknownAlbum": "Nekonata Albumo",
+  "@unknownAlbum": {},
+  "unknownTrack": "Nekonata Kanto",
+  "@unknownTrack": {},
+  "unknownArtist": "Nekonata Artisto",
+  "@unknownArtist": {},
+  "selectDirectory": "Elekti Dosierujon",
+  "@selectDirectory": {},
+  "noDataAvailable": "Neniu datumoj disponeblaj",
+  "@noDataAvailable": {},
+  "start": "Komenci",
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
+  "search": "Serĉi",
+  "@search": {},
+  "tracks": "Kantoj",
+  "@tracks": {},
+  "system": "Sistemo",
+  "@system": {},
+  "operatingSystem": "Operaciumo",
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "systemVersion": "Sistemversio",
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
+  "kernelVersion": "Kernversio",
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
+  "hostName": "Gastiga Nomo",
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
+  "player": "Ludilo",
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
+  "buildHash": "Kompila Hash",
+  "@buildHash": {},
+  "buildDate": "Kompila Dato",
+  "@buildDate": {},
+  "commitDate": "Engaĝiĝa Dato",
+  "@commitDate": {},
+  "rustcVersion": "Rustc versio",
+  "@rustcVersion": {},
+  "activation": "Aktivigo",
+  "@activation": {},
+  "runeIsActivated": "Rune estas aktivigita",
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
+  "productId": "Produkta ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Vi povus esti viktimo de originala programaro.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
+  "computingDevice": "Komputila Aparato",
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
+  "computingDeviceSubtitle": "Elektu GPU aŭ CPU por pli rapida aŭ pli efika prilaborado.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Rendimentonivelo",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Elektu kiom da taskoj kuri samtempe.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Rendimento",
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
+  "balance": "Ekvilibro",
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
+  "batterySaving": "Ŝparado de Baterio",
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
+  "switchTo": "Ŝalti al",
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
+  "removeLibrary": "Forigi",
+  "@removeLibrary": {
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
+  },
+  "addLibrary": "Aldoni Bibliotekon",
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
+  "addLibrarySubtitle": "Aldoni novan bibliotekon kaj skani ekzistantajn dosierojn.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Agmenuo",
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
+  "addToQueue": "Aldoni al Vico",
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
+  "addToQueueSubtitle": "Kiel novaj elementoj estos aldonitaj al la ludvico.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Ludi Sekvan",
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
+  "addToEnd": "Aldoni al Fino",
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
+  "middleClickAction": "Meza Klako Ago",
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
+  "middleClickActionSubtitle": "Ago por plenumi kiam meze klakante kanton aŭ kolekton.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Komenci Ludi",
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
+  "startRoaming": "Komenci Vagi",
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
+  "playbackMode": "Reprodukto Reĝimo",
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
+  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas.",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Kolora Reĝimo",
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
+  "colorModeSubtitle": "Ŝanĝi la koloran reĝimon kiu aperas en Rune.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "Sistemo",
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
+  "dark": "Malluma",
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
+  "light": "Luma",
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
+  "themeColor": "Temkoloro",
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
+  "themeColorSubtitle": "Elekti koloron por doni al via Rune freŝan aspekton kaj senton.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Sekvi Sisteman Temon",
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
+  "dynamicColors": "Dinamika Koloroj",
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
+  "dynamicColorsSubtitle": "Adapti la temkolorojn de Rune bazitaj sur la kovrila arto de la ludanta kanto.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Marka Animacio",
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
+  "brandingAnimationSubtitle": "Ludi marka animacion kiam Rune komenciĝas.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Ĉi tio povus daŭri kelkajn minutojn.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
+  "tracksFound": " kantoj trovitaj",
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
+  "albumCoversCollected": " albumkovriloj kolektitaj",
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
+  "editPlaylist": "Redakti Ludliston",
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
+  "editMix": "Redakti Miksaĵon",
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "edit": "Redakti",
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "Forigi",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
+  "removePlaylist": "Forigi Ludliston",
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
+  "removeMix": "Forigi Miksaĵon",
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "addToMix": "Aldoni al Miksaĵo",
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "newMix": "Nova Miksaĵo",
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
+  "selectAGroup": "Elektu Grupon",
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
+  "likedOnly": "Nur Ŝatataj",
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
+  "allTracks": "Ĉiuj Kantoj",
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
+  "defaultMode": "Defaŭlta",
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
+  "sequential": "Sinsekva",
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
+  "repeatAll": "Ripeti Ĉiujn",
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
+  "repeatOne": "Ripeti Unu",
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
+  "shuffle": "Hazarda",
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
+  "title": "Titolo",
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
+  "group": "Grupo",
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
+  "save": "Konservi",
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
+  "create": "Krei",
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
+  "cancel": "Nuligi",
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
+  "noRecommendation": "Neniu Rekomendo",
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
+  "basedOnAll": "Bazita sur Ĉiuj",
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
+  "group1": "Grupo 1",
+  "@group1": {},
+  "group2": "Grupo 2",
+  "@group2": {},
+  "group3": "Grupo 3",
+  "@group3": {},
+  "group4": "Grupo 4",
+  "@group4": {},
+  "group5": "Grupo 5",
+  "@group5": {},
+  "group6": "Grupo 6",
+  "@group6": {},
+  "group7": "Grupo 7",
+  "@group7": {},
+  "group8": "Grupo 8",
+  "@group8": {},
+  "group9": "Grupo 9",
+  "@group9": {},
+  "ascending": "Pliiĝanta",
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
+  "descending": "Malkreskanta",
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
+  "lastModified": "Laste Modifita",
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
+  "duration": "Daŭro",
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
+  "timesPlayedThrough": "Fojoj Ludita Tra",
+  "@timesPlayedThrough": {
+    "description": "Eniro en la redakta modalo de Miksado. Ĉi tiu opcio permesas uzantojn ordigi laŭ la nombro de fojoj kiam aŭdio estis plene ludita."
+  },
+  "timesSkipped": "Fojoj Preterlasita",
+  "@timesSkipped": {
+    "description": "Eniro en la redakta modalo de Miksado. Ĉi tiu opcio permesas uzantojn ordigi laŭ la nombro de fojoj kiam aŭdio estis preterlasita."
+  },
+  "pickDirectory": "Elekti Dosierujon",
+  "@pickDirectory": {
+    "description": "Butona teksto en la redakta modalo de Miksado. Premante ĉi tiun butonon malfermas modalon por gvidi uzantojn en elektado de dosierujo."
+  },
+  "oneDirectory": "1 Dosierujo",
+  "@oneDirectory": {
+    "description": "Statusa teksto indikanta ke unu dosierujo estis elektita."
+  },
+  "manyDirectories": "${count} Dosierujoj",
+  "@manyDirectories": {
+    "description": "Statusa teksto indikanta ke pluraj dosierujoj estis elektitaj.",
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "confirm": "Konfirmi",
+  "@confirm": {
+    "description": "Agada butona teksto en la modalo, indikante la intencon de la uzanto konfirmi agon."
+  },
+  "directories": "Dosierujoj",
+  "@directories": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj estas por filtrado de trakoj laŭ dosierujo."
+  },
+  "allDirectories": "Ĉiuj Dosierujoj",
+  "@allDirectories": {
+    "description": "Indiko ke ĉiuj dosierujoj estis elektitaj."
+  },
+  "randomTracks": "Hazardaj Trakoj",
+  "@randomTracks": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj estas por elektado de nombro da hazardaj trakoj."
+  },
+  "amount": "Kvanto",
+  "@amount": {
+    "description": "Teksto en la modalo indikanta la nombron de trakoj elektitaj per glitilo aŭ eniga skatolo."
+  },
+  "mode": "Modo",
+  "@mode": {
+    "description": "La luda modo por trakoj."
+  },
+  "recommendation": "Rekomendo",
+  "@recommendation": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la rekomendan konduton de la ludilo."
+  },
+  "sortBy": "Ordigi Laŭ",
+  "@sortBy": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la metodon de ordigo por trakoj."
+  },
+  "sortOrder": "Ordo de Ordigo",
+  "@sortOrder": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj kontrolas la direkton de ordigo por trakoj."
+  },
+  "liked": "Ŝatata",
+  "@liked": {
+    "description": "Titolo por eniro en la modala agordaj opcioj, informante uzantojn ke la sekvaj opcioj filtriloj trakoj markitaj kiel 'ŝatataj' de la uzanto."
+  },
+  "noRoamingCollection": "Ne eblas komenci vagadon. Trakoj en la kolekto ankoraŭ ne estis analizitaj.",
+  "@noRoamingCollection": {},
+  "noRomaingTrack": "Ne eblas komenci vagadon. Ĉi tiu trako ankoraŭ ne estis analizita.",
+  "@noRomaingTrack": {},
+  "noAnalysisScanning": "${baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "${baseMessage} La bibliotekon estas analizata; bonvolu atendi ĝis la procezo finiĝos.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "${baseMessage} Bonvolu analizi vian bibliotekon por la plej bona sperto.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "Ne Preta",
+  "@notReady": {
+    "description": "Modala titolo indikante ke trakoj ne estis analizitaj kaj rekomendoj ne povas esti faritaj."
+  },
+  "createPlaylist": "Krei Ludliston",
+  "@createPlaylist": {
+    "description": "Modala titolo por krei ludliston."
+  },
+  "scanLibrary": "Skanu Bibliotekon",
+  "@scanLibrary": {
+    "description": "Agada butona teksto en la modalo, inicianta skanadon de la amaskomunikila biblioteko kiam premitaj."
+  },
+  "analyseTracks": "Analizu Trakojn",
+  "@analyseTracks": {
+    "description": "Agada butona teksto en la modalo, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
+  },
+  "scan": "Skanu",
+  "@scan": {
+    "description": "Butona teksto en la agorda interfaco, inicianta skanadon de la amaskomunikila biblioteko kiam premitaj."
+  },
+  "scanning": "Skanado",
+  "@scanning": {
+    "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe skanata."
+  },
+  "analyse": "Analizu",
+  "@analyse": {
+    "description": "Butona teksto en la agorda interfaco, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
+  },
+  "analysing": "Analizado",
+  "@analysing": {
+    "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe analizata."
+  },
+  "tryCreatingYourOwnCollection": "Provu krei vian propran kolekton",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Teksto montrata sur malplena paĝo en la Kolekta vidpunkto, sugestante al uzantoj krei novan kolekton."
+  },
+  "theseActionsMayHelp": "Ĉi tiuj agoj povas helpi",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Provu skani novajn dosierojn",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Neniu kolekto trovita",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Neniuj eroj en ludlisto",
+  "@noItemsInPlaylist": {},
+  "previous": "Antaŭa",
+  "@previous": {
+    "description": "Butona teksto por kontroli ludon, uzata por salti al la antaŭa trako."
+  },
+  "previousSubtitle": "Iru al la antaŭa trako",
+  "@previousSubtitle": {},
+  "playPause": "Ludi/Pauzi",
+  "@playPause": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti inter ludi kaj pauzi stato."
+  },
+  "playPauseSubtitle": "Ŝalti inter ludi kaj pauzi",
+  "@playPauseSubtitle": {},
+  "next": "Sekva",
+  "@next": {
+    "description": "Butona teksto por kontroli ludon, uzata por salti al la sekva trako."
+  },
+  "nextSubtitle": "Iru al la sekva trako",
+  "@nextSubtitle": {},
+  "volume": "Volumo",
+  "@volume": {
+    "description": "Butona teksto por kontroli ludon, uzata por ĝustigi la volumon."
+  },
+  "volumeSubtitle": "Ĝustigi la volumon",
+  "@volumeSubtitle": {},
+  "playlist": "Ludlisto",
+  "@playlist": {
+    "description": "Butona teksto por kontroli ludon, uzata por montri la ludliston."
+  },
+  "playlistSubtitle": "Vidi la ludvicon",
+  "@playlistSubtitle": {},
+  "hidden": "Kaŝita",
+  "@hidden": {
+    "description": "Butona teksto indikanta kaŝitan butonon; ĉi tiu teksto tipe ne estas uzata."
+  },
+  "hiddenSubtitle": "Enhavo sube estos kaŝita en la aliaj listo",
+  "@hiddenSubtitle": {},
+  "coverWall": "Kovrila Muro",
+  "@coverWall": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti al la kovrila muro paĝo, dekoracia paĝo komponita de albumaj kovriloj."
+  },
+  "coverWallSubtitle": "Montri kovrilarton por unika etoso",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Plenekrana",
+  "@fullscreen": {
+    "description": "Butona teksto por kontroli ludon, uzata por ŝalti plenekranan modon."
+  },
+  "fullscreenSubtitle": "Eniri aŭ eliri plenekranan modon",
+  "@fullscreenSubtitle": {},
+  "pause": "Pauzi",
+  "@pause": {
+    "description": "Butona teksto por kontroli ludon, uzata por pauzi la nun ludantan trakon."
+  },
+  "play": "Ludi",
+  "@play": {
+    "description": "Butona teksto por kontroli ludon, uzata por rekomenci ludi el pauzita stato."
+  },
+  "enable": "Ebligi",
+  "@enable": {
+    "description": "Radio butona teksto en la agorda interfaco, indikante ke funkcio estas ebligita."
+  },
+  "disable": "Malebligi",
+  "@disable": {
+    "description": "Radio butona teksto en la agorda interfaco, indikante ke funkcio ne estas ebligita."
+  },
+  "noTracksFound": "Neniuj trakoj trovitaj",
+  "@noTracksFound": {},
+  "library": "Biblioteko",
+  "@library": {
+    "description": "Titolo de la agorda interfaco de amaskomunikila biblioteko."
+  },
+  "artistQuery": "Artista Demando",
+  "@artistQuery": {},
+  "playlistQuery": "Ludlisto Demando",
+  "@playlistQuery": {},
+  "mixes": "Miksaĵoj",
+  "@mixes": {
+    "description": "Titolo de la Miksado interfaco, rilatante al speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "mixQuery": "Miksaĵo Demando",
+  "@mixQuery": {},
+  "settings": "Agordoj",
+  "@settings": {
+    "description": "Titolo de la agorda interfaco."
+  },
+  "analysis": "Analizo",
+  "@analysis": {
+    "description": "Titolo de la analizo agorda interfaco."
+  },
+  "playback": "Reproduktado",
+  "@playback": {
+    "description": "Titolo de la reproduktada agorda interfaco."
+  },
+  "theme": "Temo",
+  "@theme": {
+    "description": "Titolo de la temaj agordaj interfaco."
+  },
+  "controller": "Regilo",
+  "@controller": {
+    "description": "Titolo de la reproduktadkontrola butona agorda interfaco."
+  },
+  "about": "Pri",
+  "@about": {
+    "description": "Titolo de la pri interfaco."
+  },
+  "selectLibraryDirectorySubtitle": "Elektu vian aŭdian bibliotekan dosierujon, kaj ni skanos kaj analizos ĉiujn trakojn ene de ĝi.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Restarigi Bibliotekon",
+  "@resetLibrary": {
+    "description": "Agada butona teksto en la modalo, indikante ke la uzanto volas restarigi la bibliotekon."
+  },
+  "resetLibraryQuestion": "Restarigi Bibliotekon",
+  "@resetLibraryQuestion": {
+    "description": "Modala titolo demandante uzantojn ĉu ili volas restarigi la bibliotekon."
+  },
+  "resetLibrarySubtitle": "Restarigo de la biblioteko malplenigos vian dosier-historion. Via ekzistanta amaskomunikila biblioteko restos senŝanĝa. Ĉu vi volas daŭrigi?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Ne disponebla",
+  "@unavailable": {
+    "description": "Kunteksta menuero kiu estas ne disponebla, aperante nur kiam estas cimo."
+  },
+  "goToArtist": "Iru al Artisto",
+  "@goToArtist": {
+    "description": "Kunteksta menuero gvidanta uzantojn al la paĝo de la artisto."
+  },
+  "goToAlbum": "Iru al Albumo",
+  "@goToAlbum": {
+    "description": "Kunteksta menuero gvidanta uzantojn al la paĝo de la albumo."
+  },
+  "addToPlaylist": "Aldoni al Ludlisto",
+  "@addToPlaylist": {
+    "description": "Kunteksta menuero gvidanta uzantojn aldoni trakon aŭ albumon al ludlisto."
+  },
+  "newPlaylist": "Nova Ludlisto",
+  "@newPlaylist": {
+    "description": "Kunteksta menuero gvidanta uzantojn krei novan ludliston."
+  },
+  "unableToOpenLibrary": "Ne eblas Malfermi Bibliotekon",
+  "@unableToOpenLibrary": {
+    "description": "Modala titolo informante uzantojn ke la biblioteko ne povas esti malfermita."
+  },
+  "unableToOpenLibrarySubtitle": "La Biblioteko ne povis esti malfermita pro la sekva eraro:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Nekonata Eraro",
+  "@unknownError": {
+    "description": "Modala erara enhavo indikante nekonatan eraron."
+  },
+  "close": "Fermi",
+  "@close": {
+    "description": "Agada butono en la modalo gvidanta uzantojn fermi ĝin."
+  },
+  "queue": "Vico",
+  "@queue": {
+    "description": "Titolo de la ludlista modalo."
+  },
+  "createMix": "Krei Miksaĵon",
+  "@createMix": {
+    "description": "Kunteksta menuero gvidanta uzantojn krei novan Miksaĵon, speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "removeMixTitle": "Forigi Miksaĵon",
+  "@removeMixTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri forigi Miksaĵon, speco de inteligenta ludlisto. Ne konfuzu kun 'remiksaĵo'."
+  },
+  "removeMixSubtitle": "Se vi forigas ĉi tiun miksaĵon, vi ne povos restarigi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removeMixSubtitle": {},
+  "delete": "Forigi",
+  "@delete": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin forigos informon."
+  },
+  "removePlaylistTitle": "Forigi Ludliston",
+  "@removePlaylistTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri forigi ludliston."
+  },
+  "removePlaylistSubtitle": "Se vi forigas ĉi tiun ludliston, vi ne povos restarigi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Nuligi Taskon",
+  "@cancelTaskTitle": {
+    "description": "Modala titolo informante uzantojn ke ili estas pri nuligi taskon."
+  },
+  "cancelTaskSubtitle": "Se vi nuligas ĉi tiun taskon, ĝi haltos ĉe sia nuna kompletiga stato. Ĉu vi volas nuligi ĝin?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Nuligi Taskon",
+  "@cancelTask": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin nuligos la taskon."
+  },
+  "continueTask": "Daŭrigi",
+  "@continueTask": {
+    "description": "Agada butona teksto en la modalo indikante ke premante ĝin daŭrigos la taskon."
+  },
+  "refresh": "Refreŝigi",
+  "@refresh": {
+    "description": "Kunteksta menuero gvidanta uzantojn refreŝigi la informon de la aktuala paĝo."
+  },
+  "explore": "Esplori",
+  "@explore": {
+    "description": "Titolo de funkcia areo."
+  }
+}
