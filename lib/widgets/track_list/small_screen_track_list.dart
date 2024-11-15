@@ -1,13 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
-import 'package:rune/widgets/ax_pressure.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../widgets/no_items.dart';
+import '../../widgets/ax_pressure.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../widgets/track_list/small_screen_track_list_item.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
+import '../../generated/l10n.dart';
+
 import '../navigation_bar/page_content_frame.dart';
 
 class SmallScreenTrackList extends StatelessWidget {
@@ -43,7 +45,7 @@ class SmallScreenTrackList extends StatelessWidget {
           return SizedBox.expand(
             child: Center(
               child: NoItems(
-                title: "No tracks found",
+                title: S.of(context).noTracksFound,
                 hasRecommendation: hasRecommendation,
                 reloadData: pagingController.refresh,
               ),

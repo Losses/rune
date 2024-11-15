@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../generated/l10n.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
@@ -48,7 +49,7 @@ class _QueueState extends State<Queue> {
                 ? ListTile.selectable(
                     key: const Key("disabled"),
                     leading: const Icon(Symbols.info),
-                    title: const Text('No items in playlist'),
+                    title: Text(S.of(context).noItemsInPlaylist),
                     onPressed: () {},
                   )
                 : CustomScrollView(

@@ -56,7 +56,7 @@ class LibraryHomeListState extends State<BandScreenCoverWallView> {
             child: AspectRatio(
               aspectRatio: 1,
               child: BandLinkTile(
-                title: item.title,
+                title: item.titleBuilder(context),
                 onPressed: () {
                   final fn = item.onShortcut;
                   if (fn != null) {

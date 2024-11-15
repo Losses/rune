@@ -2,7 +2,9 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/providers/responsive_providers.dart';
+
+import '../../generated/l10n.dart';
+import '../../providers/responsive_providers.dart';
 
 class Bsod extends StatelessWidget {
   final String report;
@@ -69,7 +71,7 @@ class Bsod extends StatelessWidget {
                     Container(
                       constraints: const BoxConstraints(maxWidth: 500),
                       child: Text(
-                        "Your player ran into a problem and needs a restart. We respect your privacy and won't collect any data.",
+                        S.of(context).bsodBody,
                         style: theme.typography.bodyLarge
                             ?.apply(
                               fontSizeFactor: 1.15 * fontSizeFactor,

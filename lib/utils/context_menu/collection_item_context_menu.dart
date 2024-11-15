@@ -9,11 +9,10 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../utils/dialogs/mix/remove_mix_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
-
 import '../../messages/mix.pbserver.dart';
 import '../../messages/collection.pb.dart';
-
 import '../../providers/responsive_providers.dart';
+import '../../generated/l10n.dart';
 
 import '../execute_middle_click_action.dart';
 
@@ -47,10 +46,10 @@ final Map<
   },
 };
 
-final Map<CollectionType, String> typeToEditLabel = {
-  CollectionType.Playlist: "Edit Playlist",
-  CollectionType.Mix: "Edit Mix",
-};
+Map<CollectionType, String> typeToEditLabel(BuildContext context) => {
+      CollectionType.Playlist: S.of(context).editPlaylist,
+      CollectionType.Mix: S.of(context).editMix,
+    };
 
 final Map<
     CollectionType,
@@ -75,10 +74,10 @@ final Map<
   },
 };
 
-final Map<CollectionType, String> typeToRemoveLabel = {
-  CollectionType.Playlist: "Remove Playlist",
-  CollectionType.Mix: "Remove Mix",
-};
+Map<CollectionType, String> typeToRemoveLabel(BuildContext context) => {
+      CollectionType.Playlist: S.of(context).removePlaylist,
+      CollectionType.Mix: S.of(context).removeMix,
+    };
 
 void openCollectionItemContextMenu(
   Offset localPosition,
@@ -172,21 +171,21 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   List<MenuFlyoutItemBase> items = [
     MenuFlyoutItem(
       leading: const Icon(Symbols.play_circle),
-      text: const Text('Start Playing'),
+      text: Text(S.of(context).startPlaying),
       onPressed: () async {
         startPlaying(type, id, fallbackFileIds);
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.playlist_add),
-      text: const Text('Add to Queue'),
+      text: Text(S.of(context).addToQueue),
       onPressed: () async {
         addToQueue(type, id, fallbackFileIds);
       },
     ),
     MenuFlyoutItem(
       leading: const Icon(Symbols.rocket),
-      text: const Text('Start Roaming'),
+      text: Text(S.of(context).startRoaming),
       onPressed: () async {
         startRoaming(context, type, id, fallbackFileIds);
       },
@@ -198,7 +197,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     items.add(
       MenuFlyoutItem(
         leading: const Icon(Symbols.edit),
-        text: Text(typeToEditLabel[type] ?? 'Edit'),
+        text: Text(typeToEditLabel(context)[type] ?? S.of(context).edit),
         onPressed: readonly == true
             ? null
             : () {
@@ -212,7 +211,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     items.add(
       MenuFlyoutItem(
         leading: const Icon(Symbols.delete),
-        text: Text(typeToRemoveLabel[type] ?? 'Remove'),
+        text: Text(typeToRemoveLabel(context)[type] ?? S.of(context).remove),
         onPressed: readonly == true
             ? null
             : () {
@@ -227,11 +226,11 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
     items.add(
       MenuFlyoutSubItem(
         leading: const Icon(Symbols.magic_button),
-        text: const Text('Add to Mix'),
+        text: Text(S.of(context).addToMix),
         items: (context) => [
           MenuFlyoutItem(
             leading: const Icon(Symbols.add),
-            text: const Text('New Mix'),
+            text: Text(S.of(context).newMix),
             onPressed: () async {
               Flyout.of(context).close();
 
@@ -263,27 +262,27 @@ FlyoutContent buildBandScreenCollectionItemContextMenu(
 ]) {
   List<CommandBarButton> items = [
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Start Playing',
-        child: Icon(Symbols.play_circle),
+      icon: Tooltip(
+        message: S.of(context).startPlaying,
+        child: const Icon(Symbols.play_circle),
       ),
       onPressed: () async {
         startPlaying(type, id, fallbackFileIds);
       },
     ),
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Add to Queue',
-        child: Icon(Symbols.playlist_add),
+      icon: Tooltip(
+        message: S.of(context).addToQueue,
+        child: const Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
         addToQueue(type, id, fallbackFileIds);
       },
     ),
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Start Roaming',
-        child: Icon(Symbols.rocket),
+      icon: Tooltip(
+        message: S.of(context).startRoaming,
+        child: const Icon(Symbols.rocket),
       ),
       onPressed: () async {
         startRoaming(context, type, id, fallbackFileIds);

@@ -102,7 +102,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                             items: hiddenEntries
                                 .map(
                                   (x) =>
-                                      flyoutItems[x.id] ?? unavailableMenuEntry,
+                                      flyoutItems[x.id] ??
+                                      unavailableMenuEntry(context),
                                 )
                                 .toList(),
                           ),

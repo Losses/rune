@@ -3,13 +3,13 @@ import '../../utils/file_storage/mac_secure_manager.dart';
 
 final SettingsManager settingsManager = SettingsManager();
 
-class FileStorageService {
-  static const String _openedFilesKey = 'library_path';
+const String openedFilesKey = 'library_path';
 
+class FileStorageService {
   // Get the list of opened files
   Future<List<String>> _getOpenedFiles() async {
     return List<String>.from(
-      await settingsManager.getValue<List<dynamic>>(_openedFilesKey) ?? [],
+      await settingsManager.getValue<List<dynamic>>(openedFilesKey) ?? [],
     );
   }
 
@@ -24,7 +24,7 @@ class FileStorageService {
     await MacSecureManager().saveBookmark(filePath);
 
     // Store the updated list of file paths
-    settingsManager.setValue(_openedFilesKey, openedFiles);
+    await settingsManager.setValue(openedFilesKey, openedFiles);
   }
 
   // Get the last opened file
@@ -43,13 +43,13 @@ class FileStorageService {
 
   // Clear all opened files
   Future<void> clearAllOpenedFiles() async {
-    await settingsManager.removeValue(_openedFilesKey);
+    await settingsManager.removeValue(openedFilesKey);
   }
 
   // Remove a specific file path
   Future<void> removeFilePath(String filePath) async {
     List<String> openedFiles = await _getOpenedFiles();
     openedFiles.remove(filePath);
-    await settingsManager.setValue(_openedFilesKey, openedFiles);
+    await settingsManager.setValue(openedFilesKey, openedFiles);
   }
 }

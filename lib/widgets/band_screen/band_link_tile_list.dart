@@ -15,7 +15,7 @@ class BandLinkTileList extends StatelessWidget {
     this.leadingItem,
   });
 
-  final List<(String, String, IconData, bool)> links;
+  final List<(String Function(BuildContext), String, IconData, bool)> links;
   final bool topPadding;
   final Widget? leadingItem;
 
@@ -31,7 +31,7 @@ class BandLinkTileList extends StatelessWidget {
             child: AspectRatio(
               aspectRatio: 1,
               child: BandLinkTile(
-                title: item.$1,
+                title: item.$1(context),
                 onPressed: () {
                   $push(item.$2);
                 },

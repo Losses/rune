@@ -99,7 +99,7 @@ class _SlibingLinkState extends State<SlibingLink> {
             child: FlipText(
               key: Key(childFlipKey),
               flipKey: childFlipKey,
-              text: widget.route.title,
+              text: widget.route.titleBuilder(context),
               scale: 1.2,
               color: _isFocus ? contentColor : null,
               glowColor: contentColor,

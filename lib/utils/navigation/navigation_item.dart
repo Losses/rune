@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 class NavigationItem {
-  final String title;
+  final String Function(BuildContext) titleBuilder;
   final String path;
   final bool hidden;
   final void Function(BuildContext)? onTap;
@@ -10,7 +10,7 @@ class NavigationItem {
   final List<SingleActivator>? shortcuts;
 
   NavigationItem(
-    this.title,
+    this.titleBuilder,
     this.path, {
     this.hidden = false,
     this.onTap,
@@ -21,6 +21,6 @@ class NavigationItem {
 
   @override
   String toString() {
-    return 'NavigationItem(title: $title, path: $path, hidden: $hidden)';
+    return 'NavigationItem(title: $titleBuilder, path: $path, hidden: $hidden)';
   }
 }

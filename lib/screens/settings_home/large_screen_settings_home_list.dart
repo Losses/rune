@@ -11,6 +11,7 @@ import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/settings_home/constants/first_column.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../generated/l10n.dart';
 
 class LargeScreenSettingsHomeListView extends StatefulWidget {
   const LargeScreenSettingsHomeListView({
@@ -52,9 +53,9 @@ class LargeScreenSettingsHomeListViewState
               return Row(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  StartGroup<(String, String, IconData, bool)>(
+                  StartGroup<(String Function(BuildContext), String, IconData, bool)>(
                     groupIndex: 0,
-                    groupTitle: 'Explore',
+                    groupTitle: S.of(context).explore,
                     items: firstColumn,
                     constraints: constraints,
                     groupLayoutVariation:
@@ -66,7 +67,7 @@ class LargeScreenSettingsHomeListViewState
                     onTitleTap: () {},
                     itemBuilder: (context, item) {
                       return LinkTile(
-                        title: item.$1,
+                        title: item.$1(context),
                         path: item.$2,
                         icon: item.$3,
                       );

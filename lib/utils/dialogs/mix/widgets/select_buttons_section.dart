@@ -9,7 +9,7 @@ import 'select_input_section.dart';
 class SelectButtonsSection extends StatefulWidget {
   final String title;
   final String defaultValue;
-  final List<SelectItem> items;
+  final List<SelectItem> Function(BuildContext) items;
   final SelectInputController? controller;
   final bool disabled;
 
@@ -47,6 +47,7 @@ class _SelectButtonsSectionState extends State<SelectButtonsSection> {
 
   @override
   Widget build(BuildContext context) {
+    final items = widget.items(context);
     return LayoutBuilder(builder: (context, constraint) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,7 +58,7 @@ class _SelectButtonsSectionState extends State<SelectButtonsSection> {
           ),
           const SizedBox(height: 4),
           Row(
-            children: widget.items.mapIndexed(
+            children: items.mapIndexed(
               (i, item) {
                 const r4 = Radius.circular(4.0);
                 const r0 = Radius.circular(0);
@@ -75,7 +76,7 @@ class _SelectButtonsSectionState extends State<SelectButtonsSection> {
                           ),
                         ),
                       )
-                    : i == widget.items.length - 1
+                    : i == items.length - 1
                         ? const ButtonStyle(
                             shape: WidgetStatePropertyAll(
                               RoundedRectangleBorder(

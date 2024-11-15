@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/dialogs/mix/widgets/directory_picker_dialog.dart';
 import '../../../../widgets/directory/directory_tree.dart';
+import '../../../../generated/l10n.dart';
 
 import '../../../router/navigation.dart';
 
@@ -45,7 +46,7 @@ class _DirectorySectionState extends State<DirectorySection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("Directories"),
+        Text(S.of(context).directories),
         const SizedBox(height: 4),
         Button(
           onPressed: () async {
@@ -58,10 +59,10 @@ class _DirectorySectionState extends State<DirectorySection> {
               width: double.infinity,
               child: Text(
                 value == null || value.isEmpty
-                    ? "All directories"
+                    ? S.of(context).allDirectories
                     : value.length == 1
-                        ? '1 Directory'
-                        : '${value.length} Directories',
+                        ? S.of(context).oneDirectory
+                        : S.of(context).manyDirectories(value.length),
                 overflow: TextOverflow.ellipsis,
                 textAlign: TextAlign.start,
               ),

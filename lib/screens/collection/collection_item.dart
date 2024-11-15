@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
-import 'package:rune/utils/execute_middle_click_action.dart';
 
+import '../../utils/execute_middle_click_action.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_name.dart';
 import '../../utils/router/query_tracks_parameter.dart';

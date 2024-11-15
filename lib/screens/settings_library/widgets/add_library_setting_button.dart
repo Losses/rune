@@ -8,6 +8,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/library_path.dart';
+import '../../../generated/l10n.dart';
 
 import 'settings_button.dart';
 
@@ -16,12 +17,10 @@ class AddLibrarySettingButton extends StatelessWidget {
     super.key,
     required this.tryClose,
     required this.navigateIfFailed,
-    required this.useRootNavigate,
   });
 
   final bool tryClose;
   final bool navigateIfFailed;
-  final bool useRootNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -31,8 +30,8 @@ class AddLibrarySettingButton extends StatelessWidget {
 
     return SettingsButton(
       icon: Symbols.add,
-      title: "Add Library",
-      subtitle: "Add a new library and scan existing files",
+      title: S.of(context).addLibrary,
+      subtitle: S.of(context).addLibrarySubtitle,
       onPressed: () async {
         final path = await getDirectoryPath();
 
@@ -48,11 +47,6 @@ class AddLibrarySettingButton extends StatelessWidget {
 
         if (switched) {
           libraryManager.scanLibrary(path, true);
-          if (useRootNavigate) {
-            $$replace('/library');
-          } else {
-            $push('/library');
-          }
         } else {
           if (!context.mounted) return;
           await showFailedToInitializeLibrary(context, error);

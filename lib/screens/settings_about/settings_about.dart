@@ -10,6 +10,7 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/system.pb.dart';
 import '../../providers/responsive_providers.dart';
+import '../../generated/l10n.dart';
 
 const size = 400.0;
 
@@ -157,12 +158,12 @@ class SystemInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _InfoTable(
-      title: "System",
+      title: S.of(context).system,
       rows: [
-        ["Operating system", data?.systemName ?? ""],
-        ["System Version", data?.systemOsVersion ?? ""],
-        ["Kernel Version", data?.systemKernelVersion ?? ""],
-        ["Host Name", data?.systemHostName ?? ""],
+        [S.of(context).operatingSystem, data?.systemName ?? ""],
+        [S.of(context).systemVersion, data?.systemOsVersion ?? ""],
+        [S.of(context).kernelVersion, data?.systemKernelVersion ?? ""],
+        [S.of(context).hostName, data?.systemHostName ?? ""],
       ],
     );
   }
@@ -178,12 +179,15 @@ class _BuildInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _InfoTable(
-      title: "Player",
+      title: S.of(context).player,
       rows: [
-        ["Build Hash", data?.buildSha.substring(0, 8) ?? ""],
-        ["Build Date", data?.buildDate ?? ""],
-        ["Commit Date", data?.buildCommitTimestamp.split("T")[0] ?? ""],
-        ["Rustc version", data?.buildRustcSemver ?? ""],
+        [S.of(context).buildHash, data?.buildSha.substring(0, 8) ?? ""],
+        [S.of(context).buildDate, data?.buildDate ?? ""],
+        [
+          S.of(context).commitDate,
+          data?.buildCommitTimestamp.split("T")[0] ?? ""
+        ],
+        [S.of(context).rustcVersion, data?.buildRustcSemver ?? ""],
       ],
     );
   }
@@ -235,19 +239,20 @@ class _ActivationInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text("Activation", style: FluentTheme.of(context).typography.subtitle),
+        Text(S.of(context).activation,
+            style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
-        const Text("Rune is activated"),
+        Text(S.of(context).runeIsActivated),
         const SizedBox(height: 4),
-        const Row(
+        Row(
           children: [
-            Text("Product ID"),
-            SizedBox(width: 12),
+            Text(S.of(context).productId),
+            const SizedBox(width: 12),
             Text("DG8FV-B9TKY-FRT9J-6CRCC-XPQ4G"),
           ],
         ),
         const SizedBox(height: 4),
-        const Text("You may be a victim of genuine software."),
+        Text(S.of(context).youMayBeAVictimOfGenuineSoftware),
         const SizedBox(height: 12),
       ],
     );
@@ -261,20 +266,19 @@ class _CopyrightInfo extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text("Copyright", style: FluentTheme.of(context).typography.subtitle),
+        Text(S.of(context).copyright,
+            style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
-        const Text('Copyright © 2024 Rune Player Developers.'),
+        Text(S.of(context).copyrightAnnouncement),
         const SizedBox(height: 4),
-        const Text('This product is licensed under the MPL license.'),
+        Text(S.of(context).LicenseAnnouncement),
       ],
     );
   }
 }
 
 class Device extends StatefulWidget {
-  const Device({
-    super.key,
-  });
+  const Device({super.key});
 
   @override
   State<Device> createState() => _DeviceState();
@@ -319,8 +323,8 @@ class _DeviceState extends State<Device> {
                   size: constraints.maxWidth * 0.41,
                   ratio: 9 / 16,
                   texts: (
-                    "Rune Player",
-                    "Axiom Design",
+                    S.of(context).runePlayer,
+                    S.of(context).axiomDesign,
                     "Version 0.0.5-dev",
                   ),
                   colorHash: colorHash,

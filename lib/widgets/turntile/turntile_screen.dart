@@ -10,6 +10,7 @@ import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../widgets/no_items.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
+import '../../generated/l10n.dart';
 
 import '../infinite_list_loading.dart';
 import '../start_screen/utils/group.dart';
@@ -150,7 +151,7 @@ class TurntileScreenImplementationState
               emptyBuilder: (context) => Center(
                 child: data.initialized
                     ? NoItems(
-                        title: "No collection found",
+                        title: S.of(context).noCollectionFound,
                         hasRecommendation: false,
                         reloadData: data.reloadData,
                         userGenerated: isUserGenerated,

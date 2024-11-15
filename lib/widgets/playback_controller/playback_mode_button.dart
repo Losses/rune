@@ -6,6 +6,7 @@ import '../../utils/api/play_mode.dart';
 import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
+import '../../generated/l10n.dart';
 
 IconData modeToIcon(PlaybackMode mode) {
   switch (mode) {
@@ -20,16 +21,16 @@ IconData modeToIcon(PlaybackMode mode) {
   }
 }
 
-String modeToLabel(PlaybackMode mode) {
+String modeToLabel(BuildContext context, PlaybackMode mode) {
   switch (mode) {
     case PlaybackMode.sequential:
-      return "Sequential";
+      return S.of(context).sequential;
     case PlaybackMode.repeatAll:
-      return "Repeat All";
+      return S.of(context).repeatAll;
     case PlaybackMode.repeatOne:
-      return "Repeat One";
+      return S.of(context).repeatOne;
     case PlaybackMode.shuffle:
-      return "Shuffle";
+      return S.of(context).shuffle;
   }
 }
 

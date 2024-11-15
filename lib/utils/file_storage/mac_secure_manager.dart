@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:get_storage/get_storage.dart';
 import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
+import 'package:rune/utils/rune_log.dart';
 
 import '../settings_manager.dart';
 
@@ -24,8 +25,7 @@ class MacSecureManager {
     if (_initialized) return;
 
     final path = await getSettingsPath();
-    // ignore: avoid_print
-    print("Initializing secure bookmarks at: $path");
+    info$("Initializing secure bookmarks at: $path");
 
     _storage = GetStorage(storageKey, path);
 

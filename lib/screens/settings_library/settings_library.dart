@@ -14,7 +14,9 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../generated/l10n.dart';
 
+import 'utils/show_reset_library_dialog.dart';
 import 'widgets/settings_button.dart';
 import 'widgets/settings_tile_title.dart';
 
@@ -66,13 +68,17 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                   const AddLibrarySettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
-                    useRootNavigate: false,
                   ),
                   SettingsButton(
                     icon: Symbols.refresh,
-                    title: "Factory Reset",
-                    subtitle: "Remove all items from the library list",
+                    title: S.of(context).factoryReset,
+                    subtitle: S.of(context).factoryResetSubtitle,
                     onPressed: () async {
+                      final result = await showResetLibraryDialog(context);
+
+                      if (!context.mounted) return;
+                      if (result != true) return;
+
                       await closeLibrary(context);
                       libraryPath.clearAllOpenedFiles();
                       $$replace("/");
@@ -134,7 +140,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       $push('/library');
                                     },
                                   ),
-                                  child: const Text("Switch to"),
+                                  child: Text(S.of(context).switchTo),
                                 ),
                                 const SizedBox(width: 12),
                                 Button(
@@ -143,7 +149,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       allOpenedFiles[index],
                                     );
                                   }),
-                                  child: const Text("Remove"),
+                                  child: Text(S.of(context).remove),
                                 ),
                                 if (isCurrentLibrary) ...[
                                   const SizedBox(width: 12),

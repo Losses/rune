@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
+import '../utils/router/navigation.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
 import '../screens/settings_analysis/settings_analysis.dart';
 import '../messages/library_manage.pb.dart';
@@ -96,34 +97,8 @@ class LibraryManagerProvider with ChangeNotifier {
         initialize,
       );
 
-      _cancelTaskSubscription =
-          CancelTaskResponse.rustSignalStream.listen((event) {
-        final cancelResponse = event.message;
-        if (cancelResponse.success) {
-          if (cancelResponse.type == CancelTaskType.ScanAudioLibrary) {
-            _updateScanProgress(
-              cancelResponse.path,
-              ScanTaskType.IndexFiles,
-              0,
-              0,
-              TaskStatus.cancelled,
-              false,
-            );
-          } else if (cancelResponse.type ==
-              CancelTaskType.AnalyseAudioLibrary) {
-            _updateAnalyseProgress(
-              cancelResponse.path,
-              0,
-              0,
-              TaskStatus.cancelled,
-              false,
-            );
-          }
-        }
-      });
-
       if (initialize) {
-        analyseLibrary(scanResult.path);
+        $$replace("/library");
       }
 
       // Complete the scan task
@@ -158,6 +133,31 @@ class LibraryManagerProvider with ChangeNotifier {
       // Complete the analyse task
       _analyseCompleters[analyseResult.path]?.complete();
       _analyseCompleters.remove(analyseResult.path);
+    });
+
+    _cancelTaskSubscription =
+        CancelTaskResponse.rustSignalStream.listen((event) {
+      final cancelResponse = event.message;
+      if (cancelResponse.success) {
+        if (cancelResponse.type == CancelTaskType.ScanAudioLibrary) {
+          _updateScanProgress(
+            cancelResponse.path,
+            ScanTaskType.IndexFiles,
+            0,
+            0,
+            TaskStatus.cancelled,
+            false,
+          );
+        } else if (cancelResponse.type == CancelTaskType.AnalyseAudioLibrary) {
+          _updateAnalyseProgress(
+            cancelResponse.path,
+            0,
+            0,
+            TaskStatus.cancelled,
+            false,
+          );
+        }
+      }
     });
   }
 
@@ -210,6 +210,9 @@ class LibraryManagerProvider with ChangeNotifier {
   }
 
   Future<void> scanLibrary(String path, [bool isInitializeTask = false]) async {
+    if (isInitializeTask) {
+      $$replace('/scanning');
+    }
     _updateScanProgress(
       path,
       ScanTaskType.IndexFiles,

@@ -28,7 +28,7 @@ class CoverWallCommandBar extends StatelessWidget {
           if (item != null) {
             return item;
           }
-          return unavailableMenuEntry;
+          return unavailableMenuEntry(context);
         }
 
         throw "Unacceptable entry type";

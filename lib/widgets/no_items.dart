@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../widgets/action_buttons.dart';
 import '../providers/responsive_providers.dart';
+import '../generated/l10n.dart';
 
 class NoItems extends StatelessWidget {
   final String title;
@@ -59,17 +60,17 @@ class NoItems extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 userGenerated
-                    ? const Text(
-                        "Try creating your own collection",
+                    ? Text(
+                        S.of(context).tryCreatingYourOwnCollection,
                         textAlign: TextAlign.center,
                       )
                     : hasRecommendation
-                        ? const Text(
-                            "These actions may help",
+                        ? Text(
+                            S.of(context).theseActionsMayHelp,
                             textAlign: TextAlign.center,
                           )
-                        : const Text(
-                            "Try scanning new files",
+                        : Text(
+                            S.of(context).tryScanningNewFiles,
                             textAlign: TextAlign.center,
                           ),
               ],

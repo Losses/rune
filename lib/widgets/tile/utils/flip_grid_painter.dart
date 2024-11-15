@@ -65,7 +65,7 @@ class FlipGridPainter extends CustomPainter {
           final imageAspectRatio = image.width / image.height;
           final cellAspectRatio = cellWidth / cellHeight;
 
-          // Define source rectangle for the "cover" effect
+          // Define source rectangle for the cover effect
           Rect srcRect;
           if (imageAspectRatio > cellAspectRatio) {
             final scale = image.height / cellHeight;

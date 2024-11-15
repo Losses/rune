@@ -1,12 +1,13 @@
-import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:mesh_gradient/mesh_gradient.dart';
+import 'package:animated_flip_counter/animated_flip_counter.dart';
 
 import '../../utils/color_brightness.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../generated/l10n.dart';
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});
@@ -24,30 +25,6 @@ class _ScanningPageState extends State<ScanningPage>
   void initState() {
     super.initState();
     _animationController.start();
-
-    // Pass context to the onLibraryScanned function
-    ScanAudioLibraryResponse.rustSignalStream.listen((rustSignal) {
-      if (!mounted) return;
-      onLibraryScanned(rustSignal, context);
-    });
-  }
-
-  // Modify the function to accept BuildContext
-  void onLibraryScanned(
-      RustSignal<ScanAudioLibraryResponse> rustSignal, BuildContext context) {
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
-
-    final scanProgress =
-        libraryManager.getScanTaskProgress(libraryPath.currentPath);
-    final scanning = scanProgress?.status == TaskStatus.working;
-
-    final currentPath = libraryPath.currentPath;
-    if (scanning && currentPath != null) {
-      libraryManager.analyseLibrary(currentPath);
-    }
   }
 
   @override
@@ -85,7 +62,7 @@ class _ScanningPageState extends State<ScanningPage>
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
-              "This might take a few minutes.",
+              S.of(context).thisMightTakeAFewMinutes,
               style: typography.title?.apply(
                 fontWeightDelta: -20,
                 color: Colors.white,
@@ -93,17 +70,18 @@ class _ScanningPageState extends State<ScanningPage>
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
-            Text(
-              count > 1
-                  ? task == ScanTaskType.IndexFiles
-                      ? '$count tracks found'
-                      : '$count cover arts collected'
-                  : "Sit back and relax",
-              style: typography.bodyLarge?.apply(
+            AnimatedFlipCounter(
+              value: count,
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeInOut,
+              suffix: task == ScanTaskType.IndexFiles
+                  ? S.of(context).tracksFound
+                  : S.of(context).albumCoversCollected,
+              textStyle: typography.bodyLarge?.apply(
                 color: Colors.white,
                 fontWeightDelta: -50,
               ),
-            )
+            ),
           ],
         ),
       ),

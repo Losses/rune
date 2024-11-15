@@ -1,6 +1,7 @@
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../generated/l10n.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 
@@ -27,18 +28,18 @@ class NotAnalysedText extends StatelessWidget {
 
     String getMessage(bool isCollection) {
       final baseMessage = isCollection
-          ? "Unable to start roaming. Tracks in the collection hasn't been analyzed yet."
-          : "Unable to start roaming. This track hasn't been analyzed yet.";
+          ? S.of(context).noRoamingCollection
+          : S.of(context).noRomaingTrack;
 
       if (scanWorking) {
-        return "$baseMessage The library is being scanned, so analysis cannot be performed.";
+        return S.of(context).noAnalysisScanning(baseMessage);
       }
 
       if (analyseWorking) {
-        return "$baseMessage The library is being analyzed; please wait until the process finished.";
+        return S.of(context).noAnalysisAnalyzing(baseMessage);
       }
 
-      return "$baseMessage Please analyze your library for the best experience.";
+      return S.of(context).noAnalysisDefault(baseMessage);
     }
 
     return Text(getMessage(collection ?? false));

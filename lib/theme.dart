@@ -94,6 +94,12 @@ class AppTheme extends ChangeNotifier {
               : const Color(0xFF202020).withOpacity(0.05),
       dark: brightness == Brightness.dark,
     );
+
+    if (Platform.isMacOS) {
+      Window.overrideMacOSBrightness(
+        dark: brightness == Brightness.dark,
+      );
+    }
   }
 }
 

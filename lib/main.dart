@@ -4,18 +4,20 @@ import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:intl/intl_standalone.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
-import 'utils/file_storage/mac_secure_manager.dart';
+import 'generated/l10n.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
+import 'utils/file_storage/mac_secure_manager.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
@@ -114,7 +116,22 @@ void main(List<String> arguments) async {
     await Window.initialize();
   }
 
+  if (!Platform.isLinux && !Platform.isAndroid) {
+    appTheme.addListener(updateTheme);
+    updateTheme();
+  }
+
+  if (Platform.isMacOS) {
+    WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged =
+        () {
+      WidgetsBinding.instance.handlePlatformBrightnessChanged();
+      updateTheme();
+    };
+  }
+
   initialPath = await getInitialPath();
+
+  await findSystemLocale();
 
   runApp(
     MultiProvider(
@@ -179,12 +196,16 @@ class Rune extends StatelessWidget {
             final routeName = settings.name!;
 
             if (routeName == '/') {
-              final builder = routes["/"]!;
-              final page = builder(context);
-
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => page,
+                builder: (context) => routes["/"]!(context),
+              );
+            }
+
+            if (routeName == '/scanning') {
+              return NoEffectPageRoute<dynamic>(
+                settings: settings,
+                builder: (context) => routes["/scanning"]!(context),
               );
             }
 
@@ -210,6 +231,9 @@ class Rune extends StatelessWidget {
             visualDensity: VisualDensity.standard,
           ),
           locale: appTheme.locale,
+          localizationsDelegates: [
+            S.delegate,
+          ],
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 
@@ -221,7 +245,7 @@ class Rune extends StatelessWidget {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: NavigationShortcutManager(ThemeSyncer(child!)),
+                  child: NavigationShortcutManager(child!),
                 ),
               ),
             );
@@ -229,44 +253,5 @@ class Rune extends StatelessWidget {
         );
       },
     );
-  }
-}
-
-class ThemeSyncer extends StatefulWidget {
-  const ThemeSyncer(this.child, {super.key});
-
-  final Widget child;
-  @override
-  ThemeSyncerState createState() => ThemeSyncerState();
-}
-
-class ThemeSyncerState extends State<ThemeSyncer> {
-  void _updateWindowEffectCallback() {
-    if (Platform.isLinux) return;
-    if (Platform.isAndroid) return;
-    WidgetsBinding.instance.addPostFrameCallback(
-      (_) {
-        appTheme.setEffect();
-      },
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    appTheme.addListener(_updateWindowEffectCallback);
-
-    _updateWindowEffectCallback();
-  }
-
-  @override
-  void dispose() {
-    appTheme.removeListener(_updateWindowEffectCallback);
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return widget.child;
   }
 }

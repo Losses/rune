@@ -5,6 +5,7 @@ import '../../utils/settings_page_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../generated/l10n.dart';
 
 const analysisComputingDeviceKey = 'analysis_mode';
 const analysisPerformanceLevelKey = 'analysis_performance';
@@ -65,18 +66,17 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
             child: Column(
               children: [
                 SettingsBoxComboBox(
-                  title: "Computing Device",
-                  subtitle:
-                      "Select GPU or CPU for faster or more efficient processing.",
+                  title: S.of(context).computingDevice,
+                  subtitle: S.of(context).computingDeviceSubtitle,
                   value: computingDevice,
-                  items: const [
+                  items: [
                     SettingsBoxComboBoxItem(
                       value: "gpu",
-                      title: "GPU",
+                      title: S.of(context).gpu,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "cpu",
-                      title: "CPU",
+                      title: S.of(context).cpu,
                     ),
                   ],
                   onChanged: (newValue) {
@@ -86,21 +86,21 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
                   },
                 ),
                 SettingsBoxComboBox(
-                  title: "Performance Level",
-                  subtitle: "Choose how many tasks to run simultaneously.",
+                  title: S.of(context).performanceLevel,
+                  subtitle: S.of(context).performanceLevelSubtitle,
                   value: performanceLevel,
-                  items: const [
+                  items: [
                     SettingsBoxComboBoxItem(
                       value: "performance",
-                      title: "Performance",
+                      title: S.of(context).performance,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "balance",
-                      title: "Balance",
+                      title: S.of(context).balance,
                     ),
                     SettingsBoxComboBoxItem(
                       value: "battery",
-                      title: "Battery saving",
+                      title: S.of(context).batterySaving,
                     ),
                   ],
                   onChanged: (newValue) {

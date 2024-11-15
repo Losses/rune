@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../generated/l10n.dart';
 import '../../../utils/api/play_play.dart';
 import '../../../utils/api/play_mode.dart';
 import '../../../utils/api/play_next.dart';
@@ -27,8 +28,8 @@ import '../playback_mode_button.dart';
 class ControllerEntry {
   final String id;
   final IconData Function(BuildContext context) icon;
-  final String title;
-  final String subtitle;
+  final String Function(BuildContext context) titleBuilder;
+  final String Function(BuildContext context) subtitleBuilder;
   final String Function(BuildContext context) tooltipBuilder;
   final Widget Function(BuildContext context, List<Shadow>? shadows)
       controllerButtonBuilder;
@@ -40,8 +41,8 @@ class ControllerEntry {
   ControllerEntry({
     required this.id,
     required this.icon,
-    required this.title,
-    required this.subtitle,
+    required this.titleBuilder,
+    required this.subtitleBuilder,
     required this.tooltipBuilder,
     required this.controllerButtonBuilder,
     required this.flyoutEntryBuilder,
@@ -50,12 +51,12 @@ class ControllerEntry {
   });
 }
 
-final controllerItems = [
+List<ControllerEntry> controllerItems = [
   ControllerEntry(
     id: 'previous',
     icon: (context) => Symbols.skip_previous,
-    title: "Previous",
-    subtitle: "Go to the previous track",
+    titleBuilder: (context) => S.of(context).previous,
+    subtitleBuilder: (context) => S.of(context).previousSubtitle,
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.arrowLeft, control: true),
     ],
@@ -68,7 +69,7 @@ final controllerItems = [
 
       playPrevious();
     },
-    tooltipBuilder: (context) => "Previous",
+    tooltipBuilder: (context) => S.of(context).previous,
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -86,11 +87,11 @@ final controllerItems = [
 
       return MenuFlyoutItem(
         leading: const Icon(Symbols.skip_previous),
-        text: const Row(
+        text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Previous'),
-            ShortcutText('Ctrl+←'),
+            Text(S.of(context).previous),
+            const ShortcutText('Ctrl+←'),
           ],
         ),
         onPressed: notReady
@@ -114,8 +115,8 @@ final controllerItems = [
         return Symbols.play_arrow;
       }
     },
-    title: "Play/Pause",
-    subtitle: "Toggle between play and pause",
+    titleBuilder: (context) => S.of(context).playPause,
+    subtitleBuilder: (context) => S.of(context).playPauseSubtitle,
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.space),
       const SingleActivator(LogicalKeyboardKey.keyP, control: true),
@@ -138,7 +139,9 @@ final controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      return status?.state == "Playing" ? "Pause" : "Play";
+      return status?.state == "Playing"
+          ? S.of(context).pause
+          : S.of(context).play;
     },
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
@@ -163,7 +166,9 @@ final controllerItems = [
             ? const Icon(Symbols.pause)
             : const Icon(Symbols.play_arrow),
         text: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          status?.state == "Playing" ? const Text('Pause') : const Text('Play'),
+          status?.state == "Playing"
+              ? Text(S.of(context).pause)
+              : Text(S.of(context).play),
           const ShortcutText('Ctrl+P'),
         ]),
         onPressed: notReady
@@ -178,8 +183,8 @@ final controllerItems = [
   ControllerEntry(
     id: 'next',
     icon: (context) => Symbols.skip_next,
-    title: "Next",
-    subtitle: "Go to the next track",
+    titleBuilder: (context) => S.of(context).next,
+    subtitleBuilder: (context) => S.of(context).nextSubtitle,
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.arrowRight, control: true),
     ],
@@ -192,7 +197,7 @@ final controllerItems = [
 
       playNext();
     },
-    tooltipBuilder: (context) => "Next",
+    tooltipBuilder: (context) => S.of(context).next,
     controllerButtonBuilder: (context, shadows) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -210,11 +215,11 @@ final controllerItems = [
 
       return MenuFlyoutItem(
         leading: const Icon(Symbols.skip_next),
-        text: const Row(
+        text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Next'),
-            ShortcutText('Ctrl+→'),
+            Text(S.of(context).next),
+            const ShortcutText('Ctrl+→'),
           ],
         ),
         onPressed: notReady
@@ -237,11 +242,11 @@ final controllerItems = [
               ? Symbols.volume_down
               : Symbols.volume_mute;
     },
-    title: "Volume",
-    subtitle: "Adjust the volume",
+    titleBuilder: (context) => S.of(context).volume,
+    subtitleBuilder: (context) => S.of(context).volumeSubtitle,
     shortcuts: [],
     onShortcut: null,
-    tooltipBuilder: (context) => "Volume",
+    tooltipBuilder: (context) => S.of(context).volume,
     controllerButtonBuilder: (context, shadows) => VolumeButton(
       shadows: shadows,
     ),
@@ -296,8 +301,8 @@ final controllerItems = [
 
       return modeToIcon(currentMode);
     },
-    title: "Playback Mode",
-    subtitle: "Switch between sequential, repeat, or shuffle",
+    titleBuilder: (context) => S.of(context).playbackMode,
+    subtitleBuilder: (context) => S.of(context).playbackModeSubtitle,
     tooltipBuilder: (context) {
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
@@ -306,7 +311,7 @@ final controllerItems = [
       final currentMode =
           PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
 
-      return modeToLabel(currentMode);
+      return modeToLabel(context, currentMode);
     },
     controllerButtonBuilder: (context, shadows) => PlaybackModeButton(
       shadows: shadows,
@@ -350,14 +355,14 @@ final controllerItems = [
         leading: Icon(
           modeToIcon(currentMode),
         ),
-        text: const Text('Mode'),
+        text: context.mounted ? Text(S.of(context).mode) : Text(""),
         items: (_) => availableModes.map(
           (x) {
             final isCurrent = x == currentMode;
             final color = isCurrent ? accentColor : null;
             return MenuFlyoutItem(
               text: Text(
-                modeToLabel(x),
+                modeToLabel(context, x),
                 style: typography.body?.apply(color: color),
               ),
               leading: Icon(
@@ -377,26 +382,26 @@ final controllerItems = [
   ControllerEntry(
     id: 'playlist',
     icon: (context) => Symbols.list_alt,
-    title: "Playlist",
-    subtitle: "View the playback queue",
+    titleBuilder: (context) => S.of(context).playlist,
+    subtitleBuilder: (context) => S.of(context).playlistSubtitle,
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.keyQ, control: true),
     ],
     onShortcut: (context) {
       showPlayQueueDialog(context);
     },
-    tooltipBuilder: (context) => "Playlist",
+    tooltipBuilder: (context) => S.of(context).playlist,
     controllerButtonBuilder: (context, shadows) => QueueButton(
       shadows: shadows,
     ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.list_alt),
-        text: const Row(
+        text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Playlist'),
-            ShortcutText('Ctrl+Q'),
+            Text(S.of(context).playlist),
+            const ShortcutText('Ctrl+Q'),
           ],
         ),
         onPressed: () {
@@ -409,16 +414,16 @@ final controllerItems = [
   ControllerEntry(
     id: 'hidden',
     icon: (context) => Symbols.hide_source,
-    title: "Hidden",
-    subtitle: "Content below will be hidden in the others list",
+    titleBuilder: (context) => S.of(context).hidden,
+    subtitleBuilder: (context) => S.of(context).hiddenSubtitle,
     shortcuts: [],
     onShortcut: null,
-    tooltipBuilder: (context) => "Hidden",
+    tooltipBuilder: (context) => S.of(context).hidden,
     controllerButtonBuilder: (context, shadows) => Container(),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.hide),
-        text: const Text('Hidden'),
+        text: Text(S.of(context).hidden),
         onPressed: () {},
       );
     },
@@ -426,24 +431,24 @@ final controllerItems = [
   ControllerEntry(
     id: 'cover_wall',
     icon: (context) => Symbols.photo,
-    title: "Cover Wall",
-    subtitle: "Display cover art for a unique ambience",
+    titleBuilder: (context) => S.of(context).coverWall,
+    subtitleBuilder: (context) => S.of(context).coverWallSubtitle,
     shortcuts: [const SingleActivator(LogicalKeyboardKey.keyN, alt: true)],
     onShortcut: (context) {
       showCoverArtWall();
     },
-    tooltipBuilder: (context) => "Cover Wall",
+    tooltipBuilder: (context) => S.of(context).coverWall,
     controllerButtonBuilder: (context, shadows) => CoverWallButton(
       shadows: shadows,
     ),
     flyoutEntryBuilder: (context) async {
       return MenuFlyoutItem(
         leading: const Icon(Symbols.photo),
-        text: const Row(
+        text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Cover Wall'),
-            ShortcutText('Alt+N'),
+            Text(S.of(context).coverWall),
+            const ShortcutText('Alt+N'),
           ],
         ),
         onPressed: () {
@@ -462,8 +467,8 @@ final controllerItems = [
           ? Symbols.fullscreen_exit
           : Symbols.fullscreen;
     },
-    title: "Fullscreen",
-    subtitle: "Enter or exit fullscreen mode",
+    titleBuilder: (context) => S.of(context).fullscreen,
+    subtitleBuilder: (context) => S.of(context).fullscreenSubtitle,
     shortcuts: [
       const SingleActivator(LogicalKeyboardKey.f11),
     ],
@@ -473,7 +478,7 @@ final controllerItems = [
 
       fullScreen.setFullScreen(!fullScreen.isFullScreen);
     },
-    tooltipBuilder: (context) => "Fullscreen",
+    tooltipBuilder: (context) => S.of(context).fullscreen,
     controllerButtonBuilder: (context, shadows) => FullScreenButton(
       shadows: shadows,
     ),
@@ -485,11 +490,11 @@ final controllerItems = [
         leading: fullScreen.isFullScreen
             ? const Icon(Symbols.fullscreen_exit)
             : const Icon(Symbols.fullscreen),
-        text: const Row(
+        text: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Fullscreen'),
-            ShortcutText('F11'),
+            Text(S.of(context).fullscreen),
+            const ShortcutText('F11'),
           ],
         ),
         onPressed: () {

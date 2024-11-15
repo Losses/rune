@@ -26,7 +26,6 @@ pkgs.mkShell {
     cmake
     protobuf_26
     pcre2
-    mount
     ninja
     unzip
     wayland
@@ -45,6 +44,8 @@ pkgs.mkShell {
     zstd.dev
     lmdb.dev
     sqlite.dev
+    util-linux.dev
+    libsysprof-capture
   ];
 
   env = {
@@ -55,6 +56,7 @@ pkgs.mkShell {
   };
 
   shellHook = ''
+    flutter config --jdk-dir "${pinnedJDK}"
     alias ls=exa
     alias find=fd
     alias rinf='flutter pub run rinf'

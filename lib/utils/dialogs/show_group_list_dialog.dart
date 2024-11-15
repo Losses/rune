@@ -1,12 +1,13 @@
 import 'dart:async';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/router/navigation.dart';
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
+import '../../generated/l10n.dart';
 
 void showGroupListDialog(
   BuildContext context,
@@ -53,7 +54,7 @@ void showGroupListDialog(
                 ),
                 const SizedBox(height: 24),
                 Button(
-                  child: const Text('Cancel'),
+                  child: Text(S.of(context).cancel),
                   onPressed: () => $close(0),
                 ),
               ],

@@ -6,6 +6,8 @@ import '../../../utils/router/navigation.dart';
 import '../../../widgets/library_task_button.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 
+import '../../../generated/l10n.dart';
+
 import '../unavailable_dialog_on_band.dart';
 
 import './not_analysed_text.dart';
@@ -20,10 +22,10 @@ Future<String?> showNoAnalysisDialog(
       $close: $close,
       icon: Symbols.cognition,
       child: ContentDialog(
-        title: const Column(
+        title: Column(
           children: [
-            SizedBox(height: 8),
-            Text("Not Ready"),
+            const SizedBox(height: 8),
+            Text(S.of(context).notReady),
           ],
         ),
         content: Column(
@@ -39,7 +41,7 @@ Future<String?> showNoAnalysisDialog(
           ResponsiveDialogActions(
             const AnalyseLibraryButton(),
             Button(
-              child: const Text('Cancel'),
+              child: Text(S.of(context).cancel),
               onPressed: () => $close('Cancel'),
             ),
           ),

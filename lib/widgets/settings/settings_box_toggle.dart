@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../generated/l10n.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'settings_block.dart';
@@ -42,7 +43,7 @@ class SettingsBoxToggle extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: RadioButton(
                       checked: value,
-                      content: const Text("Enable"),
+                      content: Text(S.of(context).enable),
                       onChanged: (isChecked) {
                         if (isChecked && onChanged != null) {
                           onChanged!(true);
@@ -54,7 +55,7 @@ class SettingsBoxToggle extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     child: RadioButton(
                       checked: !value,
-                      content: const Text("Disable"),
+                      content: Text(S.of(context).disable),
                       onChanged: (isChecked) {
                         if (isChecked && onChanged != null) {
                           onChanged!(false);

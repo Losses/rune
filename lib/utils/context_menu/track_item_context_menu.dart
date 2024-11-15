@@ -11,6 +11,7 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
+import '../../generated/l10n.dart';
 
 import '../execute_middle_click_action.dart';
 import '../router/navigation.dart';
@@ -114,21 +115,21 @@ Widget buildTrackItemContextMenu(
     items: [
       MenuFlyoutItem(
         leading: const Icon(Symbols.play_circle),
-        text: const Text('Start Playing'),
+        text: Text(S.of(context).startPlaying),
         onPressed: () async {
           startPlaying(CollectionType.Track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.playlist_add),
-        text: const Text('Add to Queue'),
+        text: Text(S.of(context).addToQueue),
         onPressed: () async {
           addToQueue(CollectionType.Track, item.file.id, const []);
         },
       ),
       MenuFlyoutItem(
         leading: const Icon(Symbols.rocket),
-        text: const Text('Start Roaming'),
+        text: Text(S.of(context).startRoaming),
         onPressed: () async {
           startRoaming(context, CollectionType.Track, item.file.id, const []);
         },
@@ -137,7 +138,7 @@ Widget buildTrackItemContextMenu(
       if (item.artists.length == 1)
         MenuFlyoutItem(
           leading: const Icon(Symbols.face),
-          text: const Text('Go to Artist'),
+          text: Text(S.of(context).goToArtist),
           onPressed: () => {
             $push(
               '/artists/detail',
@@ -151,7 +152,7 @@ Widget buildTrackItemContextMenu(
       if (item.artists.length > 1)
         MenuFlyoutSubItem(
             leading: const Icon(Symbols.face),
-            text: const Text('Go to Artist'),
+            text: Text(S.of(context).goToArtist),
             items: (context) => item.artists
                 .map((x) => MenuFlyoutItem(
                       leading: const Icon(Symbols.face),
@@ -166,7 +167,7 @@ Widget buildTrackItemContextMenu(
                 .toList()),
       MenuFlyoutItem(
         leading: const Icon(Symbols.album),
-        text: const Text('Go to Album'),
+        text: Text(S.of(context).goToAlbum),
         onPressed: () => {
           $push(
             '/albums/detail',
@@ -177,11 +178,11 @@ Widget buildTrackItemContextMenu(
       const MenuFlyoutSeparator(),
       MenuFlyoutSubItem(
         leading: const Icon(Symbols.list_alt),
-        text: const Text('Add to Playlist'),
+        text: Text(S.of(context).addToPlaylist),
         items: (context) => [
           MenuFlyoutItem(
             leading: const Icon(Symbols.add),
-            text: const Text('New Playlist'),
+            text: Text(S.of(context).newPlaylist),
             onPressed: () async {
               Flyout.of(context).close();
 
@@ -199,11 +200,11 @@ Widget buildTrackItemContextMenu(
       ),
       MenuFlyoutSubItem(
         leading: const Icon(Symbols.magic_button),
-        text: const Text('Add to Mix'),
+        text: Text(S.of(context).addToMix),
         items: (context) => [
           MenuFlyoutItem(
             leading: const Icon(Symbols.add),
-            text: const Text('New Mix'),
+            text: Text(S.of(context).newMix),
             onPressed: () async {
               Flyout.of(context).close();
 
@@ -234,27 +235,27 @@ FlyoutContent buildBandScreenTrackItemContextMenu(
 ) {
   List<CommandBarButton> items = [
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Start Playing',
-        child: Icon(Symbols.play_circle),
+      icon: Tooltip(
+        message: S.of(context).startPlaying,
+        child: const Icon(Symbols.play_circle),
       ),
       onPressed: () async {
         startPlaying(CollectionType.Track, item.file.id, const []);
       },
     ),
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Add to Queue',
-        child: Icon(Symbols.playlist_add),
+      icon: Tooltip(
+        message: S.of(context).addToQueue,
+        child: const Icon(Symbols.playlist_add),
       ),
       onPressed: () async {
         addToQueue(CollectionType.Track, item.file.id, const []);
       },
     ),
     CommandBarButton(
-      icon: const Tooltip(
-        message: 'Start Roaming',
-        child: Icon(Symbols.rocket),
+      icon: Tooltip(
+        message: S.of(context).startRoaming,
+        child: const Icon(Symbols.rocket),
       ),
       onPressed: () async {
         startRoaming(context, CollectionType.Track, item.file.id, const []);

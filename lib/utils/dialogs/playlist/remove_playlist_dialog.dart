@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/router/navigation.dart';
-import 'package:rune/widgets/responsive_dialog_actions.dart';
+
+import '../../../utils/router/navigation.dart';
+import '../../../widgets/responsive_dialog_actions.dart';
+import '../../../generated/l10n.dart';
 
 import '../../api/remove_playlist.dart';
 
@@ -55,24 +57,22 @@ class _RemovePlaylistDialogState extends State<RemovePlaylistDialog> {
       $close: widget.$close,
       onConfirm: _onConfirm,
       child: ContentDialog(
-        title: const Column(
+        title: Column(
           children: [
-            SizedBox(height: 8),
-            Text('Remove Playlist'),
+            const SizedBox(height: 8),
+            Text(S.of(context).removePlaylistTitle),
           ],
         ),
-        content: const Text(
-          'If you delete this playlist, you won\'t be able to recover it. Do you want to delete it?',
-        ),
+        content: Text(S.of(context).removePlaylistSubtitle),
         actions: [
           ResponsiveDialogActions(
             Button(
               onPressed: isLoading ? null : _onConfirm,
-              child: const Text('Delete'),
+              child: Text(S.of(context).delete),
             ),
             FilledButton(
               onPressed: isLoading ? null : () => widget.$close(false),
-              child: const Text('Cancel'),
+              child: Text(S.of(context).cancel),
             ),
           ),
         ],

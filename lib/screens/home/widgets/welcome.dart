@@ -6,12 +6,12 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../providers/library_manager.dart';
 import '../../../utils/ax_shadow.dart';
-import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
+import '../../../providers/library_manager.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../generated/l10n.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -61,10 +61,11 @@ class WelcomePage extends StatelessWidget {
                       Column(
                         children: [
                           if (!r.smallerOrEqualTo(DeviceType.band, false))
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 24),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 24),
                               child: Text(
-                                'Select your audio library directory, and we will scan and analysis all tracks within it.',
+                                S.of(context).selectLibraryDirectorySubtitle,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(height: 1.4),
                               ),
@@ -73,7 +74,7 @@ class WelcomePage extends StatelessWidget {
                               ? const SizedBox(height: 20)
                               : const SizedBox(height: 56),
                           FilledButton(
-                            child: const Text("Select Directory"),
+                            child: Text(S.of(context).selectDirectory),
                             onPressed: () async {
                               // on Android, check for permission
                               if (!await requestAndroidPermission()) return;
@@ -88,7 +89,6 @@ class WelcomePage extends StatelessWidget {
 
                               if (success) {
                                 libraryManager.scanLibrary(path, true);
-                                $$replace("/library");
                               } else {
                                 if (!context.mounted) return;
                                 await showFailedToInitializeLibrary(
@@ -105,7 +105,7 @@ class WelcomePage extends StatelessWidget {
                 ),
                 if (!r.smallerOrEqualTo(DeviceType.belt, false))
                   Text(
-                    '© 2024 Rune Player Developers. Licensed under MPL 2.0.',
+                    S.of(context).copyrightAnnouncement,
                     style: theme.typography.caption
                         ?.apply(color: theme.inactiveColor.withAlpha(80)),
                   ),

@@ -527,35 +527,35 @@ impl PlayerInternal {
 
     fn seek(&mut self, position: f64) -> Result<()> {
         if let Some(sink) = &self.sink {
-            if sink
-                .try_seek(std::time::Duration::from_secs_f64(position))
-                .is_ok()
-            {
-                info!("Seeking to position: {} s", position);
+            match sink.try_seek(std::time::Duration::from_secs_f64(position)) {
+                Ok(_) => {
+                    info!("Seeking to position: {} s", position);
 
-                let position = sink.get_pos();
-                if let Some(track_index) = self.current_track_index {
-                    let track_index = self.get_mapped_track_index(track_index);
+                    let position = sink.get_pos();
+                    if let Some(track_index) = self.current_track_index {
+                        let track_index = self.get_mapped_track_index(track_index);
 
-                    self.event_sender
-                        .send(PlayerEvent::Playing {
-                            id: self
-                                .current_track_id
-                                .ok_or(anyhow!("Current track id unavailable"))?,
-                            index: track_index,
-                            path: self
-                                .current_track_path
-                                .clone()
-                                .ok_or(anyhow!("Current track path unavailable"))?,
-                            playback_mode: self.playback_mode,
-                            position,
-                        })
-                        .with_context(|| "Failed to send Playing event")?;
+                        self.event_sender
+                            .send(PlayerEvent::Playing {
+                                id: self
+                                    .current_track_id
+                                    .ok_or(anyhow!("Current track id unavailable"))?,
+                                index: track_index,
+                                path: self
+                                    .current_track_path
+                                    .clone()
+                                    .ok_or(anyhow!("Current track path unavailable"))?,
+                                playback_mode: self.playback_mode,
+                                position,
+                            })
+                            .with_context(|| "Failed to send Playing event")?;
 
-                    self.state = InternalPlaybackState::Playing;
+                        self.state = InternalPlaybackState::Playing;
+                    }
                 }
-            } else {
-                error!("Failed to seek");
+                Err(e) => {
+                    error!("Failed to seek: {:#?}", e);
+                }
             }
         } else {
             warn!("Seek command received but no track is loaded");

@@ -125,7 +125,7 @@ class NavigationBarState extends State<NavigationBar> {
                         width: 320,
                         child: ParentLink(
                           titleFlipKey: titleFlipKey,
-                          text: parent.title,
+                          text: parent.titleBuilder(context),
                           onPressed: () => _onHeaderTap(context, parent),
                         ),
                       ),
