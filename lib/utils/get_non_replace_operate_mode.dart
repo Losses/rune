@@ -10,7 +10,7 @@ Future<PlaylistOperateMode> getNonReplaceOperateMode() async {
   String? storedVolume =
       await settingsManager.getValue<String>(nonReplaceOperateModeKey);
 
-  return storedVolume == 'play_next'
+  return storedVolume == 'PlayNext'
       ? PlaylistOperateMode.PlayNext
       : PlaylistOperateMode.AppendToEnd;
 }
