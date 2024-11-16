@@ -8,7 +8,7 @@ import '../../../../utils/api/fetch_collection_group_summary_title.dart';
 import '../../../../messages/search.pb.dart';
 import '../../../../messages/collection.pb.dart';
 import '../../../../providers/responsive_providers.dart';
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 import '../../../api/fetch_track_summary.dart';
 import '../../../dialogs/mix/widgets/input_section.dart';

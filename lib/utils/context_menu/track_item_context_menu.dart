@@ -11,7 +11,7 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 import '../execute_middle_click_action.dart';
 import '../router/navigation.dart';

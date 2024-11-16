@@ -12,7 +12,7 @@ import '../../utils/dialogs/playlist/remove_playlist_dialog.dart';
 import '../../messages/mix.pbserver.dart';
 import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 import '../execute_middle_click_action.dart';
 

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/router/navigation.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 Future<void> showFailedToInitializeLibrary(
   BuildContext context,

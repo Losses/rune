@@ -6,7 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../widgets/action_buttons.dart';
 import '../providers/responsive_providers.dart';
-import '../generated/l10n.dart';
+import '../utils/l10n.dart';
 
 class NoItems extends StatelessWidget {
   final String title;

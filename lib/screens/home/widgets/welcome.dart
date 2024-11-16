@@ -11,7 +11,7 @@ import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/responsive_providers.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});

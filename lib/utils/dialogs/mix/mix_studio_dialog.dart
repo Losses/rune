@@ -10,7 +10,7 @@ import '../../../widgets/navigation_bar/constants/navigation_bar_height.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../screens/search/widgets/track_search_item.dart';
 import '../../../messages/mix.pbserver.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../query_list.dart';

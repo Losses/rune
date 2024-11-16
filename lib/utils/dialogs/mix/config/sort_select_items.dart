@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../widgets/select_input_section.dart';
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 List<SelectItem> sortSelectItems(BuildContext context) => [
       SelectItem(

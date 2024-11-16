@@ -66,7 +66,7 @@ class AppTheme extends ChangeNotifier {
     notifyListeners();
   }
 
-  Locale? _locale;
+  Locale? _locale = Locale.fromSubtags(languageCode: 'zh', scriptCode: 'NAN');
   Locale? get locale => _locale;
   set locale(Locale? locale) {
     _locale = locale;

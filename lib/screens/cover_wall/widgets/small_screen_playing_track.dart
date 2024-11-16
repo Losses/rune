@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../providers/status.dart';
 import '../../../providers/responsive_providers.dart';

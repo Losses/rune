@@ -3,7 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';

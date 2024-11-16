@@ -16,8 +16,8 @@
   "@copyrightAnnouncement": {
     "description": "La dichiarazione completa sul copyright."
   },
-  "LicenseAnnouncement": "Questo prodotto è concesso in licenza sotto la licenza MPL.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "Questo prodotto è concesso in licenza sotto la licenza MPL.",
+  "@licenseAnnouncement": {
     "description": "La dichiarazione completa della licenza del software."
   },
   "factoryReset": "Ripristino di fabbrica",

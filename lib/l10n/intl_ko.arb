@@ -16,8 +16,8 @@
   "@copyrightAnnouncement": {
     "description": "완전한 저작권 문구입니다."
   },
-  "LicenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
+  "@licenseAnnouncement": {
     "description": "완전한 소프트웨어 라이선스 문구입니다."
   },
   "factoryReset": "공장 초기화",

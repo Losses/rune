@@ -9,7 +9,7 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 const disabledPlaybackModesKey = 'disabled_playback_modes';
 const middleClickActionKey = 'middle_click_action';

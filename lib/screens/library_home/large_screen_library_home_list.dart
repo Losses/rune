@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 import '../../utils/api/fetch_library_summary.dart';
 import '../../config/animation.dart';
 import '../../utils/router/navigation.dart';

@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../widgets/directory/directory_tree.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 import '../../unavailable_dialog_on_band.dart';
 

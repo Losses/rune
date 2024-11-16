@@ -16,8 +16,8 @@
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "LicenseAnnouncement": "This product is licensed under the MPL license.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "This product is licensed under the MPL license.",
+  "@licenseAnnouncement": {
     "description": "The complete software license statement."
   },
   "factoryReset": "Factory Reset",
@@ -686,5 +686,13 @@
   "language": "Language",
   "@language": {
     "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "System Language",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "Follow your system language settings, without special settings",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

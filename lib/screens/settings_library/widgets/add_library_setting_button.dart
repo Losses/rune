@@ -8,7 +8,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/library_path.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 import 'settings_button.dart';
 

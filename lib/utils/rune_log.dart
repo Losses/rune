@@ -16,6 +16,10 @@ void log(String type, String color, String content) {
   debugPrint(formattedLog);
 }
 
+void debug$(String content) {
+  log('DEBUG', blueColor, content);
+}
+
 void info$(String content) {
   log('INFO', greenColor, content);
 }

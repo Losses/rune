@@ -1,5 +1,5 @@
 {
-  "@@locale": "zh-Hant",
+  "@@locale": "zh_Hant_TW",
   "rune": "Rune",
   "@rune": {},
   "runePlayer": "Rune 播放器",
@@ -8,8 +8,8 @@
   "@copyright": {},
   "copyrightAnnouncement": "著作權 © 2024 Rune Player 開發團隊所有。",
   "@copyrightAnnouncement": {},
-  "LicenseAnnouncement": "本產品依 MPL 授權許可。",
-  "@LicenseAnnouncement": {},
+  "licenseAnnouncement": "本產品依 MPL 授權許可。",
+  "@licenseAnnouncement": {},
   "factoryReset": "恢復出廠設定",
   "@factoryReset": {},
   "factoryResetSubtitle": "從資料庫清單中移除所有項目",

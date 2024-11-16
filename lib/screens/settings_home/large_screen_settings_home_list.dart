@@ -11,7 +11,7 @@ import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../screens/settings_home/constants/first_column.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 class LargeScreenSettingsHomeListView extends StatefulWidget {
   const LargeScreenSettingsHomeListView({

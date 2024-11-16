@@ -7,7 +7,7 @@ import '../../utils/color_brightness.dart';
 import '../../messages/library_manage.pb.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 class ScanningPage extends StatefulWidget {
   const ScanningPage({super.key});

@@ -5,7 +5,7 @@ import '../widgets/select_input_section.dart';
 
 import '../../../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../../../widgets/playback_controller/playback_mode_button.dart';
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 List<SelectItem> modeSelectItems(BuildContext context) => [
       SelectItem(

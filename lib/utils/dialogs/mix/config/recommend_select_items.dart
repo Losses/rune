@@ -3,7 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../widgets/select_input_section.dart';
 
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 List<SelectItem> recommendSelectItems(BuildContext context) => [
       SelectItem(

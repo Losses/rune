@@ -16,8 +16,8 @@
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "LicenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
+  "@licenseAnnouncement": {
     "description": "The complete software license statement."
   },
   "factoryReset": "Fabrika Restarigo",
