@@ -4,10 +4,12 @@ class LanguageOption {
   final String title;
   final String sampleText;
   final Locale locale;
+  final bool experimental;
 
   const LanguageOption({
     required this.title,
     required this.sampleText,
     required this.locale,
+    this.experimental = false,
   });
 }

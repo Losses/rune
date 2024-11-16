@@ -1,12 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../utils/l10n.dart';
 
 import '../settings_library/widgets/settings_button.dart';
 
@@ -39,8 +39,21 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
     setState(() {
       if (storedLocale != null) {
         final parts = storedLocale.split('_');
-        if (parts.length == 2) {
-          locale = Locale(parts[0], parts[1]);
+        if (parts.isNotEmpty) {
+          if (parts.length == 3) {
+            locale = Locale.fromSubtags(
+              languageCode: parts[0],
+              scriptCode: parts[1],
+              countryCode: parts[2],
+            );
+          } else if (parts.length == 2) {
+            locale = Locale.fromSubtags(
+              languageCode: parts[0],
+              countryCode: parts[1],
+            );
+          } else if (parts.length == 1) {
+            locale = Locale(parts[0]);
+          }
         }
       }
     });
@@ -53,8 +66,12 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
     });
 
     if (newLocale != null) {
-      final serializedLocale =
-          '${newLocale.languageCode}_${newLocale.countryCode}';
+      final serializedLocale = [
+        newLocale.languageCode,
+        if (newLocale.scriptCode != null) newLocale.scriptCode,
+        if (newLocale.countryCode != null) newLocale.countryCode,
+      ].join('_');
+
       await _settingsManager.setValue(localeKey, serializedLocale);
     } else {
       await _settingsManager.removeValue(localeKey);
@@ -79,7 +96,9 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
                   },
                 ),
                 ...supportedLanguages.map((language) => SettingsButton(
-                      icon: Symbols.language,
+                      icon: language.experimental
+                          ? Symbols.experiment
+                          : Symbols.language,
                       title: language.title,
                       subtitle: language.sampleText,
                       onPressed: () {

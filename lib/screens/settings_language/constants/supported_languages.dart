@@ -8,6 +8,7 @@ const List<LanguageOption> supportedLanguages = [
     sampleText:
         'Alle Menschen sind frei und gleich an Würde und Rechten geboren. Sie sind mit Vernunft und Gewissen begabt und sollen einander im Geist der Brüderlichkeit begegnen.',
     locale: Locale.fromSubtags(languageCode: 'de'),
+    experimental: true,
   ),
   LanguageOption(
     title: 'English',
@@ -22,18 +23,21 @@ const List<LanguageOption> supportedLanguages = [
     // It's a bug of: github.com/flutter/flutter/issues/72422
     // SORRY! I KNOW THIS IS BAD!
     locale: Locale.fromSubtags(languageCode: 'en', countryCode: 'EO'),
+    experimental: true,
   ),
   LanguageOption(
     title: 'Français',
     sampleText:
         'Tous les êtres humains naissent libres et égaux en dignité et en droits. Ils sont doués de raison et de conscience et doivent agir les uns envers les autres dans un esprit de fraternité.',
     locale: Locale.fromSubtags(languageCode: 'fr'),
+    experimental: true,
   ),
   LanguageOption(
     title: 'Italiano',
     sampleText:
         'Tutti gli esseri umani nascono liberi ed eguali in dignità e diritti. Essi sono dotati di ragione e di coscienza e devono agire gli uni verso gli altri in spirito di fratellanza.',
     locale: Locale.fromSubtags(languageCode: 'it'),
+    experimental: true,
   ),
   LanguageOption(
     title: '日本語',
@@ -46,29 +50,34 @@ const List<LanguageOption> supportedLanguages = [
     sampleText:
         '모든 인간은 태어날 때부터 자유로우며 그 존엄과 권리에 있어 동등하다. 인간은 천부적으로 이성과 양심을 부여받았으며 서로 형제애의 정신으로 행동하여야 한다.',
     locale: Locale.fromSubtags(languageCode: 'ko'),
+    experimental: true,
   ),
   LanguageOption(
     title: 'Українська',
     sampleText:
         'Всі люди народжуються вільними і рівними у своїй гідності та правах. Вони наділені розумом і совістю і повинні діяти у відношенні один до одного в дусі братерства.',
     locale: Locale.fromSubtags(languageCode: 'uk'),
+    experimental: true,
   ),
   LanguageOption(
     title: '傳統中文',
     sampleText: '人人生而自由，在尊嚴與權利上一律平等。人人皆賦有理性與良知，並應以兄弟關係的精神相對待。',
     locale: Locale.fromSubtags(
         languageCode: 'zh', scriptCode: 'Hant', countryCode: 'TW'),
+    experimental: true,
   ),
   LanguageOption(
     title: '閩南語',
     sampleText: '眾人生來就是自由的，逐家的尊嚴佮權利是平等的。逐家攏有理性佮良心，應該用兄弟姊妹的精神相待。',
     locale: Locale.fromSubtags(
         languageCode: 'zh', scriptCode: 'Hant', countryCode: 'NAN'),
+    experimental: true,
   ),
   LanguageOption(
     title: '廣東話',
     sampleText: '人人生而自由，在尊嚴同權利上一律平等。人人具有理性同良心，而且應當以兄弟關係嘅精神相對待。',
     locale: Locale.fromSubtags(
         languageCode: 'zh', scriptCode: 'Hant', countryCode: 'YUE'),
+    experimental: true,
   ),
 ];
