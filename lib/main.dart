@@ -12,6 +12,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/settings_manager.dart';
@@ -30,6 +31,7 @@ import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
+import 'screens/settings_language/settings_language.dart';
 
 import 'messages/generated.dart';
 
@@ -89,6 +91,10 @@ void main(List<String> arguments) async {
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));
   }
+
+  final String? locale = await settingsManager.getValue<String>(localeKey);
+
+  appTheme.locale = localeFromString(locale);
 
   disableBrandingAnimation =
       await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??

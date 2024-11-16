@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/locale.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
@@ -37,25 +38,7 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
         await _settingsManager.getValue<String>(localeKey);
 
     setState(() {
-      if (storedLocale != null) {
-        final parts = storedLocale.split('_');
-        if (parts.isNotEmpty) {
-          if (parts.length == 3) {
-            locale = Locale.fromSubtags(
-              languageCode: parts[0],
-              scriptCode: parts[1],
-              countryCode: parts[2],
-            );
-          } else if (parts.length == 2) {
-            locale = Locale.fromSubtags(
-              languageCode: parts[0],
-              countryCode: parts[1],
-            );
-          } else if (parts.length == 1) {
-            locale = Locale(parts[0]);
-          }
-        }
-      }
+      locale = localeFromString(storedLocale);
     });
   }
 
