@@ -243,6 +243,40 @@ jobs:
           replacesArtifacts: false
           omitBodyDuringUpdate: true
           makeLatest: true
+
+  release-steam-sniper:
+    permissions:
+      contents: write
+    needs: build-steam-sniper
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Rune-*-steam-sniper
+          path: artifacts
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+          
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-steam-sniper-amd64.zip
+          directory: artifacts
+          
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          artifacts: "artifacts/*.zip"
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
     
   build-macos:
     runs-on: macos-latest
