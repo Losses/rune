@@ -8,7 +8,7 @@ import '../../../messages/collection.pb.dart';
 import 'large_screen_search_track_list_implementation.dart';
 
 class LargeScreenSearchTrackList extends StatelessWidget {
-  final CollectionType selectedItem;
+  final (CollectionType, String Function(BuildContext)) selectedItem;
   final Map<CollectionType, List<SearchCard>> items;
 
   const LargeScreenSearchTrackList({
@@ -29,7 +29,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 12),
-          Text('${selectedItem.toString()}s', style: typography.title),
+          Text(selectedItem.$2(context), style: typography.title),
           const SizedBox(height: 24),
           Expanded(
             child: LayoutBuilder(
@@ -42,7 +42,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
                 final int rows = max(
                     (constraints.maxWidth / (cellSize + gapSize)).floor(), 1);
 
-                final List<SearchCard> itemGroup = items[selectedItem] ?? [];
+                final List<SearchCard> itemGroup = items[selectedItem.$1] ?? [];
 
                 return LargeScreenSearchTrackListImplementation(
                   key: Key(selectedItem.toString()),
@@ -50,7 +50,7 @@ class LargeScreenSearchTrackList extends StatelessWidget {
                   ratio: ratio,
                   gapSize: gapSize,
                   cellSize: cellSize,
-                  collectionType: selectedItem,
+                  collectionType: selectedItem.$1,
                   items: itemGroup,
                   groupId: 0,
                 );

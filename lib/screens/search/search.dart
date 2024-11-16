@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/screens/search/constants/search_categories.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
@@ -67,7 +68,8 @@ class SearchPageImplementation extends StatefulWidget {
 class _SearchPageImplementationState extends State<SearchPageImplementation> {
   final searchController = TextEditingController();
 
-  CollectionType selectedItem = CollectionType.Track;
+  (CollectionType, String Function(BuildContext)) selectedItem =
+      searchCategories[0];
   Timer? _debounce;
   bool _isRequestInProgress = false;
   SearchForResponse? _searchResults;
@@ -198,7 +200,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     }
   }
 
-  void _setSelectedField(CollectionType item) {
+  void _setSelectedField((CollectionType, String Function(BuildContext)) item) {
     largeScreenLayoutManager.resetAnimations();
 
     setState(() {

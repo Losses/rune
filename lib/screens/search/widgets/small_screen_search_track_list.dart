@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../utils/l10n.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../messages/collection.pb.dart';
 
@@ -28,7 +29,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (items[CollectionType.Artist]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Artists"),
+                    SearchListSectionTitle(text: S.of(context).artists),
                   SmallScreenSearchTrackListImplementation(
                     collectionType: CollectionType.Artist,
                     items: items[CollectionType.Artist],
@@ -36,7 +37,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     direction: Axis.vertical,
                   ),
                   if (items[CollectionType.Album]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Albums"),
+                    SearchListSectionTitle(text: S.of(context).albums),
                   SmallScreenSearchTrackListImplementation(
                     collectionType: CollectionType.Album,
                     items: items[CollectionType.Album],
@@ -44,7 +45,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     direction: Axis.vertical,
                   ),
                   if (items[CollectionType.Playlist]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Playlists"),
+                    SearchListSectionTitle(text: S.of(context).playlists),
                   SmallScreenSearchTrackListImplementation(
                     collectionType: CollectionType.Playlist,
                     items: items[CollectionType.Playlist],
@@ -52,7 +53,7 @@ class SmallScreenSearchTrackList extends StatelessWidget {
                     direction: Axis.vertical,
                   ),
                   if (items[CollectionType.Track]?.isNotEmpty ?? false)
-                    const SearchListSectionTitle(text: "Tracks"),
+                    SearchListSectionTitle(text: S.of(context).tracks),
                   SmallScreenSearchTrackListImplementation(
                     collectionType: CollectionType.Track,
                     items: items[CollectionType.Track],
