@@ -116,6 +116,7 @@ dependencies = [
  "num-complex",
  "pollster",
  "rand",
+ "realfft",
  "rubato",
  "rustfft",
  "symphonia",
