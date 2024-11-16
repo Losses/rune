@@ -414,8 +414,6 @@
   "@cancelTaskSubtitle": {},
   "cancelTask": "作業を中止",
   "@cancelTask": {},
-  "continueText": "続行",
-  "@continueText": {},
   "continueTask": "続行",
   "@continueTask": {},
   "refresh": "更新",

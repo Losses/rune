@@ -410,8 +410,6 @@
   "@cancelTaskSubtitle": {},
   "cancelTask": "取消任務",
   "@cancelTask": {},
-  "continueText": "繼續",
-  "@continueText": {},
   "continueTask": "繼續",
   "@continueTask": {},
   "refresh": "重新整理",
