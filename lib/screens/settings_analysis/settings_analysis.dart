@@ -5,7 +5,7 @@ import '../../utils/settings_page_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 const analysisComputingDeviceKey = 'analysis_mode';
 const analysisPerformanceLevelKey = 'analysis_performance';

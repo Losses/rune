@@ -9,7 +9,7 @@ import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../messages/playlist.pb.dart';
 import '../../../messages/collection.pb.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 import '../../api/fetch_collection_group_summary_title.dart';
 

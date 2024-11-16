@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 final List<(String Function(BuildContext), String, IconData, bool)>
     firstColumn = [
@@ -27,6 +27,12 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     (context) => S.of(context).theme,
     '/settings/theme',
     Symbols.format_paint,
+    false
+  ),
+  (
+    (context) => S.of(context).language,
+    '/settings/language',
+    Symbols.language,
     false
   ),
   (

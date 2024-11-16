@@ -7,7 +7,7 @@ import '../../utils/router/navigation.dart';
 import '../../widgets/start_screen/utils/group.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 void showGroupListDialog(
   BuildContext context,

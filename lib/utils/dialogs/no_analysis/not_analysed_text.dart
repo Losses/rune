@@ -1,7 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 

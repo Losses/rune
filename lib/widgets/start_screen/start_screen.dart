@@ -16,7 +16,7 @@ import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../messages/all.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';

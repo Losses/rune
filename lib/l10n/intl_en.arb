@@ -16,15 +16,15 @@
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "LicenseAnnouncement": "This product is licensed under the MPL license.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "This product is licensed under the MPL license.",
+  "@licenseAnnouncement": {
     "description": "The complete software license statement."
   },
   "factoryReset": "Factory Reset",
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Remove all items from the library list",
+  "factoryResetSubtitle": "Remove all items from the library list.",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "Preferred playback mode for how your music plays.",
+  "playbackModeSubtitle": "Preferred playback mode for how your music plays",
   "@playbackModeSubtitle": {},
   "colorMode": "Color Mode",
   "@colorMode": {
@@ -682,5 +682,17 @@
   "explore": "Explore",
   "@explore": {
     "description": "Title of a functional area."
+  },
+  "language": "Language",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "System Language",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "Follow your system language settings, without special settings.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

@@ -6,7 +6,7 @@ import '../../../utils/router/navigation.dart';
 import '../../../widgets/library_task_button.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 import '../unavailable_dialog_on_band.dart';
 

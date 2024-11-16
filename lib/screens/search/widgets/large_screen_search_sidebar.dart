@@ -4,7 +4,7 @@ import '../../../widgets/slide_fade_transition.dart';
 import '../../../screens/search/widgets/search_card.dart';
 import '../../../messages/search.pb.dart';
 import '../../../messages/collection.pbenum.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 import '../constants/search_icons.dart';
 import '../constants/search_categories.dart';
@@ -12,10 +12,11 @@ import '../constants/search_categories.dart';
 import './search_suggest_box.dart';
 
 class LargeScreenSearchSidebar extends StatelessWidget {
-  final CollectionType selectedItem;
+  final (CollectionType, String Function(BuildContext)) selectedItem;
   final SearchSuggestBox autoSuggestBox;
   final SearchForResponse? searchResults;
-  final void Function(CollectionType) setSelectedField;
+  final void Function((CollectionType, String Function(BuildContext)))
+      setSelectedField;
 
   final Map<CollectionType, List<SearchCard>> items;
 
@@ -73,7 +74,7 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                     itemCount: searchCategories.length,
                     itemBuilder: (context, index) {
                       final item = searchCategories[index];
-                      final int itemCount = items[item]?.length ?? 0;
+                      final int itemCount = items[item.$1]?.length ?? 0;
 
                       return ListTile.selectable(
                         leading: Container(
@@ -93,7 +94,7 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                           children: [
                             Expanded(
                               child: Text(
-                                '${item.toString()}s',
+                                item.$2(context),
                                 style: typography.body,
                               ),
                             ),
@@ -107,7 +108,7 @@ class LargeScreenSearchSidebar extends StatelessWidget {
                           ],
                         ),
                         selectionMode: ListTileSelectionMode.single,
-                        selected: selectedItem == item,
+                        selected: selectedItem.$1 == item.$1,
                         onSelectionChange: (v) {
                           setSelectedField(item);
                         },

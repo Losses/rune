@@ -16,8 +16,8 @@
   "@copyrightAnnouncement": {
     "description": "완전한 저작권 문구입니다."
   },
-  "LicenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "이 제품은 MPL 라이선스 하에 라이선스가 부여되었습니다.",
+  "@licenseAnnouncement": {
     "description": "완전한 소프트웨어 라이선스 문구입니다."
   },
   "factoryReset": "공장 초기화",
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "사용자가 셔플 또는 순차 재생과 같은 원하는 재생 모드를 선택할 수 있도록 돕는 설정 인터페이스의 제목입니다."
   },
-  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다.",
+  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다",
   "@playbackModeSubtitle": {},
   "colorMode": "색상 모드",
   "@colorMode": {
@@ -682,5 +682,17 @@
   "explore": "탐색",
   "@explore": {
     "description": "기능 영역의 제목입니다."
+  },
+  "language": "언어",
+  "@language": {
+    "description": "언어 설정 페이지의 제목입니다."
+  },
+  "followSystemLanguage": "시스템 언어",
+  "@followSystemLanguage": {
+    "description": "설정에서 Rune의 언어가 운영 체제를 따르도록 하는 작업 버튼 텍스트입니다."
+  },
+  "followSystemLanguageSubtitle": "특별한 설정 없이 시스템 언어 설정을 따릅니다.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

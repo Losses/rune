@@ -16,15 +16,15 @@
   "@copyrightAnnouncement": {
     "description": "La déclaration complète des droits d'auteur."
   },
-  "LicenseAnnouncement": "Ce produit est sous licence MPL.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "Ce produit est sous licence MPL.",
+  "@licenseAnnouncement": {
     "description": "La déclaration complète de la licence logicielle."
   },
   "factoryReset": "Réinitialisation d'usine",
   "@factoryReset": {
     "description": "Le titre du bouton dans la page des paramètres qui déclenche l'action 'Réinitialiser l'historique de la bibliothèque'."
   },
-  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque",
+  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque.",
   "@factoryResetSubtitle": {
     "description": "Le texte descriptif pour le bouton 'Réinitialisation d'usine' dans l'interface des paramètres."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "Un titre dans l'interface des paramètres qui aide les utilisateurs à sélectionner le mode de lecture souhaité, tel que la lecture aléatoire ou séquentielle."
   },
-  "playbackModeSubtitle": "Mode de lecture préféré pour la façon dont votre musique est jouée.",
+  "playbackModeSubtitle": "Mode de lecture préféré pour la façon dont votre musique est jouée",
   "@playbackModeSubtitle": {},
   "colorMode": "Mode couleur",
   "@colorMode": {
@@ -682,5 +682,17 @@
   "explore": "Explorer",
   "@explore": {
     "description": "Titre d'une zone fonctionnelle."
+  },
+  "language": "Langue",
+  "@language": {
+    "description": "Titre de la page des paramètres de langue."
+  },
+  "followSystemLanguage": "Langue du système",
+  "@followSystemLanguage": {
+    "description": "Texte du bouton d'action dans les paramètres, indiquant que la langue de Rune doit suivre le système d'exploitation."
+  },
+  "followSystemLanguageSubtitle": "Suivez les paramètres de langue de votre système, sans réglages spéciaux.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

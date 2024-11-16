@@ -98,6 +98,7 @@ final Map<String, WidgetBuilder> routes = {
   '/settings/library': (context) => const settings.SettingsLibraryPage(),
   '/settings/analysis': (context) => const settings.SettingsAnalysis(),
   '/settings/theme': (context) => const settings.SettingsTheme(),
+  '/settings/language': (context) => const settings.SettingsLanguage(),
   '/settings/playback': (context) => const settings.SettingsPlayback(),
   '/settings/about': (context) => const settings.SettingsAboutPage(),
   '/settings/mix': (context) => const settings.SettingsTestPage(),

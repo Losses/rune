@@ -6,7 +6,7 @@ import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/collection/utils/collection_data_provider.dart';
 import '../../../messages/mix.pb.dart';
 import '../../../messages/collection.pb.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 import '../../api/create_mix.dart';
 import '../../api/update_mix.dart';

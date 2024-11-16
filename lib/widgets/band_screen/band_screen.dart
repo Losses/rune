@@ -13,7 +13,7 @@ import '../../widgets/infinite_list_loading.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/turntile/managed_turntile_screen_item.dart';
 import '../../providers/responsive_providers.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 import '../start_screen/utils/group.dart';
 import '../start_screen/utils/internal_collection.dart';

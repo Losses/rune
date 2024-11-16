@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/router/navigation.dart';
 import '../utils/navigation/navigation_item.dart';
 import '../providers/router_path.dart';
-import '../generated/l10n.dart';
+import '../utils/l10n.dart';
 
 final List<NavigationItem> navigationItems = [
   NavigationItem(
@@ -125,6 +125,10 @@ final List<NavigationItem> navigationItems = [
           NavigationItem(
             (context) => S.of(context).theme,
             '/settings/theme',
+          ),
+          NavigationItem(
+            (context) => S.of(context).language,
+            '/settings/language',
           ),
           NavigationItem(
             (context) => S.of(context).controller,

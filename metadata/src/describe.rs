@@ -70,7 +70,7 @@ impl FileDescription {
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .expect("No supported audio tracks");
+            .with_context(|| "No supported audio tracks")?;
 
         let codec_information = get_codec_information(track)
             .with_context(|| format!("Failed to get codec information: {}", full_math))?;

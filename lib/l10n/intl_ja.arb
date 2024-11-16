@@ -8,11 +8,11 @@
   "@copyright": {},
   "copyrightAnnouncement": "Copyright © 2024 Rune Player 開発者。",
   "@copyrightAnnouncement": {},
-  "LicenseAnnouncement": "この製品は MPL 許諾の下で許可されています。",
-  "@LicenseAnnouncement": {},
+  "licenseAnnouncement": "この製品は MPL 許諾の下で許可されています。",
+  "@licenseAnnouncement": {},
   "factoryReset": "初期化",
   "@factoryReset": {},
-  "factoryResetSubtitle": "音楽集からすべての項目を削除する",
+  "factoryResetSubtitle": "音楽集からすべての項目を削除する。",
   "@factoryResetSubtitle": {},
   "bsodBody": "本再生機に問題が発生したため、再起動が必要です。お客様の個人情報を尊重し、情報は一切収集いたしません。",
   "@bsodBody": {},
@@ -36,7 +36,7 @@
   "@start": {},
   "search": "検索",
   "@search": {},
-  "tracks": "曲,
+  "tracks": "曲",
   "@tracks": {},
   "system": "系統",
   "@system": {},
@@ -88,8 +88,14 @@
   "@batterySaving": {},
   "switchTo": "切り替え",
   "@switchTo": {},
+  "removeLibrary": "削除",
+  "@removeLibrary": {
+    "description": "メディアライブラリを削除するためのボタンのプロンプトテキスト。このボタンを押すと、履歴からライブラリエントリが削除されます。"
+  },
   "remove": "削除",
-  "@remove": {},
+  "@remove": {
+    "description": "ソフトウェアが何を削除すべきか特定できない場合に、コンテキストメニューでユーザーにコンテンツの削除を促すための代替テキストとしての動詞。"
+  },
   "addLibrary": "資料集を追加",
   "@addLibrary": {},
   "addLibrarySubtitle": "新しい資料集を追加し、既存の資料を検出する。",
@@ -114,13 +120,13 @@
   "@startRoaming": {},
   "playbackMode": "再生方法",
   "@playbackMode": {},
-  "playbackModeSubtitle": "音楽の再生方法について、希望する再生形式を選択してください。",
+  "playbackModeSubtitle": "音楽の再生方法について、希望する再生形式を選択してください",
   "@playbackModeSubtitle": {},
   "colorMode": "配色模式",
   "@colorMode": {},
   "colorModeSubtitle": " Rune に表示される配色を変更します。",
   "@colorModeSubtitle": {},
-  "systemColorMode": 作業系統と同期",
+  "systemColorMode": "作業系統と同期",
   "@systemColorMode": {},
   "dark": "暗い",
   "@dark": {},
@@ -408,12 +414,22 @@
   "@cancelTaskSubtitle": {},
   "cancelTask": "作業を中止",
   "@cancelTask": {},
-  "continueText": "続行",
-  "@continueText": {},
   "continueTask": "続行",
   "@continueTask": {},
   "refresh": "更新",
   "@refresh": {},
   "explore": "探す",
-  "@explore": {}
+  "@explore": {},
+  "language": "言語",
+  "@language": {
+    "description": "言語設定ページのタイトル。"
+  },
+  "followSystemLanguage": "系統言語",
+  "@followSystemLanguage": {
+    "description": "設定内のアクションボタンのテキストで、Runeの言語がオペレーティング系統に従うことを示します。"
+  },
+  "followSystemLanguageSubtitle": "特別な設定なしで、系統言語設定に従います。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  }
 }

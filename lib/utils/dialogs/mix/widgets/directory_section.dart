@@ -2,7 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/dialogs/mix/widgets/directory_picker_dialog.dart';
 import '../../../../widgets/directory/directory_tree.dart';
-import '../../../../generated/l10n.dart';
+import '../../../../utils/l10n.dart';
 
 import '../../../router/navigation.dart';
 

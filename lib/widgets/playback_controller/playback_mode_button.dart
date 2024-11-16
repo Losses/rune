@@ -6,7 +6,7 @@ import '../../utils/api/play_mode.dart';
 import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 IconData modeToIcon(PlaybackMode mode) {
   switch (mode) {

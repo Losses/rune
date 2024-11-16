@@ -12,14 +12,14 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
 const enableDynamicColorsKey = 'enable_dynamic_color';
 
-final settingsManager = SettingsManager();
+final _settingsManager = SettingsManager();
 
 const Map<String, Color> colors = {
   "SAKURA": Color(0xFFFEDFE1),
@@ -114,13 +114,14 @@ class _SettingsThemeState extends State<SettingsTheme> {
   }
 
   Future<void> _loadSettings() async {
-    final int? storedTheme = await settingsManager.getValue<int>(themeColorKey);
+    final int? storedTheme =
+        await _settingsManager.getValue<int>(themeColorKey);
     final String? storedColorMode =
-        await settingsManager.getValue<String>(colorModeKey);
+        await _settingsManager.getValue<String>(colorModeKey);
     final bool? storedDisableBrandingAnimation =
-        await settingsManager.getValue<bool>(disableBrandingAnimationKey);
+        await _settingsManager.getValue<bool>(disableBrandingAnimationKey);
     final bool? storedEnableDynamicColors =
-        await settingsManager.getValue<bool>(enableDynamicColorsKey);
+        await _settingsManager.getValue<bool>(enableDynamicColorsKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -152,7 +153,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
   }
 
   void _handleDynamicColorToggle(bool value) async {
-    await settingsManager.setValue(enableDynamicColorsKey, value);
+    await _settingsManager.setValue(enableDynamicColorsKey, value);
 
     setState(() {
       enableDynamicColors = value;
@@ -264,7 +265,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   subtitle: S.of(context).dynamicColorsSubtitle,
                   value: enableDynamicColors ?? false,
                   onChanged: (value) {
-                    settingsManager.setValue(
+                    _settingsManager.setValue(
                       enableDynamicColorsKey,
                       !value,
                     );
@@ -277,7 +278,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   subtitle: S.of(context).brandingAnimationSubtitle,
                   value: !(disableBrandingAnimation ?? false),
                   onChanged: (value) {
-                    settingsManager.setValue(
+                    _settingsManager.setValue(
                       disableBrandingAnimationKey,
                       !value,
                     );

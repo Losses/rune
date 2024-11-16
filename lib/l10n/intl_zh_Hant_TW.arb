@@ -1,5 +1,5 @@
 {
-  "@@locale": "zh-Hant",
+  "@@locale": "zh_Hant_TW",
   "rune": "Rune",
   "@rune": {},
   "runePlayer": "Rune 播放器",
@@ -8,11 +8,11 @@
   "@copyright": {},
   "copyrightAnnouncement": "著作權 © 2024 Rune Player 開發團隊所有。",
   "@copyrightAnnouncement": {},
-  "LicenseAnnouncement": "本產品依 MPL 授權許可。",
-  "@LicenseAnnouncement": {},
+  "licenseAnnouncement": "本產品依 MPL 授權許可。",
+  "@licenseAnnouncement": {},
   "factoryReset": "恢復出廠設定",
   "@factoryReset": {},
-  "factoryResetSubtitle": "從資料庫清單中移除所有項目",
+  "factoryResetSubtitle": "從資料庫清單中移除所有項目。",
   "@factoryResetSubtitle": {},
   "bsodBody": "您的播放器遇到問題，需要重新啟動。我們尊重您的隱私，不會收集任何資料。",
   "@bsodBody": {},
@@ -90,6 +90,8 @@
   "@switchTo": {},
   "remove": "移除",
   "@remove": {},
+  "removeLibrary": "移除",
+  "@removeLibrary": {},
   "addLibrary": "新增資料庫",
   "@addLibrary": {},
   "addLibrarySubtitle": "新增資料庫並掃描現有檔案",
@@ -114,7 +116,7 @@
   "@startRoaming": {},
   "playbackMode": "播放模式",
   "@playbackMode": {},
-  "playbackModeSubtitle": "偏好的音樂播放模式。",
+  "playbackModeSubtitle": "偏好的音樂播放模式",
   "@playbackModeSubtitle": {},
   "colorMode": "顏色模式",
   "@colorMode": {},
@@ -408,12 +410,22 @@
   "@cancelTaskSubtitle": {},
   "cancelTask": "取消任務",
   "@cancelTask": {},
-  "continueText": "繼續",
-  "@continueText": {},
   "continueTask": "繼續",
   "@continueTask": {},
   "refresh": "重新整理",
   "@refresh": {},
   "explore": "探索",
-  "@explore": {}
+  "@explore": {},
+  "language": "語言",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "系統語言",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "跟隨系統語言設定，無需特別設置。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  }
 }

@@ -6,7 +6,7 @@ import '../screens/settings_library/widgets/progress_button.dart';
 import '../messages/library_manage.pbenum.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
-import '../generated/l10n.dart';
+import '../utils/l10n.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(

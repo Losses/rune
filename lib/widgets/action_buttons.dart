@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../widgets/library_task_button.dart';
-import '../generated/l10n.dart';
+import '../utils/l10n.dart';
 
 class ActionButtons extends StatelessWidget {
   const ActionButtons({

@@ -5,7 +5,7 @@ import '../../../utils/ax_shadow.dart';
 import '../../../providers/status.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
-import '../../../generated/l10n.dart';
+import '../../../utils/l10n.dart';
 
 class LargeScreenPlayingTrack extends StatelessWidget {
   const LargeScreenPlayingTrack({super.key});

@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'settings_block.dart';

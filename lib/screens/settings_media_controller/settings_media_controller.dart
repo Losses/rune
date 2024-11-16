@@ -10,7 +10,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/settings_button.dart';
 import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 class SettingsMediaControllerPage extends StatefulWidget {
   const SettingsMediaControllerPage({super.key});

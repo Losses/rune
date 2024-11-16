@@ -16,15 +16,15 @@
   "@copyrightAnnouncement": {
     "description": "La dichiarazione completa sul copyright."
   },
-  "LicenseAnnouncement": "Questo prodotto è concesso in licenza sotto la licenza MPL.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "Questo prodotto è concesso in licenza sotto la licenza MPL.",
+  "@licenseAnnouncement": {
     "description": "La dichiarazione completa della licenza del software."
   },
   "factoryReset": "Ripristino di fabbrica",
   "@factoryReset": {
     "description": "Il titolo del pulsante nella pagina delle impostazioni che attiva l'azione 'Resetta cronologia libreria'."
   },
-  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria",
+  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria.",
   "@factoryResetSubtitle": {
     "description": "Il testo descrittivo per il pulsante 'Ripristino di fabbrica' nell'interfaccia delle impostazioni."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "Un titolo nell'interfaccia delle impostazioni che aiuta gli utenti a selezionare la modalità di riproduzione desiderata, come la riproduzione casuale o sequenziale."
   },
-  "playbackModeSubtitle": "Modalità di riproduzione preferita per come viene riprodotta la tua musica.",
+  "playbackModeSubtitle": "Modalità di riproduzione preferita per come viene riprodotta la tua musica",
   "@playbackModeSubtitle": {},
   "colorMode": "Modalità colore",
   "@colorMode": {
@@ -682,5 +682,17 @@
   "explore": "Esplora",
   "@explore": {
     "description": "Titolo di un'area funzionale."
+  },
+  "language": "Lingua",
+  "@language": {
+    "description": "Titolo della pagina delle impostazioni della lingua."
+  },
+  "followSystemLanguage": "Lingua di sistema",
+  "@followSystemLanguage": {
+    "description": "Testo del pulsante di azione nelle impostazioni, che indica che la lingua di Rune dovrebbe seguire il sistema operativo."
+  },
+  "followSystemLanguageSubtitle": "Segui le impostazioni della lingua del tuo sistema, senza impostazioni speciali.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

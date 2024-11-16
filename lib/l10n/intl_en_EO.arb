@@ -1,5 +1,5 @@
 {
-  "@@locale": "eo",
+  "@@locale": "en_EO",
   "rune": "Rune",
   "@rune": {
     "description": "The brand name of the software, which should not be translated."
@@ -16,15 +16,15 @@
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "LicenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
-  "@LicenseAnnouncement": {
+  "licenseAnnouncement": "Ĉi tiu produkto estas licencita sub la MPL-licenco.",
+  "@licenseAnnouncement": {
     "description": "The complete software license statement."
   },
   "factoryReset": "Fabrika Restarigo",
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko",
+  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko.",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas.",
+  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas",
   "@playbackModeSubtitle": {},
   "colorMode": "Kolora Reĝimo",
   "@colorMode": {
@@ -682,5 +682,17 @@
   "explore": "Esplori",
   "@explore": {
     "description": "Titolo de funkcia areo."
+  },
+  "language": "Lingvo",
+  "@language": {
+    "description": "Titolo de la lingvaj agordoj paĝo."
+  },
+  "followSystemLanguage": "Sistemo Lingvo",
+  "@followSystemLanguage": {
+    "description": "Ago butono teksto en agordoj, kiu indikas ke la lingvo de Rune sekvu la operaciumon."
+  },
+  "followSystemLanguageSubtitle": "Sekvu la agordojn de via sistemo lingvo, sen specialaj agordoj.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

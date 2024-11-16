@@ -10,7 +10,7 @@ import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/system.pb.dart';
 import '../../providers/responsive_providers.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 const size = 400.0;
 
@@ -271,7 +271,7 @@ class _CopyrightInfo extends StatelessWidget {
         const SizedBox(height: 4),
         Text(S.of(context).copyrightAnnouncement),
         const SizedBox(height: 4),
-        Text(S.of(context).LicenseAnnouncement),
+        Text(S.of(context).licenseAnnouncement),
       ],
     );
   }

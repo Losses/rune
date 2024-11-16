@@ -14,7 +14,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
-import '../../generated/l10n.dart';
+import '../../utils/l10n.dart';
 
 import 'utils/show_reset_library_dialog.dart';
 import 'widgets/settings_button.dart';
