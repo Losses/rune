@@ -236,7 +236,7 @@
   "@editPlaylist": {
     "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
   },
-  "editMix": "修改混音清單",
+  "editMix": "修改 Mix 清單",
   "@editMix": {
     "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
@@ -252,15 +252,15 @@
   "@removePlaylist": {
     "description": "An entry in the context menu that allows users to delete a playlist."
   },
-  "removeMix": "刣掉混音清單",
+  "removeMix": "刣掉 Mix 清單",
   "@removeMix": {
     "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "addToMix": "加入混音清單",
+  "addToMix": "加入 Mix 清單",
   "@addToMix": {
     "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "newMix": "新的混音清單",
+  "newMix": "新的 Mix 清單",
   "@newMix": {
     "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
@@ -561,11 +561,11 @@
   "@artistQuery": {},
   "playlistQuery": "播放清單查詢",
   "@playlistQuery": {},
-  "mixes": "混音清單",
+  "mixes": "Mix 清單",
   "@mixes": {
     "description": "Title of the Mix interface, referring to a type of smart playlist."
   },
-  "mixQuery": "混音清單查詢",
+  "mixQuery": "Mix 清單查詢",
   "@mixQuery": {},
   "settings": "設定",
   "@settings": {
@@ -641,15 +641,15 @@
   "@queue": {
     "description": "Title of the playlist modal."
   },
-  "createMix": "建立混音清單",
+  "createMix": "建立 Mix 清單",
   "@createMix": {
     "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
   },
-  "removeMixTitle": "刣掉混音清單",
+  "removeMixTitle": "刣掉 Mix 清單",
   "@removeMixTitle": {
     "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
   },
-  "removeMixSubtitle": "若是刣掉這个混音清單，就袂當閣救轉來矣。敢欲刣掉？",
+  "removeMixSubtitle": "若是刣掉這个 Mix 清單，就袂當閣救轉來矣。敢欲刣掉？",
   "@removeMixSubtitle": {},
   "delete": "刣掉",
   "@delete": {
