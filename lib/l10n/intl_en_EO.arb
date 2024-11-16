@@ -1,5 +1,5 @@
 {
-  "@@locale": "eo",
+  "@@locale": "en_EO",
   "rune": "Rune",
   "@rune": {
     "description": "The brand name of the software, which should not be translated."

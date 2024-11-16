@@ -19,7 +19,9 @@ const List<LanguageOption> supportedLanguages = [
     title: 'Esperanto',
     sampleText:
         'Ĉiuj homoj estas denaske liberaj kaj egalaj laŭ digno kaj rajtoj. Ili posedas racion kaj konsciencon, kaj devus konduti unu al alia en spirito de frateco.',
-    locale: Locale.fromSubtags(languageCode: 'eo'),
+    // It's a bug of: github.com/flutter/flutter/issues/72422
+    // SORRY! I KNOW THIS IS BAD!
+    locale: Locale.fromSubtags(languageCode: 'en', countryCode: 'EO'),
   ),
   LanguageOption(
     title: 'Français',

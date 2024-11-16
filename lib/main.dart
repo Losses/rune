@@ -232,9 +232,7 @@ class Rune extends StatelessWidget {
             visualDensity: VisualDensity.standard,
           ),
           locale: appTheme.locale,
-          localizationsDelegates: [
-            AppLocalizations.delegate,
-          ],
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
           supportedLocales: AppLocalizations.supportedLocales,
           builder: (context, child) {
             final theme = FluentTheme.of(context);
