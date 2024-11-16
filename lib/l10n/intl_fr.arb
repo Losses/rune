@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "Le titre du bouton dans la page des paramètres qui déclenche l'action 'Réinitialiser l'historique de la bibliothèque'."
   },
-  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque",
+  "factoryResetSubtitle": "Supprimer tous les éléments de la liste de la bibliothèque.",
   "@factoryResetSubtitle": {
     "description": "Le texte descriptif pour le bouton 'Réinitialisation d'usine' dans l'interface des paramètres."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "Un titre dans l'interface des paramètres qui aide les utilisateurs à sélectionner le mode de lecture souhaité, tel que la lecture aléatoire ou séquentielle."
   },
-  "playbackModeSubtitle": "Mode de lecture préféré pour la façon dont votre musique est jouée.",
+  "playbackModeSubtitle": "Mode de lecture préféré pour la façon dont votre musique est jouée",
   "@playbackModeSubtitle": {},
   "colorMode": "Mode couleur",
   "@colorMode": {

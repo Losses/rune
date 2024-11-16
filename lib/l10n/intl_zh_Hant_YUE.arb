@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "刪除所有音樂庫嘅項目",
+  "factoryResetSubtitle": "刪除所有音樂庫嘅項目。",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "你想點樣播放音樂嘅偏好設定。",
+  "playbackModeSubtitle": "你想點樣播放音樂嘅偏好設定",
   "@playbackModeSubtitle": {},
   "colorMode": "顏色模式",
   "@colorMode": {

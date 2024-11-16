@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "사용자가 셔플 또는 순차 재생과 같은 원하는 재생 모드를 선택할 수 있도록 돕는 설정 인터페이스의 제목입니다."
   },
-  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다.",
+  "playbackModeSubtitle": "음악이 재생되는 선호 재생 모드입니다",
   "@playbackModeSubtitle": {},
   "colorMode": "색상 모드",
   "@colorMode": {

@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko",
+  "factoryResetSubtitle": "Forigi ĉiujn elementojn el la biblioteko.",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas.",
+  "playbackModeSubtitle": "Preferata reprodukto reĝimo por kiel via muziko ludas",
   "@playbackModeSubtitle": {},
   "colorMode": "Kolora Reĝimo",
   "@colorMode": {

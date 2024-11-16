@@ -24,7 +24,7 @@
   "@factoryReset": {
     "description": "Il titolo del pulsante nella pagina delle impostazioni che attiva l'azione 'Resetta cronologia libreria'."
   },
-  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria",
+  "factoryResetSubtitle": "Rimuovi tutti gli elementi dalla lista della libreria.",
   "@factoryResetSubtitle": {
     "description": "Il testo descrittivo per il pulsante 'Ripristino di fabbrica' nell'interfaccia delle impostazioni."
   },
@@ -178,7 +178,7 @@
   "@playbackMode": {
     "description": "Un titolo nell'interfaccia delle impostazioni che aiuta gli utenti a selezionare la modalità di riproduzione desiderata, come la riproduzione casuale o sequenziale."
   },
-  "playbackModeSubtitle": "Modalità di riproduzione preferita per come viene riprodotta la tua musica.",
+  "playbackModeSubtitle": "Modalità di riproduzione preferita per come viene riprodotta la tua musica",
   "@playbackModeSubtitle": {},
   "colorMode": "Modalità colore",
   "@colorMode": {
