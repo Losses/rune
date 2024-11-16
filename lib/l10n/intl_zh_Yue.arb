@@ -1,100 +1,100 @@
 {
-  "@@locale": "en",
+  "@@locale": "zh-Yue",
   "rune": "Rune",
   "@rune": {
     "description": "The brand name of the software, which should not be translated."
   },
-  "runePlayer": "Rune Player",
+  "runePlayer": "Rune 播放器",
   "@runePlayer": {
     "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
   },
-  "copyright": "Copyright",
+  "copyright": "版權",
   "@copyright": {
     "description": "This is the title of an entry that appears in the settings interface under the copyright section."
   },
-  "copyrightAnnouncement": "Copyright © 2024 Rune Player Developers.",
+  "copyrightAnnouncement": "版權所有 © 2024 Rune Player 開發團隊。",
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "LicenseAnnouncement": "This product is licensed under the MPL license.",
+  "LicenseAnnouncement": "呢個產品係根據 MPL 許可證授權嘅。",
   "@LicenseAnnouncement": {
     "description": "The complete software license statement."
   },
-  "factoryReset": "Factory Reset",
+  "factoryReset": "恢復原廠設定",
   "@factoryReset": {
     "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
   },
-  "factoryResetSubtitle": "Remove all items from the library list",
+  "factoryResetSubtitle": "刪除所有音樂庫嘅項目",
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
-  "bsodBody": "Your player ran into a problem and needs a restart. We respect your privacy and won't collect any data.",
+  "bsodBody": "你嘅播放器遇到咗問題，需要重新啟動。我哋尊重你嘅私隱，唔會收集任何數據。",
   "@bsodBody": {
     "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
   },
-  "artists": "Artists",
+  "artists": "歌手",
   "@artists": {},
-  "albums": "Albums",
+  "albums": "專輯",
   "@albums": {},
-  "playlists": "Playlists",
+  "playlists": "播放清單",
   "@playlists": {},
-  "unknownAlbum": "Unknown Album",
+  "unknownAlbum": "未知專輯",
   "@unknownAlbum": {},
-  "unknownTrack": "Unknown Track",
+  "unknownTrack": "未知歌曲",
   "@unknownTrack": {},
-  "unknownArtist": "Unknown Artist",
+  "unknownArtist": "未知歌手",
   "@unknownArtist": {},
-  "selectDirectory": "Select Directory",
+  "selectDirectory": "選擇目錄",
   "@selectDirectory": {},
-  "noDataAvailable": "No data available",
+  "noDataAvailable": "冇可用嘅數據",
   "@noDataAvailable": {},
-  "start": "Start",
+  "start": "開始",
   "@start": {
     "description": "Decorative text appearing near the Library Home function list."
   },
-  "search": "Search",
+  "search": "搵嘢",
   "@search": {},
-  "tracks": "Tracks",
+  "tracks": "歌曲",
   "@tracks": {},
-  "system": "System",
+  "system": "系統",
   "@system": {},
-  "operatingSystem": "Operating system",
+  "operatingSystem": "作業系統",
   "@operatingSystem": {
     "description": "One of the titles for software information entries on the about page."
   },
-  "systemVersion": "System Version",
+  "systemVersion": "系統版本",
   "@systemVersion": {
     "description": "One of the titles for software information entries on the about page."
   },
-  "kernelVersion": "Kernel Version",
+  "kernelVersion": "內核版本",
   "@kernelVersion": {
     "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
   },
-  "hostName": "Host Name",
+  "hostName": "主機名稱",
   "@hostName": {
     "description": "An entry on the about page, usually indicating the computer's name."
   },
-  "player": "Player",
+  "player": "播放器",
   "@player": {
     "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
   },
-  "buildHash": "Build Hash",
+  "buildHash": "構建哈希值",
   "@buildHash": {},
-  "buildDate": "Build Date",
+  "buildDate": "構建日期",
   "@buildDate": {},
-  "commitDate": "Commit Date",
+  "commitDate": "提交日期",
   "@commitDate": {},
-  "rustcVersion": "Rustc version",
+  "rustcVersion": "Rustc 版本",
   "@rustcVersion": {},
-  "activation": "Activation",
+  "activation": "啟用",
   "@activation": {},
-  "runeIsActivated": "Rune is activated",
+  "runeIsActivated": "Rune 已啟用",
   "@runeIsActivated": {
     "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
   },
-  "productId": "Product ID",
+  "productId": "產品編號",
   "@productId": {},
-  "youMayBeAVictimOfGenuineSoftware": "You may be a victim of genuine software.",
+  "youMayBeAVictimOfGenuineSoftware": "你可能係正版軟件嘅受害者。",
   "@youMayBeAVictimOfGenuineSoftware": {
     "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
   },
@@ -102,589 +102,589 @@
   "@axiomDesign": {
     "description": "The design research organization that supports this project. You should keep the name as is, without translation."
   },
-  "computingDevice": "Computing Device",
+  "computingDevice": "計算裝置",
   "@computingDevice": {
     "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
   },
-  "computingDeviceSubtitle": "Select GPU or CPU for faster or more efficient processing.",
+  "computingDeviceSubtitle": "選擇 GPU 或 CPU 嚟獲得更快或更有效嘅處理。",
   "@computingDeviceSubtitle": {},
   "gpu": "GPU",
   "@gpu": {},
   "cpu": "CPU",
   "@cpu": {},
-  "performanceLevel": "Performance Level",
+  "performanceLevel": "性能等級",
   "@performanceLevel": {},
-  "performanceLevelSubtitle": "Choose how many tasks to run simultaneously.",
+  "performanceLevelSubtitle": "選擇同時執行幾多個任務。",
   "@performanceLevelSubtitle": {},
-  "performance": "Performance",
+  "performance": "高性能",
   "@performance": {
     "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
   },
-  "balance": "Balance",
+  "balance": "平衡",
   "@balance": {
     "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
   },
-  "batterySaving": "Battery Saving",
+  "batterySaving": "省電",
   "@batterySaving": {
     "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
   },
-  "switchTo": "Switch to",
+  "switchTo": "轉去",
   "@switchTo": {
     "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
   },
-  "removeLibrary": "Remove",
+  "removeLibrary": "移除",
   "@removeLibrary": {
     "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
   },
-  "addLibrary": "Add Library",
+  "addLibrary": "新增音樂庫",
   "@addLibrary": {
     "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
   },
-  "addLibrarySubtitle": "Add a new library and scan existing files.",
+  "addLibrarySubtitle": "新增音樂庫同掃描現有檔案。",
   "@addLibrarySubtitle": {},
-  "actionMenu": "Action Menu",
+  "actionMenu": "動作選單",
   "@actionMenu": {
     "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
   },
-  "addToQueue": "Add to Queue",
+  "addToQueue": "加入隊列",
   "@addToQueue": {
     "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
   },
-  "addToQueueSubtitle": "How new items will be added to the playback queue.",
+  "addToQueueSubtitle": "新嘅項目將會點樣加入播放隊列。",
   "@addToQueueSubtitle": {},
-  "playNext": "Play Next",
+  "playNext": "下一首播放",
   "@playNext": {
     "description": "An action that queues a track or album to play next in the playlist."
   },
-  "addToEnd": "Add to End",
+  "addToEnd": "加到最尾",
   "@addToEnd": {
     "description": "An action that queues a track or album to the end of the playlist."
   },
-  "middleClickAction": "Middle Click Action",
+  "middleClickAction": "中鍵動作",
   "@middleClickAction": {
     "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
   },
-  "middleClickActionSubtitle": "Action to perform when middle-clicking a track or collection.",
+  "middleClickActionSubtitle": "中鍵點擊歌曲或專輯時執行嘅動作。",
   "@middleClickActionSubtitle": {},
-  "startPlaying": "Start Playing",
+  "startPlaying": "開始播放",
   "@startPlaying": {
     "description": "An action the user can trigger to start playing music."
   },
-  "startRoaming": "Start Roaming",
+  "startRoaming": "開始漫遊",
   "@startRoaming": {
     "description": "An action the user can trigger to start playing music similar to the current track or album."
   },
-  "playbackMode": "Playback Mode",
+  "playbackMode": "播放模式",
   "@playbackMode": {
     "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
   },
-  "playbackModeSubtitle": "Preferred playback mode for how your music plays.",
+  "playbackModeSubtitle": "你想點樣播放音樂嘅偏好設定。",
   "@playbackModeSubtitle": {},
-  "colorMode": "Color Mode",
+  "colorMode": "顏色模式",
   "@colorMode": {
     "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
   },
-  "colorModeSubtitle": "Change the color mode that appears in Rune.",
+  "colorModeSubtitle": "更改 Rune 嘅顏色模式。",
   "@colorModeSubtitle": {},
-  "systemColorMode": "System",
+  "systemColorMode": "系統",
   "@systemColorMode": {
     "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
   },
-  "dark": "Dark",
+  "dark": "深色",
   "@dark": {
     "description": "A color settings entry that enables dark mode when selected."
   },
-  "light": "Light",
+  "light": "淺色",
   "@light": {
     "description": "A color settings entry that enables light mode when selected."
   },
-  "themeColor": "Theme Color",
+  "themeColor": "主題顏色",
   "@themeColor": {
     "description": "A settings entry that allows users to choose their preferred theme color."
   },
-  "themeColorSubtitle": "Select a color to give your Rune a refreshed look and feel.",
+  "themeColorSubtitle": "揀個顏色令你嘅 Rune 有新嘅感覺。",
   "@themeColorSubtitle": {},
-  "followSystemTheme": "Follow System Theme",
+  "followSystemTheme": "跟隨系統主題",
   "@followSystemTheme": {
     "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
   },
-  "dynamicColors": "Dynamic Colors",
+  "dynamicColors": "動態顏色",
   "@dynamicColors": {
     "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
   },
-  "dynamicColorsSubtitle": "Adjust Rune's theme colors based on the cover art of the playing track.",
+  "dynamicColorsSubtitle": "根據正在播放歌曲嘅封面嚟調整 Rune 嘅主題顏色。",
   "@dynamicColorsSubtitle": {},
-  "brandingAnimation": "Branding Animation",
+  "brandingAnimation": "品牌動畫",
   "@brandingAnimation": {
     "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
   },
-  "brandingAnimationSubtitle": "Play branding animation when Rune starts.",
+  "brandingAnimationSubtitle": "當 Rune 啟動時播放品牌動畫。",
   "@brandingAnimationSubtitle": {},
-  "thisMightTakeAFewMinutes": "This might take a few minutes.",
+  "thisMightTakeAFewMinutes": "呢個可能要幾分鐘。",
   "@thisMightTakeAFewMinutes": {
     "description": "Title on the scanning wait screen, reminding users to be patient."
   },
-  "tracksFound": " tracks found",
+  "tracksFound": " 首歌曲已搵到",
   "@tracksFound": {
     "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
   },
-  "albumCoversCollected": " album covers collected",
+  "albumCoversCollected": " 張專輯封面已收集",
   "@albumCoversCollected": {
     "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
   },
-  "editPlaylist": "Edit Playlist",
+  "editPlaylist": "編輯播放清單",
   "@editPlaylist": {
     "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
   },
-  "editMix": "Edit Mix",
+  "editMix": "編輯組合",
   "@editMix": {
     "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "edit": "Edit",
+  "edit": "編輯",
   "@edit": {
     "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
   },
-  "remove": "Remove",
+  "remove": "移除",
   "@remove": {
     "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
   },
-  "removePlaylist": "Remove Playlist",
+  "removePlaylist": "移除播放清單",
   "@removePlaylist": {
     "description": "An entry in the context menu that allows users to delete a playlist."
   },
-  "removeMix": "Remove Mix",
+  "removeMix": "移除組合",
   "@removeMix": {
     "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "addToMix": "Add to Mix",
+  "addToMix": "加入組合",
   "@addToMix": {
     "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "newMix": "New Mix",
+  "newMix": "新組合",
   "@newMix": {
     "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "selectAGroup": "Select a Group",
+  "selectAGroup": "選擇一個組別",
   "@selectAGroup": {
     "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
   },
-  "likedOnly": "Liked Only",
+  "likedOnly": "淨係讚好嘅",
   "@likedOnly": {
     "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
   },
-  "allTracks": "All Tracks",
+  "allTracks": "全部歌曲",
   "@allTracks": {
     "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
   },
-  "defaultMode": "Default",
+  "defaultMode": "預設",
   "@defaultMode": {
     "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
   },
-  "sequential": "Sequential",
+  "sequential": "順序播放",
   "@sequential": {
     "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
   },
-  "repeatAll": "Repeat All",
+  "repeatAll": "全部循環",
   "@repeatAll": {
-    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+    "description": "喺播放清單入面播放歌曲嘅一種方式，播完之後由頭開始重複播放。"
   },
-  "repeatOne": "Repeat One",
+  "repeatOne": "單曲循環",
   "@repeatOne": {
-    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+    "description": "喺播放清單入面播放歌曲嘅一種方式，不斷重複播放同一首歌。"
   },
-  "shuffle": "Shuffle",
+  "shuffle": "隨機播放",
   "@shuffle": {
-    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+    "description": "喺播放清單入面播放歌曲嘅一種方式，隨機排序播放。"
   },
-  "title": "Title",
+  "title": "標題",
   "@title": {
-    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+    "description": "喺播放清單或者混音編輯視窗入面嘅選項，指引用戶編輯佢嘅標題。"
   },
-  "group": "Group",
+  "group": "組別",
   "@group": {
-    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+    "description": "喺播放清單或者混音編輯視窗入面嘅選項，指引用戶編輯佢嘅組別。"
   },
-  "save": "Save",
+  "save": "儲存",
   "@save": {
-    "description": "An action button in the modal that saves changes when pressed."
+    "description": "視窗入面嘅動作掣，撳下去就會儲存更改。"
   },
-  "create": "Create",
+  "create": "新增",
   "@create": {
-    "description": "An action button in the modal that creates a new entry when pressed."
+    "description": "視窗入面嘅動作掣，撳下去就會新增項目。"
   },
-  "cancel": "Cancel",
+  "cancel": "取消",
   "@cancel": {
-    "description": "An action button in the modal that closes the modal without making changes."
+    "description": "視窗入面嘅動作掣，撳下去就會關閉視窗，唔會作出任何更改。"
   },
-  "noRecommendation": "No Recommendation",
+  "noRecommendation": "冇推薦",
   "@noRecommendation": {
-    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。揀呢個選項表示用戶唔想根據搜尋結果嚟推薦。"
   },
-  "basedOnAll": "Based on All",
+  "basedOnAll": "根據全部",
   "@basedOnAll": {
-    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。揀呢個選項會根據成個搜尋結果嚟推薦相似嘅歌曲。"
   },
-  "group1": "Group 1",
+  "group1": "第一組",
   "@group1": {},
-  "group2": "Group 2",
+  "group2": "第二組",
   "@group2": {},
-  "group3": "Group 3",
+  "group3": "第三組",
   "@group3": {},
-  "group4": "Group 4",
+  "group4": "第四組",
   "@group4": {},
-  "group5": "Group 5",
+  "group5": "第五組",
   "@group5": {},
-  "group6": "Group 6",
+  "group6": "第六組",
   "@group6": {},
-  "group7": "Group 7",
+  "group7": "第七組",
   "@group7": {},
-  "group8": "Group 8",
+  "group8": "第八組",
   "@group8": {},
-  "group9": "Group 9",
+  "group9": "第九組",
   "@group9": {},
-  "ascending": "Ascending",
+  "ascending": "升序",
   "@ascending": {
-    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。揀呢個選項會將搜尋結果升序排列。"
   },
-  "descending": "Descending",
+  "descending": "降序",
   "@descending": {
-    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。揀呢個選項會將搜尋結果降序排列。"
   },
-  "lastModified": "Last Modified",
+  "lastModified": "最後修改",
   "@lastModified": {
-    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。呢個選項容許用戶根據檔案元數據嘅最後修改時間嚟排序。"
   },
-  "duration": "Duration",
+  "duration": "長度",
   "@duration": {
-    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。呢個選項容許用戶根據音頻長度嚟排序。"
   },
-  "timesPlayedThrough": "Times Played Through",
+  "timesPlayedThrough": "播放次數",
   "@timesPlayedThrough": {
-    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been played through completely."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。呢個選項容許用戶根據音頻完整播放嘅次數嚟排序。"
   },
-  "timesSkipped": "Times Skipped",
+  "timesSkipped": "跳過次數",
   "@timesSkipped": {
-    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been skipped."
+    "description": "喺混音編輯視窗下拉選單入面嘅選項。呢個選項容許用戶根據音頻被跳過嘅次數嚟排序。"
   },
-  "pickDirectory": "Pick Directory",
+  "pickDirectory": "揀資料夾",
   "@pickDirectory": {
-    "description": "Button prompt text in the Mix edit modal. Pressing this button opens a modal to guide users in selecting a directory."
+    "description": "喺混音編輯視窗入面嘅掣提示文字。撳呢個掣會開一個視窗指引用戶揀資料夾。"
   },
-  "oneDirectory": "1 Directory",
+  "oneDirectory": "1個資料夾",
   "@oneDirectory": {
-    "description": "Status text indicating one directory has been selected."
+    "description": "表示揀咗一個資料夾嘅狀態文字。"
   },
-  "manyDirectories": "${count} Directories",
+  "manyDirectories": "${count}個資料夾",
   "@manyDirectories": {
-    "description": "Status text indicating multiple directories have been selected.",
+    "description": "表示揀咗多個資料夾嘅狀態文字。",
     "placeholders": {
       "count": {}
     }
   },
-  "confirm": "Confirm",
+  "confirm": "確定",
   "@confirm": {
-    "description": "Action button text in the modal, indicating the user's intent to confirm an action."
+    "description": "視窗入面嘅動作掣文字，表示用戶確定要執行動作。"
   },
-  "directories": "Directories",
+  "directories": "資料夾",
   "@directories": {
-    "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
+    "description": "視窗設定選項入面嘅一個標題，話畀用戶知下面啲選項係用嚟過濾資料夾入面嘅歌。"
   },
-  "allDirectories": "All Directories",
+  "allDirectories": "全部資料夾",
   "@allDirectories": {
-    "description": "Prompt indicating that all directories have been selected."
+    "description": "表示揀咗全部資料夾嘅提示。"
   },
-  "randomTracks": "Random Tracks",
+  "randomTracks": "隨機歌曲",
   "@randomTracks": {
-    "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
+    "description": "視窗設定選項入面嘅一個標題，話畀用戶知下面啲選項係用嚟揀幾多首隨機歌。"
   },
-  "amount": "Amount",
+  "amount": "數量",
   "@amount": {
     "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
   },
-  "mode": "Mode",
+  "mode": "模式",
   "@mode": {
     "description": "The playback mode for tracks."
   },
-  "recommendation": "Recommendation",
+  "recommendation": "推薦",
   "@recommendation": {
     "description": "A title for an entry in the modal settings options, informing users that the following options control the player's recommendation behavior."
   },
-  "sortBy": "Sort By",
+  "sortBy": "排序方式",
   "@sortBy": {
     "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting method for tracks."
   },
-  "sortOrder": "Sort Order",
+  "sortOrder": "排序順序",
   "@sortOrder": {
     "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
   },
-  "liked": "Liked",
+  "liked": "點咗讚",
   "@liked": {
     "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
   },
-  "noRoamingCollection": "Unable to start roaming. Tracks in the collection haven't been analyzed yet.",
+  "noRoamingCollection": "未能開始漫遊。歌曲庫仲未分析完。",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "Unable to start roaming. This track hasn't been analyzed yet.",
+  "noRomaingTrack": "未能開始漫遊。呢首歌仲未分析完。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} The library is being scanned, so analysis cannot be performed.",
+  "noAnalysisScanning": "${baseMessage} 歌曲庫而家掃描緊，暫時未能分析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} The library is being analyzed; please wait until the process is finished.",
+  "noAnalysisAnalyzing": "${baseMessage} 歌曲庫而家分析緊，請等分析完成。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Please analyze your library for the best experience.",
+  "noAnalysisDefault": "${baseMessage} 請分析你嘅歌曲庫以獲得最佳體驗。",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "notReady": "Not Ready",
+  "notReady": "未準備好",
   "@notReady": {
     "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
   },
-  "createPlaylist": "Create Playlist",
+  "createPlaylist": "新建播放列表",
   "@createPlaylist": {
     "description": "Modal title for creating a playlist."
   },
-  "scanLibrary": "Scan Library",
+  "scanLibrary": "掃描歌曲庫",
   "@scanLibrary": {
     "description": "Action button text in the modal, initiating a media library scan when pressed."
   },
-  "analyseTracks": "Analyse Tracks",
+  "analyseTracks": "分析歌曲",
   "@analyseTracks": {
     "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
   },
-  "scan": "Scan",
+  "scan": "掃描",
   "@scan": {
     "description": "Button prompt text in the settings interface, initiating a media library scan when pressed."
   },
-  "scanning": "Scanning",
+  "scanning": "掃描緊",
   "@scanning": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
   },
-  "analyse": "Analyse",
+  "analyse": "分析",
   "@analyse": {
     "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
   },
-  "analysing": "Analysing",
+  "analysing": "分析緊",
   "@analysing": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
   },
-  "tryCreatingYourOwnCollection": "Try creating your own collection",
+  "tryCreatingYourOwnCollection": "不如整個屬於你嘅收藏？",
   "@tryCreatingYourOwnCollection": {
     "description": "Text displayed on a blank page in the Collection view, suggesting users create a new collection."
   },
-  "theseActionsMayHelp": "These actions may help",
+  "theseActionsMayHelp": "呢啲動作可能幫到你",
   "@theseActionsMayHelp": {},
-  "tryScanningNewFiles": "Try scanning new files",
+  "tryScanningNewFiles": "試下掃描新文件",
   "@tryScanningNewFiles": {},
-  "noCollectionFound": "No collection found",
+  "noCollectionFound": "搵唔到收藏",
   "@noCollectionFound": {},
-  "noItemsInPlaylist": "No items in playlist",
+  "noItemsInPlaylist": "播放列表冇歌",
   "@noItemsInPlaylist": {},
-  "previous": "Previous",
+  "previous": "上一首",
   "@previous": {
     "description": "Button prompt text for controlling playback, used to skip to the previous track."
   },
-  "previousSubtitle": "Go to the previous track",
+  "previousSubtitle": "跳去上一首",
   "@previousSubtitle": {},
-  "playPause": "Play/Pause",
+  "playPause": "播放/暫停",
   "@playPause": {
     "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
   },
-  "playPauseSubtitle": "Toggle between play and pause",
+  "playPauseSubtitle": "切換播放同暫停",
   "@playPauseSubtitle": {},
-  "next": "Next",
+  "next": "下一首",
   "@next": {
     "description": "Button prompt text for controlling playback, used to skip to the next track."
   },
-  "nextSubtitle": "Go to the next track",
+  "nextSubtitle": "跳去下一首",
   "@nextSubtitle": {},
-  "volume": "Volume",
+  "volume": "音量",
   "@volume": {
     "description": "Button prompt text for controlling playback, used to adjust the volume."
   },
-  "volumeSubtitle": "Adjust the volume",
+  "volumeSubtitle": "調節音量",
   "@volumeSubtitle": {},
-  "playlist": "Playlist",
+  "playlist": "播放列表",
   "@playlist": {
     "description": "Button prompt text for controlling playback, used to display the playlist."
   },
-  "playlistSubtitle": "View the playback queue",
+  "playlistSubtitle": "睇下播放隊列",
   "@playlistSubtitle": {},
-  "hidden": "Hidden",
+  "hidden": "隱藏",
   "@hidden": {
     "description": "Button prompt text indicating a hidden button; this text is typically not used."
   },
-  "hiddenSubtitle": "Content below will be hidden in the others list",
+  "hiddenSubtitle": "呢啲內容會喺其他列表度隱藏",
   "@hiddenSubtitle": {},
-  "coverWall": "Cover Wall",
+  "coverWall": "封面牆",
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
-  "coverWallSubtitle": "Display cover art for a unique ambience",
+  "coverWallSubtitle": "顯示專輯封面，營造獨特氛圍",
   "@coverWallSubtitle": {},
-  "fullscreen": "Fullscreen",
+  "fullscreen": "全螢幕",
   "@fullscreen": {
-    "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
+    "description": "控制播放嘅按鈕提示文字，用嚟切換全螢幕模式。"
   },
-  "fullscreenSubtitle": "Enter or exit fullscreen mode",
+  "fullscreenSubtitle": "進入或者退出全螢幕模式",
   "@fullscreenSubtitle": {},
-  "pause": "Pause",
+  "pause": "暫停",
   "@pause": {
-    "description": "Button prompt text for controlling playback, used to pause the currently playing track."
+    "description": "控制播放嘅按鈕提示文字，用嚟暫停當前播放嘅歌曲。"
   },
-  "play": "Play",
+  "play": "播放",
   "@play": {
-    "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
+    "description": "控制播放嘅按鈕提示文字，用嚟從暫停狀態恢復播放。"
   },
-  "enable": "Enable",
+  "enable": "啟用",
   "@enable": {
-    "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
+    "description": "設置界面嘅單選按鈕提示文字，表示功能已啟用。"
   },
-  "disable": "Disable",
+  "disable": "停用",
   "@disable": {
-    "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
+    "description": "設置界面嘅單選按鈕提示文字，表示功能未啟用。"
   },
-  "noTracksFound": "No tracks found",
+  "noTracksFound": "搵唔到歌曲",
   "@noTracksFound": {},
-  "library": "Library",
+  "library": "音樂庫",
   "@library": {
-    "description": "Title of the media library settings interface."
+    "description": "媒體庫設置界面嘅標題。"
   },
-  "artistQuery": "Artist Query",
+  "artistQuery": "搜歌手",
   "@artistQuery": {},
-  "playlistQuery": "Playlist Query",
+  "playlistQuery": "搜播放列表",
   "@playlistQuery": {},
-  "mixes": "Mixes",
+  "mixes": "混音",
   "@mixes": {
-    "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
+    "description": "混音界面嘅標題，指智能播放列表嘅一種類型。唔好同'remix'混淆。"
   },
-  "mixQuery": "Mix Query",
+  "mixQuery": "搜混音",
   "@mixQuery": {},
-  "settings": "Settings",
+  "settings": "設定",
   "@settings": {
-    "description": "Title of the settings interface."
+    "description": "設定界面嘅標題。"
   },
-  "analysis": "Analysis",
+  "analysis": "分析",
   "@analysis": {
-    "description": "Title of the analysis settings interface."
+    "description": "分析設定界面嘅標題。"
   },
-  "playback": "Playback",
+  "playback": "播放",
   "@playback": {
-    "description": "Title of the playback settings interface."
+    "description": "播放設定界面嘅標題。"
   },
-  "theme": "Theme",
+  "theme": "主題",
   "@theme": {
-    "description": "Title of the theme settings interface."
+    "description": "主題設定界面嘅標題。"
   },
-  "controller": "Controller",
+  "controller": "控制器",
   "@controller": {
-    "description": "Title of the playback control button settings interface."
+    "description": "播放控制按鈕設定界面嘅標題。"
   },
-  "about": "About",
+  "about": "關於",
   "@about": {
-    "description": "Title of the about interface."
+    "description": "關於界面嘅標題。"
   },
-  "selectLibraryDirectorySubtitle": "Select your audio library directory, and we will scan and analyze all tracks within it.",
+  "selectLibraryDirectorySubtitle": "選擇你嘅音樂庫目錄，我哋會掃描同分析入面所有嘅歌曲。",
   "@selectLibraryDirectorySubtitle": {},
-  "resetLibrary": "Reset Library",
+  "resetLibrary": "重置音樂庫",
   "@resetLibrary": {
-    "description": "Action button text in the modal, indicating the user wants to reset the library."
+    "description": "模態框中嘅操作按鈕文字，表示用戶想重置音樂庫。"
   },
-  "resetLibraryQuestion": "Reset Library",
+  "resetLibraryQuestion": "重置音樂庫",
   "@resetLibraryQuestion": {
-    "description": "Modal title asking users if they want to reset the library."
+    "description": "詢問用戶系咪要重置音樂庫嘅模態框標題。"
   },
-  "resetLibrarySubtitle": "Resetting the library will clear your file open history. Your existing media library will remain unchanged. Do you want to proceed?",
+  "resetLibrarySubtitle": "重置音樂庫會清除你嘅文件打開記錄。你現有嘅媒體庫唔會改變。你要繼續嗎？",
   "@resetLibrarySubtitle": {},
-  "unavailable": "Unavailable",
+  "unavailable": "無法使用",
   "@unavailable": {
-    "description": "Context menu element that is unavailable, appearing only when there is a bug."
+    "description": "上下文菜單元素顯示無法使用，只會喺出現bug嘅時候顯示。"
   },
-  "goToArtist": "Go to Artist",
+  "goToArtist": "去歌手頁面",
   "@goToArtist": {
-    "description": "Context menu item guiding users to the artist's page."
+    "description": "引導用戶去歌手頁面嘅上下文菜單項。"
   },
-  "goToAlbum": "Go to Album",
+  "goToAlbum": "去專輯頁面",
   "@goToAlbum": {
-    "description": "Context menu item guiding users to the album's page."
+    "description": "引導用戶去專輯頁面嘅上下文菜單項。"
   },
-  "addToPlaylist": "Add to Playlist",
+  "addToPlaylist": "加入播放列表",
   "@addToPlaylist": {
-    "description": "Context menu item guiding users to add a track or album to a playlist."
+    "description": "引導用戶將歌曲或專輯加入播放列表嘅上下文菜單項。"
   },
-  "newPlaylist": "New Playlist",
+  "newPlaylist": "新播放列表",
   "@newPlaylist": {
-    "description": "Context menu item guiding users to create a new playlist."
+    "description": "引導用戶創建新播放列表嘅上下文菜單項。"
   },
-  "unableToOpenLibrary": "Unable to Open Library",
+  "unableToOpenLibrary": "無法打開音樂庫",
   "@unableToOpenLibrary": {
-    "description": "Modal title informing users that the library cannot be opened."
+    "description": "通知用戶無法打開音樂庫嘅模態框標題。"
   },
-  "unableToOpenLibrarySubtitle": "The Library could not be opened due to the following error:",
+  "unableToOpenLibrarySubtitle": "由於以下錯誤，無法打開音樂庫：",
   "@unableToOpenLibrarySubtitle": {},
-  "unknownError": "Unknown Error",
+  "unknownError": "未知錯誤",
   "@unknownError": {
-    "description": "Modal error content indicating an unknown error."
+    "description": "表示發生未知錯誤嘅模態框錯誤內容。"
   },
-  "close": "Close",
+  "close": "關閉",
   "@close": {
-    "description": "Action button in the modal guiding users to close it."
+    "description": "引導用戶關閉模態框嘅操作按鈕。"
   },
-  "queue": "Queue",
+  "queue": "隊列",
   "@queue": {
-    "description": "Title of the playlist modal."
+    "description": "播放列表模態框嘅標題。"
   },
-  "createMix": "Create Mix",
+  "createMix": "創建混音",
   "@createMix": {
-    "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
+    "description": "引導用戶創建新混音（一種智能播放列表）嘅上下文菜單項。唔好同'remix'混淆。"
   },
-  "removeMixTitle": "Remove Mix",
+  "removeMixTitle": "刪除混音",
   "@removeMixTitle": {
-    "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
+    "description": "通知用戶佢哋要刪除混音（一種智能播放列表）嘅模態框標題。唔好同'remix'混淆。"
   },
-  "removeMixSubtitle": "If you delete this mix, you won't be able to recover it. Do you want to delete it?",
+  "removeMixSubtitle": "如果你刪除呢個混音，就冇辦法恢復返。你確定要刪除？",
   "@removeMixSubtitle": {},
-  "delete": "Delete",
+  "delete": "刪除",
   "@delete": {
-    "description": "Action button text in the modal indicating that pressing it will delete information."
+    "description": "模態框中嘅操作按鈕文字，表示按下會刪除資訊。"
   },
-  "removePlaylistTitle": "Remove Playlist",
+  "removePlaylistTitle": "刪除播放列表",
   "@removePlaylistTitle": {
-    "description": "Modal title informing users they are about to delete a playlist."
+    "description": "通知用戶佢哋要刪除播放列表嘅模態框標題。"
   },
-  "removePlaylistSubtitle": "If you delete this playlist, you won't be able to recover it. Do you want to delete it?",
+  "removePlaylistSubtitle": "如果你刪除呢個播放列表，就冇辦法恢復返。你確定要刪除？",
   "@removePlaylistSubtitle": {},
-  "cancelTaskTitle": "Cancel Task",
+  "cancelTaskTitle": "取消任務",
   "@cancelTaskTitle": {
-    "description": "Modal title informing users they are about to cancel a task."
+    "description": "通知用戶佢哋要取消任務嘅模態框標題。"
   },
-  "cancelTaskSubtitle": "If you cancel this task, it will stop at its current completion state. Do you want to cancel it?",
+  "cancelTaskSubtitle": "如果你取消呢個任務，佢會喺當前進度停止。你要取消？",
   "@cancelTaskSubtitle": {},
-  "cancelTask": "Cancel Task",
+  "cancelTask": "取消任務",
   "@cancelTask": {
-    "description": "Action button text in the modal indicating that pressing it will cancel the task."
+    "description": "模態框中嘅操作按鈕文字，表示按下會取消任務。"
   },
-  "continueTask": "Continue",
+  "continueTask": "繼續",
   "@continueTask": {
-    "description": "Action button text in the modal indicating that pressing it will continue the task."
+    "description": "模態框中嘅操作按鈕文字，表示按下會繼續任務。"
   },
-  "refresh": "Refresh",
+  "refresh": "刷新",
   "@refresh": {
-    "description": "Context menu item guiding users to refresh the current page's information."
+    "description": "引導用戶刷新當前頁面資訊嘅上下文菜單項。"
   },
-  "explore": "Explore",
+  "explore": "探索",
   "@explore": {
-    "description": "Title of a functional area."
+    "description": "功能區嘅標題。"
   },
-  "language": "Language",
+  "language": "語言",
   "@language": {
-    "description": "Title of a the language settings page."
+    "description": "語言設定頁面嘅標題。"
   }
 }
