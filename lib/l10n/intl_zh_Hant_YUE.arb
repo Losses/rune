@@ -686,5 +686,13 @@
   "language": "語言",
   "@language": {
     "description": "語言設定頁面嘅標題。"
+  },
+  "followSystemLanguage": "跟機設定",
+  "@followSystemLanguage": {
+    "description": "設定頁面入面嘅動作按鈕文字，表示 Rune 嘅語言會跟隨操作系統設定。"
+  },
+  "followSystemLanguageSubtitle": "跟隨系統語言設定，唔使特別設定。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

@@ -90,6 +90,8 @@
   "@switchTo": {},
   "remove": "移除",
   "@remove": {},
+  "removeLibrary": "移除",
+  "@removeLibrary": {},
   "addLibrary": "新增資料庫",
   "@addLibrary": {},
   "addLibrarySubtitle": "新增資料庫並掃描現有檔案",
@@ -415,5 +417,17 @@
   "refresh": "重新整理",
   "@refresh": {},
   "explore": "探索",
-  "@explore": {}
+  "@explore": {},
+  "language": "語言",
+  "@language": {
+    "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "系統語言",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "跟隨系統語言設定，無需特別設置。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  }
 }

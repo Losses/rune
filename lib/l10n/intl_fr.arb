@@ -682,5 +682,17 @@
   "explore": "Explorer",
   "@explore": {
     "description": "Titre d'une zone fonctionnelle."
+  },
+  "language": "Langue",
+  "@language": {
+    "description": "Titre de la page des paramètres de langue."
+  },
+  "followSystemLanguage": "Langue du système",
+  "@followSystemLanguage": {
+    "description": "Texte du bouton d'action dans les paramètres, indiquant que la langue de Rune doit suivre le système d'exploitation."
+  },
+  "followSystemLanguageSubtitle": "Suivez les paramètres de langue de votre système, sans réglages spéciaux.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

@@ -88,8 +88,14 @@
   "@batterySaving": {},
   "switchTo": "切り替え",
   "@switchTo": {},
+  "removeLibrary": "削除",
+  "@removeLibrary": {
+    "description": "メディアライブラリを削除するためのボタンのプロンプトテキスト。このボタンを押すと、履歴からライブラリエントリが削除されます。"
+  },
   "remove": "削除",
-  "@remove": {},
+  "@remove": {
+    "description": "ソフトウェアが何を削除すべきか特定できない場合に、コンテキストメニューでユーザーにコンテンツの削除を促すための代替テキストとしての動詞。"
+  },
   "addLibrary": "資料集を追加",
   "@addLibrary": {},
   "addLibrarySubtitle": "新しい資料集を追加し、既存の資料を検出する。",
@@ -415,5 +421,17 @@
   "refresh": "更新",
   "@refresh": {},
   "explore": "探す",
-  "@explore": {}
+  "@explore": {},
+  "language": "言語",
+  "@language": {
+    "description": "言語設定ページのタイトル。"
+  },
+  "followSystemLanguage": "系統言語",
+  "@followSystemLanguage": {
+    "description": "設定内のアクションボタンのテキストで、Runeの言語がオペレーティング系統に従うことを示します。"
+  },
+  "followSystemLanguageSubtitle": "特別な設定なしで、系統言語設定に従います。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
+  }
 }

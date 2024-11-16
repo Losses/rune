@@ -682,5 +682,17 @@
   "explore": "탐색",
   "@explore": {
     "description": "기능 영역의 제목입니다."
+  },
+  "language": "언어",
+  "@language": {
+    "description": "언어 설정 페이지의 제목입니다."
+  },
+  "followSystemLanguage": "시스템 언어",
+  "@followSystemLanguage": {
+    "description": "설정에서 Rune의 언어가 운영 체제를 따르도록 하는 작업 버튼 텍스트입니다."
+  },
+  "followSystemLanguageSubtitle": "특별한 설정 없이 시스템 언어 설정을 따릅니다.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

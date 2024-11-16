@@ -682,5 +682,17 @@
   "explore": "Esplori",
   "@explore": {
     "description": "Titolo de funkcia areo."
+  },
+  "language": "Lingvo",
+  "@language": {
+    "description": "Titolo de la lingvaj agordoj paĝo."
+  },
+  "followSystemLanguage": "Sistemo Lingvo",
+  "@followSystemLanguage": {
+    "description": "Ago butono teksto en agordoj, kiu indikas ke la lingvo de Rune sekvu la operaciumon."
+  },
+  "followSystemLanguageSubtitle": "Sekvu la agordojn de via sistemo lingvo, sen specialaj agordoj.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

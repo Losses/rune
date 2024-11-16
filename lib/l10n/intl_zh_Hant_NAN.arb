@@ -683,8 +683,16 @@
   "@explore": {
     "description": "Title of a functional area."
   },
-  "language": "語言",
+  "language": "話語",
   "@language": {
     "description": "Title of a the language settings page."
+  },
+  "followSystemLanguage": "系統的話語",
+  "@followSystemLanguage": {
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
+  },
+  "followSystemLanguageSubtitle": "照系統的話語設定，免特別設定。",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }

@@ -1,0 +1,696 @@
+{
+  "@@locale": "de",
+  "rune": "Rune",
+  "@rune": {
+    "description": "Der Markenname der Software, der nicht übersetzt werden sollte."
+  },
+  "runePlayer": "Rune Player",
+  "@runePlayer": {
+    "description": "Der vollständige Name der Software. Der Teil 'Player' sollte normal übersetzt werden, aber 'Rune' als Markenname sollte nicht übersetzt werden."
+  },
+  "copyright": "Urheberrecht",
+  "@copyright": {
+    "description": "Dies ist der Titel eines Eintrags, der in der Einstellungsoberfläche unter dem Abschnitt Urheberrecht erscheint."
+  },
+  "copyrightAnnouncement": "Urheberrecht © 2024 Rune Player Entwickler.",
+  "@copyrightAnnouncement": {
+    "description": "Die vollständige Urheberrechtserklärung."
+  },
+  "licenseAnnouncement": "Dieses Produkt ist unter der MPL-Lizenz lizenziert.",
+  "@licenseAnnouncement": {
+    "description": "Die vollständige Software-Lizenzierungserklärung."
+  },
+  "factoryReset": "Werkseinstellungen",
+  "@factoryReset": {
+    "description": "Der Titel des Buttons auf der Einstellungsseite, der die Aktion 'Bibliothekshistorie zurücksetzen' auslöst."
+  },
+  "factoryResetSubtitle": "Alle Elemente aus der Bibliotheksliste entfernen.",
+  "@factoryResetSubtitle": {
+    "description": "Der beschreibende Text für den 'Werkseinstellungen'-Button in der Einstellungsoberfläche."
+  },
+  "bsodBody": "Ihr Player hat ein Problem festgestellt und muss neu gestartet werden. Wir respektieren Ihre Privatsphäre und sammeln keine Daten.",
+  "@bsodBody": {
+    "description": "Auf der Bluescreen-Oberfläche erklärt dies dem Benutzer, dass die Software einen schwerwiegenden Fehler festgestellt hat. Der zweite Satz spricht humorvoll die weit verbreiteten Datenschutzbedenken in der modernen Softwareentwicklung an. Gerne spielerisch halten."
+  },
+  "artists": "Künstler",
+  "@artists": {},
+  "albums": "Alben",
+  "@albums": {},
+  "playlists": "Wiedergabelisten",
+  "@playlists": {},
+  "unknownAlbum": "Unbekanntes Album",
+  "@unknownAlbum": {},
+  "unknownTrack": "Unbekannter Titel",
+  "@unknownTrack": {},
+  "unknownArtist": "Unbekannter Künstler",
+  "@unknownArtist": {},
+  "selectDirectory": "Verzeichnis auswählen",
+  "@selectDirectory": {},
+  "noDataAvailable": "Keine Daten verfügbar",
+  "@noDataAvailable": {},
+  "start": "Start",
+  "@start": {
+    "description": "Dekorativer Text, der in der Nähe der Bibliothekshome-Funktionsliste erscheint."
+  },
+  "search": "Suche",
+  "@search": {},
+  "tracks": "Titel",
+  "@tracks": {},
+  "system": "System",
+  "@system": {},
+  "operatingSystem": "Betriebssystem",
+  "@operatingSystem": {
+    "description": "Einer der Titel für Softwareinformations-Einträge auf der Über-Seite."
+  },
+  "systemVersion": "Systemversion",
+  "@systemVersion": {
+    "description": "Einer der Titel für Softwareinformations-Einträge auf der Über-Seite."
+  },
+  "kernelVersion": "Kernelversion",
+  "@kernelVersion": {
+    "description": "Ein Eintrag auf der Über-Seite, der normalerweise die Version des Betriebssystemkernels zu Diagnosezwecken angibt."
+  },
+  "hostName": "Host-Name",
+  "@hostName": {
+    "description": "Ein Eintrag auf der Über-Seite, der normalerweise den Namen des Computers angibt."
+  },
+  "player": "Player",
+  "@player": {
+    "description": "Ein Abschnittstitel für Software-Metadaten auf der Über-Seite, der einen Überblick über die Versionsinformationen der Software bietet."
+  },
+  "buildHash": "Build-Hash",
+  "@buildHash": {},
+  "buildDate": "Build-Datum",
+  "@buildDate": {},
+  "commitDate": "Commit-Datum",
+  "@commitDate": {},
+  "rustcVersion": "Rustc-Version",
+  "@rustcVersion": {},
+  "activation": "Aktivierung",
+  "@activation": {},
+  "runeIsActivated": "Rune ist aktiviert",
+  "@runeIsActivated": {
+    "description": "Informiert den Benutzer, dass die Software derzeit aktiviert ist. Tatsächlich ist die Software unter allen Umständen immer aktiviert."
+  },
+  "productId": "Produkt-ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "Sie könnten Opfer einer echten Software sein.",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "Dieser Satz ist ein Easter Egg, das satirisch darauf hinweist, dass Anti-Piraterie-Maßnahmen oft das Erlebnis für legitime Benutzer schlechter machen als für diejenigen, die Raubkopien verwenden. Gerne spielerisch halten."
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "Die Designforschungsorganisation, die dieses Projekt unterstützt. Sie sollten den Namen unverändert lassen, ohne Übersetzung."
+  },
+  "computingDevice": "Rechengerät",
+  "@computingDevice": {
+    "description": "Ein Einstellungs-Eintragstitel, der es Benutzern ermöglicht, das Hardwaregerät auszuwählen, das für die Durchführung von Audioanalyseaufgaben verantwortlich ist."
+  },
+  "computingDeviceSubtitle": "Wählen Sie GPU oder CPU für schnellere oder effizientere Verarbeitung.",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "Leistungsstufe",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "Wählen Sie, wie viele Aufgaben gleichzeitig ausgeführt werden sollen.",
+  "@performanceLevelSubtitle": {},
+  "performance": "Leistung",
+  "@performance": {
+    "description": "Hochleistungsmodus, der verfügbare Hardware-Ressourcen nutzt, um Berechnungen so schnell wie möglich abzuschließen."
+  },
+  "balance": "Balance",
+  "@balance": {
+    "description": "Ausgewogener Modus, der Ressourcen gleichmäßig verteilt, um zu verhindern, dass Berechnungsaufgaben das System überlasten und Verzögerungen verursachen."
+  },
+  "batterySaving": "Energiesparen",
+  "@batterySaving": {
+    "description": "Energiesparmodus, der den Ressourcenverbrauch minimiert, um Überhitzung zu verhindern, geeignet für weniger leistungsstarke Geräte."
+  },
+  "switchTo": "Wechseln zu",
+  "@switchTo": {
+    "description": "Button-Aufforderungstext zum Wechseln von Mediatheken. Durch Drücken dieser Taste wird die aktuelle Bibliothek geschlossen und eine neue geöffnet."
+  },
+  "removeLibrary": "Entfernen",
+  "@removeLibrary": {
+    "description": "Button-Aufforderungstext zum Entfernen einer Mediathek. Durch Drücken dieser Taste wird der Bibliothekseintrag aus der Historie gelöscht."
+  },
+  "addLibrary": "Bibliothek hinzufügen",
+  "@addLibrary": {
+    "description": "Button-Aufforderungstext in der Einstellungsoberfläche zum Erstellen einer neuen Mediathek. Durch Drücken dieser Taste wird der Benutzer dazu geführt, ein Verzeichnis auszuwählen und eine Bibliothek zu erstellen."
+  },
+  "addLibrarySubtitle": "Eine neue Bibliothek hinzufügen und vorhandene Dateien scannen.",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "Aktionsmenü",
+  "@actionMenu": {
+    "description": "Ein Trenner in der Einstellungsoberflächen-Elementliste. Alle Elemente unter diesem Trenner werden in einem Pop-up-Button anstelle der direkten Anzeige auf dem Bildschirm ausgeblendet."
+  },
+  "addToQueue": "Zur Warteschlange hinzufügen",
+  "@addToQueue": {
+    "description": "Ein Eintrag im Kontextmenü. Durch Drücken dieses Eintrags wird der entsprechende Titel oder das Album zur Wiedergabewarteschlange hinzugefügt."
+  },
+  "addToQueueSubtitle": "Wie neue Elemente zur Wiedergabewarteschlange hinzugefügt werden.",
+  "@addToQueueSubtitle": {},
+  "playNext": "Als nächstes abspielen",
+  "@playNext": {
+    "description": "Eine Aktion, die einen Titel oder ein Album in der Wiedergabeliste als nächstes abspielt."
+  },
+  "addToEnd": "Zum Ende hinzufügen",
+  "@addToEnd": {
+    "description": "Eine Aktion, die einen Titel oder ein Album ans Ende der Wiedergabeliste stellt."
+  },
+  "middleClickAction": "Mittelklick-Aktion",
+  "@middleClickAction": {
+    "description": "Ein Titel in der Einstellungsoberfläche, der das Verhalten steuert, wenn der Benutzer mit der mittleren Maustaste auf einen Titel oder ein Album klickt."
+  },
+  "middleClickActionSubtitle": "Aktion, die beim Mittelklicken auf einen Titel oder eine Sammlung ausgeführt werden soll.",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "Wiedergabe starten",
+  "@startPlaying": {
+    "description": "Eine Aktion, die der Benutzer auslösen kann, um mit der Musikwiedergabe zu beginnen."
+  },
+  "startRoaming": "Roaming starten",
+  "@startRoaming": {
+    "description": "Eine Aktion, die der Benutzer auslösen kann, um Musik abzuspielen, die dem aktuellen Titel oder Album ähnlich ist."
+  },
+  "playbackMode": "Wiedergabemodus",
+  "@playbackMode": {
+    "description": "Ein Titel in der Einstellungsoberfläche, der Benutzern hilft, den gewünschten Wiedergabemodus auszuwählen, wie z.B. Shuffle oder sequentielle Wiedergabe."
+  },
+  "playbackModeSubtitle": "Bevorzugter Wiedergabemodus für die Musikwiedergabe",
+  "@playbackModeSubtitle": {},
+  "colorMode": "Farbmodus",
+  "@colorMode": {
+    "description": "Ein Einstellungs-Eintrag, der Benutzern hilft, den Farbmodus der Benutzeroberfläche auszuwählen, einschließlich heller und dunkler Modi."
+  },
+  "colorModeSubtitle": "Ändern Sie den Farbmodus, der in Rune erscheint.",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "System",
+  "@systemColorMode": {
+    "description": "Ein Farbeinstellungs-Eintrag, der, wenn aktiviert, den Licht- oder Dunkelmodus der Software mit den Systemeinstellungen abgleicht."
+  },
+  "dark": "Dunkel",
+  "@dark": {
+    "description": "Ein Farbeinstellungs-Eintrag, der den Dunkelmodus aktiviert, wenn er ausgewählt ist."
+  },
+  "light": "Hell",
+  "@light": {
+    "description": "Ein Farbeinstellungs-Eintrag, der den Hellmodus aktiviert, wenn er ausgewählt ist."
+  },
+  "themeColor": "Themenfarbe",
+  "@themeColor": {
+    "description": "Ein Einstellungs-Eintrag, der es Benutzern ermöglicht, ihre bevorzugte Themenfarbe auszuwählen."
+  },
+  "themeColorSubtitle": "Wählen Sie eine Farbe, um Ihrem Rune ein neues Aussehen und Gefühl zu verleihen.",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "Systemthema folgen",
+  "@followSystemTheme": {
+    "description": "Ein Eintrag in den Themenfarbeneinstellungen. Wenn aktiviert, folgt die Themenfarbe der Software den Systemeinstellungen."
+  },
+  "dynamicColors": "Dynamische Farben",
+  "@dynamicColors": {
+    "description": "Ein Farbeinstellungs-Eintrag. Wenn aktiviert, ändert sich die Themenfarbe der Software basierend auf dem Cover des aktuell gespielten Titels."
+  },
+  "dynamicColorsSubtitle": "Passen Sie die Themenfarben von Rune basierend auf dem Cover des gespielten Titels an.",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "Branding-Animation",
+  "@brandingAnimation": {
+    "description": "Ein Einstellungs-Eintrag, der es Benutzern ermöglicht zu steuern, ob eine Willkommensanimation beim Start der Software abgespielt wird."
+  },
+  "brandingAnimationSubtitle": "Branding-Animation abspielen, wenn Rune startet.",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "Dies könnte einige Minuten dauern.",
+  "@thisMightTakeAFewMinutes": {
+    "description": "Titel auf dem Wartebildschirm beim Scannen, um Benutzer daran zu erinnern, geduldig zu sein."
+  },
+  "tracksFound": " Titel gefunden",
+  "@tracksFound": {
+    "description": "Aufforderungstext auf dem Wartebildschirm beim Scannen, der Benutzer darüber informiert, wie viele Titel gescannt wurden."
+  },
+  "albumCoversCollected": " Albumcover gesammelt",
+  "@albumCoversCollected": {
+    "description": "Aufforderungstext auf dem Wartebildschirm beim Scannen, der Benutzer darüber informiert, wie viele Albumcover gescannt wurden."
+  },
+  "editPlaylist": "Wiedergabeliste bearbeiten",
+  "@editPlaylist": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, die Metadaten einer Wiedergabeliste zu bearbeiten."
+  },
+  "editMix": "Mix bearbeiten",
+  "@editMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, die Metadaten eines Mixes, einer intelligenten Wiedergabeliste, zu bearbeiten. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "edit": "Bearbeiten",
+  "@edit": {
+    "description": "Ein Verb im Kontextmenü als Fallback-Text, der Benutzer dazu anleitet, Inhalte zu bearbeiten, wenn die Software nicht identifizieren kann, was bearbeitet werden soll."
+  },
+  "remove": "Entfernen",
+  "@remove": {
+    "description": "Ein Verb im Kontextmenü als Fallback-Text, der Benutzer dazu anleitet, Inhalte zu entfernen, wenn die Software nicht identifizieren kann, was entfernt werden soll."
+  },
+  "removePlaylist": "Wiedergabeliste entfernen",
+  "@removePlaylist": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, eine Wiedergabeliste zu löschen."
+  },
+  "removeMix": "Mix entfernen",
+  "@removeMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen Mix, eine intelligente Wiedergabeliste, zu löschen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "addToMix": "Zum Mix hinzufügen",
+  "@addToMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen Titel oder ein Album zu einem Mix, einer intelligenten Wiedergabeliste, hinzuzufügen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "newMix": "Neuer Mix",
+  "@newMix": {
+    "description": "Ein Eintrag im Kontextmenü, der es Benutzern ermöglicht, einen neuen Mix, eine intelligente Wiedergabeliste, zu erstellen. Hinweis: Nicht mit dem Konzept eines 'Remix' verwechseln."
+  },
+  "selectAGroup": "Gruppe auswählen",
+  "@selectAGroup": {
+    "description": "Platzhaltertext im Eingabefeld im Bearbeitungsmodal für Mix oder Wiedergabeliste, der Benutzer anleitet, eine Inhaltsgruppe auszuwählen."
+  },
+  "likedOnly": "Nur Gefällt mir",
+  "@likedOnly": {
+    "description": "Ein Eintrag in der Mix-Bearbeitungsoberfläche, eine Kontrollkästchenoption, um nur Titel zu filtern und zu behalten, die der Benutzer 'geliked' hat."
+  },
+  "allTracks": "Alle Titel",
+  "@allTracks": {
+    "description": "Ein Eintrag in der Mix-Bearbeitungsoberfläche, eine Kontrollkästchenoption, um alle Titel zu filtern und zu behalten, nicht nur die, die der Benutzer 'geliked' hat."
+  },
+  "defaultMode": "Standard",
+  "@defaultMode": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, wobei das aktuelle Systemverhalten ohne Angabe eines Modus beibehalten wird."
+  },
+  "sequential": "Sequenziell",
+  "@sequential": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie der Reihe nach von Anfang bis Ende abgespielt werden."
+  },
+  "repeatAll": "Alle wiederholen",
+  "@repeatAll": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie nach dem Ende von vorne wiederholt werden."
+  },
+  "repeatOne": "Einen wiederholen",
+  "@repeatOne": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem ein Titel kontinuierlich wiederholt wird."
+  },
+  "shuffle": "Zufällig",
+  "@shuffle": {
+    "description": "Eine Möglichkeit, wie Titel in einer Wiedergabeliste durchlaufen werden, indem sie in zufälliger Reihenfolge abgespielt werden."
+  },
+  "title": "Titel",
+  "@title": {
+    "description": "Ein Eintrag im Bearbeitungsmodal für Wiedergabeliste oder Mix, der Benutzer anleitet, dessen Titel zu bearbeiten."
+  },
+  "group": "Gruppe",
+  "@group": {
+    "description": "Ein Eintrag im Bearbeitungsmodal für Wiedergabeliste oder Mix, der Benutzer anleitet, dessen Gruppe zu bearbeiten."
+  },
+  "save": "Speichern",
+  "@save": {
+    "description": "Eine Aktionstaste im Modal, die Änderungen speichert, wenn sie gedrückt wird."
+  },
+  "create": "Erstellen",
+  "@create": {
+    "description": "Eine Aktionstaste im Modal, die einen neuen Eintrag erstellt, wenn sie gedrückt wird."
+  },
+  "cancel": "Abbrechen",
+  "@cancel": {
+    "description": "Eine Aktionstaste im Modal, die das Modal ohne Änderungen schließt."
+  },
+  "noRecommendation": "Keine Empfehlung",
+  "@noRecommendation": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option zeigt die Absicht des Benutzers an, Empfehlungen nicht auf Abfrageergebnissen zu basieren."
+  },
+  "basedOnAll": "Basierend auf allen",
+  "@basedOnAll": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option empfiehlt ähnliche Titel basierend auf dem gesamten Satz von Abfrageergebnissen."
+  },
+  "group1": "Gruppe 1",
+  "@group1": {},
+  "group2": "Gruppe 2",
+  "@group2": {},
+  "group3": "Gruppe 3",
+  "@group3": {},
+  "group4": "Gruppe 4",
+  "@group4": {},
+  "group5": "Gruppe 5",
+  "@group5": {},
+  "group6": "Gruppe 6",
+  "@group6": {},
+  "group7": "Gruppe 7",
+  "@group7": {},
+  "group8": "Gruppe 8",
+  "@group8": {},
+  "group9": "Gruppe 9",
+  "@group9": {},
+  "ascending": "Aufsteigend",
+  "@ascending": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option sortiert Abfrageergebnisse in aufsteigender Reihenfolge."
+  },
+  "descending": "Absteigend",
+  "@descending": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Die Auswahl dieser Option sortiert Abfrageergebnisse in absteigender Reihenfolge."
+  },
+  "lastModified": "Zuletzt geändert",
+  "@lastModified": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der letzten Änderungszeit der Dateimetadaten zu sortieren."
+  },
+  "duration": "Dauer",
+  "@duration": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach Audiolänge zu sortieren."
+  },
+  "timesPlayedThrough": "Anzahl der vollständigen Wiedergaben",
+  "@timesPlayedThrough": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der Anzahl der vollständigen Wiedergaben zu sortieren."
+  },
+  "timesSkipped": "Anzahl der Überspringungen",
+  "@timesSkipped": {
+    "description": "Ein Eintrag im Dropdown-Menü des Mix-Bearbeitungsmodals. Diese Option ermöglicht es Benutzern, nach der Anzahl der Überspringungen zu sortieren."
+  },
+  "pickDirectory": "Verzeichnis auswählen",
+  "@pickDirectory": {
+    "description": "Button-Aufforderungstext im Mix-Bearbeitungsmodal. Durch Drücken dieser Taste wird ein Modal geöffnet, um Benutzer bei der Auswahl eines Verzeichnisses zu führen."
+  },
+  "oneDirectory": "1 Verzeichnis",
+  "@oneDirectory": {
+    "description": "Statusanzeige, die angibt, dass ein Verzeichnis ausgewählt wurde."
+  },
+  "manyDirectories": "${count} Verzeichnisse",
+  "@manyDirectories": {
+    "description": "Statusanzeige, die angibt, dass mehrere Verzeichnisse ausgewählt wurden.",
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "confirm": "Bestätigen",
+  "@confirm": {
+    "description": "Aktionstext in der Modal, der die Absicht des Benutzers angibt, eine Aktion zu bestätigen."
+  },
+  "directories": "Verzeichnisse",
+  "@directories": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen zum Filtern von Titeln nach Ordner sind."
+  },
+  "allDirectories": "Alle Verzeichnisse",
+  "@allDirectories": {
+    "description": "Aufforderung, dass alle Verzeichnisse ausgewählt wurden."
+  },
+  "randomTracks": "Zufällige Titel",
+  "@randomTracks": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen zum Auswählen einer Anzahl von zufälligen Titeln sind."
+  },
+  "amount": "Menge",
+  "@amount": {
+    "description": "Aufforderungstext im Modal, der die Anzahl der über Schieberegler oder Eingabefeld ausgewählten Titel angibt."
+  },
+  "mode": "Modus",
+  "@mode": {
+    "description": "Der Wiedergabemodus für Titel."
+  },
+  "recommendation": "Empfehlung",
+  "@recommendation": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen das Empfehlungsverhalten des Players steuern."
+  },
+  "sortBy": "Sortieren nach",
+  "@sortBy": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen die Sortiermethode für Titel steuern."
+  },
+  "sortOrder": "Sortierreihenfolge",
+  "@sortOrder": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen die Sortierrichtung für Titel steuern."
+  },
+  "liked": "Gefällt mir",
+  "@liked": {
+    "description": "Ein Titel für einen Eintrag in den Modaleinstellungen, der Benutzer darüber informiert, dass die folgenden Optionen Titel filtern, die vom Benutzer als 'Gefällt mir' markiert wurden."
+  },
+  "noRoamingCollection": "Roaming kann nicht gestartet werden. Titel in der Sammlung wurden noch nicht analysiert.",
+  "@noRoamingCollection": {},
+  "noRomaingTrack": "Roaming kann nicht gestartet werden. Dieser Titel wurde noch nicht analysiert.",
+  "@noRomaingTrack": {},
+  "noAnalysisScanning": "${baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyse durchgeführt werden.",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "${baseMessage} Die Bibliothek wird analysiert; bitte warten Sie, bis der Vorgang abgeschlossen ist.",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "${baseMessage} Bitte analysieren Sie Ihre Bibliothek für das beste Erlebnis.",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "Nicht bereit",
+  "@notReady": {
+    "description": "Modaltitel, der anzeigt, dass Titel nicht analysiert wurden und Empfehlungen nicht gemacht werden können."
+  },
+  "createPlaylist": "Wiedergabeliste erstellen",
+  "@createPlaylist": {
+    "description": "Modaltitel zum Erstellen einer Wiedergabeliste."
+  },
+  "scanLibrary": "Bibliothek scannen",
+  "@scanLibrary": {
+    "description": "Aktionsknopftext im Modal, der beim Drücken einen Medienbibliothek-Scan einleitet."
+  },
+  "analyseTracks": "Titel analysieren",
+  "@analyseTracks": {
+    "description": "Aktionsknopftext im Modal, der beim Drücken die Analyse aller Titel in der Medienbibliothek einleitet."
+  },
+  "scan": "Scannen",
+  "@scan": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken einen Medienbibliothek-Scan einleitet."
+  },
+  "scanning": "Scannen",
+  "@scanning": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit gescannt wird."
+  },
+  "analyse": "Analysieren",
+  "@analyse": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken die Analyse aller Titel in der Medienbibliothek einleitet."
+  },
+  "analysing": "Analysieren",
+  "@analysing": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit analysiert wird."
+  },
+  "tryCreatingYourOwnCollection": "Versuchen Sie, Ihre eigene Sammlung zu erstellen",
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text auf einer leeren Seite in der Sammlungsansicht, der Benutzer dazu auffordert, eine neue Sammlung zu erstellen."
+  },
+  "theseActionsMayHelp": "Diese Aktionen könnten helfen",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "Versuchen Sie, neue Dateien zu scannen",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "Keine Sammlung gefunden",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "Keine Elemente in der Wiedergabeliste",
+  "@noItemsInPlaylist": {},
+  "previous": "Zurück",
+  "@previous": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zum vorherigen Titel zu springen."
+  },
+  "previousSubtitle": "Zum vorherigen Titel gehen",
+  "@previousSubtitle": {},
+  "playPause": "Wiedergabe/Pause",
+  "@playPause": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zwischen Wiedergabe- und Pausenzuständen zu wechseln."
+  },
+  "playPauseSubtitle": "Zwischen Wiedergabe und Pause umschalten",
+  "@playPauseSubtitle": {},
+  "next": "Weiter",
+  "@next": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zum nächsten Titel zu springen."
+  },
+  "nextSubtitle": "Zum nächsten Titel gehen",
+  "@nextSubtitle": {},
+  "volume": "Lautstärke",
+  "@volume": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Lautstärke anzupassen."
+  },
+  "volumeSubtitle": "Die Lautstärke anpassen",
+  "@volumeSubtitle": {},
+  "playlist": "Wiedergabeliste",
+  "@playlist": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Wiedergabeliste anzuzeigen."
+  },
+  "playlistSubtitle": "Die Wiedergabewarteschlange anzeigen",
+  "@playlistSubtitle": {},
+  "hidden": "Versteckt",
+  "@hidden": {
+    "description": "Button-Aufforderungstext, der einen versteckten Button anzeigt; dieser Text wird normalerweise nicht verwendet."
+  },
+  "hiddenSubtitle": "Inhalte unten werden in der anderen Liste versteckt",
+  "@hiddenSubtitle": {},
+  "coverWall": "Cover-Wand",
+  "@coverWall": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um zur Cover-Wand-Seite zu wechseln, einer dekorativen Seite, die aus Albumcovern besteht."
+  },
+  "coverWallSubtitle": "Cover-Art für eine einzigartige Atmosphäre anzeigen",
+  "@coverWallSubtitle": {},
+  "fullscreen": "Vollbild",
+  "@fullscreen": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um den Vollbildmodus umzuschalten."
+  },
+  "fullscreenSubtitle": "Vollbildmodus ein- oder ausschalten",
+  "@fullscreenSubtitle": {},
+  "pause": "Pause",
+  "@pause": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um den aktuell abgespielten Titel zu pausieren."
+  },
+  "play": "Abspielen",
+  "@play": {
+    "description": "Button-Aufforderungstext zur Steuerung der Wiedergabe, verwendet, um die Wiedergabe aus einem Pausenzustand fortzusetzen."
+  },
+  "enable": "Aktivieren",
+  "@enable": {
+    "description": "Radio-Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass eine Funktion aktiviert ist."
+  },
+  "disable": "Deaktivieren",
+  "@disable": {
+    "description": "Radio-Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass eine Funktion nicht aktiviert ist."
+  },
+  "noTracksFound": "Keine Titel gefunden",
+  "@noTracksFound": {},
+  "library": "Bibliothek",
+  "@library": {
+    "description": "Titel der Medienbibliothek-Einstellungen-Oberfläche."
+  },
+  "artistQuery": "Künstlerabfrage",
+  "@artistQuery": {},
+  "playlistQuery": "Wiedergabelistenabfrage",
+  "@playlistQuery": {},
+  "mixes": "Mixes",
+  "@mixes": {
+    "description": "Titel der Mix-Oberfläche, bezieht sich auf eine Art intelligente Wiedergabeliste. Nicht mit 'Remix' verwechseln."
+  },
+  "mixQuery": "Mix-Abfrage",
+  "@mixQuery": {},
+  "settings": "Einstellungen",
+  "@settings": {
+    "description": "Titel der Einstellungen-Oberfläche."
+  },
+  "analysis": "Analyse",
+  "@analysis": {
+    "description": "Titel der Analyse-Einstellungen-Oberfläche."
+  },
+  "playback": "Wiedergabe",
+  "@playback": {
+    "description": "Titel der Wiedergabe-Einstellungen-Oberfläche."
+  },
+  "theme": "Thema",
+  "@theme": {
+    "description": "Titel der Themen-Einstellungen-Oberfläche."
+  },
+  "controller": "Controller",
+  "@controller": {
+    "description": "Titel der Wiedergabesteuerungsschaltflächen-Einstellungen-Oberfläche."
+  },
+  "about": "Über",
+  "@about": {
+    "description": "Titel der Über-Oberfläche."
+  },
+  "selectLibraryDirectorySubtitle": "Wählen Sie Ihr Audio-Bibliotheksverzeichnis aus, und wir scannen und analysieren alle darin enthaltenen Titel.",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "Bibliothek zurücksetzen",
+  "@resetLibrary": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass der Benutzer die Bibliothek zurücksetzen möchte."
+  },
+  "resetLibraryQuestion": "Bibliothek zurücksetzen",
+  "@resetLibraryQuestion": {
+    "description": "Modaltitel, der Benutzer fragt, ob sie die Bibliothek zurücksetzen möchten."
+  },
+  "resetLibrarySubtitle": "Das Zurücksetzen der Bibliothek löscht Ihren Dateiverlauf. Ihre bestehende Medienbibliothek bleibt unverändert. Möchten Sie fortfahren?",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "Nicht verfügbar",
+  "@unavailable": {
+    "description": "Kontextmenüelement, das nicht verfügbar ist und nur bei einem Fehler angezeigt wird."
+  },
+  "goToArtist": "Zum Künstler",
+  "@goToArtist": {
+    "description": "Kontextmenüelement, das Benutzer zur Künstlerseite führt."
+  },
+  "goToAlbum": "Zum Album",
+  "@goToAlbum": {
+    "description": "Kontextmenüelement, das Benutzer zur Albumseite führt."
+  },
+  "addToPlaylist": "Zur Wiedergabeliste hinzufügen",
+  "@addToPlaylist": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, einen Titel oder ein Album zu einer Wiedergabeliste hinzuzufügen."
+  },
+  "newPlaylist": "Neue Wiedergabeliste",
+  "@newPlaylist": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, eine neue Wiedergabeliste zu erstellen."
+  },
+  "unableToOpenLibrary": "Bibliothek kann nicht geöffnet werden",
+  "@unableToOpenLibrary": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass die Bibliothek nicht geöffnet werden kann."
+  },
+  "unableToOpenLibrarySubtitle": "Die Bibliothek konnte aufgrund des folgenden Fehlers nicht geöffnet werden:",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "Unbekannter Fehler",
+  "@unknownError": {
+    "description": "Modalfehlerinhalt, der auf einen unbekannten Fehler hinweist."
+  },
+  "close": "Schließen",
+  "@close": {
+    "description": "Aktionsknopf im Modal, der Benutzer dazu anleitet, es zu schließen."
+  },
+  "queue": "Warteschlange",
+  "@queue": {
+    "description": "Titel des Wiedergabelistenmodals."
+  },
+  "createMix": "Mix erstellen",
+  "@createMix": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, einen neuen Mix, eine Art intelligente Wiedergabeliste, zu erstellen. Nicht mit 'Remix' verwechseln."
+  },
+  "removeMixTitle": "Mix entfernen",
+  "@removeMixTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, einen Mix, eine Art intelligente Wiedergabeliste, zu löschen. Nicht mit 'Remix' verwechseln."
+  },
+  "removeMixSubtitle": "Wenn Sie diesen Mix löschen, können Sie ihn nicht wiederherstellen. Möchten Sie ihn löschen?",
+  "@removeMixSubtitle": {},
+  "delete": "Löschen",
+  "@delete": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken Informationen löscht."
+  },
+  "removePlaylistTitle": "Wiedergabeliste entfernen",
+  "@removePlaylistTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, eine Wiedergabeliste zu löschen."
+  },
+  "removePlaylistSubtitle": "Wenn Sie diese Wiedergabeliste löschen, können Sie sie nicht wiederherstellen. Möchten Sie sie löschen?",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "Aufgabe abbrechen",
+  "@cancelTaskTitle": {
+    "description": "Modaltitel, der Benutzer darüber informiert, dass sie dabei sind, eine Aufgabe abzubrechen."
+  },
+  "cancelTaskSubtitle": "Wenn Sie diese Aufgabe abbrechen, wird sie im aktuellen Abschlusszustand gestoppt. Möchten Sie sie abbrechen?",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "Aufgabe abbrechen",
+  "@cancelTask": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken die Aufgabe abbricht."
+  },
+  "continueTask": "Fortsetzen",
+  "@continueTask": {
+    "description": "Aktionsknopftext im Modal, der anzeigt, dass das Drücken die Aufgabe fortsetzt."
+  },
+  "refresh": "Aktualisieren",
+  "@refresh": {
+    "description": "Kontextmenüelement, das Benutzer dazu anleitet, die Informationen der aktuellen Seite zu aktualisieren."
+  },
+  "explore": "Entdecken",
+  "@explore": {
+    "description": "Titel eines Funktionsbereichs."
+  },
+  "language": "Sprache",
+  "@language": {
+    "description": "Titel der Sprach-Einstellungsseite."
+  },
+  "followSystemLanguage": "Systemsprache",
+  "@followSystemLanguage": {
+    "description": "Aktionsknopftext in den Einstellungen, der anzeigt, dass die Sprache von Rune der des Betriebssystems folgen soll."
+  },
+  "followSystemLanguageSubtitle": "Folgen Sie Ihren Systemeinstellungen für die Sprache, ohne spezielle Einstellungen.",
+  "@followSystemLanguageSubtitle": {}
+}

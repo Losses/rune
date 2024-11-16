@@ -682,5 +682,17 @@
   "explore": "Esplora",
   "@explore": {
     "description": "Titolo di un'area funzionale."
+  },
+  "language": "Lingua",
+  "@language": {
+    "description": "Titolo della pagina delle impostazioni della lingua."
+  },
+  "followSystemLanguage": "Lingua di sistema",
+  "@followSystemLanguage": {
+    "description": "Testo del pulsante di azione nelle impostazioni, che indica che la lingua di Rune dovrebbe seguire il sistema operativo."
+  },
+  "followSystemLanguageSubtitle": "Segui le impostazioni della lingua del tuo sistema, senza impostazioni speciali.",
+  "@followSystemLanguageSubtitle": {
+    "description": ""
   }
 }
