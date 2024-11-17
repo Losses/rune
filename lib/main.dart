@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
+import 'package:rune/screens/settings_theme/constants/window_sizes.dart';
 import 'package:system_theme/system_theme.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
@@ -53,6 +55,7 @@ late String? initialPath;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await windowManager.ensureInitialized();
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -139,6 +142,18 @@ void main(List<String> arguments) async {
   initialPath = await getInitialPath();
 
   await findSystemLocale();
+
+  final windowSize =
+      await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+  WindowOptions windowOptions = WindowOptions(
+    size: windowSizes[windowSize],
+    center: true,
+  );
+
+  windowManager.waitUntilReadyToShow(windowOptions, () async {
+    await windowManager.show();
+    await windowManager.focus();
+  });
 
   runApp(
     MultiProvider(
