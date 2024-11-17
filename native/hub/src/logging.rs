@@ -3,7 +3,10 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use rinf::DartSignal;
 
-use database::{actions::logging::{clear_logs, delete_log, list_log}, connection::MainDbConnection};
+use database::{
+    actions::logging::{clear_logs, delete_log, list_log},
+    connection::MainDbConnection,
+};
 
 use crate::messages::*;
 
@@ -29,6 +32,7 @@ pub async fn list_log_request(
         result: result
             .into_iter()
             .map(|x| LogDetail {
+                id: x.id,
                 level: x.level,
                 detail: x.detail,
                 domain: x.domain,
@@ -70,4 +74,3 @@ pub async fn remove_log_request(
 
     Ok(())
 }
-

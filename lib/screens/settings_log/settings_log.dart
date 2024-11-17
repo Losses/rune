@@ -4,13 +4,20 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/rune_log.dart';
+import '../../utils/api/clear_logs.dart';
+import '../../utils/api/remove_log.dart';
 import '../../utils/api/list_logs.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/settings_page_padding.dart';
+import '../../utils/dialogs/remove_dialog_on_band.dart';
+import '../../widgets/context_menu_wrapper.dart';
+import '../../widgets/no_items.dart';
+import '../../widgets/responsive_dialog_actions.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../screens/settings_log/widgets/log_detail_dialog.dart';
+import '../../screens/settings_log/widgets/log_item.dart';
 import '../../messages/all.dart';
-import '../settings_library/widgets/settings_button.dart';
 
 class SettingsLogPage extends StatefulWidget {
   const SettingsLogPage({super.key});
@@ -24,6 +31,21 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   bool _isLoading = false;
   int _cursor = 0;
   final int _pageSize = 20;
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchLogs();
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
 
   Future<void> _fetchLogs() async {
     if (_isLoading) return;
@@ -48,29 +70,148 @@ class SettingsLogPageState extends State<SettingsLogPage> {
     }
   }
 
-  IconData _getLogLevelIcon(String level) {
-    switch (level.toLowerCase()) {
-      case 'error':
-        return Symbols.error;
-      case 'warning':
-        return Symbols.warning;
-      case 'info':
-        return Symbols.info;
-      default:
-        return Symbols.description;
-    }
-  }
-
-  void _showLogDetails(LogDetail log) {
-    final initialIndex = _logs.indexOf(log);
+  void _showLogDetails(int index) {
     $showModal<bool>(
       context,
       (context, $close) => LogDetailDialog(
         logs: _logs,
-        initialIndex: initialIndex,
+        initialIndex: index,
         onClose: () => $close(false),
       ),
       dismissWithEsc: true,
+      barrierDismissible: true,
+    );
+  }
+
+  void _refresh() {
+    _cursor = 0;
+    _logs.clear();
+    _fetchLogs();
+  }
+
+  bool _isRemoving = false;
+
+  Future<void> _onConfirmRemove(int id) async {
+    setState(() {
+      _isRemoving = true;
+    });
+    await removeLog(id);
+    setState(() {
+      _isRemoving = false;
+    });
+  }
+
+  void _removeLog(int index) async {
+    final id = _logs[index].id;
+    final result = await $showModal<bool>(
+      context,
+      (context, $close) => RemoveDialogOnBand(
+        $close: $close,
+        onConfirm: () => $close(true),
+        child: ContentDialog(
+          title: Column(
+            children: [
+              SizedBox(height: 8),
+              Text(S.of(context).removeLogTitle),
+            ],
+          ),
+          content: Text(
+            S.of(context).removeLogSubtitle,
+          ),
+          actions: [
+            ResponsiveDialogActions(
+              FilledButton(
+                onPressed: _isRemoving ? null : () => $close(true),
+                child: Text(S.of(context).delete),
+              ),
+              Button(
+                onPressed: _isRemoving ? null : () => $close(false),
+                child: Text(S.of(context).cancel),
+              ),
+            ),
+          ],
+        ),
+      ),
+      dismissWithEsc: true,
+      barrierDismissible: true,
+    );
+
+    if (result == true) {
+      await _onConfirmRemove(id);
+      _refresh();
+    }
+  }
+
+  void _clearLog() async {
+    final result = await $showModal<bool>(
+      context,
+      (context, $close) => RemoveDialogOnBand(
+        $close: $close,
+        onConfirm: () => $close(true),
+        child: ContentDialog(
+          title: Column(
+            children: [
+              SizedBox(height: 8),
+              Text(S.of(context).clearLogTitle),
+            ],
+          ),
+          content: Text(
+            S.of(context).clearLogSubtitle,
+          ),
+          actions: [
+            ResponsiveDialogActions(
+              FilledButton(
+                onPressed: _isRemoving ? null : () => $close(true),
+                child: Text(S.of(context).delete),
+              ),
+              Button(
+                onPressed: _isRemoving ? null : () => $close(false),
+                child: Text(S.of(context).cancel),
+              ),
+            ),
+          ],
+        ),
+      ),
+      dismissWithEsc: true,
+      barrierDismissible: true,
+    );
+
+    if (result == true) {
+      await clearLogs();
+      _refresh();
+    }
+  }
+
+  void _openListContextMenu(
+    Offset localPosition,
+  ) async {
+    final targetContext = contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    if (!context.mounted) return;
+
+    contextController.showFlyout(
+      position: position,
+      builder: (context) => MenuFlyout(
+        items: [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.refresh),
+            text: Text(S.of(context).refresh),
+            onPressed: _refresh,
+          ),
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.delete),
+            text: Text(S.of(context).deleteAll),
+            onPressed: _clearLog,
+          ),
+        ],
+      ),
     );
   }
 
@@ -78,136 +219,48 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   Widget build(BuildContext context) {
     return PageContentFrame(
       child: UnavailablePageOnBand(
-        child: SettingsPagePadding(
-          child: InfiniteList(
-            padding: getScrollContainerPadding(context),
-            itemCount: _logs.length,
-            isLoading: _isLoading,
-            onFetchData: _fetchLogs,
-            itemBuilder: (context, index) {
-              final log = _logs[index];
-              return SettingsButton(
-                icon: _getLogLevelIcon(log.level),
-                title: log.domain,
-                subtitle:
-                    DateTime.fromMillisecondsSinceEpoch(log.date.toInt() * 1000)
-                        .toString(),
-                onPressed: () {
-                  _showLogDetails(log);
-                },
-              );
-            },
-            loadingBuilder: (context) => const Center(child: ProgressRing()),
-            emptyBuilder: (context) =>
-                const Center(child: Text('No logs available.')),
+        child: ContextMenuWrapper(
+          contextAttachKey: contextAttachKey,
+          contextController: contextController,
+          onContextMenu: _openListContextMenu,
+          onMiddleClick: (_) {},
+          child: SettingsPagePadding(
+            child: (!_isLoading && _logs.isEmpty)
+                ? Padding(
+                    padding: getScrollContainerPadding(context),
+                    child: Center(
+                      child: NoItems(
+                        title: 'No logs available',
+                        hasRecommendation: false,
+                        reloadData: _refresh,
+                        showDetail: false,
+                      ),
+                    ),
+                  )
+                : InfiniteList(
+                    padding: getScrollContainerPadding(context),
+                    itemCount: _logs.length,
+                    isLoading: _isLoading,
+                    onFetchData: _fetchLogs,
+                    itemBuilder: (context, index) {
+                      final log = _logs[index];
+                      return SizedBox(
+                        height: 72,
+                        child: LogItem(
+                          index: index,
+                          log: log,
+                          onTap: _showLogDetails,
+                          onRemove: _removeLog,
+                        ),
+                      );
+                    },
+                    loadingBuilder: (context) =>
+                        const Center(child: ProgressRing()),
+                    emptyBuilder: (context) => Container(),
+                  ),
           ),
         ),
       ),
-    );
-  }
-}
-
-class LogDetailDialog extends StatefulWidget {
-  const LogDetailDialog({
-    super.key,
-    required this.logs,
-    required this.initialIndex,
-    required this.onClose,
-  });
-
-  final List<LogDetail> logs;
-  final int initialIndex;
-  final VoidCallback onClose;
-
-  @override
-  State<LogDetailDialog> createState() => _LogDetailDialogState();
-}
-
-class _LogDetailDialogState extends State<LogDetailDialog> {
-  late int currentIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    currentIndex = widget.initialIndex;
-  }
-
-  void _navigateTo(int index) {
-    if (index >= 0 && index < widget.logs.length) {
-      setState(() {
-        currentIndex = index;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final log = widget.logs[currentIndex];
-
-    return ContentDialog(
-      title: Text(log.level),
-      constraints: const BoxConstraints(maxHeight: 320, maxWidth: 520),
-      content: Column(
-        key: ValueKey(currentIndex),
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(log.domain),
-          const SizedBox(height: 4),
-          Text(
-            DateTime.fromMillisecondsSinceEpoch(log.date.toInt() * 1000)
-                .toString(),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: SingleChildScrollView(
-              child: SelectableText(
-                log.detail,
-                style: const TextStyle(height: 1.25),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              children: [
-                Button(
-                  onPressed: currentIndex > 0
-                      ? () => _navigateTo(currentIndex - 1)
-                      : null,
-                  child: const Row(
-                    children: [
-                      Icon(Symbols.arrow_back),
-                      SizedBox(width: 4),
-                      Text('Previous'),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Button(
-                  onPressed: currentIndex < widget.logs.length - 1
-                      ? () => _navigateTo(currentIndex + 1)
-                      : null,
-                  child: const Row(
-                    children: [
-                      Text('Next'),
-                      SizedBox(width: 4),
-                      Icon(Symbols.arrow_forward),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            FilledButton(
-              onPressed: widget.onClose,
-              child: Text(S.of(context).close),
-            ),
-          ],
-        ),
-      ],
     );
   }
 }

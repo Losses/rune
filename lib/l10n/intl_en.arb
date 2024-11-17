@@ -716,5 +716,29 @@
   "log": "Log",
   "@log": {
     "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Log Detail",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Remove Log",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "If you delete this log, you won't be able to recover it. Do you want to delete it?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Remove All Logs",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "If you delete all logs, you won't be able to recover them. Do you want to delete them?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Delete All",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "No logs available",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
   }
 }
