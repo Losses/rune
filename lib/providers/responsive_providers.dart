@@ -180,16 +180,18 @@ class ResponsiveProvider extends ChangeNotifier {
     final oldH = _currentHorizontalDeviceType;
     final oldA = currentDeviceType;
 
-    final verticalPriority = _currentVerticalDeviceType.priority;
-    final horizontalPriority = _currentHorizontalDeviceType.priority;
-
     final newV = DeviceType._determineDeviceType(
-        size: width, orientation: DeviceOrientation.vertical);
+      size: width,
+      orientation: DeviceOrientation.vertical,
+    );
     final newH = DeviceType._determineDeviceType(
-        size: height, orientation: DeviceOrientation.horizontal);
-    final newA = verticalPriority >= horizontalPriority
-        ? _currentVerticalDeviceType
-        : _currentHorizontalDeviceType;
+      size: height,
+      orientation: DeviceOrientation.horizontal,
+    );
+
+    final verticalPriority = newV.priority;
+    final horizontalPriority = newH.priority;
+    final newA = verticalPriority >= horizontalPriority ? newV : newH;
 
     _currentVerticalDeviceType = newV;
     _currentHorizontalDeviceType = newH;
