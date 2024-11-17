@@ -422,10 +422,10 @@ impl FFTProcessor {
             .expect("CPU computing device not initialized");
 
         if force {
-            let _ = cpu_fft.process(
+            cpu_fft.process(
                 &mut self.cpu_batch_fft_buffer,
                 &mut self.cpu_batch_fft_output_buffer,
-            );
+            ).expect("Real FFT processing failed");
 
             for batch_idx in 0..self.batch_cache_buffer_count {
                 let start = batch_idx * self.window_size;
@@ -443,10 +443,10 @@ impl FFTProcessor {
 
             self.batch_cache_buffer_count = 0;
         } else if self.batch_cache_buffer_count >= self.batch_size {
-            let _ = cpu_fft.process(
+            cpu_fft.process(
                 &mut self.cpu_batch_fft_buffer,
                 &mut self.cpu_batch_fft_output_buffer,
-            );
+            ).expect("FFT processing failed");
 
             for batch_idx in 0..self.batch_size {
                 let start = batch_idx * self.window_size;
