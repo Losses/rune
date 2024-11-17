@@ -2,6 +2,7 @@
 
 pub use super::albums::Entity as Albums;
 pub use super::artists::Entity as Artists;
+pub use super::log::Entity as Log;
 pub use super::media_analysis::Entity as MediaAnalysis;
 pub use super::media_cover_art::Entity as MediaCoverArt;
 pub use super::media_file_albums::Entity as MediaFileAlbums;
