@@ -712,5 +712,9 @@
   "stockyWindowSize": "Stocky",
   "@stockyWindowSize": {
     "description": "Option for a wider window size."
+  },
+  "log": "Log",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
   }
 }

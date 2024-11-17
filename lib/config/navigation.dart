@@ -135,6 +135,10 @@ final List<NavigationItem> navigationItems = [
             '/settings/media_controller',
           ),
           NavigationItem(
+            (context) => S.of(context).log,
+            '/settings/log',
+          ),
+          NavigationItem(
             (context) => S.of(context).about,
             '/settings/about',
           ),
