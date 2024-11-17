@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use log::{debug, info};
 
+use realfft::{RealFftPlanner, RealToComplex};
 use rubato::{FftFixedInOut, Resampler};
-use rustfft::{num_complex::Complex};
+use rustfft::num_complex::Complex;
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
@@ -18,7 +19,6 @@ use crate::features::zcr;
 
 use crate::fft_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
-use realfft::{RealFftPlanner, RealToComplex};
 
 pub struct FFTProcessor {
     computing_device: ComputingDevice,
@@ -405,7 +405,6 @@ impl FFTProcessor {
             }
             let windowed_sample = sample * self.hanning_window[i];
             self.cpu_batch_fft_buffer[start_idx + i] = windowed_sample;
-            // self.batch_fft_buffer[start_idx + i] = Complex::new(windowed_sample, 0.0);
         }
 
         self.batch_cache_buffer_count += 1;
@@ -417,10 +416,12 @@ impl FFTProcessor {
             .expect("CPU computing device not initialized");
 
         if force {
-            cpu_fft.process(
-                &mut self.cpu_batch_fft_buffer,
-                &mut self.cpu_batch_fft_output_buffer,
-            ).expect("Real FFT processing failed");
+            cpu_fft
+                .process(
+                    &mut self.cpu_batch_fft_buffer,
+                    &mut self.cpu_batch_fft_output_buffer,
+                )
+                .expect("Real FFT processing failed");
 
             let half_window = self.window_size / 2;
             for batch_idx in 0..self.batch_cache_buffer_count {
@@ -438,10 +439,12 @@ impl FFTProcessor {
 
             self.batch_cache_buffer_count = 0;
         } else if self.batch_cache_buffer_count >= self.batch_size {
-            cpu_fft.process(
-                &mut self.cpu_batch_fft_buffer,
-                &mut self.cpu_batch_fft_output_buffer,
-            ).expect("FFT processing failed");
+            cpu_fft
+                .process(
+                    &mut self.cpu_batch_fft_buffer,
+                    &mut self.cpu_batch_fft_output_buffer,
+                )
+                .expect("FFT processing failed");
 
             let half_window = self.window_size / 2;
             for batch_idx in 0..self.batch_size {
