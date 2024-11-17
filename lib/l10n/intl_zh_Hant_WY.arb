@@ -716,5 +716,29 @@
   "log": "載",
   "@log": {
     "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "詳載",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "棄載",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "夫若棄載，無以復歸。誠欲將乎？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "棄諸載",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "若棄諸載，無以復歸。誠欲將乎？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "悉棄",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "尚無載記",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
   }
 }
