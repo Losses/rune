@@ -46,6 +46,7 @@ pkgs.mkShell {
     sqlite.dev
     util-linux.dev
     libsysprof-capture
+    libayatana-appindicator
   ];
 
   env = {
