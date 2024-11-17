@@ -100,6 +100,7 @@ final Map<String, WidgetBuilder> routes = {
   '/settings/theme': (context) => const settings.SettingsTheme(),
   '/settings/language': (context) => const settings.SettingsLanguage(),
   '/settings/playback': (context) => const settings.SettingsPlayback(),
+  '/settings/log': (context) => const settings.SettingsLogPage(),
   '/settings/about': (context) => const settings.SettingsAboutPage(),
   '/settings/mix': (context) => const settings.SettingsTestPage(),
   '/settings/media_controller': (context) =>

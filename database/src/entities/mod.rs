@@ -4,6 +4,7 @@ pub mod prelude;
 
 pub mod albums;
 pub mod artists;
+pub mod log;
 pub mod media_analysis;
 pub mod media_cover_art;
 pub mod media_file_albums;

@@ -1,0 +1,41 @@
+syntax = "proto3";
+package logging;
+message LogDetail {
+  string level = 1;
+  string domain = 2;
+  string detail = 3;
+  int64 date = 4;
+}
+
+// [DART-SIGNAL]
+message ListLogRequest {
+  int32 cursor = 1;
+  int32 page_size = 2;
+}
+
+// [RUST-SIGNAL]
+message ListLogResponse {
+  repeated LogDetail result = 1;
+}
+
+// [DART-SIGNAL]
+message ClearLogRequest {
+}
+
+// [RUST-SIGNAL]
+message ClearLogResponse {
+  bool success = 1;
+}
+
+
+// [DART-SIGNAL]
+message RemoveLogRequest {
+  int32 id = 1;
+}
+
+// [RUST-SIGNAL]
+message RemoveLogResponse {
+  int32 id = 1;
+  bool success = 2;
+}
+

@@ -691,8 +691,30 @@
   "@followSystemLanguage": {
     "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
   },
-  "followSystemLanguageSubtitle": "Follow your system language settings, without special settings.",
-  "@followSystemLanguageSubtitle": {
-    "description": ""
+  "followSystemLanguageSubtitle": "Follow your system language, without special settings.",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "Window Size",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Choose the preferred window size for the application.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normal",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Slim",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Stocky",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Log",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
   }
 }

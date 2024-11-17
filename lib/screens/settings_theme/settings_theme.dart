@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/ax_shadow.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/update_color_mode.dart';
@@ -12,87 +14,17 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../utils/l10n.dart';
+
+import 'constants/colors.dart';
+import 'constants/window_sizes.dart';
 
 const colorModeKey = 'color_mode';
 const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
 const enableDynamicColorsKey = 'enable_dynamic_color';
+const windowSizeKey = 'window_size';
 
 final _settingsManager = SettingsManager();
-
-const Map<String, Color> colors = {
-  "SAKURA": Color(0xFFFEDFE1),
-  "MOMO": Color(0xFFF596AA),
-  "KOHBAI": Color(0xFFE16B8C),
-  "KARAKURENAI": Color(0xFFD0104C),
-  "JINZAMOMI": Color(0xFFEB7A77),
-  "AKABENI": Color(0xFFCB4042),
-  "SANGOSYU": Color(0xFFF17C67),
-  "BENIHI": Color(0xFFF75C2F),
-  "ARAISYU": Color(0xFFFB966E),
-  "TERIGAKI": Color(0xFFC46243),
-  "ENSYUCHA": Color(0xFFCA7853),
-  "OHNI": Color(0xFFF05E1C),
-  "SHISHI": Color(0xFFF0A986),
-  "AKASHIROTSURUBAMI": Color(0xFFE1A679),
-  "AKAKUCHIBA": Color(0xFFC78550),
-  "ARAIGAKI": Color(0xFFE79460),
-  "KURUMI": Color(0xFF947A6D),
-  "UMEZOME": Color(0xFFE9A368),
-  "KUCHIBA": Color(0xFFE2943B),
-  "GINSUSUTAKE": Color(0xFF82663A),
-  "KUWACHA": Color(0xFFC99833),
-  "YAMABUKI": Color(0xFFFFB11B),
-  "TORINOKO": Color(0xFFDAC9A6),
-  "SHIROTSURUBAMI": Color(0xFFDCB879),
-  "TAMAGO": Color(0xFFF9BF45),
-  "KUCHINASHI": Color(0xFFF6C555),
-  "AKU": Color(0xFF877F6C),
-  "KOKE": Color(0xFF838A2D),
-  "HIWA": Color(0xFFBEC23F),
-  "URAYANAGI": Color(0xFFB5CAA0),
-  "YANAGIZOME": Color(0xFF91AD70),
-  "HIWAMOEGI": Color(0xFF90B44B),
-  "USUAO": Color(0xFF91B493),
-  "AONI": Color(0xFF516E41),
-  "NAE": Color(0xFF86C166),
-  "MOEGI": Color(0xFF7BA23F),
-  "BYAKUROKU": Color(0xFFA8D8B9),
-  "MIDORI": Color(0xFF227D51),
-  "WAKATAKE": Color(0xFF5DAC81),
-  "TOKIWA": Color(0xFF1B813E),
-  "AOTAKE": Color(0xFF00896C),
-  "SABISEIJI": Color(0xFF86A697),
-  "TOKUSA": Color(0xFF2D6D4B),
-  "SEIHEKI": Color(0xFF268785),
-  "DEED": Color(0xFFDEEDF1),
-  "DORA": Color(0xFF00C8FF),
-  "MIZUASAGI": Color(0xFF66BAB7),
-  "SEIJI": Color(0xFF69B0AC),
-  "HENKA": Color(0xFF28C8C8),
-  "KAMENOZOKI": Color(0xFFA5DEE4),
-  "BYAKUGUN": Color(0xFF78C2C4),
-  "SHINBASHI": Color(0xFF0089A7),
-  "MIZU": Color(0xFF81C7D4),
-  "AINEZUMI": Color(0xFF566C73),
-  "HANAASAGI": Color(0xFF1E88A8),
-  "GUNJYO": Color(0xFF51A8DD),
-  "WASURENAGUSA": Color(0xFF7DB9DE),
-  "HANADA": Color(0xFF006284),
-  "BENIKAKEHANA": Color(0xFF4E4F97),
-  "KIKYO": Color(0xFF6A4C9C),
-  "FUJIMURASAKI": Color(0xFF8A6BBE),
-  "FUJI": Color(0xFF8B81C3),
-  "KONKIKYO": Color(0xFF211E55),
-  "SUMIRE": Color(0xFF66327C),
-  "EDOMURASAKI": Color(0xFF77428D),
-  "HASHITA": Color(0xFF986DB2),
-  "USU": Color(0xFFB28FCE),
-  "MESSHI": Color(0xFF533D5B),
-  "BUDOHNEZUMI": Color(0xFF5E3D50),
-  "AYAME": Color(0xFF6F3381),
-};
 
 class SettingsTheme extends StatefulWidget {
   const SettingsTheme({super.key});
@@ -105,6 +37,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
   Color? themeColor;
   bool? disableBrandingAnimation;
   bool? enableDynamicColors;
+  String? windowSize;
   String colorMode = "system";
 
   @override
@@ -122,6 +55,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
         await _settingsManager.getValue<bool>(disableBrandingAnimationKey);
     final bool? storedEnableDynamicColors =
         await _settingsManager.getValue<bool>(enableDynamicColorsKey);
+    final String? storedWindowSize =
+        await _settingsManager.getValue<String>(windowSizeKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -135,6 +70,9 @@ class _SettingsThemeState extends State<SettingsTheme> {
       }
       if (storedEnableDynamicColors != null) {
         enableDynamicColors = storedEnableDynamicColors;
+      }
+      if (storedWindowSize != null) {
+        windowSize = storedWindowSize;
       }
     });
   }
@@ -169,6 +107,19 @@ class _SettingsThemeState extends State<SettingsTheme> {
       updateColorMode(colorMode);
     });
     await SettingsManager().setValue(colorModeKey, newMode);
+  }
+
+  void _updateWindowSize(String newWindowSize) async {
+    final size = windowSizes[newWindowSize];
+    if (size == null) return;
+
+    setState(() {
+      windowSize = newWindowSize;
+    });
+
+    await windowManager.setSize(size);
+    await windowManager.center(animate: true);
+    await SettingsManager().setValue(windowSizeKey, newWindowSize);
   }
 
   @override
@@ -286,6 +237,30 @@ class _SettingsThemeState extends State<SettingsTheme> {
                     setState(() {
                       disableBrandingAnimation = !value;
                     });
+                  },
+                ),
+                SettingsBoxComboBox(
+                  title: S.of(context).windowSize,
+                  subtitle: S.of(context).windowSizeSubtitle,
+                  value: windowSize ?? "normal",
+                  items: [
+                    SettingsBoxComboBoxItem(
+                      value: "normal",
+                      title: S.of(context).normalWindowSize,
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "slim",
+                      title: S.of(context).slimWindowSize,
+                    ),
+                    SettingsBoxComboBoxItem(
+                      value: "stocky",
+                      title: S.of(context).stockyWindowSize,
+                    ),
+                  ],
+                  onChanged: (newValue) {
+                    if (newValue != null) {
+                      _updateWindowSize(newValue);
+                    }
                   },
                 ),
               ],

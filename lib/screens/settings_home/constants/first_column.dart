@@ -41,5 +41,11 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     Symbols.tune,
     false
   ),
+  (
+    (context) => S.of(context).log,
+    '/settings/log',
+    Symbols.assignment_late,
+    false
+  ),
   ((context) => S.of(context).about, '/settings/about', Symbols.info, false),
 ];
