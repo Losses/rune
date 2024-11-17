@@ -8,6 +8,13 @@ publish = false
 name = "analysis"
 path = "src/lib.rs"
 
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+
+[[bench]]
+name = "analysis_benchmark"
+harness = false
+
 [dependencies]
 anyhow = {version="1.0.86",  features = ["backtrace"] }
 lazy_static = "1.5.0"
