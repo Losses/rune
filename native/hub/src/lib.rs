@@ -5,6 +5,7 @@ mod cover_art;
 mod directory;
 mod library_home;
 mod library_manage;
+mod logging;
 mod media_file;
 mod messages;
 mod mix;
@@ -38,6 +39,7 @@ use crate::cover_art::*;
 use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
+use crate::logging::*;
 use crate::media_file::*;
 use crate::messages::*;
 use crate::mix::*;
@@ -101,7 +103,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
         let main_db: Arc<sea_orm::DatabaseConnection> = db_connections.main_db;
 
-        let recommend_db: Arc<database::connection::RecommendationDbConnection> = db_connections.recommend_db;
+        let recommend_db: Arc<database::connection::RecommendationDbConnection> =
+            db_connections.recommend_db;
 
         let lib_path = Arc::new(path);
 
@@ -186,6 +189,10 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
+
+            ListLogRequest => (main_db),
+            ClearLogRequest => (main_db),
+            RemoveLogRequest => (main_db),
 
             SystemInfoRequest => (main_db),
         );

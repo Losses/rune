@@ -16,7 +16,7 @@ use metadata::scanner::AudioScanner;
 use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
-use crate::actions::log::{insert_log, LogLevel};
+use crate::actions::logging::{insert_log, LogLevel};
 use crate::actions::search::{add_term, remove_term, CollectionType};
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};

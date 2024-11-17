@@ -6,7 +6,7 @@ pub mod directory;
 pub mod file;
 pub mod index;
 pub mod library;
-pub mod log;
+pub mod logging;
 pub mod metadata;
 pub mod mixes;
 pub mod playback_queue;

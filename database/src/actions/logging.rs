@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
+use sea_orm::QueryOrder;
 
 use crate::entities::log;
 
@@ -104,4 +105,26 @@ pub async fn delete_log(main_db: &DatabaseConnection, log_id: i32) -> Result<()>
     }
 
     Ok(())
+}
+
+/// List log entries with pagination.
+///
+/// # Arguments
+/// * `main_db` - A reference to the database connection.
+/// * `cursor` - The starting point for pagination (0-based index).
+/// * `page_size` - The number of logs to retrieve per page.
+///
+/// # Returns
+/// * `Result<Vec<log::Model>>` - A vector of log models or an error.
+pub async fn list_log(
+    main_db: &DatabaseConnection,
+    cursor: u64,
+    page_size: u64,
+) -> Result<Vec<log::Model>> {
+    let paginator = log::Entity::find()
+        .order_by_desc(log::Column::Date)
+        .paginate(main_db, page_size);
+
+    let logs = paginator.fetch_page(cursor).await?;
+    Ok(logs)
 }
