@@ -118,6 +118,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
     });
 
     await windowManager.setSize(size);
+    await windowManager.center(animate: true);
     await SettingsManager().setValue(windowSizeKey, newWindowSize);
   }
 
