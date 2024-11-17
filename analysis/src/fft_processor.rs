@@ -3,8 +3,7 @@ use std::sync::Arc;
 use log::{debug, info};
 
 use rubato::{FftFixedInOut, Resampler};
-use rustfft::Fft;
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{num_complex::Complex};
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
@@ -89,12 +88,6 @@ impl FFTProcessor {
         let avg_spectrum = vec![Complex::new(0.0, 0.0); window_size];
         let hanning_window = build_hanning_window(window_size);
         let sample_buffer = Vec::with_capacity(window_size);
-        let mut planner = FftPlanner::<f32>::new();
-        let cpu_batch_fft = if computing_device == ComputingDevice::Cpu {
-            Some(planner.plan_fft_forward(window_size))
-        } else {
-            None
-        };
 
         let mut planner = RealFftPlanner::<f32>::new();
         let cpu_batch_fft = planner.plan_fft_forward(window_size);
@@ -428,7 +421,7 @@ impl FFTProcessor {
             ).expect("Real FFT processing failed");
 
             for batch_idx in 0..self.batch_cache_buffer_count {
-                let start = batch_idx * self.window_size;
+                let _start: usize = batch_idx * self.window_size;
                 for i in 0..self.window_size / 2 + 1 {
                     // Copy the real FFT output directly
                     self.avg_spectrum[i] += self.cpu_batch_fft_output_buffer[i];
@@ -449,7 +442,7 @@ impl FFTProcessor {
             ).expect("FFT processing failed");
 
             for batch_idx in 0..self.batch_size {
-                let start = batch_idx * self.window_size;
+                let _start = batch_idx * self.window_size;
 
                 for i in 0..self.window_size / 2 + 1 {
                     // Copy the real FFT output directly
@@ -510,7 +503,7 @@ mod tests {
     #[test]
     fn test_rust_fft() {
         let size = 1024;
-        let mut original_data: Vec<Complex<f32>> = (0..size)
+        let original_data: Vec<Complex<f32>> = (0..size)
             .map(|i| Complex::new((i as f32).sin(), 0.0))
             .collect();
         let mut fft_data = original_data.clone();
