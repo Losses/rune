@@ -64,7 +64,7 @@
   "@runeIsActivated": {},
   "productId": "製品身元確認",
   "@productId": {},
-  "youMayBeAVictimOfGenuineSoftware": "正規ソフトの被害者である可能性があります。",
+  "youMayBeAVictimOfGenuineSoftware": "貴方は正銘被害者である可能性があります。",
   "@youMayBeAVictimOfGenuineSoftware": {},
   "axiomDesign": "公理設計",
   "@axiomDesign": {},
@@ -78,7 +78,7 @@
   "@cpu": {},
   "performanceLevel": "性能水準",
   "@performanceLevel": {},
-  "performanceLevelSubtitle": "同時に実行する作業の数を選択してください。",
+  "performanceLevelSubtitle": "並行する作業数を選択してください。",
   "@performanceLevelSubtitle": {},
   "performance": "性能優先",
   "@performance": {},
@@ -90,11 +90,11 @@
   "@switchTo": {},
   "removeLibrary": "削除",
   "@removeLibrary": {
-    "description": "メディアライブラリを削除するためのボタンのプロンプトテキスト。このボタンを押すと、履歴からライブラリエントリが削除されます。"
+    "description": ""
   },
   "remove": "削除",
   "@remove": {
-    "description": "ソフトウェアが何を削除すべきか特定できない場合に、コンテキストメニューでユーザーにコンテンツの削除を促すための代替テキストとしての動詞。"
+    "description": ""
   },
   "addLibrary": "資料集を追加",
   "@addLibrary": {},
@@ -116,7 +116,7 @@
   "@middleClickActionSubtitle": {},
   "startPlaying": "再生開始",
   "@startPlaying": {},
-  "startRoaming": "漫行開始",
+  "startRoaming": "漫奏開始",
   "@startRoaming": {},
   "playbackMode": "再生方法",
   "@playbackMode": {},
@@ -248,9 +248,9 @@
   "@sortOrder": {},
   "liked": "いいね",
   "@liked": {},
-  "noRoamingCollection": "漫行を開始できません。選集内の曲がまだ解析されていません。",
+  "noRoamingCollection": "漫奏を開始できません。選集内の曲がまだ解析されていません。",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "漫行を開始できません。この曲はまだ解析されていません。",
+  "noRomaingTrack": "漫奏を開始できません。この曲はまだ解析されていません。",
   "@noRomaingTrack": {},
   "noAnalysisScanning": "${baseMessage} 資料集を検査中のため、解析は実行できません。",
   "@noAnalysisScanning": {
