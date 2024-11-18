@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/settings_manager.dart';
 
 import '../../utils/query_list.dart';
 import '../../utils/api/query_mix_tracks.dart';
@@ -6,6 +7,8 @@ import '../../utils/api/query_mix_tracks.dart';
 import 'widgets/cover_wall_background_implementation.dart';
 
 const coverCount = 40;
+
+const randomCoverWallCountKey = 'random_cover_wall_count';
 
 class CoverWallBackground extends StatefulWidget {
   final int seed;
@@ -33,7 +36,12 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
   loadCoverList() async {
     final queryResult = await queryMixTracks(
       QueryList([
-        ("lib::random", coverCount.toString()),
+        (
+          "lib::random",
+          (await SettingsManager().getValue<int?>(randomCoverWallCountKey) ??
+                  coverCount)
+              .toString()
+        ),
         ("filter::with_cover_art", "true"),
       ]),
     );
