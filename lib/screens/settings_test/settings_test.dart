@@ -24,6 +24,7 @@ class _SettingsTestPageState extends State<SettingsTestPage> {
   Widget build(BuildContext context) {
     return CoverWallBackground(
       seed: 114514,
+      gap: 2,
     );
   }
 }
@@ -69,10 +70,12 @@ const maxRandomGridConfigSize = 4;
 
 class CoverWallBackground extends StatefulWidget {
   final int seed;
+  final int gap;
 
   const CoverWallBackground({
     super.key,
     required this.seed,
+    required this.gap,
   });
 
   @override
@@ -112,6 +115,7 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
     return LayoutBuilder(
       builder: (context, constraints) => CoverWallBackgroundImplementation(
         seed: widget.seed,
+        gap: widget.gap,
         paths: paths,
         constraints: constraints,
       ),
@@ -121,12 +125,14 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
 class CoverWallBackgroundImplementation extends StatefulWidget {
   final int seed;
+  final int gap;
   final List<String> paths;
   final BoxConstraints constraints;
 
   const CoverWallBackgroundImplementation({
     super.key,
     required this.seed,
+    required this.gap,
     required this.paths,
     required this.constraints,
   });
@@ -296,6 +302,7 @@ class CoverWallBackgroundImplementationState
     return CustomPaint(
       painter: CoverWallBackgroundPainter(
         gridSize: gridSize.ceil(),
+        gap: widget.gap,
         images: images,
         grid: grid,
       ),
@@ -305,11 +312,13 @@ class CoverWallBackgroundImplementationState
 
 class CoverWallBackgroundPainter extends CustomPainter {
   final int gridSize;
+  final int gap;
   final List<ui.Image?> images;
   final List<List<RandomGridPlacement>> grid;
 
   CoverWallBackgroundPainter({
     required this.gridSize,
+    required this.gap,
     required this.images,
     required this.grid,
   });
@@ -325,17 +334,22 @@ class CoverWallBackgroundPainter extends CustomPainter {
 
       for (final gridUnit in grid[imageIndex]) {
         canvas.save();
-        canvas.translate(
-          (gridSize * gridUnit.col + gridSize * (gridUnit.size / 2)).toDouble(),
-          (gridSize * gridUnit.row + gridSize * (gridUnit.size / 2)).toDouble(),
-        );
+
+        final x = (gridSize + gap) * gridUnit.col +
+            ((gridSize + gap) * (gridUnit.size / 2));
+        final y = (gridSize + gap) * gridUnit.row +
+            ((gridSize + gap) * (gridUnit.size / 2));
+
+        canvas.translate(x.toDouble(), y.toDouble());
+
+        final drawSize = gridSize * gridUnit.size + (gridUnit.size - 1) * gap;
 
         drawImageToCanvas(
           canvas,
           paint,
           image,
-          gridSize * gridUnit.size,
-          gridSize * gridUnit.size,
+          drawSize,
+          drawSize,
         );
         canvas.restore();
       }
@@ -345,6 +359,7 @@ class CoverWallBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(CoverWallBackgroundPainter oldDelegate) {
     if (gridSize != oldDelegate.gridSize) return true;
+    if (gap != oldDelegate.gap) return true; // 增加gap变化的判断
 
     if (images.length != oldDelegate.images.length) return true;
 
