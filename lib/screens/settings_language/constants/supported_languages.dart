@@ -59,6 +59,13 @@ const List<LanguageOption> supportedLanguages = [
     locale: Locale.fromSubtags(languageCode: 'uk'),
     experimental: true,
   ),
+    LanguageOption(
+    title: '简体中文',
+    sampleText:
+        '人人生而自由，在尊严和权利上一律平等。他们禀赋理性和良知，应当以兄弟情谊的精神相对待。',
+    locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
+    experimental: true,
+  ),
   LanguageOption(
     title: '傳統中文',
     sampleText: '人人生而自由，在尊嚴與權利上一律平等。人人皆賦有理性與良知，並應以兄弟關係的精神相對待。',
