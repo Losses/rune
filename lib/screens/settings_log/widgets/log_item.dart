@@ -89,6 +89,8 @@ class LogItemState extends State<LogItem> {
 
   @override
   Widget build(BuildContext context) {
+    final splittedDomain = widget.log.domain.split("::");
+
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,
@@ -104,7 +106,7 @@ class LogItemState extends State<LogItem> {
       onMiddleClick: (_) {},
       child: SettingsButton(
         icon: _getLogLevelIcon(widget.log.level),
-        title: widget.log.domain,
+        title: splittedDomain.last,
         subtitle: DateTime.fromMillisecondsSinceEpoch(
           widget.log.date.toInt() * 1000,
         ).toString(),

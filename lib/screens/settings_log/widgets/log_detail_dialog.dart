@@ -75,11 +75,11 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
                   onPressed: currentIndex > 0
                       ? () => _navigateTo(currentIndex - 1)
                       : null,
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Symbols.arrow_back),
-                      SizedBox(width: 4),
-                      Text('Previous'),
+                      const Icon(Symbols.arrow_back),
+                      const SizedBox(width: 4),
+                      Text(S.of(context).previous),
                     ],
                   ),
                 ),
@@ -88,11 +88,11 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
                   onPressed: currentIndex < widget.logs.length - 1
                       ? () => _navigateTo(currentIndex + 1)
                       : null,
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Text('Next'),
-                      SizedBox(width: 4),
-                      Icon(Symbols.arrow_forward),
+                      Text(S.of(context).next),
+                      const SizedBox(width: 4),
+                      const Icon(Symbols.arrow_forward),
                     ],
                   ),
                 ),
