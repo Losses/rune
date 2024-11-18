@@ -53,6 +53,10 @@ class RandomGridPlacement {
 
   @override
   int get hashCode => Object.hash(coverIndex, col, row, size);
+
+  @override
+  String toString() =>
+      'RandomGridPlacement(coverIndex: $coverIndex, col: $col, row: $row, size: $size)';
 }
 
 const randomGridConfig = [
@@ -60,6 +64,8 @@ const randomGridConfig = [
   RandomGridConfig(size: 3, probability: 0.3),
   RandomGridConfig(size: 2, probability: 0.3),
 ];
+
+const maxRandomGridConfigSize = 4;
 
 class CoverWallBackground extends StatefulWidget {
   final int seed;
@@ -178,18 +184,18 @@ class CoverWallBackgroundImplementationState
     final constraints = widget.constraints;
 
     final gridSize = calculateGridSize();
-    final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
-    final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
+    final cols = (constraints.maxWidth / gridSize).ceil();
+    final rows = (constraints.maxHeight / gridSize).ceil();
 
-    final totalGrids = crossAxisCount * mainAxisCount;
+    final totalGrids = cols * rows;
 
     final List<bool> occupied = List.filled(totalGrids, false);
     final List<List<RandomGridPlacement>> placement =
         List.generate(widget.paths.length, (_) => [], growable: false);
 
     for (int i = 0; i < occupied.length; i += 1) {
-      final int row = i ~/ crossAxisCount;
-      final int col = i % crossAxisCount;
+      final int row = i ~/ cols;
+      final int col = i % cols;
 
       final gridKey = '$row-$col';
 
@@ -199,21 +205,39 @@ class CoverWallBackgroundImplementationState
       double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
       int coverIndex = (randomValue2 * (widget.paths.length - 1)).round();
 
+      int maxSize = maxRandomGridConfigSize;
+
+      for (int colP = 0; colP < maxSize; colP++) {
+        for (int rowP = 0; rowP < maxSize; rowP++) {
+          if ((col + colP) >= cols) continue;
+          if ((row + rowP) >= rows) continue;
+
+          final index = (col + colP) + (row + rowP) * cols;
+
+          if (occupied[index]) {
+            maxSize = min(colP, rowP);
+          }
+        }
+      }
+
+      if (maxSize == 0) continue;
+
       for (final cfg in randomGridConfig) {
+        if (size < maxSize) continue;
+
         if (randomValue1 <= cfg.probability) {
-          int size = cfg.size;
+          final size = cfg.size;
 
-          occupied[i] = true;
+          for (int colP = 0; colP < size; colP++) {
+            for (int rowP = 0; rowP < size; rowP++) {
+              if (col + colP >= cols) continue;
+              if (row + rowP >= rows) continue;
 
-          for (int a = 0; a < size - 1; a++) {
-            final indexA = (col + a + 1) + row * crossAxisCount;
-            final indexB = col + (row + a + 1) * crossAxisCount;
+              final indexA = (col + colP) + (row + rowP) * cols;
 
-            if (indexA < occupied.length) {
-              occupied[indexA] = true;
-            }
-            if (indexB < occupied.length) {
-              occupied[indexB] = true;
+              if (indexA < occupied.length && col <= cols) {
+                occupied[indexA] = true;
+              }
             }
           }
 
@@ -234,8 +258,8 @@ class CoverWallBackgroundImplementationState
     for (int i = 0; i < occupied.length; i += 1) {
       if (occupied[i]) continue;
 
-      final int row = i ~/ crossAxisCount;
-      final int col = i % crossAxisCount;
+      final int row = i ~/ cols;
+      final int col = i % cols;
 
       final gridKey = '$row-$col';
       double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
