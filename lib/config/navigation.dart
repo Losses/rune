@@ -142,7 +142,7 @@ final List<NavigationItem> navigationItems = [
             (context) => S.of(context).about,
             '/settings/about',
           ),
-          // NavigationItem('Test', '/settings/mix'),
+          NavigationItem((_) => 'Test', '/settings/test'),
         ],
       ),
     ],
