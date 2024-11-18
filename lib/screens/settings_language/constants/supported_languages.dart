@@ -80,4 +80,10 @@ const List<LanguageOption> supportedLanguages = [
         languageCode: 'zh', scriptCode: 'Hant', countryCode: 'YUE'),
     experimental: true,
   ),
+  LanguageOption(
+    title: '文言',
+    sampleText: '人者，生而平等也；降世以來，便得自由、威武、平等、心觀，彼此皆如手足。',
+    locale: Locale.fromSubtags(
+        languageCode: 'zh', scriptCode: 'Hant', countryCode: 'LZH'),
+  ),
 ];

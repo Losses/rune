@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/config/shortcuts.dart';
+
+import '../config/shortcuts.dart';
 
 class NoShortcuts extends StatelessWidget {
   const NoShortcuts(this.widget, {super.key});

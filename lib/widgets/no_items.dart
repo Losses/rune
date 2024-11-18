@@ -13,6 +13,7 @@ class NoItems extends StatelessWidget {
   final bool hasRecommendation;
   final VoidCallback reloadData;
   final bool userGenerated;
+  final bool showDetail;
 
   const NoItems({
     super.key,
@@ -20,6 +21,7 @@ class NoItems extends StatelessWidget {
     required this.hasRecommendation,
     required this.reloadData,
     this.userGenerated = false,
+    this.showDetail = true,
   });
 
   @override
@@ -58,30 +60,32 @@ class NoItems extends StatelessWidget {
                   style: typography.title,
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 4),
-                userGenerated
-                    ? Text(
-                        S.of(context).tryCreatingYourOwnCollection,
-                        textAlign: TextAlign.center,
-                      )
-                    : hasRecommendation
-                        ? Text(
-                            S.of(context).theseActionsMayHelp,
-                            textAlign: TextAlign.center,
-                          )
-                        : Text(
-                            S.of(context).tryScanningNewFiles,
-                            textAlign: TextAlign.center,
-                          ),
+                if (showDetail) const SizedBox(height: 4),
+                if (showDetail)
+                  userGenerated
+                      ? Text(
+                          S.of(context).tryCreatingYourOwnCollection,
+                          textAlign: TextAlign.center,
+                        )
+                      : hasRecommendation
+                          ? Text(
+                              S.of(context).theseActionsMayHelp,
+                              textAlign: TextAlign.center,
+                            )
+                          : Text(
+                              S.of(context).tryScanningNewFiles,
+                              textAlign: TextAlign.center,
+                            ),
               ],
             ),
-            if (!userGenerated) ...[
-              const SizedBox(height: 24),
-              ActionButtons(
-                reloadData: reloadData,
-                hasRecommendation: hasRecommendation,
-              ),
-            ]
+            if (showDetail)
+              if (!userGenerated) ...[
+                const SizedBox(height: 24),
+                ActionButtons(
+                  reloadData: reloadData,
+                  hasRecommendation: hasRecommendation,
+                ),
+              ]
           ],
         );
       },

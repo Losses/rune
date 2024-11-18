@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/router/base_route_entry.dart';
+
+import '../../utils/router/base_route_entry.dart';
 
 class RouteEntry extends BaseRouteEntry {
   RouteEntry({

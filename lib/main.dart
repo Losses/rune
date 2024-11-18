@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:rune/screens/settings_theme/constants/window_sizes.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -33,6 +32,7 @@ import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
+import 'screens/settings_theme/constants/window_sizes.dart';
 import 'screens/settings_language/settings_language.dart';
 
 import 'messages/generated.dart';

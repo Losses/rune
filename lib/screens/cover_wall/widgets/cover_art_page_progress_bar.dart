@@ -1,9 +1,9 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/providers/status.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/format_time.dart';
 import '../../../messages/playback.pb.dart';
+import '../../../providers/status.dart';
 
 class CoverArtPageProgressBar extends StatelessWidget {
   final List<Shadow> shadows;

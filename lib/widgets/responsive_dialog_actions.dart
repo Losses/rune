@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/providers/responsive_providers.dart';
+
+import '../providers/responsive_providers.dart';
 
 class ResponsiveDialogActions extends StatelessWidget {
   const ResponsiveDialogActions(this.buttonA, this.buttonB, {super.key});
