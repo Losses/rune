@@ -140,9 +140,13 @@ class CoverWallBackgroundImplementationState
     extends State<CoverWallBackgroundImplementation> {
   late List<ui.Image?> images = List.filled(widget.paths.length, null);
 
+  late double pixelRatio;
+
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    pixelRatio = MediaQuery.devicePixelRatioOf(context);
 
     _loadAllImages();
   }
@@ -164,7 +168,9 @@ class CoverWallBackgroundImplementationState
   int size = 0;
 
   _loadAllImages() {
-    final nextSize = nearestPowerOfTwo(calculateGridSize().ceil());
+    final nextSize = nearestPowerOfTwo(
+      calculateGridSize().ceil() * maxRandomGridConfigSize * pixelRatio.ceil(),
+    );
 
     if (size == nextSize) return;
     size = nextSize;
