@@ -190,8 +190,10 @@ class CoverWallBackgroundImplementationState
     final constraints = widget.constraints;
 
     final gridSize = calculateGridSize();
-    final cols = (constraints.maxWidth / gridSize).ceil();
-    final rows = (constraints.maxHeight / gridSize).ceil();
+    final cols =
+        (constraints.maxWidth / gridSize).ceil() + maxRandomGridConfigSize;
+    final rows =
+        (constraints.maxHeight / gridSize).ceil() + maxRandomGridConfigSize;
 
     final totalGrids = cols * rows;
 
@@ -341,5 +343,28 @@ class CoverWallBackgroundPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(CustomPainter oldDelegate) => true;
+  bool shouldRepaint(CoverWallBackgroundPainter oldDelegate) {
+    if (gridSize != oldDelegate.gridSize) return true;
+
+    if (images.length != oldDelegate.images.length) return true;
+
+    for (int i = 0; i < images.length; i++) {
+      if (images[i] != oldDelegate.images[i]) return true;
+    }
+
+    if (grid.length != oldDelegate.grid.length) return true;
+
+    for (int i = 0; i < grid.length; i++) {
+      final currentList = grid[i];
+      final oldList = oldDelegate.grid[i];
+
+      if (currentList.length != oldList.length) return true;
+
+      for (int j = 0; j < currentList.length; j++) {
+        if (currentList[j] != oldList[j]) return true;
+      }
+    }
+
+    return false;
+  }
 }
