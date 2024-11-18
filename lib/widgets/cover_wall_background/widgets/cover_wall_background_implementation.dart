@@ -8,6 +8,7 @@ import '../../../utils/load_and_resize_image.dart';
 import '../../../screens/cover_wall/utils/string_to_double.dart';
 
 import '../utils/random_grid_placement.dart';
+import '../utils/calculate_cover_wall_size.dart';
 import '../utils/cover_wall_background_painter.dart';
 import '../constants/random_grid_config.dart';
 import '../constants/max_random_grid_config_size.dart';
@@ -53,18 +54,13 @@ class CoverWallBackgroundImplementationState
     _loadAllImages();
   }
 
-  double calculateGridSize() {
-    return max(
-      max(widget.constraints.maxWidth, widget.constraints.maxHeight) / 24,
-      64,
-    );
-  }
-
   int size = 0;
 
   _loadAllImages() {
     final nextSize = nearestPowerOfTwo(
-      calculateGridSize().ceil() * maxRandomGridConfigSize * pixelRatio.ceil(),
+      calculateCoverWallSize(widget.constraints).ceil() *
+          maxRandomGridConfigSize *
+          pixelRatio.ceil(),
     );
 
     if (size == nextSize) return;
@@ -84,7 +80,7 @@ class CoverWallBackgroundImplementationState
   List<List<RandomGridPlacement>> _generateTilesOfSize() {
     final constraints = widget.constraints;
 
-    final gridSize = calculateGridSize();
+    final gridSize = calculateCoverWallSize(constraints);
     final cols =
         (constraints.maxWidth / gridSize).ceil() + maxRandomGridConfigSize;
     final rows =
@@ -186,7 +182,7 @@ class CoverWallBackgroundImplementationState
   @override
   Widget build(BuildContext context) {
     final grid = _generateTilesOfSize();
-    final gridSize = calculateGridSize();
+    final gridSize = calculateCoverWallSize(widget.constraints);
 
     return CustomPaint(
       painter: CoverWallBackgroundPainter(

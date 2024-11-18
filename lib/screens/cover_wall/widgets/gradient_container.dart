@@ -9,7 +9,7 @@ class GradientParams {
   final double multY;
   final double brightness;
 
-  GradientParams({
+  const GradientParams({
     this.multX = 2.0,
     this.multY = 2.0,
     this.brightness = 0.8,
@@ -22,7 +22,7 @@ class EffectParams {
   final double noise;
   final double bw;
 
-  EffectParams({
+  const EffectParams({
     this.mouseInfluence = -1.0,
     this.scale = 1.0,
     this.noise = 1.5,
