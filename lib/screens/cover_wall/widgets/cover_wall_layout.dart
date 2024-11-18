@@ -18,6 +18,19 @@ class CoverWallLayout extends StatefulWidget {
   CoverWallLayoutState createState() => CoverWallLayoutState();
 }
 
+const gradientParams = GradientParams(
+  multX: 2.0,
+  multY: 2.0,
+  brightness: 1.0,
+);
+
+const effectParams = EffectParams(
+  mouseInfluence: -0.2,
+  scale: 1.25,
+  noise: 1.5,
+  bw: 0.0,
+);
+
 class CoverWallLayoutState extends State<CoverWallLayout> {
   @override
   void initState() {
@@ -45,21 +58,14 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
             maxWidth: (crossAxisCount * gridSize).toDouble(),
             maxHeight: (mainAxisCount * gridSize).toDouble(),
             child: Center(
-              child: GradientContainer(
-                gradientParams: const GradientParams(
-                  multX: 2.0,
-                  multY: 2.0,
-                  brightness: 1.0,
+              child: SizedBox.expand(
+                child: GradientContainer(
+                  gradientParams: gradientParams,
+                  effectParams: effectParams,
+                  color: isDark ? theme.accentColor : theme.accentColor.darkest,
+                  color2: theme.accentColor.darkest.darken(0.7),
+                  child: const CoverWallBackground(seed: 42, gap: 2),
                 ),
-                effectParams: const EffectParams(
-                  mouseInfluence: -0.2,
-                  scale: 1.25,
-                  noise: 1.5,
-                  bw: 0.0,
-                ),
-                color: isDark ? theme.accentColor : theme.accentColor.darkest,
-                color2: theme.accentColor.darkest.darken(0.7),
-                child: const CoverWallBackground(seed: 42, gap: 2),
               ),
             ),
           ),
