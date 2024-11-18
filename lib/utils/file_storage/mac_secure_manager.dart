@@ -2,9 +2,10 @@ import 'dart:io';
 
 import 'package:get_storage/get_storage.dart';
 import 'package:macos_secure_bookmarks/macos_secure_bookmarks.dart';
-import 'package:rune/utils/rune_log.dart';
 
 import '../settings_manager.dart';
+
+import '../../utils/rune_log.dart';
 
 const storageKey = 'rune-secure-bookmarks';
 

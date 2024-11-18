@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/no_shortcuts.dart';
 
 import '../../../utils/settings_manager.dart';
+import '../../../widgets/no_shortcuts.dart';
 import '../../../messages/search.pb.dart';
 import '../../../providers/responsive_providers.dart';
 

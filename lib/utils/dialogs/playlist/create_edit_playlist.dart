@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/dialogs/playlist/create_edit_playlist_dialog.dart';
-import 'package:rune/utils/router/navigation.dart';
+
+import '../../../utils/router/navigation.dart';
+import '../../../utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 
 import '../../../messages/playlist.pb.dart';
 

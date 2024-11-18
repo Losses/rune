@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/screens/search/constants/search_categories.dart';
 
 import '../../utils/api/search_for.dart';
 import '../../utils/api/fetch_collection_by_ids.dart';
@@ -12,6 +11,7 @@ import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/search/widgets/small_screen_search_track_list.dart';
+import '../../screens/search/constants/search_categories.dart';
 import '../../messages/search.pb.dart';
 import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';

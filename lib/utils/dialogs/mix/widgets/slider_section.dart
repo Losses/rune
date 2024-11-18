@@ -1,6 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'package:rune/utils/dialogs/mix/utils/slider_controller.dart';
+import '../../../../utils/dialogs/mix/utils/slider_controller.dart';
 
 class SliderSection extends StatefulWidget {
   final String title;

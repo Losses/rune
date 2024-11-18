@@ -1,4 +1,4 @@
-import 'package:rune/messages/collection.pb.dart';
+import '../../../messages/collection.pb.dart';
 
 bool userGenerated(CollectionType collectionType) {
   return collectionType == CollectionType.Playlist ||

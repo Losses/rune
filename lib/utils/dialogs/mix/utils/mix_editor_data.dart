@@ -1,7 +1,7 @@
-import 'package:rune/messages/collection.pb.dart';
-
 import '../../../../utils/api/fetch_media_file_by_ids.dart';
 import '../../../../utils/api/fetch_collection_by_ids.dart';
+
+import '../../../../messages/collection.pb.dart';
 
 class MixEditorData {
   final String title;

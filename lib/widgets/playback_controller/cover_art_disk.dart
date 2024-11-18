@@ -3,8 +3,8 @@ import 'dart:math';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/ax_shadow.dart';
 
+import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/cover_art.dart';
