@@ -16,7 +16,7 @@
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
-  "licenseAnnouncement": "呢個產品係根據 MPL 許可證授權嘅。",
+  "licenseAnnouncement": "本產品依 MPL 授權許可。",
   "@licenseAnnouncement": {
     "description": "The complete software license statement."
   },
@@ -236,7 +236,7 @@
   "@editPlaylist": {
     "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
   },
-  "editMix": "編輯組合",
+  "editMix": "編輯 Mix",
   "@editMix": {
     "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
@@ -252,15 +252,15 @@
   "@removePlaylist": {
     "description": "An entry in the context menu that allows users to delete a playlist."
   },
-  "removeMix": "移除組合",
+  "removeMix": "移除 Mix",
   "@removeMix": {
     "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "addToMix": "加入組合",
+  "addToMix": "加入 Mix",
   "@addToMix": {
     "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
-  "newMix": "新組合",
+  "newMix": "新 Mix",
   "@newMix": {
     "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
   },
@@ -641,15 +641,15 @@
   "@queue": {
     "description": "播放列表模態框嘅標題。"
   },
-  "createMix": "創建混音",
+  "createMix": "創建 Mix",
   "@createMix": {
-    "description": "引導用戶創建新混音（一種智能播放列表）嘅上下文菜單項。唔好同'remix'混淆。"
+    "description": "引導用戶創建新 Mix（一種智能播放列表）嘅上下文菜單項。唔好同'remix'混淆。"
   },
-  "removeMixTitle": "刪除混音",
+  "removeMixTitle": "刪除 Mix",
   "@removeMixTitle": {
-    "description": "通知用戶佢哋要刪除混音（一種智能播放列表）嘅模態框標題。唔好同'remix'混淆。"
+    "description": "通知用戶佢哋要刪除 Mix（一種智能播放列表）嘅模態框標題。唔好同'remix'混淆。"
   },
-  "removeMixSubtitle": "如果你刪除呢個混音，就冇辦法恢復返。你確定要刪除？",
+  "removeMixSubtitle": "如果你刪除呢個 Mix，就冇辦法恢復返。你確定要刪除？",
   "@removeMixSubtitle": {},
   "delete": "刪除",
   "@delete": {
