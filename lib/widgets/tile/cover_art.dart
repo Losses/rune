@@ -1,14 +1,9 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/utils/nearest_power_of_two.dart';
 
 import '../../widgets/tile/fancy_cover.dart';
-
-int nearestPowerOfTwo(int value) {
-  if (value <= 0) return 1;
-  return pow(2, (log(value) / log(2)).round()).toInt();
-}
 
 class EmptyCoverArt extends StatelessWidget {
   final double? size;

@@ -90,9 +90,7 @@ class RandomGridState extends State<RandomGrid> {
               );
 
         return Stack(
-          alignment: isMini
-              ? Alignment.centerLeft
-              : Alignment.bottomCenter,
+          alignment: isMini ? Alignment.centerLeft : Alignment.bottomCenter,
           children: [
             Container(
               color: isDark ? null : theme.accentColor.lightest.lighten(0.2),
@@ -111,21 +109,22 @@ class RandomGridState extends State<RandomGrid> {
               height: (mainAxisCount * gridSize).toDouble(),
             ),
             const PlayingTrack(),
-            if (!isMini) Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: const Alignment(0.0, -1.0),
-                  end: const Alignment(0.0, 1.0),
-                  colors: [
-                    shadowColor.withAlpha(0),
-                    isDark
-                        ? shadowColor.withAlpha(200)
-                        : shadowColor.lighten(0.2).withAlpha(220),
-                  ],
+            if (!isMini)
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(0.0, -1.0),
+                    end: const Alignment(0.0, 1.0),
+                    colors: [
+                      shadowColor.withAlpha(0),
+                      isDark
+                          ? shadowColor.withAlpha(200)
+                          : shadowColor.lighten(0.2).withAlpha(220),
+                    ],
+                  ),
                 ),
+                height: playbackControllerHeight,
               ),
-              height: playbackControllerHeight,
-            ),
             const Positioned(
               top: 0,
               left: 0,
@@ -144,16 +143,17 @@ class RandomGridState extends State<RandomGrid> {
 
     // Step 1: Generate 4x4 tiles
     _generateTilesOfSize(
-        tiles,
-        occupiedCells,
-        gridSize,
-        [
-          const RandomGridConfig(size: 4, probability: 0.2),
-          const RandomGridConfig(size: 3, probability: 0.3),
-          const RandomGridConfig(size: 2, probability: 0.3),
-        ],
-        crossAxisCount,
-        mainAxisCount);
+      tiles,
+      occupiedCells,
+      gridSize,
+      const [
+        RandomGridConfig(size: 4, probability: 0.2),
+        RandomGridConfig(size: 3, probability: 0.3),
+        RandomGridConfig(size: 2, probability: 0.3),
+      ],
+      crossAxisCount,
+      mainAxisCount,
+    );
     return tiles;
   }
 
@@ -177,7 +177,7 @@ class RandomGridState extends State<RandomGrid> {
         double randomValue2 = stringToDouble('$gridKey-i-${widget.seed}');
         int coverIndex = (randomValue2 * (widget.paths.length - 1)).round();
 
-        for (var cfg in config) {
+        for (final cfg in config) {
           if (randomValue1 <= cfg.probability) {
             int size = cfg.size;
 

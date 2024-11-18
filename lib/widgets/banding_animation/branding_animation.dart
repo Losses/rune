@@ -1,9 +1,10 @@
+import 'dart:io';
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/asset_helper.dart';
 import '../../utils/api/sfx_play.dart';
-import '../../screens/settings_test/settings_test.dart';
 
 import 'branding_animation_implementation.dart';
 
@@ -13,6 +14,9 @@ class BrandingAnimation extends StatefulWidget {
   @override
   State<BrandingAnimation> createState() => _BrandingAnimationState();
 }
+
+Future<File> startSfxFile =
+    AssetHelper.instance.getAudioFileFromAssets('assets/startup_1.ogg');
 
 class _BrandingAnimationState extends State<BrandingAnimation>
     with TickerProviderStateMixin {
