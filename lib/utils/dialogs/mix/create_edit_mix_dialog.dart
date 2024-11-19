@@ -48,6 +48,13 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
     }
   }
 
+  @override
+  void dispose() {
+    super.dispose();
+    titleController.dispose();
+    groupController.dispose();
+  }
+
   Future<void> fetchGroupList() async {
     final groups = await fetchCollectionGroupSummaryTitle(CollectionType.Mix);
 

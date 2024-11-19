@@ -47,6 +47,13 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
     }
   }
 
+  @override
+  dispose() {
+    super.dispose();
+    titleController.dispose();
+    groupController.dispose();
+  }
+
   Future<void> fetchGroupList() async {
     final groups =
         await fetchCollectionGroupSummaryTitle(CollectionType.Playlist);
