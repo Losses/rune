@@ -95,15 +95,83 @@ pub trait CollectionQuery: Send + Sync + 'static {
 
 #[macro_export]
 macro_rules! collection_query {
-    ($item_entity:ident, $entity:ty, $collection_type:expr, $query_operator:expr, $get_groups:path, $get_by_ids:path, $list:path) => {
+    (
+        $item_entity:ident, 
+        $entity:ty, 
+        $collection_type:expr, 
+        $query_operator:expr,
+        $related_entity:ident,
+        $relation_column_name:ident,
+        $list:path
+    ) => {
+        // First generate the get_groups function
+        async fn get_groups_internal(
+            db: &DatabaseConnection,
+            groups: Vec<String>,
+        ) -> Result<Vec<(String, Vec<($item_entity::Model, HashSet<i32>)>)>, sea_orm::DbErr> {
+            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+            use std::collections::{HashMap, HashSet};
+            use $crate::actions::cover_art::get_magic_cover_art_id;
+            use $crate::get_entity_to_cover_ids;
+
+            // Step 0: Get the magic coverart ID
+            let magic_cover_art_id = get_magic_cover_art_id(db).await;
+
+            // Step 1: Fetch entities belonging to the specified groups
+            let entities: Vec<$item_entity::Model> = $item_entity::Entity::find()
+                .filter($item_entity::Column::Group.is_in(groups.clone()))
+                .all(db)
+                .await?;
+
+            // Step 2: Collect entity IDs
+            let entity_ids: Vec<i32> = entities.iter().map(|x| x.id).collect();
+
+            // Step 3: Get entity to cover IDs mapping
+            let entity_to_cover_ids = get_entity_to_cover_ids!(
+                db,
+                entity_ids,
+                $related_entity,
+                $relation_column_name,
+                magic_cover_art_id
+            )?;
+
+            // Step 4: Group entities by their group and associate cover IDs
+            let mut grouped_entities: HashMap<String, Vec<($item_entity::Model, HashSet<i32>)>> =
+                HashMap::new();
+            for entity in entities {
+                let cover_ids = entity_to_cover_ids
+                    .get(&entity.id)
+                    .cloned()
+                    .unwrap_or_default();
+                grouped_entities
+                    .entry(entity.group.clone())
+                    .or_default()
+                    .push((entity, cover_ids));
+            }
+
+            // Step 5: Prepare the final result
+            let result = groups
+                .into_iter()
+                .map(|group| {
+                    let entities_in_group = grouped_entities.remove(&group).unwrap_or_default();
+                    (group, entities_in_group)
+                })
+                .collect();
+
+            Ok(result)
+        }
+
+        // Then implement CollectionQuery
         #[async_trait]
         impl CollectionQuery for $item_entity::Model {
             fn collection_type() -> CollectionQueryType {
                 $collection_type
             }
+            
             fn query_operator() -> &'static str {
                 $query_operator
             }
+            
             async fn count_by_first_letter(
                 main_db: &Arc<MainDbConnection>,
             ) -> Result<Vec<(String, i32)>> {
@@ -111,23 +179,28 @@ macro_rules! collection_query {
                     .await
                     .with_context(|| "Failed to count collection by first letter")
             }
+            
             async fn get_groups(
                 main_db: &Arc<MainDbConnection>,
                 group_titles: Vec<String>,
             ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-                $get_groups(main_db, group_titles)
+                get_groups_internal(&main_db, group_titles)
                     .await
-                    .with_context(|| "Failed to get collection groups")
+                    .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {}", e))
             }
+            
             async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-                $get_by_ids(main_db, ids)
-                    .await
-                    .with_context(|| "Failed to get collection item by ids")
+                <$item_entity::Entity>::find()
+                .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
+                .all(main_db.as_ref())
+                .await
+                .with_context(|| "Failed to get collection item by ids")
             }
+            
             async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-                $list(main_db, limit)
-                    .await
-                    .with_context(|| "Failed to get collection list")
+                use sea_orm::QuerySelect;
+
+                $item_entity::Entity::find().limit(limit).all(main_db.as_ref()).await.with_context(|| "Failed to get collection list")
             }
 
             fn id(&self) -> i32 {

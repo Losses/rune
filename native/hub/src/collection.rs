@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use anyhow::Result;
-use database::actions::collection::CollectionQuery;
+use anyhow::{Context, Result};
 use futures::future::join_all;
 use rinf::DartSignal;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
+use database::actions::collection::CollectionQuery;
+use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
+use database::entities::prelude;
 use database::entities::{albums, artists, mixes, playlists};
 
 use crate::messages::*;
@@ -140,6 +143,26 @@ async fn handle_mixes(
     params: CollectionActionParams,
 ) -> Result<()> {
     match action {
+        CollectionAction::FetchGroupSummary => {
+            let entry = create_count_by_first_letter::<prelude::Mixes>()(main_db)
+                .await
+                .with_context(|| "Failed to count collection by first letter")?;
+
+            let collection_groups = entry
+                .into_iter()
+                .map(|x| CollectionGroupSummary {
+                    group_title: x.0,
+                    count: x.1,
+                })
+                .collect();
+
+            CollectionGroupSummaryResponse {
+                collection_type: 3,
+                groups: collection_groups,
+            }
+            .send_signal_to_dart();
+        }
+
         CollectionAction::FetchGroups => {
             let entry =
                 database::actions::mixes::get_mixes_groups(main_db, params.group_titles.unwrap())
@@ -185,8 +208,10 @@ async fn handle_mixes(
             CollectionGroups { groups }.send_signal_to_dart();
         }
         CollectionAction::FetchById => {
-            let items =
-                database::actions::mixes::get_mixes_by_ids(main_db, &params.ids.unwrap()).await?;
+            let items: Vec<mixes::Model> = mixes::Entity::find()
+                .filter(mixes::Column::Id.is_in(params.ids.unwrap()))
+                .all(main_db.as_ref())
+                .await?;
             let results = fetch_mix_queries_for_items(main_db, &items).await?;
             let collections = join_all(results.into_iter().map(|(mix, queries)| {
                 let queries = queries.clone();
@@ -211,23 +236,16 @@ async fn handle_mixes(
             .send_signal_to_dart();
         }
         CollectionAction::Search => {
-            let items =
-                database::actions::mixes::list_mixes(main_db, params.n.unwrap().into()).await?;
+            let items: Vec<mixes::Model> = mixes::Entity::find()
+                .limit(params.n.unwrap() as u64)
+                .all(main_db.as_ref())
+                .await?;
             let results = fetch_mix_queries_for_items(main_db, &items).await?;
             SearchCollectionSummaryResponse {
                 collection_type: 3,
                 result: create_collections(results),
             }
             .send_signal_to_dart();
-        }
-        _ => {
-            handle_collection_action::<database::entities::mixes::Model>(
-                main_db,
-                recommend_db,
-                action,
-                params,
-            )
-            .await?
         }
     }
 

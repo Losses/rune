@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use anyhow::bail;
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
@@ -20,27 +18,18 @@ use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySel
 
 use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
-use crate::actions::collection::CollectionQuery;
-use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
-use crate::actions::utils::create_count_by_first_letter;
-use crate::collection_query;
-use crate::connection::MainDbConnection;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
 use crate::entities::{
     media_file_albums, media_file_artists, media_file_playlists, media_file_stats, media_files,
-    prelude,
 };
 
 use super::analysis::get_centralized_analysis_result;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
-use crate::get_by_id;
-use crate::get_by_ids;
-use crate::get_first_n;
 
 use super::utils::CountByFirstLetter;
 
@@ -53,20 +42,6 @@ impl CountByFirstLetter for mixes::Entity {
         mixes::Column::Id
     }
 }
-
-get_by_ids!(get_mixes_by_ids, mixes);
-get_by_id!(get_mixes_by_id, mixes);
-get_first_n!(list_mixes, mixes);
-
-collection_query!(
-    mixes,
-    prelude::Mixes,
-    CollectionQueryType::Mix,
-    "lib::mix",
-    get_mixes_groups,
-    get_mixes_by_ids,
-    list_mixes
-);
 
 pub async fn get_mixes_groups(
     db: &DatabaseConnection,

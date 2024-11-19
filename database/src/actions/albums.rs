@@ -8,9 +8,9 @@ use sea_orm::prelude::*;
 use crate::actions::collection::CollectionQuery;
 use crate::actions::collection::CollectionQueryType;
 use crate::actions::utils::create_count_by_first_letter;
+use crate::collection_query;
 use crate::connection::MainDbConnection;
 use crate::entities::{albums, media_file_albums, prelude};
-use crate::{collection_query, get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
 
 use super::utils::CountByFirstLetter;
 
@@ -24,18 +24,12 @@ impl CountByFirstLetter for albums::Entity {
     }
 }
 
-get_groups!(get_albums_groups, albums, media_file_albums, AlbumId);
-get_all_ids!(get_media_file_ids_of_album, media_file_albums, AlbumId);
-get_by_ids!(get_albums_by_ids, albums);
-get_by_id!(get_album_by_id, albums);
-get_first_n!(list_albums, albums);
-
 collection_query!(
     albums,
     prelude::Albums,
     CollectionQueryType::Album,
     "lib::album",
-    get_albums_groups,
-    get_albums_by_ids,
+    media_file_albums,
+    AlbumId,
     list_albums
 );

@@ -13,7 +13,7 @@ use crate::actions::search::{add_term, remove_term};
 use crate::actions::utils::create_count_by_first_letter;
 use crate::connection::MainDbConnection;
 use crate::entities::{media_file_playlists, playlists, prelude};
-use crate::{collection_query, get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
+use crate::{collection_query, get_by_id};
 
 use super::collection::CollectionQueryType;
 use super::utils::CountByFirstLetter;
@@ -28,28 +28,15 @@ impl CountByFirstLetter for playlists::Entity {
     }
 }
 
-get_groups!(
-    get_playlists_groups,
-    playlists,
-    media_file_playlists,
-    PlaylistId
-);
-get_all_ids!(
-    get_media_file_ids_of_playlist,
-    media_file_playlists,
-    PlaylistId
-);
-get_by_ids!(get_playlists_by_ids, playlists);
 get_by_id!(get_playlist_by_id, playlists);
-get_first_n!(list_playlists, playlists);
 
 collection_query!(
     playlists,
     prelude::Playlists,
     CollectionQueryType::Playlist,
     "lib::playlist",
-    get_playlists_groups,
-    get_playlists_by_ids,
+    media_file_playlists,
+    PlaylistId,
     list_playlists
 );
 
