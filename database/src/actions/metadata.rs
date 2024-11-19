@@ -13,11 +13,12 @@ use metadata::describe::{describe_file, FileDescription};
 use metadata::reader::get_metadata;
 use metadata::scanner::AudioScanner;
 
+use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
 use crate::actions::index::index_media_files;
 use crate::actions::logging::{insert_log, LogLevel};
-use crate::actions::search::{add_term, remove_term, CollectionType};
+use crate::actions::search::{add_term, remove_term};
 use crate::entities::{albums, artists, media_file_albums, media_files};
 use crate::entities::{media_file_artists, media_metadata};
 
@@ -329,7 +330,7 @@ pub async fn sync_file_descriptions(
     }
 
     if let Some((id, name)) = search_term {
-        if let Err(e) = add_term(main_db, CollectionType::Track, id, &name)
+        if let Err(e) = add_term(main_db, CollectionQueryType::Track, id, &name)
             .await
             .with_context(|| "Failed to add term")
         {
@@ -725,7 +726,7 @@ where
     {
         add_term(
             main_db,
-            CollectionType::Track,
+            CollectionQueryType::Track,
             inserted_file.last_insert_id,
             value,
         )
@@ -771,7 +772,7 @@ async fn clean_up_database(main_db: &DatabaseConnection, root_path: &Path) -> Re
                 .exec(main_db)
                 .await?;
 
-            remove_term(main_db, CollectionType::Track, db_file.id).await?
+            remove_term(main_db, CollectionQueryType::Track, db_file.id).await?
         }
     }
 

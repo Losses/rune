@@ -6,10 +6,11 @@ use async_trait::async_trait;
 use sea_orm::prelude::*;
 
 use crate::actions::collection::CollectionQuery;
+use crate::actions::collection::CollectionQueryType;
 use crate::actions::utils::create_count_by_first_letter;
 use crate::connection::MainDbConnection;
 use crate::entities::{albums, media_file_albums, prelude};
-use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups, collection_query};
+use crate::{collection_query, get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
 
 use super::utils::CountByFirstLetter;
 
@@ -32,8 +33,7 @@ get_first_n!(list_albums, albums);
 collection_query!(
     albums::Model,
     prelude::Albums,
-    0,
-    "album",
+    CollectionQueryType::Album,
     "lib::album",
     get_albums_groups,
     get_albums_by_ids,

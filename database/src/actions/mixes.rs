@@ -21,6 +21,7 @@ use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySel
 use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::collection::CollectionQuery;
+use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
 use crate::actions::utils::create_count_by_first_letter;
@@ -46,8 +47,7 @@ use super::utils::CountByFirstLetter;
 collection_query!(
     mixes::Model,
     prelude::Mixes,
-    3,
-    "mix",
+    CollectionQueryType::Mix,
     "lib::mix",
     get_mixes_groups,
     get_mixes_by_ids,

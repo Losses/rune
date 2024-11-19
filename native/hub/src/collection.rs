@@ -47,7 +47,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                 .collect();
 
             CollectionGroupSummaryResponse {
-                collection_type: T::collection_type(),
+                collection_type: T::collection_type().into(),
                 groups: collection_groups,
             }
             .send_signal_to_dart();
@@ -66,7 +66,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                                     main_db,
                                     recommend_db,
                                     x.0,
-                                    T::collection_type(),
+                                    T::collection_type().into(),
                                     T::query_operator(),
                                     params.bake_cover_arts,
                                 )
@@ -100,7 +100,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                     Arc::clone(main_db),
                     Arc::clone(recommend_db),
                     item,
-                    T::collection_type(),
+                    T::collection_type().into(),
                     T::query_operator(),
                     params.bake_cover_arts,
                 )
@@ -110,7 +110,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
             .collect::<Result<Vec<_>, _>>()?;
 
             FetchCollectionByIdsResponse {
-                collection_type: T::collection_type(),
+                collection_type: T::collection_type().into(),
                 result: collections,
             }
             .send_signal_to_dart();
@@ -118,10 +118,12 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         CollectionAction::Search => {
             let items = T::list(main_db, params.n.unwrap().into()).await?;
             SearchCollectionSummaryResponse {
-                collection_type: T::collection_type(),
+                collection_type: T::collection_type().into(),
                 result: items
                     .into_iter()
-                    .map(|x| Collection::from_model(&x, T::collection_type(), T::query_operator()))
+                    .map(|x| {
+                        Collection::from_model(&x, T::collection_type().into(), T::query_operator())
+                    })
                     .collect(),
             }
             .send_signal_to_dart();

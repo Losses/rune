@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use async_trait::async_trait;
 use sea_orm::prelude::*;
 
-use crate::actions::collection::CollectionQuery;
+use crate::actions::collection::{CollectionQuery, CollectionQueryType};
 use crate::actions::utils::create_count_by_first_letter;
 use crate::connection::MainDbConnection;
 use crate::entities::{artists, media_file_artists, prelude};
@@ -32,8 +32,7 @@ get_first_n!(list_artists, artists);
 collection_query!(
     artists::Model,
     prelude::Artists,
-    1,
-    "artist",
+    CollectionQueryType::Artist,
     "lib::artist",
     get_artists_groups,
     get_artists_by_ids,

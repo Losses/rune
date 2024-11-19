@@ -9,13 +9,13 @@ use sea_orm::QueryOrder;
 use std::sync::Arc;
 
 use crate::actions::collection::CollectionQuery;
-use crate::actions::search::CollectionType;
 use crate::actions::search::{add_term, remove_term};
 use crate::actions::utils::create_count_by_first_letter;
 use crate::connection::MainDbConnection;
 use crate::entities::{media_file_playlists, playlists, prelude};
-use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups, collection_query};
+use crate::{collection_query, get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
 
+use super::collection::CollectionQueryType;
 use super::utils::CountByFirstLetter;
 
 impl CountByFirstLetter for playlists::Entity {
@@ -46,8 +46,7 @@ get_first_n!(list_playlists, playlists);
 collection_query!(
     playlists::Model,
     prelude::Playlists,
-    2,
-    "playlist",
+    CollectionQueryType::Playlist,
     "lib::playlist",
     get_playlists_groups,
     get_playlists_by_ids,
@@ -84,7 +83,7 @@ pub async fn create_playlist(
 
     add_term(
         main_db,
-        CollectionType::Playlist,
+        CollectionQueryType::Playlist,
         inserted_playlist.id,
         &name.clone(),
     )
@@ -151,7 +150,7 @@ pub async fn update_playlist(
 
         add_term(
             main_db,
-            CollectionType::Playlist,
+            CollectionQueryType::Playlist,
             updated_playlist.id,
             &updated_playlist.name.clone(),
         )
@@ -194,7 +193,7 @@ pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> 
         .await?;
 
     // Remove the playlist term from the search database
-    remove_term(main_db, CollectionType::Playlist, playlist_id).await?;
+    remove_term(main_db, CollectionQueryType::Playlist, playlist_id).await?;
 
     Ok(())
 }
