@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use database::connection::MainDbConnection;
 use rinf::DartSignal;
 
+use database::actions::collection::CollectionQueryType;
 use database::actions::search::convert_to_collection_types;
 use database::actions::search::search_for;
-use database::actions::search::CollectionType;
+use database::connection::MainDbConnection;
 
 use crate::messages::*;
 
@@ -40,10 +40,10 @@ pub async fn search_for_request(
     for (collection_type, ids) in results {
         let ids: Vec<i32> = ids.iter().map(|&x| x as i32).collect();
         match collection_type {
-            CollectionType::Artist => artists.extend(ids),
-            CollectionType::Album => albums.extend(ids),
-            CollectionType::Playlist => playlists.extend(ids),
-            CollectionType::Track => tracks.extend(ids),
+            CollectionQueryType::Artist => artists.extend(ids),
+            CollectionQueryType::Album => albums.extend(ids),
+            CollectionQueryType::Playlist => playlists.extend(ids),
+            CollectionQueryType::Track => tracks.extend(ids),
             _ => {}
         }
     }

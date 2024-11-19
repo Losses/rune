@@ -1,17 +1,21 @@
 use std::collections::HashSet;
 
-use anyhow::bail;
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
+use std::sync::Arc;
 
-use crate::actions::search::CollectionType;
+use crate::actions::collection::CollectionQuery;
 use crate::actions::search::{add_term, remove_term};
-use crate::entities::{media_file_playlists, playlists};
-use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
+use crate::actions::utils::create_count_by_first_letter;
+use crate::connection::MainDbConnection;
+use crate::entities::{media_file_playlists, playlists, prelude};
+use crate::{collection_query, get_by_id};
 
+use super::collection::CollectionQueryType;
 use super::utils::CountByFirstLetter;
 
 impl CountByFirstLetter for playlists::Entity {
@@ -24,20 +28,17 @@ impl CountByFirstLetter for playlists::Entity {
     }
 }
 
-get_groups!(
-    get_playlists_groups,
-    playlists,
-    media_file_playlists,
-    PlaylistId
-);
-get_all_ids!(
-    get_media_file_ids_of_playlist,
-    media_file_playlists,
-    PlaylistId
-);
-get_by_ids!(get_playlists_by_ids, playlists);
 get_by_id!(get_playlist_by_id, playlists);
-get_first_n!(list_playlists, playlists);
+
+collection_query!(
+    playlists,
+    prelude::Playlists,
+    CollectionQueryType::Playlist,
+    "lib::playlist",
+    media_file_playlists,
+    PlaylistId,
+    list_playlists
+);
 
 /// Create a new playlist.
 ///
@@ -69,7 +70,7 @@ pub async fn create_playlist(
 
     add_term(
         main_db,
-        CollectionType::Playlist,
+        CollectionQueryType::Playlist,
         inserted_playlist.id,
         &name.clone(),
     )
@@ -136,7 +137,7 @@ pub async fn update_playlist(
 
         add_term(
             main_db,
-            CollectionType::Playlist,
+            CollectionQueryType::Playlist,
             updated_playlist.id,
             &updated_playlist.name.clone(),
         )
@@ -179,7 +180,7 @@ pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> 
         .await?;
 
     // Remove the playlist term from the search database
-    remove_term(main_db, CollectionType::Playlist, playlist_id).await?;
+    remove_term(main_db, CollectionQueryType::Playlist, playlist_id).await?;
 
     Ok(())
 }

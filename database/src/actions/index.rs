@@ -4,7 +4,8 @@ use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
 use tokio_util::sync::CancellationToken;
 
-use crate::actions::search::{add_term, CollectionType};
+use crate::actions::collection::CollectionQueryType;
+use crate::actions::search::add_term;
 use crate::actions::utils::generate_group_name;
 use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
 
@@ -68,7 +69,7 @@ pub async fn index_media_files(
                 let inserted_artist = artists::Entity::insert(artist).exec(&txn).await?;
                 add_term(
                     &txn,
-                    CollectionType::Artist,
+                    CollectionQueryType::Artist,
                     inserted_artist.last_insert_id,
                     &artist_name.clone(),
                 )
@@ -116,7 +117,7 @@ pub async fn index_media_files(
             let inserted_album = albums::Entity::insert(album).exec(&txn).await?;
             add_term(
                 &txn,
-                CollectionType::Album,
+                CollectionQueryType::Album,
                 inserted_album.last_insert_id,
                 &album_name.clone(),
             )

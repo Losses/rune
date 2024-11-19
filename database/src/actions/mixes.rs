@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use anyhow::bail;
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
@@ -31,9 +30,6 @@ use crate::entities::{
 use super::analysis::get_centralized_analysis_result;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
-use crate::get_by_id;
-use crate::get_by_ids;
-use crate::get_first_n;
 
 use super::utils::CountByFirstLetter;
 
@@ -46,10 +42,6 @@ impl CountByFirstLetter for mixes::Entity {
         mixes::Column::Id
     }
 }
-
-get_by_ids!(get_mixes_by_ids, mixes);
-get_by_id!(get_mixes_by_id, mixes);
-get_first_n!(list_mixes, mixes);
 
 pub async fn get_mixes_groups(
     db: &DatabaseConnection,
