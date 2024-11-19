@@ -1,16 +1,20 @@
 use std::collections::HashSet;
 
-use anyhow::bail;
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
+use std::sync::Arc;
 
+use crate::actions::collection::CollectionQuery;
 use crate::actions::search::CollectionType;
 use crate::actions::search::{add_term, remove_term};
-use crate::entities::{media_file_playlists, playlists};
-use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups};
+use crate::actions::utils::create_count_by_first_letter;
+use crate::connection::MainDbConnection;
+use crate::entities::{media_file_playlists, playlists, prelude};
+use crate::{get_all_ids, get_by_id, get_by_ids, get_first_n, get_groups, collection_query};
 
 use super::utils::CountByFirstLetter;
 
@@ -38,6 +42,17 @@ get_all_ids!(
 get_by_ids!(get_playlists_by_ids, playlists);
 get_by_id!(get_playlist_by_id, playlists);
 get_first_n!(list_playlists, playlists);
+
+collection_query!(
+    playlists::Model,
+    prelude::Playlists,
+    2,
+    "playlist",
+    "lib::playlist",
+    get_playlists_groups,
+    get_playlists_by_ids,
+    list_playlists
+);
 
 /// Create a new playlist.
 ///

@@ -1,128 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
-use async_trait::async_trait;
+use anyhow::Result;
+use database::actions::collection::CollectionQuery;
 use futures::future::join_all;
 use rinf::DartSignal;
 
-use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, mixes, playlists};
 
 use crate::messages::*;
 
 use crate::utils::inject_cover_art_map;
-
-#[async_trait]
-pub trait CollectionType: Send + Sync + 'static {
-    fn collection_type() -> i32;
-    fn query_operator() -> &'static str;
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>>;
-    async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
-        group_titles: Vec<String>,
-    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>>
-    where
-        Self: std::marker::Sized;
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>>
-    where
-        Self: std::marker::Sized;
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>>
-    where
-        Self: std::marker::Sized;
-
-    fn id(&self) -> i32;
-    fn name(&self) -> &str;
-}
-
-macro_rules! impl_collection_type {
-    ($model:ty, $entity:ty, $collection_type:expr, $type_name:expr, $query_operator:expr, $get_groups:path, $get_by_ids:path, $list:path) => {
-        #[async_trait]
-        impl CollectionType for $model {
-            fn collection_type() -> i32 {
-                $collection_type
-            }
-            fn query_operator() -> &'static str {
-                $query_operator
-            }
-            async fn count_by_first_letter(
-                main_db: &Arc<MainDbConnection>,
-            ) -> Result<Vec<(String, i32)>> {
-                create_count_by_first_letter::<$entity>()(main_db)
-                    .await
-                    .with_context(|| "Failed to count collection by first letter")
-            }
-            async fn get_groups(
-                main_db: &Arc<MainDbConnection>,
-                group_titles: Vec<String>,
-            ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
-                $get_groups(main_db, group_titles)
-                    .await
-                    .with_context(|| "Failed to get collection groups")
-            }
-            async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
-                $get_by_ids(main_db, ids)
-                    .await
-                    .with_context(|| "Failed to get collection item by ids")
-            }
-            async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
-                $list(main_db, limit)
-                    .await
-                    .with_context(|| "Failed to get collection list")
-            }
-
-            fn id(&self) -> i32 {
-                self.id
-            }
-
-            fn name(&self) -> &str {
-                &self.name
-            }
-        }
-    };
-}
-
-impl_collection_type!(
-    albums::Model,
-    database::entities::prelude::Albums,
-    0,
-    "album",
-    "lib::album",
-    database::actions::albums::get_albums_groups,
-    database::actions::albums::get_albums_by_ids,
-    database::actions::albums::list_albums
-);
-impl_collection_type!(
-    artists::Model,
-    database::entities::prelude::Artists,
-    1,
-    "artist",
-    "lib::artist",
-    database::actions::artists::get_artists_groups,
-    database::actions::artists::get_artists_by_ids,
-    database::actions::artists::list_artists
-);
-impl_collection_type!(
-    playlists::Model,
-    database::entities::prelude::Playlists,
-    2,
-    "playlist",
-    "lib::playlist",
-    database::actions::playlists::get_playlists_groups,
-    database::actions::playlists::get_playlists_by_ids,
-    database::actions::playlists::list_playlists
-);
-impl_collection_type!(
-    mixes::Model,
-    database::entities::prelude::Mixes,
-    3,
-    "mix",
-    "lib::mix",
-    database::actions::mixes::get_mixes_groups,
-    database::actions::mixes::get_mixes_by_ids,
-    database::actions::mixes::list_mixes
-);
 
 #[derive(Debug)]
 pub enum CollectionAction {
@@ -140,7 +29,7 @@ pub struct CollectionActionParams {
     bake_cover_arts: bool,
 }
 
-async fn handle_collection_action<T: CollectionType + std::clone::Clone>(
+async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
     action: CollectionAction,
@@ -262,9 +151,7 @@ async fn handle_mixes(
                         .iter()
                         .filter_map(|(gt, mix, queries)| {
                             if gt == &group_title {
-                                Some(Collection::from_mix_bakeable::<
-                                    database::entities::mixes::Model,
-                                >(
+                                Some(Collection::from_mix_bakeable(
                                     Arc::clone(main_db),
                                     Arc::clone(recommend_db),
                                     mix.clone(),
@@ -303,7 +190,7 @@ async fn handle_mixes(
                 let queries = queries.clone();
                 let mix = mix.clone();
 
-                Collection::from_mix_bakeable::<database::entities::mixes::Model>(
+                Collection::from_mix_bakeable(
                     Arc::clone(main_db),
                     Arc::clone(recommend_db),
                     mix,
@@ -426,7 +313,7 @@ fn create_collections(results: Vec<(mixes::Model, Vec<MixQuery>)>) -> Vec<Collec
 }
 
 impl Collection {
-    pub fn from_model<T: CollectionType>(
+    pub fn from_model<T: CollectionQuery>(
         model: &T,
         collection_type: i32,
         query_operator: &str,
@@ -444,7 +331,7 @@ impl Collection {
         }
     }
 
-    pub async fn from_model_bakeable<T: CollectionType>(
+    pub async fn from_model_bakeable<T: CollectionQuery>(
         main_db: Arc<MainDbConnection>,
         recommend_db: Arc<RecommendationDbConnection>,
         model: T,
@@ -472,7 +359,7 @@ impl Collection {
         }
     }
 
-    pub async fn from_mix_bakeable<T: CollectionType>(
+    pub async fn from_mix_bakeable(
         main_db: Arc<MainDbConnection>,
         recommend_db: Arc<RecommendationDbConnection>,
         mix: mixes::Model,
