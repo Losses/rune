@@ -12,7 +12,7 @@ import '../../messages/all.dart';
 
 import '../tile/cover_art.dart';
 
-class LargeScreenTrackListItem extends StatelessWidget {
+class LargeScreenTrackListItem extends StatefulWidget {
   final InternalMediaFile item;
   final int index;
   final QueryList queries;
@@ -20,10 +20,8 @@ class LargeScreenTrackListItem extends StatelessWidget {
   final String? coverArtPath;
   final List<int> fallbackFileIds;
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
 
-  LargeScreenTrackListItem({
+  const LargeScreenTrackListItem({
     super.key,
     required this.index,
     required this.item,
@@ -32,6 +30,21 @@ class LargeScreenTrackListItem extends StatelessWidget {
     required this.fallbackFileIds,
     required this.coverArtPath,
   });
+
+  @override
+  State<LargeScreenTrackListItem> createState() => _LargeScreenTrackListItemState();
+}
+
+class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
+  final contextController = FlyoutController();
+
+  final contextAttachKey = GlobalKey();
+
+  @override
+  dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,12 +57,12 @@ class LargeScreenTrackListItem extends StatelessWidget {
         executeMiddleClickAction(
           context,
           CollectionType.Track,
-          item.id,
+          widget.item.id,
         );
       },
       onContextMenu: (position) {
         openTrackItemContextMenu(
-            position, context, contextAttachKey, contextController, item.id);
+            position, context, contextAttachKey, contextController, widget.item.id);
       },
       child: Button(
         style: const ButtonStyle(
@@ -59,13 +72,13 @@ class LargeScreenTrackListItem extends StatelessWidget {
           if (context.mounted) {
             await safeOperatePlaybackWithMixQuery(
               context: context,
-              queries: queries,
-              playbackMode: mode,
-              hintPosition: index,
-              initialPlaybackId: item.id,
+              queries: widget.queries,
+              playbackMode: widget.mode,
+              hintPosition: widget.index,
+              initialPlaybackId: widget.item.id,
               operateMode: PlaylistOperateMode.Replace,
               instantlyPlay: true,
-              fallbackFileIds: fallbackFileIds,
+              fallbackFileIds: widget.fallbackFileIds,
             );
           }
         },
@@ -77,12 +90,12 @@ class LargeScreenTrackListItem extends StatelessWidget {
               return Row(
                 children: [
                   CoverArt(
-                    path: coverArtPath,
+                    path: widget.coverArtPath,
                     size: size,
                     hint: (
-                      item.album,
-                      item.artist,
-                      'Total Time ${formatTime(item.duration)}'
+                      widget.item.album,
+                      widget.item.artist,
+                      'Total Time ${formatTime(widget.item.duration)}'
                     ),
                   ),
                   Expanded(
@@ -93,12 +106,12 @@ class LargeScreenTrackListItem extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Text(
-                            item.title,
+                            widget.item.title,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            item.artist,
+                            widget.item.artist,
                             style: typography.caption?.apply(
                               color: typography.caption?.color?.withAlpha(117),
                             ),

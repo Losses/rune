@@ -51,6 +51,14 @@ class CoverWallBackgroundImplementationState
     _loadAllImages();
   }
 
+  @override
+  dispose() {
+    super.dispose();
+    for (int i = 0; i < widget.paths.length; i += 1) {
+      images[i] = null;
+    }
+  }
+
   int size = 0;
 
   _loadAllImages() {
@@ -67,6 +75,8 @@ class CoverWallBackgroundImplementationState
       final path = widget.paths[i];
 
       loadAndResizeImage(path, nextSize).then((image) {
+        if (!context.mounted) return;
+
         setState(() {
           images[i] = image;
         });

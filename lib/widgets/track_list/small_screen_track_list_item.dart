@@ -72,6 +72,12 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
   }
 
   @override
+  void dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final typography = theme.typography;

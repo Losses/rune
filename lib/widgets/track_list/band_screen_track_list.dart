@@ -97,8 +97,8 @@ class BandScreenTrackList extends StatelessWidget {
   }
 }
 
-class BandViewTrackItem extends StatelessWidget {
-  BandViewTrackItem({
+class BandViewTrackItem extends StatefulWidget {
+  const BandViewTrackItem({
     super.key,
     required this.index,
     required this.item,
@@ -107,9 +107,6 @@ class BandViewTrackItem extends StatelessWidget {
     required this.pagingController,
   });
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
-
   final int index;
   final InternalMediaFile item;
   final QueryList queries;
@@ -117,10 +114,25 @@ class BandViewTrackItem extends StatelessWidget {
   final PagingController<int, InternalMediaFile> pagingController;
 
   @override
+  State<BandViewTrackItem> createState() => _BandViewTrackItemState();
+}
+
+class _BandViewTrackItemState extends State<BandViewTrackItem> {
+  final contextController = FlyoutController();
+
+  final contextAttachKey = GlobalKey();
+
+  @override
+  void dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ManagedTurntileScreenItem(
       groupId: 0,
-      row: index,
+      row: widget.index,
       column: 1,
       child: AspectRatio(
         aspectRatio: 1,
@@ -137,7 +149,7 @@ class BandViewTrackItem extends StatelessWidget {
                 executeMiddleClickAction(
                   context,
                   CollectionType.Track,
-                  item.id,
+                  widget.item.id,
                 );
               },
               onContextMenu: (position) {
@@ -146,30 +158,31 @@ class BandViewTrackItem extends StatelessWidget {
                   context,
                   contextAttachKey,
                   contextController,
-                  item.id,
+                  widget.item.id,
                 );
               },
               child: Tile(
                 onPressed: () {
                   safeOperatePlaybackWithMixQuery(
                     context: context,
-                    queries: queries,
-                    playbackMode: mode,
-                    hintPosition: index,
-                    initialPlaybackId: item.id,
+                    queries: widget.queries,
+                    playbackMode: widget.mode,
+                    hintPosition: widget.index,
+                    initialPlaybackId: widget.item.id,
                     operateMode: PlaylistOperateMode.Replace,
                     instantlyPlay: true,
-                    fallbackFileIds:
-                        pagingController.itemList?.map((x) => x.id).toList() ??
-                            [],
+                    fallbackFileIds: widget.pagingController.itemList
+                            ?.map((x) => x.id)
+                            .toList() ??
+                        [],
                   );
                 },
                 child: CoverArt(
-                  path: item.coverArtPath,
+                  path: widget.item.coverArtPath,
                   hint: (
-                    item.album,
-                    item.artist,
-                    'Total Time ${formatTime(item.duration)}'
+                    widget.item.album,
+                    widget.item.artist,
+                    'Total Time ${formatTime(widget.item.duration)}'
                   ),
                 ),
               ),
