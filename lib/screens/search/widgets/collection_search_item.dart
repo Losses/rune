@@ -16,17 +16,22 @@ class CollectionSearchItem extends SearchCard {
   final CollectionType collectionType;
   final BoringAvatarType emptyTileType = BoringAvatarType.marble;
 
-  CollectionSearchItem({
+  const CollectionSearchItem({
     super.key,
-    super.index = 0,
+    required super.index,
     required this.item,
     required this.collectionType,
   });
 
   @override
+  CollectionSearchItemState createState() => CollectionSearchItemState();
+}
+
+class CollectionSearchItemState extends SearchCardState<CollectionSearchItem> {
+  @override
   void onPressed(BuildContext context) {
     $replace(
-      '/${collectionTypeToRouterName(collectionType)}/detail',
+      '/${collectionTypeToRouterName(widget.collectionType)}/detail',
       arguments: QueryTracksParameter(getItemId(), getItemTitle()),
     );
   }
@@ -38,7 +43,7 @@ class CollectionSearchItem extends SearchCard {
       context,
       contextAttachKey,
       contextController,
-      collectionType,
+      widget.collectionType,
       getItemId(),
     );
   }
@@ -47,16 +52,16 @@ class CollectionSearchItem extends SearchCard {
   void onMiddleClick(BuildContext context, Offset position) {
     executeMiddleClickAction(
       context,
-      collectionType,
-      item.id,
+      widget.collectionType,
+      widget.item.id,
     );
   }
 
   @override
-  int getItemId() => item.id;
+  int getItemId() => widget.item.id;
 
   @override
-  String getItemTitle() => item.name;
+  String getItemTitle() => widget.item.name;
 
   @override
   Widget buildLeadingWidget(double size) {
@@ -65,7 +70,7 @@ class CollectionSearchItem extends SearchCard {
       height: size,
       child: FlipCoverGrid(
         id: getItemTitle(),
-        paths: item.coverArtMap.values.toList(),
+        paths: widget.item.coverArtMap.values.toList(),
         emptyTileType: BoringAvatarType.bauhaus,
       ),
     );

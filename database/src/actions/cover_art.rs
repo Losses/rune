@@ -8,18 +8,15 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::info;
-use metadata::cover_art::get_primary_color;
 use once_cell::sync::Lazy;
-use sea_orm::Condition;
 use sea_orm::{
-    ActiveValue, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult,
-    Order, PaginatorTrait, QueryFilter, QueryTrait,
+    ActiveValue, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryFilter,
 };
-
-use migration::{Func, SimpleExpr};
-
-use metadata::cover_art::{extract_cover_art_binary, CoverArt};
 use tokio_util::sync::CancellationToken;
+
+use metadata::cover_art::get_primary_color;
+use metadata::cover_art::{extract_cover_art_binary, CoverArt};
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -355,27 +352,6 @@ pub async fn get_cover_art_by_id(main_db: &DatabaseConnection, id: i32) -> Resul
         Some(result) => Ok(Some(result.binary)),
         _none => Ok(None),
     }
-}
-
-pub async fn get_random_cover_art_ids(
-    main_db: &DatabaseConnection,
-    n: usize,
-) -> Result<HashMap<i32, String>> {
-    let mut query: sea_orm::sea_query::SelectStatement = media_cover_art::Entity::find()
-        .filter(media_cover_art::Column::FileHash.ne(String::new()))
-        .as_query()
-        .to_owned();
-
-    let select = query
-        .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
-        .limit(n as u64);
-    let statement = main_db.get_database_backend().build(select);
-
-    let cover_arts = media_cover_art::Model::find_by_statement(statement)
-        .all(main_db)
-        .await?;
-
-    bake_cover_art_by_cover_arts(cover_arts)
 }
 
 pub async fn get_primary_color_by_cover_art_id(

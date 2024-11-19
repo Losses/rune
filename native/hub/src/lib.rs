@@ -160,7 +160,6 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             FetchCollectionByIdsRequest => (main_db, recommend_db),
             SearchCollectionSummaryRequest => (main_db, recommend_db),
 
-            GetRandomCoverArtIdsRequest => (main_db),
             GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
             GetPrimaryColorByTrackIdRequest => (main_db),
 

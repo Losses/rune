@@ -3,16 +3,6 @@ package cover_art;
 
 import "mix.proto";
 
-// [DART-SIGNAL]
-message GetRandomCoverArtIdsRequest {
-  int32 count = 1;
-}
-
-// [RUST-SIGNAL]
-message GetRandomCoverArtIdsResponse {
-  repeated string paths = 1;
-}
-
 message GetCoverArtIdsByMixQueriesRequestUnit {
   int32 id = 1;
   repeated mix.MixQuery queries = 2;

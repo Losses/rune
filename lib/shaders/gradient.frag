@@ -210,12 +210,9 @@ void main() {
     float luminance = imageColor.r * 0.299 + imageColor.g * 0.587 + imageColor.b * 0.114;
     vec3 grayColor = vec3(luminance);
 
-    // fragColor = vec4(col, 1.0);
-    // fragColor = vec4(grayColor, 1.0);
     if (u_is_dark > .5) {
         fragColor = vec4(grayColor * col, imageColor.a);
     } else {
-        // fragColor = vec4(col, 1.0);
         fragColor = vec4(col.r, col.g, col.b, (1 - grayColor) * imageColor.a);
     }
 }

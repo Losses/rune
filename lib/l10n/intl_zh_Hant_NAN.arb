@@ -28,7 +28,7 @@
   "@factoryResetSubtitle": {
     "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
   },
-  "bsodBody": "你的播放器出問題矣，愛重新開機。阮尊重你的隱私，袂收集任何資料。",
+  "bsodBody": "恁的播放器有问题，需要重新执行。阮尊重恁的隐私，袂收集任何资料。",
   "@bsodBody": {
     "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
   },

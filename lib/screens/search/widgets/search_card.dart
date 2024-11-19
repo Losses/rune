@@ -7,19 +7,34 @@ import '../../../widgets/hover_opacity.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../providers/responsive_providers.dart';
 
-abstract class SearchCard extends StatelessWidget {
+abstract class SearchCard extends StatefulWidget {
   final int index;
+
+  const SearchCard({super.key, required this.index});
+}
+
+abstract class SearchCardState<T extends SearchCard> extends State<T> {
   final FlyoutController contextController = FlyoutController();
+
   final GlobalKey contextAttachKey = GlobalKey();
 
-  SearchCard({super.key, required this.index});
-
   int getItemId();
+
   String getItemTitle();
+
   Widget buildLeadingWidget(double size);
+
   void onPressed(BuildContext context);
+
   void onMiddleClick(BuildContext context, Offset position);
+
   void onContextMenu(BuildContext context, Offset position);
+
+  @override
+  void dispose() {
+    super.dispose();
+    contextController.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

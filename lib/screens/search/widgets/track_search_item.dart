@@ -14,8 +14,7 @@ import './search_card.dart';
 class TrackSearchItem extends SearchCard {
   final InternalMediaFile item;
   final List<int> fallbackFileIds;
-
-  TrackSearchItem({
+  const TrackSearchItem({
     super.key,
     required super.index,
     required this.item,
@@ -23,19 +22,24 @@ class TrackSearchItem extends SearchCard {
   });
 
   @override
-  int getItemId() => item.id;
+  TrackSearchItemState createState() => TrackSearchItemState();
+}
+
+class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
+  @override
+  int getItemId() => widget.item.id;
 
   @override
-  String getItemTitle() => item.title;
+  String getItemTitle() => widget.item.title;
 
   @override
   Widget buildLeadingWidget(double size) {
     return CoverArt(
-      path: item.coverArtPath,
+      path: widget.item.coverArtPath,
       hint: (
-        item.album,
-        item.artist,
-        'Total Time ${formatTime(item.duration)}'
+        widget.item.album,
+        widget.item.artist,
+        'Total Time ${formatTime(widget.item.duration)}'
       ),
       size: size,
     );
@@ -47,10 +51,10 @@ class TrackSearchItem extends SearchCard {
       queries: const QueryList([]),
       playbackMode: 99,
       hintPosition: 0,
-      initialPlaybackId: item.id,
+      initialPlaybackId: widget.item.id,
       operateMode: PlaylistOperateMode.Replace,
       instantlyPlay: true,
-      fallbackFileIds: fallbackFileIds,
+      fallbackFileIds: widget.fallbackFileIds,
     );
   }
 
@@ -61,7 +65,7 @@ class TrackSearchItem extends SearchCard {
       context,
       contextAttachKey,
       contextController,
-      item.id,
+      widget.item.id,
     );
   }
 
@@ -70,7 +74,7 @@ class TrackSearchItem extends SearchCard {
     executeMiddleClickAction(
       context,
       CollectionType.Track,
-      item.id,
+      widget.item.id,
     );
   }
 }

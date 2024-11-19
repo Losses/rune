@@ -4,7 +4,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/cover_wall/band_screen_cover_wall.dart';
 import '../../providers/responsive_providers.dart';
 
-import 'large_screen_cover_wall.dart';
+import 'widgets/cover_wall_layout.dart';
 
 class CoverWallPage extends StatefulWidget {
   const CoverWallPage({super.key});
@@ -29,7 +29,7 @@ class _CoverWallPageState extends State<CoverWallPage> {
           return const PageContentFrame(child: BandScreenCoverWallView());
         }
 
-        return const LargeScreenCoverWallView();
+        return const CoverWallLayout();
       },
     );
   }
