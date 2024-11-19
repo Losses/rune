@@ -44,7 +44,7 @@ get_by_id!(get_playlist_by_id, playlists);
 get_first_n!(list_playlists, playlists);
 
 collection_query!(
-    playlists::Model,
+    playlists,
     prelude::Playlists,
     CollectionQueryType::Playlist,
     "lib::playlist",

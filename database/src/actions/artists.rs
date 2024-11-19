@@ -30,7 +30,7 @@ get_by_id!(get_artist_by_id, artists);
 get_first_n!(list_artists, artists);
 
 collection_query!(
-    artists::Model,
+    artists,
     prelude::Artists,
     CollectionQueryType::Artist,
     "lib::artist",

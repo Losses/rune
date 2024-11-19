@@ -44,16 +44,6 @@ use crate::get_first_n;
 
 use super::utils::CountByFirstLetter;
 
-collection_query!(
-    mixes::Model,
-    prelude::Mixes,
-    CollectionQueryType::Mix,
-    "lib::mix",
-    get_mixes_groups,
-    get_mixes_by_ids,
-    list_mixes
-);
-
 impl CountByFirstLetter for mixes::Entity {
     fn group_column() -> Self::Column {
         mixes::Column::Group
@@ -67,6 +57,16 @@ impl CountByFirstLetter for mixes::Entity {
 get_by_ids!(get_mixes_by_ids, mixes);
 get_by_id!(get_mixes_by_id, mixes);
 get_first_n!(list_mixes, mixes);
+
+collection_query!(
+    mixes,
+    prelude::Mixes,
+    CollectionQueryType::Mix,
+    "lib::mix",
+    get_mixes_groups,
+    get_mixes_by_ids,
+    list_mixes
+);
 
 pub async fn get_mixes_groups(
     db: &DatabaseConnection,

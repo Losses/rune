@@ -95,9 +95,9 @@ pub trait CollectionQuery: Send + Sync + 'static {
 
 #[macro_export]
 macro_rules! collection_query {
-    ($model:ty, $entity:ty, $collection_type:expr, $query_operator:expr, $get_groups:path, $get_by_ids:path, $list:path) => {
+    ($item_entity:ident, $entity:ty, $collection_type:expr, $query_operator:expr, $get_groups:path, $get_by_ids:path, $list:path) => {
         #[async_trait]
-        impl CollectionQuery for $model {
+        impl CollectionQuery for $item_entity::Model {
             fn collection_type() -> CollectionQueryType {
                 $collection_type
             }

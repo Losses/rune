@@ -31,7 +31,7 @@ get_by_id!(get_album_by_id, albums);
 get_first_n!(list_albums, albums);
 
 collection_query!(
-    albums::Model,
+    albums,
     prelude::Albums,
     CollectionQueryType::Album,
     "lib::album",
