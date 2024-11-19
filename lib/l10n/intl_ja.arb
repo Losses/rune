@@ -1,21 +1,37 @@
 {
   "@@locale": "ja",
   "rune": "Rune",
-  "@rune": {},
+  "@rune": {
+    "description": "The brand name of the software, which should not be translated."
+  },
   "runePlayer": "Rune 再生機",
-  "@runePlayer": {},
+  "@runePlayer": {
+    "description": "The full name of the software. The 'Player' part should be translated normally, but 'Rune' as a brand name should not be translated."
+  },
   "copyright": "著作権",
-  "@copyright": {},
+  "@copyright": {
+    "description": "This is the title of an entry that appears in the settings interface under the copyright section."
+  },
   "copyrightAnnouncement": "Copyright © 2024 Rune Player 開発者。",
-  "@copyrightAnnouncement": {},
+  "@copyrightAnnouncement": {
+    "description": "The complete copyright statement."
+  },
   "licenseAnnouncement": "この製品は MPL 許諾の下で許可されています。",
-  "@licenseAnnouncement": {},
+  "@licenseAnnouncement": {
+    "description": "The complete software license statement."
+  },
   "factoryReset": "初期化",
-  "@factoryReset": {},
+  "@factoryReset": {
+    "description": "The title of the button in the settings page that triggers the 'Reset Library History' action."
+  },
   "factoryResetSubtitle": "音楽集からすべての項目を削除する。",
-  "@factoryResetSubtitle": {},
+  "@factoryResetSubtitle": {
+    "description": "The descriptive text for the 'Factory Reset' button in the settings interface."
+  },
   "bsodBody": "本再生機に問題が発生したため、再起動が必要です。お客様の個人情報を尊重し、情報は一切収集いたしません。",
-  "@bsodBody": {},
+  "@bsodBody": {
+    "description": "On the blue screen interface, this explains to the user that the software has encountered a fatal error. The second sentence humorously addresses the widespread privacy concerns in modern software engineering. Feel free to keep it playful."
+  },
   "artists": "芸人",
   "@artists": {},
   "albums": "歌集",
@@ -33,7 +49,9 @@
   "noDataAvailable": "利用可能な資料がありません",
   "@noDataAvailable": {},
   "start": "始める",
-  "@start": {},
+  "@start": {
+    "description": "Decorative text appearing near the Library Home function list."
+  },
   "search": "検索",
   "@search": {},
   "tracks": "曲",
@@ -41,15 +59,25 @@
   "system": "系統",
   "@system": {},
   "operatingSystem": "作業系統",
-  "@operatingSystem": {},
+  "@operatingSystem": {
+    "description": "One of the titles for software information entries on the about page."
+  },
   "systemVersion": "版本情報",
-  "@systemVersion": {},
+  "@systemVersion": {
+    "description": "One of the titles for software information entries on the about page."
+  },
   "kernelVersion": "核心情報",
-  "@kernelVersion": {},
+  "@kernelVersion": {
+    "description": "An entry on the about page, usually indicating the version of the operating system kernel for diagnostic purposes."
+  },
   "hostName": "主機名",
-  "@hostName": {},
+  "@hostName": {
+    "description": "An entry on the about page, usually indicating the computer's name."
+  },
   "player": "再生機",
-  "@player": {},
+  "@player": {
+    "description": "A section title for software metadata on the about page, providing an overview of the software's version information."
+  },
   "buildHash": "構築識別子",
   "@buildHash": {},
   "buildDate": "構築日",
@@ -61,15 +89,23 @@
   "activation": "認証",
   "@activation": {},
   "runeIsActivated": "Rune は認証されています",
-  "@runeIsActivated": {},
+  "@runeIsActivated": {
+    "description": "Informs the user that the software is currently activated. In fact, the software is always activated under any circumstances."
+  },
   "productId": "製品身元確認",
   "@productId": {},
   "youMayBeAVictimOfGenuineSoftware": "貴方は正銘被害者である可能性があります。",
-  "@youMayBeAVictimOfGenuineSoftware": {},
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
+  },
   "axiomDesign": "公理設計",
-  "@axiomDesign": {},
+  "@axiomDesign": {
+    "description": "The design research organization that supports this project. You should keep the name as is, without translation."
+  },
   "computingDevice": "計算装置",
-  "@computingDevice": {},
+  "@computingDevice": {
+    "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
+  },
   "computingDeviceSubtitle": "高速または効率的な処理のために画像処理装置または中央処理装置を選択します。",
   "@computingDeviceSubtitle": {},
   "gpu": "画像処理装置",
@@ -81,121 +117,213 @@
   "performanceLevelSubtitle": "並行する作業数を選択してください。",
   "@performanceLevelSubtitle": {},
   "performance": "性能優先",
-  "@performance": {},
+  "@performance": {
+    "description": "High-performance mode, which utilizes available hardware resources to complete computations as quickly as possible."
+  },
   "balance": "均衡重視",
-  "@balance": {},
+  "@balance": {
+    "description": "Balanced mode, which evenly distributes resources to prevent computation tasks from overwhelming the system and causing lag."
+  },
   "batterySaving": "電力節約",
-  "@batterySaving": {},
+  "@batterySaving": {
+    "description": "Energy-saving mode, which minimizes resource usage to prevent overheating, suitable for less powerful devices."
+  },
   "switchTo": "切り替え",
-  "@switchTo": {},
+  "@switchTo": {
+    "description": "Button prompt text for switching media libraries. Pressing this button will close the current library and open a new one."
+  },
   "removeLibrary": "削除",
   "@removeLibrary": {
-    "description": ""
-  },
-  "remove": "削除",
-  "@remove": {
-    "description": ""
+    "description": "Button prompt text for removing a media library. Pressing this button will delete the library entry from the history."
   },
   "addLibrary": "資料集を追加",
-  "@addLibrary": {},
+  "@addLibrary": {
+    "description": "Button prompt text in the settings interface for creating a new media library. Pressing this button guides the user to select a directory and create a library."
+  },
   "addLibrarySubtitle": "新しい資料集を追加し、既存の資料を検出する。",
   "@addLibrarySubtitle": {},
   "actionMenu": "追加操作",
-  "@actionMenu": {},
+  "@actionMenu": {
+    "description": "A separator in the settings interface element list. All items below this separator will be hidden in a pop-up button instead of being displayed directly on the screen."
+  },
   "addToQueue": "再生予定に追加",
-  "@addToQueue": {},
+  "@addToQueue": {
+    "description": "An entry in the context menu. Pressing this entry will add the corresponding track or album to the playback queue."
+  },
   "addToQueueSubtitle": "新しい曲をどのように再生予定に追加するか。",
   "@addToQueueSubtitle": {},
   "playNext": "次に再生",
-  "@playNext": {},
+  "@playNext": {
+    "description": "An action that queues a track or album to play next in the playlist."
+  },
   "addToEnd": "最後に追加",
-  "@addToEnd": {},
+  "@addToEnd": {
+    "description": "An action that queues a track or album to the end of the playlist."
+  },
   "middleClickAction": "中クリック操作",
-  "@middleClickAction": {},
+  "@middleClickAction": {
+    "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
+  },
   "middleClickActionSubtitle": "曲や選集まりを中クリックした際の実行動作。",
   "@middleClickActionSubtitle": {},
   "startPlaying": "再生開始",
-  "@startPlaying": {},
+  "@startPlaying": {
+    "description": "An action the user can trigger to start playing music."
+  },
   "startRoaming": "漫奏開始",
-  "@startRoaming": {},
+  "@startRoaming": {
+    "description": "An action the user can trigger to start playing music similar to the current track or album."
+  },
   "playbackMode": "再生方法",
-  "@playbackMode": {},
+  "@playbackMode": {
+    "description": "A title in the settings interface that helps users select the desired playback mode, such as shuffle or sequential play."
+  },
   "playbackModeSubtitle": "音楽の再生方法について、希望する再生形式を選択してください",
   "@playbackModeSubtitle": {},
   "colorMode": "配色模式",
-  "@colorMode": {},
+  "@colorMode": {
+    "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
+  },
   "colorModeSubtitle": " Rune に表示される配色を変更します。",
   "@colorModeSubtitle": {},
   "systemColorMode": "作業系統と同期",
-  "@systemColorMode": {},
+  "@systemColorMode": {
+    "description": "A color settings entry that, when enabled, aligns the software's light or dark mode with the system settings."
+  },
   "dark": "暗い",
-  "@dark": {},
+  "@dark": {
+    "description": "A color settings entry that enables dark mode when selected."
+  },
   "light": "明るい",
-  "@light": {},
+  "@light": {
+    "description": "A color settings entry that enables light mode when selected."
+  },
   "themeColor": "主題色",
-  "@themeColor": {},
+  "@themeColor": {
+    "description": "A settings entry that allows users to choose their preferred theme color."
+  },
   "themeColorSubtitle": "Rune に新しい雰囲気をもたらす色を選んでください。",
   "@themeColorSubtitle": {},
   "followSystemTheme": "作業系統と同期",
-  "@followSystemTheme": {},
+  "@followSystemTheme": {
+    "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
+  },
   "dynamicColors": " 変化する色",
-  "@dynamicColors": {},
+  "@dynamicColors": {
+    "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
+  },
   "dynamicColorsSubtitle": "再生中の曲の表紙画像に合わせて Rune の色合いを調整します",
   "@dynamicColorsSubtitle": {},
   "brandingAnimation": "起動演出",
-  "@brandingAnimation": {},
+  "@brandingAnimation": {
+    "description": "A settings entry that allows users to control whether a welcome animation plays when the software starts."
+  },
   "brandingAnimationSubtitle": "Rune 起動時に商標の動きを再生します。",
   "@brandingAnimationSubtitle": {},
   "thisMightTakeAFewMinutes": "数分かかる場合があります。",
-  "@thisMightTakeAFewMinutes": {},
+  "@thisMightTakeAFewMinutes": {
+    "description": "Title on the scanning wait screen, reminding users to be patient."
+  },
   "tracksFound": " 曲が見つかりました",
-  "@tracksFound": {},
+  "@tracksFound": {
+    "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
+  },
   "albumCoversCollected": " 歌集表紙画像が収集されました",
-  "@albumCoversCollected": {},
+  "@albumCoversCollected": {
+    "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
+  },
   "editPlaylist": "再生一覧表を編集",
-  "@editPlaylist": {},
+  "@editPlaylist": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a playlist."
+  },
   "editMix": "調和構成を編集",
-  "@editMix": {},
+  "@editMix": {
+    "description": "An entry in the context menu that allows users to edit the metadata of a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "edit": "編集",
-  "@edit": {},
+  "@edit": {
+    "description": "A verb in the context menu as fallback text, guiding users to edit content when the software can't identify what should be edited."
+  },
+  "remove": "削除",
+  "@remove": {
+    "description": "A verb in the context menu as fallback text, guiding users to remove content when the software can't identify what should be removed."
+  },
   "removePlaylist": "再生一覧表を削除",
-  "@removePlaylist": {},
+  "@removePlaylist": {
+    "description": "An entry in the context menu that allows users to delete a playlist."
+  },
   "removeMix": "調和構成を削除",
-  "@removeMix": {},
+  "@removeMix": {
+    "description": "An entry in the context menu that allows users to delete a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "addToMix": "調和構成に追加",
-  "@addToMix": {},
+  "@addToMix": {
+    "description": "An entry in the context menu that allows users to add a track or album to a Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "newMix": "新しい調和構成",
-  "@newMix": {},
+  "@newMix": {
+    "description": "An entry in the context menu that allows users to create a new Mix, an intelligent playlist. Note: Do not confuse this with the concept of a 'remix.'"
+  },
   "selectAGroup": "組を選択",
-  "@selectAGroup": {},
+  "@selectAGroup": {
+    "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
+  },
   "likedOnly": "いいねのみ",
-  "@likedOnly": {},
+  "@likedOnly": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
+  },
   "allTracks": "すべての曲",
-  "@allTracks": {},
+  "@allTracks": {
+    "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
+  },
   "defaultMode": "既定",
-  "@defaultMode": {},
+  "@defaultMode": {
+    "description": "A way for tracks to be traversed in a playlist, maintaining the current system behavior without specifying a mode."
+  },
   "sequential": "順次",
-  "@sequential": {},
+  "@sequential": {
+    "description": "A way for tracks to be traversed in a playlist, playing in order from start to finish."
+  },
   "repeatAll": "全部繰り返し",
-  "@repeatAll": {},
+  "@repeatAll": {
+    "description": "A way for tracks to be traversed in a playlist, repeating from the beginning after finishing."
+  },
   "repeatOne": "一曲繰り返し",
-  "@repeatOne": {},
+  "@repeatOne": {
+    "description": "A way for tracks to be traversed in a playlist, continuously repeating one track."
+  },
   "shuffle": "曲を混ぜる",
-  "@shuffle": {},
+  "@shuffle": {
+    "description": "A way for tracks to be traversed in a playlist, playing in a random order."
+  },
   "title": "名称",
-  "@title": {},
+  "@title": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its title."
+  },
   "group": "組",
-  "@group": {},
+  "@group": {
+    "description": "An entry in the playlist or Mix edit modal, guiding users to edit its group."
+  },
   "save": "保存",
-  "@save": {},
+  "@save": {
+    "description": "An action button in the modal that saves changes when pressed."
+  },
   "create": "作成",
-  "@create": {},
+  "@create": {
+    "description": "An action button in the modal that creates a new entry when pressed."
+  },
   "cancel": "取消",
-  "@cancel": {},
+  "@cancel": {
+    "description": "An action button in the modal that closes the modal without making changes."
+  },
   "noRecommendation": "おすすめはありません",
-  "@noRecommendation": {},
+  "@noRecommendation": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
+  },
   "basedOnAll": "すべてに基づく",
-  "@basedOnAll": {},
+  "@basedOnAll": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
+  },
   "group1": "組 1",
   "@group1": {},
   "group2": "組 2",
@@ -215,39 +343,84 @@
   "group9": "組 9",
   "@group9": {},
   "ascending": "昇順",
-  "@ascending": {},
+  "@ascending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in ascending order."
+  },
   "descending": "降順",
-  "@descending": {},
+  "@descending": {
+    "description": "An entry in the Mix edit modal dropdown. Selecting this option sorts query results in descending order."
+  },
   "lastModified": "最終更新",
-  "@lastModified": {},
+  "@lastModified": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the last modified time of file metadata."
+  },
   "duration": "長さ",
-  "@duration": {},
+  "@duration": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by audio length."
+  },
   "timesPlayedThrough": "再生回数",
-  "@timesPlayedThrough": {},
+  "@timesPlayedThrough": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been played through completely."
+  },
   "timesSkipped": "飛ばす回数",
-  "@timesSkipped": {},
+  "@timesSkipped": {
+    "description": "An entry in the Mix edit modal dropdown. This option allows users to sort by the number of times audio has been skipped."
+  },
   "pickDirectory": "格納場所を選択",
-  "@pickDirectory": {},
+  "@pickDirectory": {
+    "description": "Button prompt text in the Mix edit modal. Pressing this button opens a modal to guide users in selecting a directory."
+  },
+  "oneDirectory": "1 つの格納場所",
+  "@oneDirectory": {
+    "description": "Status text indicating one directory has been selected."
+  },
+  "manyDirectories": "${count} つの格納場所",
+  "@manyDirectories": {
+    "description": "Status text indicating multiple directories have been selected.",
+    "placeholders": {
+      "count": {}
+    }
+  },
   "confirm": "確認",
-  "@confirm": {},
+  "@confirm": {
+    "description": "Action button text in the modal, indicating the user's intent to confirm an action."
+  },
   "directories": "格納場所",
-  "@directories": {},
+  "@directories": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
+  },
   "allDirectories": "すべての格納場所",
-  "@allDirectories": {},
+  "@allDirectories": {
+    "description": "Prompt indicating that all directories have been selected."
+  },
   "randomTracks": "お任せ",
-  "@randomTracks": {},
+  "@randomTracks": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
+  },
   "amount": "量",
-  "@amount": {},
+  "@amount": {
+    "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
+  },
   "mode": "形式",
-  "@mode": {},
+  "@mode": {
+    "description": "The playback mode for tracks."
+  },
   "recommendation": "薦",
-  "@recommendation": {},
+  "@recommendation": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the player's recommendation behavior."
+  },
   "sortBy": "並び替え基準",
-  "@sortBy": {},
+  "@sortBy": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting method for tracks."
+  },
   "sortOrder": "並び順",
-  "@sortOrder": {},
+  "@sortOrder": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
+  },
   "liked": "良",
-  "@liked": {},
+  "@liked": {
+    "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
+  },
   "noRoamingCollection": "漫奏を開始できません。選集内の曲がまだ解析されていません。",
   "@noRoamingCollection": {},
   "noRomaingTrack": "漫奏を開始できません。この曲はまだ解析されていません。",
@@ -271,23 +444,41 @@
     }
   },
   "notReady": "準備ができていません",
-  "@notReady": {},
+  "@notReady": {
+    "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
+  },
   "createPlaylist": "再生一覧表を作成",
-  "@createPlaylist": {},
+  "@createPlaylist": {
+    "description": "Modal title for creating a playlist."
+  },
   "scanLibrary": "資料集を検査",
-  "@scanLibrary": {},
+  "@scanLibrary": {
+    "description": "Action button text in the modal, initiating a media library scan when pressed."
+  },
   "analyseTracks": "曲を解析",
-  "@analyseTracks": {},
+  "@analyseTracks": {
+    "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
+  },
   "scan": "検査",
-  "@scan": {},
+  "@scan": {
+    "description": "Button prompt text in the settings interface, initiating a media library scan when pressed."
+  },
   "scanning": "検査中",
-  "@scanning": {},
+  "@scanning": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
+  },
   "analyse": "解析",
-  "@analyse": {},
+  "@analyse": {
+    "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
+  },
   "analysing": "解析中",
-  "@analysing": {},
+  "@analysing": {
+    "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
+  },
   "tryCreatingYourOwnCollection": "独自の選集を作成してみてください",
-  "@tryCreatingYourOwnCollection": {},
+  "@tryCreatingYourOwnCollection": {
+    "description": "Text displayed on a blank page in the Collection view, suggesting users create a new collection."
+  },
   "theseActionsMayHelp": "以下の行動が問題解決に役立つ可能性があります",
   "@theseActionsMayHelp": {},
   "tryScanningNewFiles": "新しい資料を検査してみてください",
@@ -297,139 +488,257 @@
   "noItemsInPlaylist": "再生一覧表に項目がありません",
   "@noItemsInPlaylist": {},
   "previous": "前へ",
-  "@previous": {},
+  "@previous": {
+    "description": "Button prompt text for controlling playback, used to skip to the previous track."
+  },
   "previousSubtitle": "前の曲に移動",
   "@previousSubtitle": {},
   "playPause": "再生/一時停止",
-  "@playPause": {},
+  "@playPause": {
+    "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
+  },
   "playPauseSubtitle": "再生と一時停止を切り替え",
   "@playPauseSubtitle": {},
   "next": "次へ",
-  "@next": {},
+  "@next": {
+    "description": "Button prompt text for controlling playback, used to skip to the next track."
+  },
   "nextSubtitle": "次の曲に移動",
   "@nextSubtitle": {},
   "volume": "音量",
-  "@volume": {},
+  "@volume": {
+    "description": "Button prompt text for controlling playback, used to adjust the volume."
+  },
   "volumeSubtitle": "音量を調整",
   "@volumeSubtitle": {},
   "playlist": "再生一覧表",
-  "@playlist": {},
+  "@playlist": {
+    "description": "Button prompt text for controlling playback, used to display the playlist."
+  },
   "playlistSubtitle": "再生一覧表を表示",
   "@playlistSubtitle": {},
   "hidden": "非表示",
-  "@hidden": {},
+  "@hidden": {
+    "description": "Button prompt text indicating a hidden button; this text is typically not used."
+  },
   "hiddenSubtitle": " 以下の内容は「その他」の一覧に非表示となります",
   "@hiddenSubtitle": {},
   "coverWall": "表紙画像の壁",
-  "@coverWall": {},
+  "@coverWall": {
+    "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
+  },
   "coverWallSubtitle": "独自の雰囲気を演出するため、表紙画像を表示します",
   "@coverWallSubtitle": {},
   "fullscreen": "全画面",
-  "@fullscreen": {},
+  "@fullscreen": {
+    "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
+  },
   "fullscreenSubtitle": "全画面にする／解除する",
   "@fullscreenSubtitle": {},
   "pause": "一時停止",
-  "@pause": {},
+  "@pause": {
+    "description": "Button prompt text for controlling playback, used to pause the currently playing track."
+  },
   "play": "再生",
-  "@play": {},
+  "@play": {
+    "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
+  },
   "enable": "有効にする",
-  "@enable": {},
+  "@enable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
+  },
   "disable": "無効にする",
-  "@disable": {},
+  "@disable": {
+    "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
+  },
   "noTracksFound": "曲が見つかりません",
   "@noTracksFound": {},
   "library": "資料集",
-  "@library": {},
+  "@library": {
+    "description": "Title of the media library settings interface."
+  },
   "artistQuery": "芸人の照会",
   "@artistQuery": {},
   "playlistQuery": "再生一覧表の照会",
   "@playlistQuery": {},
   "mixes": "調和構成",
-  "@mixes": {},
+  "@mixes": {
+    "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
+  },
   "mixQuery": "調和構成の照会",
   "@mixQuery": {},
   "settings": "設定",
-  "@settings": {},
+  "@settings": {
+    "description": "Title of the settings interface."
+  },
   "analysis": "解析",
-  "@analysis": {},
+  "@analysis": {
+    "description": "Title of the analysis settings interface."
+  },
   "playback": "再生",
-  "@playback": {},
+  "@playback": {
+    "description": "Title of the playback settings interface."
+  },
   "theme": "主題",
-  "@theme": {},
+  "@theme": {
+    "description": "Title of the theme settings interface."
+  },
   "controller": "制御",
-  "@controller": {},
+  "@controller": {
+    "description": "Title of the playback control button settings interface."
+  },
   "about": "情報",
-  "@about": {},
+  "@about": {
+    "description": "Title of the about interface."
+  },
   "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、すべての曲を検査および解析します。",
   "@selectLibraryDirectorySubtitle": {},
   "resetLibrary": "資料集を初期化",
-  "@resetLibrary": {},
+  "@resetLibrary": {
+    "description": "Action button text in the modal, indicating the user wants to reset the library."
+  },
   "resetLibraryQuestion": "資料集を初期化",
-  "@resetLibraryQuestion": {},
+  "@resetLibraryQuestion": {
+    "description": "Modal title asking users if they want to reset the library."
+  },
   "resetLibrarySubtitle": "資料集を初期化すると、履歴が消去されます。既存の資料には影響はありません。実行しますか？",
   "@resetLibrarySubtitle": {},
   "unavailable": "利用不可",
-  "@unavailable": {},
+  "@unavailable": {
+    "description": "Context menu element that is unavailable, appearing only when there is a bug."
+  },
   "goToArtist": "芸人に移動",
-  "@goToArtist": {},
+  "@goToArtist": {
+    "description": "Context menu item guiding users to the artist's page."
+  },
   "goToAlbum": "歌集に移動",
-  "@goToAlbum": {},
+  "@goToAlbum": {
+    "description": "Context menu item guiding users to the album's page."
+  },
   "addToPlaylist": "再生一覧表に追加",
-  "@addToPlaylist": {},
+  "@addToPlaylist": {
+    "description": "Context menu item guiding users to add a track or album to a playlist."
+  },
   "newPlaylist": "新しい再生一覧表",
-  "@newPlaylist": {},
+  "@newPlaylist": {
+    "description": "Context menu item guiding users to create a new playlist."
+  },
   "unableToOpenLibrary": "資料集を開けません",
-  "@unableToOpenLibrary": {},
+  "@unableToOpenLibrary": {
+    "description": "Modal title informing users that the library cannot be opened."
+  },
   "unableToOpenLibrarySubtitle": "資料集を開けませんでした。原因は以下の通りです：",
   "@unableToOpenLibrarySubtitle": {},
   "unknownError": "不明な原因",
-  "@unknownError": {},
+  "@unknownError": {
+    "description": "Modal error content indicating an unknown error."
+  },
   "close": "閉じる",
-  "@close": {},
+  "@close": {
+    "description": "Action button in the modal guiding users to close it."
+  },
   "queue": "再生予定列",
-  "@queue": {},
+  "@queue": {
+    "description": "Title of the playlist modal."
+  },
   "createMix": "調和を構成",
-  "@createMix": {},
+  "@createMix": {
+    "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
   "removeMixTitle": "調和構成を削除",
-  "@removeMixTitle": {},
+  "@removeMixTitle": {
+    "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
+  },
   "removeMixSubtitle": "この調和構成を削除すると、復元できません。削除しますか？",
   "@removeMixSubtitle": {},
   "delete": "削除",
-  "@delete": {},
-  "oneDirectory": "1 つの格納場所",
-  "@oneDirectory": {},
-  "manyDirectories": "${count} つの格納場所",
-  "@manyDirectories": {
-    "placeholders": {
-      "count": {}
-    }
+  "@delete": {
+    "description": "Action button text in the modal indicating that pressing it will delete information."
   },
   "removePlaylistTitle": "再生一覧表を削除",
-  "@removePlaylistTitle": {},
+  "@removePlaylistTitle": {
+    "description": "Modal title informing users they are about to delete a playlist."
+  },
   "removePlaylistSubtitle": "この再生一覧表を削除すると、復元できません。削除しますか？",
   "@removePlaylistSubtitle": {},
   "cancelTaskTitle": "作業を中止",
-  "@cancelTaskTitle": {},
+  "@cancelTaskTitle": {
+    "description": "Modal title informing users they are about to cancel a task."
+  },
   "cancelTaskSubtitle": "この作業を中止すると、現在の進行状態で停止します。本当に中止しますか",
   "@cancelTaskSubtitle": {},
   "cancelTask": "作業を中止",
-  "@cancelTask": {},
+  "@cancelTask": {
+    "description": "Action button text in the modal indicating that pressing it will cancel the task."
+  },
   "continueTask": "続行",
-  "@continueTask": {},
+  "@continueTask": {
+    "description": "Action button text in the modal indicating that pressing it will continue the task."
+  },
   "refresh": "更新",
-  "@refresh": {},
+  "@refresh": {
+    "description": "Context menu item guiding users to refresh the current page's information."
+  },
   "explore": "探す",
-  "@explore": {},
+  "@explore": {
+    "description": "Title of a functional area."
+  },
   "language": "言語",
   "@language": {
-    "description": "言語設定ページのタイトル。"
+    "description": "Title of a the language settings page."
   },
   "followSystemLanguage": "系統言語",
   "@followSystemLanguage": {
-    "description": "設定内のアクションボタンのテキストで、Runeの言語がオペレーティング系統に従うことを示します。"
+    "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
   },
   "followSystemLanguageSubtitle": "特別な設定なしで、系統言語設定に従います。",
-  "@followSystemLanguageSubtitle": {
-    "description": ""
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "表示領域の寸法",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "本再生機の表示領域の寸法を選択してください。",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "普通",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "繊細",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "横太り",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "日誌",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "詳細の記録",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "日誌削除",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "この記録を削除すると、復元できなくなります。本当に削除しますか？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "全部の記録を削除します",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "全部の記録を削除すると、復元できなくなります。本当に削除しますか？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部削除",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "記録がありません",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
   }
 }
