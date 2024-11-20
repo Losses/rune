@@ -740,5 +740,9 @@
   "noLogsAvailable": "No logs available",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Home",
+  "@home": {
+    "description": "Title of a the home settings page."
   }
 }
