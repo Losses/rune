@@ -95,13 +95,11 @@ impl CollectionQuery for mixes::Model {
     }
 
     async fn count_by_first_letter(main_db: &MainDbConnection) -> Result<Vec<(String, i32)>> {
-        let group_column = <mixes::Entity>::group_column();
-
-        let results = mix_queries::Entity::find()
+        let results = mixes::Entity::find()
             .select_only()
-            .column::<mixes::Column>(group_column)
-            .column_as(<mixes::Entity>::id_column().count(), "count")
-            .group_by::<mixes::Column>(group_column)
+            .column(mixes::Column::Group)
+            .column_as(mixes::Column::Id.count(), "count")
+            .group_by(mixes::Column::Group)
             .into_tuple::<(String, i32)>()
             .all(main_db)
             .await
