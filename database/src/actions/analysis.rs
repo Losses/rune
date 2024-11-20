@@ -1,7 +1,6 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use analysis::computing_device::ComputingDevice;
 use anyhow::{bail, Context, Result};
 use futures::future::join_all;
 use log::info;
@@ -15,6 +14,7 @@ use seq_macro::seq;
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
+use analysis::computing_device::ComputingDevice;
 
 use crate::entities::{media_analysis, media_files};
 use crate::parallel_media_files_processing;
@@ -73,7 +73,9 @@ where
         cancel_token,
         cursor_query,
         lib_path,
-        move |file, lib_path, cancel_token| { analysis_file(file, lib_path, computing_device, cancel_token) },
+        move |file, lib_path, cancel_token| {
+            analysis_file(file, lib_path, computing_device, cancel_token)
+        },
         |db,
          file: media_files::Model,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {

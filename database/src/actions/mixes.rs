@@ -3,6 +3,7 @@ use std::collections::HashSet;
 
 use anyhow::bail;
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
@@ -20,17 +21,22 @@ use crate::actions::analysis::get_analyse_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
+use crate::connection::MainDbConnection;
 use crate::connection::RecommendationDbConnection;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
 use crate::entities::{
     media_file_albums, media_file_artists, media_file_playlists, media_file_stats, media_files,
+    prelude,
 };
 
 use super::analysis::get_centralized_analysis_result;
+use super::collection::CollectionQuery;
+use super::collection::CollectionQueryType;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
 
+use super::utils::create_count_by_first_letter;
 use super::utils::CountByFirstLetter;
 
 impl CountByFirstLetter for mixes::Entity {
@@ -76,6 +82,63 @@ pub async fn get_mixes_groups(
     Ok(result)
 }
 
+// Then implement CollectionQuery
+#[async_trait]
+impl CollectionQuery for mixes::Model {
+    fn collection_type() -> CollectionQueryType {
+        CollectionQueryType::Mix
+    }
+
+    async fn query_builder(main_db: &MainDbConnection, id: i32) -> Result<Vec<(String, String)>> {
+        Ok(get_mix_queries_by_mix_id(main_db, id)
+            .await?
+            .into_iter()
+            .map(|x| (x.operator, x.parameter))
+            .collect())
+    }
+
+    async fn count_by_first_letter(main_db: &MainDbConnection) -> Result<Vec<(String, i32)>> {
+        create_count_by_first_letter::<prelude::Mixes>()(main_db)
+            .await
+            .with_context(|| "Failed to count collection by first letter")
+    }
+
+    async fn get_groups(
+        main_db: &MainDbConnection,
+        group_titles: Vec<String>,
+    ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
+        get_mixes_groups(main_db, group_titles)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {}", e))
+    }
+
+    async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>> {
+        mixes::Entity::find()
+            .filter(mixes::Column::Id.is_in(ids.to_vec()))
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to get collection item by ids")
+    }
+
+    async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+        use sea_orm::QuerySelect;
+
+        mixes::Entity::find()
+            .limit(limit)
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to get collection list")
+    }
+
+    fn id(&self) -> i32 {
+        self.id
+    }
+
+    fn name(&self) -> &str {
+        &self.name
+    }
+}
+
 pub async fn create_mix(
     db: &DatabaseConnection,
     name: String,
@@ -101,17 +164,17 @@ pub async fn create_mix(
     Ok(inserted_mix)
 }
 
-pub async fn get_all_mixes(db: &DatabaseConnection) -> Result<Vec<mixes::Model>> {
+pub async fn get_all_mixes(main_db: &DatabaseConnection) -> Result<Vec<mixes::Model>> {
     use mixes::Entity as MixEntity;
 
-    let mixes = MixEntity::find().all(db).await?;
+    let mixes = MixEntity::find().all(main_db).await?;
     Ok(mixes)
 }
 
-pub async fn get_mix_by_id(db: &DatabaseConnection, id: i32) -> Result<mixes::Model> {
+pub async fn get_mix_by_id(main_db: &DatabaseConnection, id: i32) -> Result<mixes::Model> {
     use mixes::Entity as MixEntity;
 
-    let mix = MixEntity::find_by_id(id).one(db).await?;
+    let mix = MixEntity::find_by_id(id).one(main_db).await?;
     match mix {
         Some(m) => Ok(m),
         None => bail!("Mix not found"),
@@ -159,12 +222,12 @@ pub async fn update_mix(
     }
 }
 
-pub async fn remove_mix(db: &DatabaseConnection, id: i32) -> Result<()> {
+pub async fn remove_mix(main_db: &DatabaseConnection, id: i32) -> Result<()> {
     use mixes::Entity as MixEntity;
 
-    let mix = MixEntity::find_by_id(id).one(db).await?;
+    let mix = MixEntity::find_by_id(id).one(main_db).await?;
     if let Some(m) = mix {
-        m.delete(db).await?;
+        m.delete(main_db).await?;
         Ok(())
     } else {
         bail!("Mix not found")
@@ -172,14 +235,14 @@ pub async fn remove_mix(db: &DatabaseConnection, id: i32) -> Result<()> {
 }
 
 pub async fn replace_mix_queries(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     mix_id: i32,
     operator_parameters: Vec<(String, String)>,
     group: Option<i32>,
 ) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
-    let txn = db.begin().await?;
+    let txn = main_db.begin().await?;
     let mut existing_ids = Vec::new();
 
     for (operator, parameter) in &operator_parameters {
@@ -244,23 +307,23 @@ pub async fn replace_mix_queries(
     Ok(())
 }
 pub async fn get_mix_queries_by_mix_id(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     mix_id: i32,
 ) -> Result<Vec<mix_queries::Model>> {
     use mix_queries::Entity as MixQueryEntity;
 
     Ok(MixQueryEntity::find()
         .filter(mix_queries::Column::MixId.eq(mix_id))
-        .all(db)
+        .all(main_db)
         .await?)
 }
 
-pub async fn remove_mix_query(db: &DatabaseConnection, id: i32) -> Result<()> {
+pub async fn remove_mix_query(main_db: &DatabaseConnection, id: i32) -> Result<()> {
     use mix_queries::Entity as MixQueryEntity;
 
-    let mix_query = MixQueryEntity::find_by_id(id).one(db).await?;
+    let mix_query = MixQueryEntity::find_by_id(id).one(main_db).await?;
     if let Some(mq) = mix_query {
-        mq.delete(db).await?;
+        mq.delete(main_db).await?;
         Ok(())
     } else {
         bail!("Mix query not found");
@@ -308,7 +371,7 @@ where
 }
 
 pub async fn add_item_to_mix(
-    db: &DatabaseConnection,
+    main_db: &DatabaseConnection,
     mix_id: i32,
     operator: String,
     parameter: String,
@@ -321,7 +384,7 @@ pub async fn add_item_to_mix(
         .filter(mix_queries::Column::MixId.eq(mix_id))
         .filter(mix_queries::Column::Operator.eq(operator.clone()))
         .filter(mix_queries::Column::Parameter.eq(parameter.clone()))
-        .one(db)
+        .one(main_db)
         .await?;
 
     if let Some(existing_item) = existing_item {
@@ -339,12 +402,12 @@ pub async fn add_item_to_mix(
             ..Default::default()
         };
 
-        let inserted_mix_query = new_mix_query.insert(db).await?;
+        let inserted_mix_query = new_mix_query.insert(main_db).await?;
         Ok(inserted_mix_query)
     }
 }
 
-pub async fn initialize_mix_queries(db: &DatabaseConnection) -> Result<()> {
+pub async fn initialize_mix_queries(main_db: &DatabaseConnection) -> Result<()> {
     let all_mixes: Vec<mixes::Model> = mixes::Entity::find()
         .filter(
             Condition::all()
@@ -353,7 +416,7 @@ pub async fn initialize_mix_queries(db: &DatabaseConnection) -> Result<()> {
                 .add(mixes::Column::Locked.eq(true))
                 .add(mixes::Column::ScriptletMode.eq(false)),
         )
-        .all(db)
+        .all(main_db)
         .await?;
 
     for mix in all_mixes {
@@ -361,7 +424,7 @@ pub async fn initialize_mix_queries(db: &DatabaseConnection) -> Result<()> {
 
         let n = mix_queries::Entity::find()
             .filter(mix_queries::Column::MixId.eq(mix_id))
-            .count(db)
+            .count(main_db)
             .await?;
 
         if n == 0 {
@@ -387,7 +450,7 @@ pub async fn initialize_mix_queries(db: &DatabaseConnection) -> Result<()> {
                     ..Default::default()
                 };
 
-                new_mix_query.insert(db).await?;
+                new_mix_query.insert(main_db).await?;
             }
         }
     }

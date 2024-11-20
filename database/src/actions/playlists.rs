@@ -6,7 +6,6 @@ use chrono::Utc;
 use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
-use std::sync::Arc;
 
 use crate::actions::collection::CollectionQuery;
 use crate::actions::search::{add_term, remove_term};
