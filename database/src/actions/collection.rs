@@ -89,6 +89,14 @@ pub trait CollectionQuery: Send + Sync + 'static {
     where
         Self: std::marker::Sized;
 
+    async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
+    where
+        Self: std::marker::Sized;
+
+    async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
+    where
+        Self: std::marker::Sized;
+
     fn id(&self) -> i32;
     fn name(&self) -> &str;
 }
@@ -190,20 +198,50 @@ macro_rules! collection_query {
             
             async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>> {
                 <$item_entity::Entity>::find()
-                .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
-                .all(main_db)
-                .await
-                .with_context(|| "Failed to get collection item by ids")
+                    .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get collection item by ids")
             }
             
             async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
                 use sea_orm::QuerySelect;
 
                 $item_entity::Entity::find()
-                .limit(limit)
-                .all(main_db)
-                .await
-                .with_context(|| "Failed to get collection list")
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get collection list")
+            }
+
+            async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use sea_orm::{QueryOrder, QuerySelect};
+
+                $item_entity::Entity::find()
+                    .order_by_desc(<$item_entity::Column>::Id)
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get reversed collection list")
+            }
+
+            async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use sea_orm::{sea_query::SimpleExpr, sea_query::Func, QueryTrait, Order, FromQueryResult};
+
+                let mut query: sea_orm::sea_query::SelectStatement = $item_entity::Entity::find()
+                    .as_query()
+                    .to_owned();
+
+                let select = query
+                    .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+                    .limit(limit);
+
+                let statement = main_db.get_database_backend().build(select);
+
+                $item_entity::Model::find_by_statement(statement)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get random collection list")
             }
 
             fn id(&self) -> i32 {

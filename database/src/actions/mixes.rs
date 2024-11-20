@@ -130,6 +130,35 @@ impl CollectionQuery for mixes::Model {
             .with_context(|| "Failed to get collection list")
     }
 
+    async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+        use sea_orm::{QueryOrder, QuerySelect};
+
+        mixes::Entity::find()
+            .order_by_desc(mixes::Column::Id)
+            .limit(limit)
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to get reversed collection list")
+    }
+
+    async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+        use sea_orm::{sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryTrait};
+
+        let mut query: sea_orm::sea_query::SelectStatement =
+            mixes::Entity::find().as_query().to_owned();
+
+        let select = query
+            .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+            .limit(limit);
+
+        let statement = main_db.get_database_backend().build(select);
+
+        mixes::Model::find_by_statement(statement)
+            .all(main_db)
+            .await
+            .with_context(|| "Failed to get random collection list")
+    }
+
     fn id(&self) -> i32 {
         self.id
     }
