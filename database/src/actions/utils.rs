@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use deunicode::deunicode;
 use sea_orm::prelude::*;
-use sea_orm::{ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, QuerySelect};
-use std::future::Future;
-use std::pin::Pin;
+use sea_orm::{DatabaseConnection, DatabaseTransaction, EntityTrait};
 
 pub trait DatabaseExecutor: Send + Sync {}
 
@@ -27,36 +25,9 @@ pub fn generate_group_name(x: &str) -> String {
 }
 
 #[async_trait]
-pub trait CountByFirstLetter: EntityTrait {
+pub trait CollectionDefinition: EntityTrait {
     fn group_column() -> Self::Column;
     fn id_column() -> Self::Column;
-
-    async fn count_by_first_letter(db: &DatabaseConnection) -> Result<Vec<(String, i32)>, DbErr> {
-        let results = Self::find()
-            .select_only()
-            .column(Self::group_column())
-            .column_as(Self::id_column().count(), "count")
-            .group_by(Self::group_column())
-            .into_tuple::<(String, i32)>()
-            .all(db)
-            .await?;
-
-        Ok(results)
-    }
-}
-
-pub fn create_count_by_first_letter<E>() -> impl for<'a> Fn(
-    &'a DatabaseConnection,
-) -> Pin<
-    Box<dyn Future<Output = Result<Vec<(String, i32)>, DbErr>> + Send + 'a>,
->
-where
-    E: EntityTrait + CountByFirstLetter + Send + Sync + 'static,
-{
-    move |db: &DatabaseConnection| {
-        let future = async move { E::count_by_first_letter(db).await };
-        Box::pin(future)
-    }
 }
 
 #[macro_export]

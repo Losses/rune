@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use sea_orm::prelude::*;
@@ -9,15 +9,14 @@ use sea_orm::QueryOrder;
 
 use crate::actions::collection::CollectionQuery;
 use crate::actions::search::{add_term, remove_term};
-use crate::actions::utils::create_count_by_first_letter;
 use crate::connection::MainDbConnection;
-use crate::entities::{media_file_playlists, playlists, prelude};
+use crate::entities::{media_file_playlists, playlists};
 use crate::{collection_query, get_by_id};
 
 use super::collection::CollectionQueryType;
-use super::utils::CountByFirstLetter;
+use super::utils::CollectionDefinition;
 
-impl CountByFirstLetter for playlists::Entity {
+impl CollectionDefinition for playlists::Entity {
     fn group_column() -> Self::Column {
         playlists::Column::Group
     }
@@ -31,7 +30,6 @@ get_by_id!(get_playlist_by_id, playlists);
 
 collection_query!(
     playlists,
-    prelude::Playlists,
     CollectionQueryType::Playlist,
     "lib::playlist".to_owned(),
     media_file_playlists,

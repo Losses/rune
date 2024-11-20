@@ -104,9 +104,8 @@ pub trait CollectionQuery: Send + Sync + 'static {
 #[macro_export]
 macro_rules! collection_query {
     (
-        $item_entity:ident, 
-        $entity:ty, 
-        $collection_type:expr, 
+        $item_entity:ident,
+        $collection_type:expr,
         $query_operator:expr,
         $related_entity:ident,
         $relation_column_name:ident
@@ -174,19 +173,35 @@ macro_rules! collection_query {
             fn collection_type() -> CollectionQueryType {
                 $collection_type
             }
-            
-            async fn query_builder(_main_db: &MainDbConnection, id: i32) -> Result<Vec<(String, String)>> {
+
+            async fn query_builder(
+                _main_db: &MainDbConnection,
+                id: i32,
+            ) -> Result<Vec<(String, String)>> {
                 Ok([($query_operator, id.to_string())].to_vec())
             }
-            
+
             async fn count_by_first_letter(
                 main_db: &MainDbConnection,
             ) -> Result<Vec<(String, i32)>> {
-                create_count_by_first_letter::<$entity>()(main_db)
+                use anyhow::Context;
+                use sea_orm::QuerySelect;
+
+                let group_column = <$item_entity::Entity>::group_column();
+
+                let results = $item_entity::Entity::find()
+                    .select_only()
+                    .column::<$item_entity::Column>(group_column)
+                    .column_as(<$item_entity::Entity>::id_column().count(), "count")
+                    .group_by::<$item_entity::Column>(group_column)
+                    .into_tuple::<(String, i32)>()
+                    .all(main_db)
                     .await
-                    .with_context(|| "Failed to count collection by first letter")
+                    .with_context(|| "Failed to count collection by first letter")?;
+
+                Ok(results)
             }
-            
+
             async fn get_groups(
                 main_db: &MainDbConnection,
                 group_titles: Vec<String>,
@@ -195,16 +210,19 @@ macro_rules! collection_query {
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {}", e))
             }
-            
+
             async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>> {
+                use anyhow::Context;
+
                 <$item_entity::Entity>::find()
                     .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
                     .all(main_db)
                     .await
                     .with_context(|| "Failed to get collection item by ids")
             }
-            
+
             async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use anyhow::Context;
                 use sea_orm::QuerySelect;
 
                 $item_entity::Entity::find()
@@ -215,6 +233,7 @@ macro_rules! collection_query {
             }
 
             async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use anyhow::Context;
                 use sea_orm::{QueryOrder, QuerySelect};
 
                 $item_entity::Entity::find()
@@ -226,11 +245,14 @@ macro_rules! collection_query {
             }
 
             async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-                use sea_orm::{sea_query::SimpleExpr, sea_query::Func, QueryTrait, Order, FromQueryResult};
+                use anyhow::Context;
 
-                let mut query: sea_orm::sea_query::SelectStatement = $item_entity::Entity::find()
-                    .as_query()
-                    .to_owned();
+                use sea_orm::{
+                    sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryTrait,
+                };
+
+                let mut query: sea_orm::sea_query::SelectStatement =
+                    $item_entity::Entity::find().as_query().to_owned();
 
                 let select = query
                     .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)

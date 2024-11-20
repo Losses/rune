@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use anyhow::bail;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::Utc;
 use log::warn;
@@ -27,7 +26,6 @@ use crate::entities::mix_queries;
 use crate::entities::mixes;
 use crate::entities::{
     media_file_albums, media_file_artists, media_file_playlists, media_file_stats, media_files,
-    prelude,
 };
 
 use super::analysis::get_centralized_analysis_result;
@@ -36,10 +34,9 @@ use super::collection::CollectionQueryType;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
 
-use super::utils::create_count_by_first_letter;
-use super::utils::CountByFirstLetter;
+use super::utils::CollectionDefinition;
 
-impl CountByFirstLetter for mixes::Entity {
+impl CollectionDefinition for mixes::Entity {
     fn group_column() -> Self::Column {
         mixes::Column::Group
     }
@@ -98,9 +95,19 @@ impl CollectionQuery for mixes::Model {
     }
 
     async fn count_by_first_letter(main_db: &MainDbConnection) -> Result<Vec<(String, i32)>> {
-        create_count_by_first_letter::<prelude::Mixes>()(main_db)
+        let group_column = <mixes::Entity>::group_column();
+
+        let results = mix_queries::Entity::find()
+            .select_only()
+            .column::<mixes::Column>(group_column)
+            .column_as(<mixes::Entity>::id_column().count(), "count")
+            .group_by::<mixes::Column>(group_column)
+            .into_tuple::<(String, i32)>()
+            .all(main_db)
             .await
-            .with_context(|| "Failed to count collection by first letter")
+            .with_context(|| "Failed to count collection by first letter")?;
+
+        Ok(results)
     }
 
     async fn get_groups(
