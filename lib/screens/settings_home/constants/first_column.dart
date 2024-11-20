@@ -43,7 +43,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
   ),
   (
     (context) => S.of(context).home,
-    '/settings/home',
+    '/settings/library_home',
     Symbols.home,
     false
   ),

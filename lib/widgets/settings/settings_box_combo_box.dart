@@ -23,6 +23,8 @@ class SettingsBoxComboBox<T> extends StatelessWidget {
     required this.value,
     required this.items,
     required this.onChanged,
+    this.icon,
+    this.iconColor,
   });
 
   final String title;
@@ -30,6 +32,8 @@ class SettingsBoxComboBox<T> extends StatelessWidget {
   final T value;
   final List<SettingsBoxComboBoxItem<T>> items;
   final Function(T?)? onChanged;
+  final IconData? icon;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +74,8 @@ class SettingsBoxComboBox<T> extends StatelessWidget {
           );
         }
         return SettingsBlock(
+          icon: icon,
+          iconColor: iconColor,
           title: title,
           subtitle: subtitle,
           child: ComboBox<T>(
