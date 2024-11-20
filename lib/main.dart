@@ -44,6 +44,7 @@ import 'providers/playlist.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
+import 'providers/library_home.dart';
 import 'providers/library_manager.dart';
 import 'providers/playback_controller.dart';
 import 'providers/responsive_providers.dart';
@@ -189,6 +190,7 @@ void main(List<String> arguments) async {
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
         ChangeNotifierProvider(create: (_) => $router),
+        ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),

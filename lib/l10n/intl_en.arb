@@ -740,5 +740,25 @@
   "noLogsAvailable": "No logs available",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Home",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Newest",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Oldest",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Random",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Most Played",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
   }
 }

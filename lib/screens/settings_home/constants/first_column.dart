@@ -42,6 +42,12 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     false
   ),
   (
+    (context) => S.of(context).home,
+    '/settings/library_home',
+    Symbols.home,
+    false
+  ),
+  (
     (context) => S.of(context).log,
     '/settings/log',
     Symbols.assignment_late,

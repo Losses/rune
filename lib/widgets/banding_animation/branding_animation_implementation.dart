@@ -4,8 +4,9 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/svg.dart';
 
-import '../../screens/settings_test/lens_flare.dart';
 import '../../widgets/banding_animation/widgets/map_flare_alpha.dart';
+
+import 'lens_flare.dart';
 
 const frame1 = 2.5 / 4.5; // 0.0 ~ 2.5, Rotating disk
 const frame2 = 3.0 / 4.5; // 2.5 ~ 3.0, Box appearing
