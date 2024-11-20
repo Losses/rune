@@ -1,15 +1,12 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use futures::future::join_all;
 use rinf::DartSignal;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 
 use database::actions::collection::CollectionQuery;
-use database::actions::utils::create_count_by_first_letter;
 use database::connection::{MainDbConnection, RecommendationDbConnection};
-use database::entities::prelude;
 use database::entities::{albums, artists, mixes, playlists};
 
 use crate::messages::*;
@@ -65,12 +62,13 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                             let recommend_db = Arc::clone(recommend_db);
 
                             async move {
+                                let query = T::query_builder(&main_db, x.0.id()).await?;
                                 Collection::from_model_bakeable(
                                     main_db,
                                     recommend_db,
-                                    x.0,
+                                    x.0.clone(),
                                     T::collection_type().into(),
-                                    T::query_operator(),
+                                    query,
                                     params.bake_cover_arts,
                                 )
                                 .await
@@ -96,21 +94,22 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         }
         CollectionAction::FetchById => {
             let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
-            let collections = join_all(items.into_iter().map(|item| {
-                let item = item.clone();
-
+            let futures = items.into_iter().map(|item| async move {
                 Collection::from_model_bakeable(
                     Arc::clone(main_db),
                     Arc::clone(recommend_db),
-                    item,
+                    item.clone(),
                     T::collection_type().into(),
-                    T::query_operator(),
+                    T::query_builder(main_db, item.id()).await?,
                     params.bake_cover_arts,
                 )
-            }))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
+                .await
+            });
+
+            let collections: Vec<_> = join_all(futures)
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?; // Use `collect` to handle errors
 
             FetchCollectionByIdsResponse {
                 collection_type: T::collection_type().into(),
@@ -120,130 +119,23 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         }
         CollectionAction::Search => {
             let items = T::list(main_db, params.n.unwrap().into()).await?;
+            let futures = items.into_iter().map(|x| async move {
+                match T::query_builder(main_db, x.id()).await {
+                    Ok(query_result) => Ok(Collection::from_model(
+                        &x,
+                        T::collection_type().into(),
+                        query_result,
+                    )),
+                    Err(e) => Err(e),
+                }
+            });
+            let results = join_all(futures).await;
+            let results: Result<Vec<_>, _> = results.into_iter().collect();
+            let results = results?;
+
             SearchCollectionSummaryResponse {
                 collection_type: T::collection_type().into(),
-                result: items
-                    .into_iter()
-                    .map(|x| {
-                        Collection::from_model(&x, T::collection_type().into(), T::query_operator())
-                    })
-                    .collect(),
-            }
-            .send_signal_to_dart();
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_mixes(
-    main_db: &Arc<MainDbConnection>,
-    recommend_db: &Arc<RecommendationDbConnection>,
-    action: CollectionAction,
-    params: CollectionActionParams,
-) -> Result<()> {
-    match action {
-        CollectionAction::FetchGroupSummary => {
-            let entry = create_count_by_first_letter::<prelude::Mixes>()(main_db)
-                .await
-                .with_context(|| "Failed to count collection by first letter")?;
-
-            let collection_groups = entry
-                .into_iter()
-                .map(|x| CollectionGroupSummary {
-                    group_title: x.0,
-                    count: x.1,
-                })
-                .collect();
-
-            CollectionGroupSummaryResponse {
-                collection_type: 3,
-                groups: collection_groups,
-            }
-            .send_signal_to_dart();
-        }
-
-        CollectionAction::FetchGroups => {
-            let entry =
-                database::actions::mixes::get_mixes_groups(main_db, params.group_titles.unwrap())
-                    .await?;
-            let results = fetch_mix_queries(main_db, &entry).await?;
-
-            let groups = entry
-                .into_iter()
-                .map(|(group_title, _)| {
-                    let collections_futures = results
-                        .iter()
-                        .filter_map(|(gt, mix, queries)| {
-                            if gt == &group_title {
-                                Some(Collection::from_mix_bakeable(
-                                    Arc::clone(main_db),
-                                    Arc::clone(recommend_db),
-                                    mix.clone(),
-                                    queries.to_vec(),
-                                    params.bake_cover_arts,
-                                ))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect::<Vec<_>>();
-
-                    async move {
-                        let collections = join_all(collections_futures)
-                            .await
-                            .into_iter()
-                            .filter_map(Result::ok)
-                            .collect();
-                        CollectionGroup {
-                            group_title,
-                            collections,
-                        }
-                    }
-                })
-                .collect::<Vec<_>>();
-
-            let groups = join_all(groups).await;
-
-            CollectionGroups { groups }.send_signal_to_dart();
-        }
-        CollectionAction::FetchById => {
-            let items: Vec<mixes::Model> = mixes::Entity::find()
-                .filter(mixes::Column::Id.is_in(params.ids.unwrap()))
-                .all(main_db.as_ref())
-                .await?;
-            let results = fetch_mix_queries_for_items(main_db, &items).await?;
-            let collections = join_all(results.into_iter().map(|(mix, queries)| {
-                let queries = queries.clone();
-                let mix = mix.clone();
-
-                Collection::from_mix_bakeable(
-                    Arc::clone(main_db),
-                    Arc::clone(recommend_db),
-                    mix,
-                    queries,
-                    params.bake_cover_arts,
-                )
-            }))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
-
-            FetchCollectionByIdsResponse {
-                collection_type: 3,
-                result: collections,
-            }
-            .send_signal_to_dart();
-        }
-        CollectionAction::Search => {
-            let items: Vec<mixes::Model> = mixes::Entity::find()
-                .limit(params.n.unwrap() as u64)
-                .all(main_db.as_ref())
-                .await?;
-            let results = fetch_mix_queries_for_items(main_db, &items).await?;
-            SearchCollectionSummaryResponse {
-                collection_type: 3,
-                result: create_collections(results),
+                result: results,
             }
             .send_signal_to_dart();
         }
@@ -261,90 +153,22 @@ impl From<database::entities::mix_queries::Model> for MixQuery {
     }
 }
 
-type GroupEntry = Vec<(String, Vec<(mixes::Model, HashSet<i32>)>)>;
-
-async fn fetch_mix_queries(
-    main_db: &Arc<MainDbConnection>,
-    entry: &GroupEntry,
-) -> Result<Vec<(String, mixes::Model, Vec<MixQuery>)>> {
-    let futures: Vec<_> = entry
-        .iter()
-        .flat_map(|(group_title, mixes)| {
-            mixes.iter().map({
-                let main_db = Arc::clone(main_db);
-                move |mix| {
-                    let main_db = Arc::clone(&main_db);
-                    let group_title = group_title.clone();
-                    async move {
-                        let queries: Vec<MixQuery> =
-                            database::actions::mixes::get_mix_queries_by_mix_id(&main_db, mix.0.id)
-                                .await?
-                                .into_iter()
-                                .map(|x| x.into())
-                                .collect();
-
-                        Ok::<_, anyhow::Error>((group_title, mix.0.clone(), queries))
-                    }
-                }
-            })
-        })
-        .collect();
-
-    join_all(futures)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-}
-
-async fn fetch_mix_queries_for_items(
-    main_db: &Arc<MainDbConnection>,
-    items: &[mixes::Model],
-) -> Result<Vec<(mixes::Model, Vec<MixQuery>)>> {
-    let futures: Vec<_> = items
-        .iter()
-        .map({
-            let main_db = Arc::clone(main_db);
-            move |mix| {
-                let main_db = Arc::clone(&main_db);
-                async move {
-                    let queries =
-                        database::actions::mixes::get_mix_queries_by_mix_id(&main_db, mix.id)
-                            .await?
-                            .into_iter()
-                            .map(|x| x.into())
-                            .collect();
-                    Ok::<_, anyhow::Error>((mix.clone(), queries))
-                }
-            }
-        })
-        .collect();
-
-    join_all(futures)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()
-}
-
-fn create_collections(results: Vec<(mixes::Model, Vec<MixQuery>)>) -> Vec<Collection> {
-    results
-        .into_iter()
-        .map(|(mix, queries)| Collection::from_mix(&mix, &queries))
-        .collect()
-}
-
 impl Collection {
     pub fn from_model<T: CollectionQuery>(
         model: &T,
         collection_type: i32,
-        query_operator: &str,
+        query: Vec<(String, String)>,
     ) -> Self {
         Collection {
             id: model.id(),
             name: model.name().to_owned(),
-            queries: vec![MixQuery {
-                operator: query_operator.to_string(),
-                parameter: model.id().to_string(),
-            }],
+            queries: query
+                .into_iter()
+                .map(|x| MixQuery {
+                    operator: x.0,
+                    parameter: x.1,
+                })
+                .collect(),
             collection_type,
             cover_art_map: HashMap::new(),
             readonly: false,
@@ -356,37 +180,10 @@ impl Collection {
         recommend_db: Arc<RecommendationDbConnection>,
         model: T,
         collection_type: i32,
-        query_operator: &str,
+        query: Vec<(String, String)>,
         bake_cover_arts: bool,
     ) -> Result<Self> {
-        let mut collection = Collection::from_model(&model, collection_type, query_operator);
-
-        if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
-        }
-
-        Ok(collection)
-    }
-
-    pub fn from_mix(mix: &mixes::Model, queries: &[MixQuery]) -> Self {
-        Collection {
-            id: mix.id,
-            name: mix.name.clone(),
-            queries: queries.to_vec(),
-            collection_type: 3,
-            cover_art_map: HashMap::new(),
-            readonly: mix.locked,
-        }
-    }
-
-    pub async fn from_mix_bakeable(
-        main_db: Arc<MainDbConnection>,
-        recommend_db: Arc<RecommendationDbConnection>,
-        mix: mixes::Model,
-        queries: Vec<MixQuery>,
-        bake_cover_arts: bool,
-    ) -> Result<Self> {
-        let mut collection = Collection::from_mix(&mix, &queries);
+        let mut collection = Collection::from_model(&model, collection_type, query);
 
         if bake_cover_arts {
             collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
@@ -416,7 +213,10 @@ pub async fn handle_collection_request(
             handle_collection_action::<playlists::Model>(&main_db, &recommend_db, action, params)
                 .await?
         }
-        3 => handle_mixes(&main_db, &recommend_db, action, params).await?,
+        3 => {
+            handle_collection_action::<mixes::Model>(&main_db, &recommend_db, action, params)
+                .await?
+        }
         _ => return Err(anyhow::anyhow!("Invalid collection type")),
     }
 

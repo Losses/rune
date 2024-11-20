@@ -1,20 +1,18 @@
 use std::collections::HashSet;
-use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
 use sea_orm::prelude::*;
 
 use crate::actions::collection::CollectionQuery;
-use crate::actions::collection::CollectionQueryType;
-use crate::actions::utils::create_count_by_first_letter;
 use crate::collection_query;
 use crate::connection::MainDbConnection;
-use crate::entities::{albums, media_file_albums, prelude};
+use crate::entities::{albums, media_file_albums};
 
-use super::utils::CountByFirstLetter;
+use super::collection::CollectionQueryType;
+use super::utils::CollectionDefinition;
 
-impl CountByFirstLetter for albums::Entity {
+impl CollectionDefinition for albums::Entity {
     fn group_column() -> Self::Column {
         albums::Column::Group
     }
@@ -26,10 +24,8 @@ impl CountByFirstLetter for albums::Entity {
 
 collection_query!(
     albums,
-    prelude::Albums,
     CollectionQueryType::Album,
-    "lib::album",
+    "lib::album".to_owned(),
     media_file_albums,
-    AlbumId,
-    list_albums
+    AlbumId
 );

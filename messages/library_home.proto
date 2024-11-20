@@ -13,3 +13,16 @@ message LibrarySummaryResponse {
   repeated collection.Collection albums = 1;
   repeated collection.Collection artists = 2;
 }
+
+enum EntryType {
+  Collection = 0;
+  Track = 1;
+}
+
+message LibraryHomeEntry {
+  string name = 1;
+  repeated mix.MixQuery queries = 2;
+  CollectionType collection_type = 3;
+  map<int32, string> cover_art_map = 4;
+  bool readonly = 5;
+}

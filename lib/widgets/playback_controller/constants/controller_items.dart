@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -448,7 +450,9 @@ List<ControllerEntry> controllerItems = [
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(S.of(context).coverWall),
-            const ShortcutText('Alt+N'),
+            ShortcutText(
+              Platform.isMacOS ? '⌥+N' : 'Alt+N'
+            ),
           ],
         ),
         onPressed: () {

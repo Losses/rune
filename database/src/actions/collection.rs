@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt, str::FromStr, sync::Arc};
+use std::{collections::HashSet, fmt, str::FromStr};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -74,18 +74,26 @@ impl fmt::Display for CollectionQueryType {
 #[async_trait]
 pub trait CollectionQuery: Send + Sync + 'static {
     fn collection_type() -> CollectionQueryType;
-    fn query_operator() -> &'static str;
-    async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>>;
+    async fn query_builder(main_db: &MainDbConnection, id: i32) -> Result<Vec<(String, String)>>;
+    async fn count_by_first_letter(main_db: &MainDbConnection) -> Result<Vec<(String, i32)>>;
     async fn get_groups(
-        main_db: &Arc<MainDbConnection>,
+        main_db: &MainDbConnection,
         group_titles: Vec<String>,
     ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>>
     where
         Self: std::marker::Sized;
-    async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>>
+    async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>>
     where
         Self: std::marker::Sized;
-    async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>>
+    async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
+    where
+        Self: std::marker::Sized;
+
+    async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
+    where
+        Self: std::marker::Sized;
+
+    async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
     where
         Self: std::marker::Sized;
 
@@ -96,13 +104,11 @@ pub trait CollectionQuery: Send + Sync + 'static {
 #[macro_export]
 macro_rules! collection_query {
     (
-        $item_entity:ident, 
-        $entity:ty, 
-        $collection_type:expr, 
+        $item_entity:ident,
+        $collection_type:expr,
         $query_operator:expr,
         $related_entity:ident,
-        $relation_column_name:ident,
-        $list:path
+        $relation_column_name:ident
     ) => {
         // First generate the get_groups function
         async fn get_groups_internal(
@@ -167,40 +173,97 @@ macro_rules! collection_query {
             fn collection_type() -> CollectionQueryType {
                 $collection_type
             }
-            
-            fn query_operator() -> &'static str {
-                $query_operator
+
+            async fn query_builder(
+                _main_db: &MainDbConnection,
+                id: i32,
+            ) -> Result<Vec<(String, String)>> {
+                Ok([($query_operator, id.to_string())].to_vec())
             }
-            
+
             async fn count_by_first_letter(
-                main_db: &Arc<MainDbConnection>,
+                main_db: &MainDbConnection,
             ) -> Result<Vec<(String, i32)>> {
-                create_count_by_first_letter::<$entity>()(main_db)
+                use anyhow::Context;
+                use sea_orm::QuerySelect;
+
+                let group_column = <$item_entity::Entity>::group_column();
+
+                let results = $item_entity::Entity::find()
+                    .select_only()
+                    .column::<$item_entity::Column>(group_column)
+                    .column_as(<$item_entity::Entity>::id_column().count(), "count")
+                    .group_by::<$item_entity::Column>(group_column)
+                    .into_tuple::<(String, i32)>()
+                    .all(main_db)
                     .await
-                    .with_context(|| "Failed to count collection by first letter")
+                    .with_context(|| "Failed to count collection by first letter")?;
+
+                Ok(results)
             }
-            
+
             async fn get_groups(
-                main_db: &Arc<MainDbConnection>,
+                main_db: &MainDbConnection,
                 group_titles: Vec<String>,
             ) -> Result<Vec<(String, Vec<(Self, HashSet<i32>)>)>> {
                 get_groups_internal(&main_db, group_titles)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to get collection groups: {}", e))
             }
-            
-            async fn get_by_ids(main_db: &Arc<MainDbConnection>, ids: &[i32]) -> Result<Vec<Self>> {
+
+            async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>> {
+                use anyhow::Context;
+
                 <$item_entity::Entity>::find()
-                .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
-                .all(main_db.as_ref())
-                .await
-                .with_context(|| "Failed to get collection item by ids")
+                    .filter(<$item_entity::Column>::Id.is_in(ids.to_vec()))
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get collection item by ids")
             }
-            
-            async fn list(main_db: &Arc<MainDbConnection>, limit: u64) -> Result<Vec<Self>> {
+
+            async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use anyhow::Context;
                 use sea_orm::QuerySelect;
 
-                $item_entity::Entity::find().limit(limit).all(main_db.as_ref()).await.with_context(|| "Failed to get collection list")
+                $item_entity::Entity::find()
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get collection list")
+            }
+
+            async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use anyhow::Context;
+                use sea_orm::{QueryOrder, QuerySelect};
+
+                $item_entity::Entity::find()
+                    .order_by_desc(<$item_entity::Column>::Id)
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get reversed collection list")
+            }
+
+            async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+                use anyhow::Context;
+
+                use sea_orm::{
+                    sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryTrait,
+                };
+
+                let mut query: sea_orm::sea_query::SelectStatement =
+                    $item_entity::Entity::find().as_query().to_owned();
+
+                let select = query
+                    .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+                    .limit(limit);
+
+                let statement = main_db.get_database_backend().build(select);
+
+                $item_entity::Model::find_by_statement(statement)
+                    .all(main_db)
+                    .await
+                    .with_context(|| "Failed to get random collection list")
             }
 
             fn id(&self) -> i32 {
