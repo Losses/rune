@@ -35,8 +35,7 @@ collection_query!(
     CollectionQueryType::Playlist,
     "lib::playlist".to_owned(),
     media_file_playlists,
-    PlaylistId,
-    list_playlists
+    PlaylistId
 );
 
 /// Create a new playlist.

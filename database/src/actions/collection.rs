@@ -101,8 +101,7 @@ macro_rules! collection_query {
         $collection_type:expr, 
         $query_operator:expr,
         $related_entity:ident,
-        $relation_column_name:ident,
-        $list:path
+        $relation_column_name:ident
     ) => {
         // First generate the get_groups function
         async fn get_groups_internal(
