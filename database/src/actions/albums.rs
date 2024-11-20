@@ -28,7 +28,7 @@ collection_query!(
     albums,
     prelude::Albums,
     CollectionQueryType::Album,
-    "lib::album",
+    "lib::album".to_owned(),
     media_file_albums,
     AlbumId,
     list_albums

@@ -74,7 +74,7 @@ impl fmt::Display for CollectionQueryType {
 #[async_trait]
 pub trait CollectionQuery: Send + Sync + 'static {
     fn collection_type() -> CollectionQueryType;
-    fn query_operator() -> &'static str;
+    async fn query_builder(id: i32) -> Vec<(String, String)>;
     async fn count_by_first_letter(main_db: &Arc<MainDbConnection>) -> Result<Vec<(String, i32)>>;
     async fn get_groups(
         main_db: &Arc<MainDbConnection>,
@@ -168,8 +168,8 @@ macro_rules! collection_query {
                 $collection_type
             }
             
-            fn query_operator() -> &'static str {
-                $query_operator
+            async fn query_builder(id: i32) -> Vec<(String, String)> {
+                [($query_operator, id.to_string())].to_vec()
             }
             
             async fn count_by_first_letter(

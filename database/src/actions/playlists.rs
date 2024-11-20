@@ -34,7 +34,7 @@ collection_query!(
     playlists,
     prelude::Playlists,
     CollectionQueryType::Playlist,
-    "lib::playlist",
+    "lib::playlist".to_owned(),
     media_file_playlists,
     PlaylistId,
     list_playlists

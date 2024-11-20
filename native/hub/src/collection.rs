@@ -68,9 +68,9 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                                 Collection::from_model_bakeable(
                                     main_db,
                                     recommend_db,
-                                    x.0,
+                                    x.0.clone(),
                                     T::collection_type().into(),
-                                    T::query_operator(),
+                                    T::query_builder(x.0.id()).await,
                                     params.bake_cover_arts,
                                 )
                                 .await
@@ -96,21 +96,22 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         }
         CollectionAction::FetchById => {
             let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
-            let collections = join_all(items.into_iter().map(|item| {
-                let item = item.clone();
-
+            let futures = items.into_iter().map(|item| async move {
                 Collection::from_model_bakeable(
                     Arc::clone(main_db),
                     Arc::clone(recommend_db),
-                    item,
+                    item.clone(),
                     T::collection_type().into(),
-                    T::query_operator(),
+                    T::query_builder(item.id()).await,
                     params.bake_cover_arts,
                 )
-            }))
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
+                .await
+            });
+
+            let collections: Vec<_> = join_all(futures)
+                .await
+                .into_iter()
+                .collect::<Result<Vec<_>, _>>()?; // Use `collect` to handle errors
 
             FetchCollectionByIdsResponse {
                 collection_type: T::collection_type().into(),
@@ -120,14 +121,18 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         }
         CollectionAction::Search => {
             let items = T::list(main_db, params.n.unwrap().into()).await?;
+            let futures = items.into_iter().map(|x| async move {
+                Collection::from_model(
+                    &x,
+                    T::collection_type().into(),
+                    T::query_builder(x.id()).await,
+                )
+            });
+            let results = join_all(futures).await;
+
             SearchCollectionSummaryResponse {
                 collection_type: T::collection_type().into(),
-                result: items
-                    .into_iter()
-                    .map(|x| {
-                        Collection::from_model(&x, T::collection_type().into(), T::query_operator())
-                    })
-                    .collect(),
+                result: results,
             }
             .send_signal_to_dart();
         }
@@ -336,15 +341,18 @@ impl Collection {
     pub fn from_model<T: CollectionQuery>(
         model: &T,
         collection_type: i32,
-        query_operator: &str,
+        query: Vec<(String, String)>,
     ) -> Self {
         Collection {
             id: model.id(),
             name: model.name().to_owned(),
-            queries: vec![MixQuery {
-                operator: query_operator.to_string(),
-                parameter: model.id().to_string(),
-            }],
+            queries: query
+                .into_iter()
+                .map(|x| MixQuery {
+                    operator: x.0,
+                    parameter: x.1,
+                })
+                .collect(),
             collection_type,
             cover_art_map: HashMap::new(),
             readonly: false,
@@ -356,10 +364,10 @@ impl Collection {
         recommend_db: Arc<RecommendationDbConnection>,
         model: T,
         collection_type: i32,
-        query_operator: &str,
+        query: Vec<(String, String)>,
         bake_cover_arts: bool,
     ) -> Result<Self> {
-        let mut collection = Collection::from_model(&model, collection_type, query_operator);
+        let mut collection = Collection::from_model(&model, collection_type, query);
 
         if bake_cover_arts {
             collection = inject_cover_art_map(main_db, recommend_db, collection).await?;

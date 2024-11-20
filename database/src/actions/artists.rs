@@ -27,7 +27,7 @@ collection_query!(
     artists,
     prelude::Artists,
     CollectionQueryType::Artist,
-    "lib::artist",
+    "lib::artist".to_owned(),
     media_file_artists,
     ArtistId,
     list_artists

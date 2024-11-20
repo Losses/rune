@@ -27,7 +27,14 @@ pub async fn fetch_library_summary_request(
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
 
-        Collection::from_model_bakeable(main_db, recommend_db, x, 0, "lib::album", bake)
+        Collection::from_model_bakeable(
+            main_db,
+            recommend_db,
+            x.clone(),
+            0,
+            vec![("lib::album".to_string(), x.id.to_string())],
+            bake,
+        )
     }))
     .await
     .into_iter()
@@ -37,7 +44,14 @@ pub async fn fetch_library_summary_request(
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
 
-        Collection::from_model_bakeable(main_db, recommend_db, x, 1, "lib::artist", bake)
+        Collection::from_model_bakeable(
+            main_db,
+            recommend_db,
+            x.clone(),
+            1,
+            vec![("lib::artist".to_string(), x.id.to_string())],
+            bake,
+        )
     }))
     .await
     .into_iter()
