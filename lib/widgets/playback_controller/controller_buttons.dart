@@ -21,16 +21,24 @@ class ControllerButtons extends StatefulWidget {
 class _ControllerButtonsState extends State<ControllerButtons> {
   Map<String, MenuFlyoutItem> flyoutItems = {};
   bool initialized = false;
+  Locale? currentLocale;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
-    _fetchFlyoutItems();
+    final newLocale = Localizations.localeOf(context);
+
+    if (currentLocale != newLocale) {
+      _fetchFlyoutItems(newLocale);
+    }
   }
 
-  Future<void> _fetchFlyoutItems() async {
-    if (initialized) return;
+  Future<void> _fetchFlyoutItems(Locale locale) async {
+    if (initialized && locale == currentLocale) return;
+
     initialized = true;
+    currentLocale = locale;
 
     final Map<String, MenuFlyoutItem> itemMap = await fetchFlyoutItems(context);
 

@@ -4,7 +4,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../providers/playback_controller.dart';
 
 Future<Map<String, MenuFlyoutItem>> fetchFlyoutItems(
-    BuildContext context) async {
+  BuildContext context,
+) async {
   final entries =
       Provider.of<PlaybackControllerProvider>(context, listen: false).entries;
 
