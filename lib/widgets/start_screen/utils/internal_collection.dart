@@ -31,7 +31,7 @@ class InternalCollection {
 
   static InternalCollection fromComplexQueryEntry(ComplexQueryEntry x) {
     return InternalCollection(
-      id: x.queries.hashCode,
+      id: x.id,
       name: x.name,
       queries: QueryList.fromMixQuery(x.queries),
       collectionType: x.collectionType,

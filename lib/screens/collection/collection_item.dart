@@ -5,6 +5,7 @@ import '../../utils/execute_middle_click_action.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_name.dart';
 import '../../utils/router/query_tracks_parameter.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/flip_tile.dart';
@@ -74,16 +75,26 @@ class _CollectionItemState extends State<CollectionItem> {
           );
         },
         onContextMenu: (position) {
-          openCollectionItemContextMenu(
-            position,
-            context,
-            contextAttachKey,
-            contextController,
-            widget.collectionType,
-            widget.collection.id,
-            widget.refreshList,
-            widget.collection.readonly,
-          );
+          if (widget.collectionType != CollectionType.Track) {
+            openCollectionItemContextMenu(
+              position,
+              context,
+              contextAttachKey,
+              contextController,
+              widget.collectionType,
+              widget.collection.id,
+              widget.refreshList,
+              widget.collection.readonly,
+            );
+          } else {
+            openTrackItemContextMenu(
+              position,
+              context,
+              contextAttachKey,
+              contextController,
+              widget.collection.id,
+            );
+          }
         },
         child: FlipTile(
           name: widget.collection.name,

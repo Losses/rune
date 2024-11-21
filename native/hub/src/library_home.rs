@@ -228,6 +228,7 @@ pub async fn complex_query_request(
                     .await?;
 
                     Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
+                        id: collection.id,
                         name: collection.name,
                         queries: collection.queries,
                         collection_type: collection.collection_type,

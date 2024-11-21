@@ -17,11 +17,12 @@ message ComplexQueryRequest {
 }
 
 message ComplexQueryEntry {
-  string name = 1;
-  repeated mix.MixQuery queries = 2;
-  collection.CollectionType collection_type = 3;
-  map<int32, string> cover_art_map = 4;
-  bool readonly = 5;
+  int32 id = 1;
+  string name = 2;
+  repeated mix.MixQuery queries = 3;
+  collection.CollectionType collection_type = 4;
+  map<int32, string> cover_art_map = 5;
+  bool readonly = 6;
 }
 
 message ComplexQueryGroup {
