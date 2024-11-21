@@ -27,11 +27,6 @@ message ComplexQueryRequest {
   repeated ComplexQuery queries = 1;
 }
 
-enum EntryType {
-  Collection = 0;
-  Track = 1;
-}
-
 message ComplexQueryEntry {
   string name = 1;
   repeated mix.MixQuery queries = 2;

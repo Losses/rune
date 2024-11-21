@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use rinf::DartSignal;
@@ -202,11 +202,44 @@ pub async fn complex_query_request(
         let recommend_db = recommend_db.clone();
         async move {
             let query_executor = create_query(&query.domain, &query.parameter)?;
-            query_executor.execute(&main_db, &recommend_db).await
+            let unified_collections = query_executor.execute(&main_db, &recommend_db).await?;
+
+            let entries_futures = unified_collections.into_iter().map(|unified_collection| {
+                let main_db = main_db.clone();
+                let recommend_db = recommend_db.clone();
+                async move {
+                    let collection = Collection::from_unified_collection_bakeable(
+                        &main_db,
+                        recommend_db,
+                        unified_collection,
+                        true,
+                    )
+                    .await?;
+
+                    Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
+                        name: collection.name,
+                        queries: collection.queries,
+                        collection_type: collection.collection_type,
+                        cover_art_map: collection.cover_art_map,
+                        readonly: collection.readonly,
+                    })
+                }
+            });
+
+            let entries = try_join_all(entries_futures).await?;
+
+            Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
+                id: query.id,
+                title: query.title,
+                entries,
+            })
         }
     });
 
-    let results = try_join_all(futures).await?;
+    let result = try_join_all(futures).await?;
+
+    ComplexQueryResponse { result }.send_signal_to_dart();
+
     Ok(())
 }
 
