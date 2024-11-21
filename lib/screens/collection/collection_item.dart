@@ -123,7 +123,6 @@ class _CollectionItemState extends State<CollectionItem> {
                     .map((x) => int.parse(x.$2))
                     .toList(),
               );
-              print(widget.collection);
             }
           },
         ),
