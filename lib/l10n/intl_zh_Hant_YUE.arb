@@ -268,7 +268,7 @@
   "@selectAGroup": {
     "description": "Placeholder text in the input field located in the edit Mix or playlist modal, guiding users to select a content group."
   },
-  "likedOnly": "淨係讚好嘅",
+  "likedOnly": "淨係鍾愛嘅",
   "@likedOnly": {
     "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
   },
@@ -417,7 +417,7 @@
   "@sortOrder": {
     "description": "A title for an entry in the modal settings options, informing users that the following options control the sorting direction for tracks."
   },
-  "liked": "點咗讚",
+  "liked": "鍾愛",
   "@liked": {
     "description": "A title for an entry in the modal settings options, informing users that the following options filter tracks marked as 'liked' by the user."
   },
