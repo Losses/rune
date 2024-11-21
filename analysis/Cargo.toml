@@ -21,7 +21,7 @@ lazy_static = "1.5.0"
 log = "0.4.22"
 rubato = "0.16.1"
 rustfft = "6.2.0"
-symphonia = { version = "0.5.4", features = ["all"] }
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
 wgpu = "23.0.0" 
 pollster = "0.4.0"
 bytemuck = "1.19.0"

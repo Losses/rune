@@ -9,7 +9,7 @@ name = "metadata"
 path = "src/lib.rs"
 
 [dependencies]
-symphonia = { version = "0.5.4", features = ["all"] }
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
 thiserror = "1.0.61"
 lazy_static = "1.5.0"
 walkdir = "2.5.0"
