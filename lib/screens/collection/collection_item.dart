@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
 import '../../utils/execute_middle_click_action.dart';
+import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/router/router_name.dart';
 import '../../utils/router/query_tracks_parameter.dart';
@@ -11,8 +12,7 @@ import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/flip_tile.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
-
-import '../../messages/collection.pb.dart';
+import '../../messages/all.dart';
 
 class CollectionItem extends StatefulWidget {
   final InternalCollection collection;
@@ -102,13 +102,29 @@ class _CollectionItemState extends State<CollectionItem> {
               filterDuplicates(widget.collection.coverArtMap.values.toList()),
           emptyTileType: BoringAvatarType.bauhaus,
           onPressed: () {
-            $push(
-              '/${collectionTypeToRouterName(widget.collectionType)}/detail',
-              arguments: QueryTracksParameter(
-                widget.collection.id,
-                widget.collection.name,
-              ),
-            );
+            if (widget.collectionType != CollectionType.Track) {
+              $push(
+                '/${collectionTypeToRouterName(widget.collectionType)}/detail',
+                arguments: QueryTracksParameter(
+                  widget.collection.id,
+                  widget.collection.name,
+                ),
+              );
+            } else {
+              safeOperatePlaybackWithMixQuery(
+                context: context,
+                queries: widget.collection.queries,
+                playbackMode: 99,
+                hintPosition: 0,
+                initialPlaybackId: widget.collection.id,
+                instantlyPlay: true,
+                operateMode: PlaylistOperateMode.Replace,
+                fallbackFileIds: widget.collection.queries
+                    .map((x) => int.parse(x.$2))
+                    .toList(),
+              );
+              print(widget.collection);
+            }
           },
         ),
       ),

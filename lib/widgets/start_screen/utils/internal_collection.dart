@@ -39,4 +39,15 @@ class InternalCollection {
       readonly: x.readonly,
     );
   }
+
+  @override
+  String toString() {
+    return '''
+InternalCollection($collectionType) #$id(
+  name: $name,
+  queries: $queries,
+  coverArtMap: $coverArtMap,
+  readonly: $readonly
+)''';
+  }
 }
