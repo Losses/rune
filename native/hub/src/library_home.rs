@@ -79,7 +79,7 @@ struct NaiveTrackComplexQuery {
 }
 
 struct MixTrackComplexQuery {
-    filter: Vec<(String, String)>,
+    query: Vec<(String, String)>,
     enabled: bool,
 }
 
@@ -149,7 +149,7 @@ impl ComplexQuery for MixTrackComplexQuery {
         }
 
         let tracks =
-            query_mix_media_files(main_db, recommend_db, self.filter.clone(), 0, 25).await?;
+            query_mix_media_files(main_db, recommend_db, self.query.clone(), 0, 25).await?;
 
         build_track_collections(main_db, tracks).await
     }
@@ -177,18 +177,24 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
             mode: CollectionQueryListMode::from_str(parameter)?,
         })),
         "liked" => Ok(Box::new(MixTrackComplexQuery {
-            filter: vec![("filter::liked".to_owned(), "true".to_owned())],
+            query: vec![
+                ("lib::directory.deep".to_owned(), "/".to_owned()),
+                ("filter::liked".to_owned(), "true".to_owned()),
+            ],
             enabled: parameter == "enable",
         })),
         "most" => Ok(Box::new(MixTrackComplexQuery {
-            filter: vec![("sort::playedthrough".to_owned(), "false".to_owned())],
+            query: vec![
+                ("lib::directory.deep".to_owned(), "/".to_owned()),
+                ("sort::playedthrough".to_owned(), "false".to_owned()),
+            ],
             enabled: parameter == "enable",
         })),
         unknown => {
             warn!("Unknown complex query operator: {}", unknown);
 
             Ok(Box::new(MixTrackComplexQuery {
-                filter: vec![],
+                query: vec![],
                 enabled: false,
             }))
         }
