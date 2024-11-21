@@ -46,19 +46,19 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    libraryHome = Provider.of<LibraryHomeProvider>(context, listen: false);
-    libraryHome.addListener(updateLibrary);
 
-    updateLibrary();
+    Localizations.localeOf(context);
+    libraryHome = Provider.of<LibraryHomeProvider>(context);
+
+    updateLibrary(libraryHome);
   }
 
   @override
   dispose() {
     super.dispose();
-    libraryHome.removeListener(updateLibrary);
   }
 
-  void updateLibrary() {
+  void updateLibrary(LibraryHomeProvider libraryHome) {
     setState(() {
       summary = fetchSummary(libraryHome);
     });

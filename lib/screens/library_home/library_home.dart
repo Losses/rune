@@ -65,7 +65,7 @@ class _LibraryHomePageState extends State<LibraryHomePage> {
                     builder: (context, isWatch) {
                       final leadingItem = isWatch
                           ? Padding(
-                            padding: const EdgeInsets.only(right: 2),
+                              padding: const EdgeInsets.only(right: 2),
                               child: LayoutBuilder(
                                   builder: (context, constraints) {
                                 return NowPlayingTrackCoverArtButton(
