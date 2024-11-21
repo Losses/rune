@@ -15,7 +15,7 @@ message LibrarySummaryResponse {
   repeated collection.Collection artists = 2;
 }
 
-message ComplexCollectionQuery {
+message ComplexQuery {
   string id = 1;
   string title = 2;
   string domain = 3;
@@ -23,8 +23,8 @@ message ComplexCollectionQuery {
 }
 
 // [DART-SIGNAL]
-message ComplexCollectionQueryRequest {
-  repeated ComplexCollectionQuery queries = 1;
+message ComplexQueryRequest {
+  repeated ComplexQuery queries = 1;
 }
 
 enum EntryType {
@@ -47,6 +47,6 @@ message ComplexQueryGroup {
 }
 
 // [RUST-SIGNAL]
-message ComplexCollectionQueryResponse {
+message ComplexQueryResponse {
   repeated ComplexQueryGroup result = 1;
 }

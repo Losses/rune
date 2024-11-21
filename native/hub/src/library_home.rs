@@ -29,7 +29,7 @@ pub trait ComplexQuery: Send + Sync {
 }
 
 #[async_trait]
-impl<T> ComplexQuery for ModelCollectionQuery<T>
+impl<T> ComplexQuery for CollectionComplexQuery<T>
 where
     T: CollectionQuery + Send + Sync,
 {
@@ -42,13 +42,13 @@ where
     }
 }
 
-struct ModelCollectionQuery<T> {
+struct CollectionComplexQuery<T> {
     limit: u32,
     mode: CollectionQueryListMode,
     _phantom: PhantomData<T>,
 }
 
-impl<T> ModelCollectionQuery<T>
+impl<T> CollectionComplexQuery<T>
 where
     T: CollectionQuery,
 {
@@ -73,11 +73,11 @@ where
     }
 }
 
-struct TrackCollectionQuery {
+struct NaiveTrackComplexQuery {
     mode: CollectionQueryListMode,
 }
 
-struct FilteredTrackQuery {
+struct MixTrackComplexQuery {
     filter: Vec<(String, String)>,
     enabled: bool,
 }
@@ -118,7 +118,7 @@ fn create_track_collection(
 }
 
 #[async_trait]
-impl ComplexQuery for TrackCollectionQuery {
+impl ComplexQuery for NaiveTrackComplexQuery {
     async fn execute(
         &self,
         main_db: &MainDbConnection,
@@ -137,7 +137,7 @@ impl ComplexQuery for TrackCollectionQuery {
 }
 
 #[async_trait]
-impl ComplexQuery for FilteredTrackQuery {
+impl ComplexQuery for MixTrackComplexQuery {
     async fn execute(
         &self,
         main_db: &MainDbConnection,
@@ -156,44 +156,44 @@ impl ComplexQuery for FilteredTrackQuery {
 
 fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> {
     match domain {
-        "artists" => Ok(Box::new(ModelCollectionQuery::<artists::Model>::new(
+        "artists" => Ok(Box::new(CollectionComplexQuery::<artists::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),
-        "albums" => Ok(Box::new(ModelCollectionQuery::<albums::Model>::new(
+        "albums" => Ok(Box::new(CollectionComplexQuery::<albums::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),
-        "playlists" => Ok(Box::new(ModelCollectionQuery::<playlists::Model>::new(
+        "playlists" => Ok(Box::new(CollectionComplexQuery::<playlists::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),
-        "mixes" => Ok(Box::new(ModelCollectionQuery::<mixes::Model>::new(
+        "mixes" => Ok(Box::new(CollectionComplexQuery::<mixes::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),
-        "tracks" => Ok(Box::new(TrackCollectionQuery {
+        "tracks" => Ok(Box::new(NaiveTrackComplexQuery {
             mode: CollectionQueryListMode::from_str(parameter)?,
         })),
-        "liked" => Ok(Box::new(FilteredTrackQuery {
+        "liked" => Ok(Box::new(MixTrackComplexQuery {
             filter: vec![("filter::liked".to_owned(), "true".to_owned())],
             enabled: parameter == "enable",
         })),
-        "most" => Ok(Box::new(FilteredTrackQuery {
+        "most" => Ok(Box::new(MixTrackComplexQuery {
             filter: vec![("sort::playedthrough".to_owned(), "false".to_owned())],
             enabled: parameter == "enable",
         })),
-        _ => Ok(Box::new(FilteredTrackQuery {
+        _ => Ok(Box::new(MixTrackComplexQuery {
             filter: vec![],
             enabled: false,
         })),
     }
 }
 
-pub async fn complex_collection_query_request(
+pub async fn complex_query_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
-    dart_signal: DartSignal<ComplexCollectionQueryRequest>,
+    dart_signal: DartSignal<ComplexQueryRequest>,
 ) -> Result<()> {
     let queries = dart_signal.message.queries;
 
@@ -206,7 +206,7 @@ pub async fn complex_collection_query_request(
         }
     });
 
-    try_join_all(futures).await?;
+    let results = try_join_all(futures).await?;
     Ok(())
 }
 

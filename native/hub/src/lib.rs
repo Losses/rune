@@ -185,7 +185,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             GetLikedRequest => (main_db),
 
             FetchLibrarySummaryRequest => (main_db, recommend_db),
-            ComplexCollectionQueryRequest => (main_db, recommend_db),
+            ComplexQueryRequest => (main_db, recommend_db),
             SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
