@@ -114,7 +114,9 @@ impl FromStr for CollectionQueryListMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "forward" => Ok(CollectionQueryListMode::Forward),
+            "newest" => Ok(CollectionQueryListMode::Forward),
             "reverse" => Ok(CollectionQueryListMode::Reverse),
+            "oldest" => Ok(CollectionQueryListMode::Reverse),
             "random" => Ok(CollectionQueryListMode::Random),
             _ => Err(ParseCollectionQueryListModeError::InvalidType),
         }

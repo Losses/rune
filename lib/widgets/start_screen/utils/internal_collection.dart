@@ -1,5 +1,5 @@
 import '../../../utils/query_list.dart';
-import '../../../messages/collection.pbserver.dart';
+import '../../../messages/all.dart';
 
 class InternalCollection {
   final int id;
@@ -21,6 +21,17 @@ class InternalCollection {
   static InternalCollection fromRawCollection(Collection x) {
     return InternalCollection(
       id: x.id,
+      name: x.name,
+      queries: QueryList.fromMixQuery(x.queries),
+      collectionType: x.collectionType,
+      coverArtMap: x.coverArtMap,
+      readonly: x.readonly,
+    );
+  }
+
+  static InternalCollection fromComplexQueryEntry(ComplexQueryEntry x) {
+    return InternalCollection(
+      id: x.queries.hashCode,
       name: x.name,
       queries: QueryList.fromMixQuery(x.queries),
       collectionType: x.collectionType,

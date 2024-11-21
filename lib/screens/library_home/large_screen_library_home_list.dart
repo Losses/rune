@@ -1,11 +1,14 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
+import 'package:rune/providers/library_home.dart';
 
+import '../../messages/all.dart';
+import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
-import '../../utils/api/fetch_library_summary.dart';
-import '../../config/animation.dart';
 import '../../utils/router/navigation.dart';
+import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -39,40 +42,58 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
   @override
-  void initState() {
-    setState(() {
-      summary = fetchSummary();
-    });
-
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    Provider.of<LibraryHomeProvider>(context, listen: false)
+        .addListener(updateLibrary);
   }
 
   @override
   dispose() {
     super.dispose();
+    Provider.of<LibraryHomeProvider>(context, listen: false)
+        .removeListener(updateLibrary);
   }
 
-  Future<List<Group<InternalCollection>>> fetchSummary() async {
-    final librarySummary = await fetchLibrarySummary();
+  void updateLibrary() {
+    final libraryHome =
+        Provider.of<LibraryHomeProvider>(context, listen: false);
+    setState(() {
+      summary = fetchSummary(libraryHome);
+    });
+  }
+
+  Future<List<Group<InternalCollection>>> fetchSummary(
+    LibraryHomeProvider libraryHome,
+  ) async {
+    final librarySummary = await complexQuery(
+      libraryHome.entries
+          .where((x) => x.value != null && x.value != 'disable')
+          .map(
+            (x) => ComplexQuery(
+              id: x.id,
+              title: x.definition.titleBuilder(context),
+              domain: x.definition.id,
+              parameter: x.value!,
+            ),
+          )
+          .toList(),
+    );
 
     if (!mounted) return [];
+    if (librarySummary == null) return [];
 
-    final groups = [
-      Group<InternalCollection>(
-        groupTitle: S.of(context).artists,
-        groupLink: "artists",
-        items: librarySummary.artists
-            .map(InternalCollection.fromRawCollection)
-            .toList(),
-      ),
-      Group<InternalCollection>(
-        groupTitle: S.of(context).albums,
-        groupLink: "albums",
-        items: librarySummary.albums
-            .map(InternalCollection.fromRawCollection)
-            .toList(),
-      ),
-    ];
+    final groups = librarySummary.result
+        .map(
+          (x) => Group<InternalCollection>(
+            groupTitle: x.title,
+            groupLink: "artists",
+            items: x.entries
+                .map(InternalCollection.fromComplexQueryEntry)
+                .toList(),
+          ),
+        )
+        .toList();
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),

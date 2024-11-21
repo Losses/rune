@@ -242,11 +242,3 @@ pub async fn complex_query_request(
 
     Ok(())
 }
-
-pub async fn fetch_library_summary_request(
-    _main_db: Arc<MainDbConnection>,
-    _recommend_db: Arc<RecommendationDbConnection>,
-    _dart_signal: DartSignal<FetchLibrarySummaryRequest>,
-) -> Result<()> {
-    Ok(())
-}

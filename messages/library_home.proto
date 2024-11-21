@@ -4,17 +4,6 @@ package library_home;
 import "mix.proto";
 import "collection.proto";
 
-// [DART-SIGNAL]
-message FetchLibrarySummaryRequest {
-  bool bake_cover_arts = 1;
-}
-
-// [RUST-SIGNAL]
-message LibrarySummaryResponse {
-  repeated collection.Collection albums = 1;
-  repeated collection.Collection artists = 2;
-}
-
 message ComplexQuery {
   string id = 1;
   string title = 2;
