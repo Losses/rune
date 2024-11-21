@@ -28,7 +28,7 @@ pub async fn query_cover_arts(
             .chain([("filter::with_cover_art".to_string(), "true".to_string())])
             .collect(),
         0,
-        36,
+        18,
     )
     .await
 }

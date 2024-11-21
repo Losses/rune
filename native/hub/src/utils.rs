@@ -23,7 +23,7 @@ pub async fn inject_cover_art_map(
     let files = query_cover_arts(
         main_db,
         recommend_db,
-        if collection.collection_type == (CollectionQueryType::Track as i32) {
+        if collection.collection_type == i32::from(CollectionQueryType::Track) {
             if collection.queries.is_empty() {
                 vec![]
             } else {

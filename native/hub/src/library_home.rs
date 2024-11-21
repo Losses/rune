@@ -5,6 +5,7 @@ use std::sync::Arc;
 use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use log::warn;
 use rinf::DartSignal;
 
 use database::actions::collection::{
@@ -183,10 +184,14 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
             filter: vec![("sort::playedthrough".to_owned(), "false".to_owned())],
             enabled: parameter == "enable",
         })),
-        _ => Ok(Box::new(MixTrackComplexQuery {
-            filter: vec![],
-            enabled: false,
-        })),
+        unknown => {
+            warn!("Unknown complex query operator: {}", unknown);
+
+            Ok(Box::new(MixTrackComplexQuery {
+                filter: vec![],
+                enabled: false,
+            }))
+        }
     }
 }
 

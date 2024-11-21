@@ -41,23 +41,24 @@ class LargeScreenLibraryHomeListView extends StatefulWidget {
 class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
+  late LibraryHomeProvider libraryHome;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    Provider.of<LibraryHomeProvider>(context, listen: false)
-        .addListener(updateLibrary);
+    libraryHome = Provider.of<LibraryHomeProvider>(context, listen: false);
+    libraryHome.addListener(updateLibrary);
+
+    updateLibrary();
   }
 
   @override
   dispose() {
     super.dispose();
-    Provider.of<LibraryHomeProvider>(context, listen: false)
-        .removeListener(updateLibrary);
+    libraryHome.removeListener(updateLibrary);
   }
 
   void updateLibrary() {
-    final libraryHome =
-        Provider.of<LibraryHomeProvider>(context, listen: false);
     setState(() {
       summary = fetchSummary(libraryHome);
     });
