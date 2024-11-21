@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::join_all;
-use log::error;
 use rinf::DartSignal;
 
 use database::actions::collection::{CollectionQuery, CollectionQueryListMode, UnifiedCollection};
