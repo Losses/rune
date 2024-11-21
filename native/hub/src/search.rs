@@ -16,16 +16,6 @@ pub async fn search_for_request(
 ) -> Result<()> {
     let request = dart_signal.message;
     let query_str = request.query_str;
-    if query_str.trim().is_empty() {
-        SearchForResponse {
-            artists: Vec::new(),
-            albums: Vec::new(),
-            playlists: Vec::new(),
-            tracks: Vec::new(),
-        }
-        .send_signal_to_dart();
-        return Ok(());
-    }
     let search_fields = convert_to_collection_types(request.fields);
     let n = request.n as usize;
 
