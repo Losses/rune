@@ -135,7 +135,7 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
     _lastSearched = task;
     if (_debounce?.isActive ?? false) _debounce!.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      if (!_isRequestInProgress) {
+      if (!_isRequestInProgress && searchController.text.trim().isNotEmpty) {
         _performSearch(searchController.text);
       }
     });
