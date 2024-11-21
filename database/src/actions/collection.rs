@@ -2,6 +2,7 @@ use std::{collections::HashSet, fmt, str::FromStr};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use thiserror::Error;
 
 use crate::connection::MainDbConnection;
 
@@ -71,6 +72,55 @@ impl fmt::Display for CollectionQueryType {
     }
 }
 
+pub struct UnifiedCollection {
+    pub id: i32,
+    pub name: String,
+    pub queries: Vec<(String, String)>,
+    pub collection_type: CollectionQueryType,
+}
+
+impl UnifiedCollection {
+    pub async fn from_model<T: CollectionQuery>(
+        main_db: &MainDbConnection,
+        model: T,
+    ) -> Result<Self> {
+        let collection: UnifiedCollection = UnifiedCollection {
+            id: model.id(),
+            name: model.name().to_owned(),
+            queries: T::query_builder(main_db, model.id()).await?,
+            collection_type: T::collection_type(),
+        };
+
+        Ok(collection)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CollectionQueryListMode {
+    Forward,
+    Reverse,
+    Random,
+}
+
+#[derive(Debug, Clone, Error)]
+pub enum ParseCollectionQueryListModeError {
+    #[error("Invalid type for CollectionQueryListMode")]
+    InvalidType,
+}
+
+impl FromStr for CollectionQueryListMode {
+    type Err = ParseCollectionQueryListModeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "forward" => Ok(CollectionQueryListMode::Forward),
+            "reverse" => Ok(CollectionQueryListMode::Reverse),
+            "random" => Ok(CollectionQueryListMode::Random),
+            _ => Err(ParseCollectionQueryListModeError::InvalidType),
+        }
+    }
+}
+
 #[async_trait]
 pub trait CollectionQuery: Send + Sync + 'static {
     fn collection_type() -> CollectionQueryType;
@@ -85,18 +135,13 @@ pub trait CollectionQuery: Send + Sync + 'static {
     async fn get_by_ids(main_db: &MainDbConnection, ids: &[i32]) -> Result<Vec<Self>>
     where
         Self: std::marker::Sized;
-    async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
+    async fn list(
+        main_db: &MainDbConnection,
+        limit: u64,
+        mode: CollectionQueryListMode,
+    ) -> Result<Vec<Self>>
     where
         Self: std::marker::Sized;
-
-    async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
-    where
-        Self: std::marker::Sized;
-
-    async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>>
-    where
-        Self: std::marker::Sized;
-
     fn id(&self) -> i32;
     fn name(&self) -> &str;
 }
@@ -221,49 +266,45 @@ macro_rules! collection_query {
                     .with_context(|| "Failed to get collection item by ids")
             }
 
-            async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
+            async fn list(
+                main_db: &MainDbConnection,
+                limit: u64,
+                mode: $crate::actions::collection::CollectionQueryListMode,
+            ) -> Result<Vec<Self>> {
                 use anyhow::Context;
-                use sea_orm::QuerySelect;
-
-                $item_entity::Entity::find()
-                    .limit(limit)
-                    .all(main_db)
-                    .await
-                    .with_context(|| "Failed to get collection list")
-            }
-
-            async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-                use anyhow::Context;
-                use sea_orm::{QueryOrder, QuerySelect};
-
-                $item_entity::Entity::find()
-                    .order_by_desc(<$item_entity::Column>::Id)
-                    .limit(limit)
-                    .all(main_db)
-                    .await
-                    .with_context(|| "Failed to get reversed collection list")
-            }
-
-            async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-                use anyhow::Context;
-
                 use sea_orm::{
-                    sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryTrait,
+                    sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryOrder,
+                    QuerySelect, QueryTrait,
                 };
+                use $crate::actions::collection::CollectionQueryListMode;
 
-                let mut query: sea_orm::sea_query::SelectStatement =
-                    $item_entity::Entity::find().as_query().to_owned();
+                match mode {
+                    CollectionQueryListMode::Forward => {
+                        $item_entity::Entity::find().limit(limit).all(main_db).await
+                    }
+                    CollectionQueryListMode::Reverse => {
+                        $item_entity::Entity::find()
+                            .order_by_desc(<$item_entity::Column>::Id)
+                            .limit(limit)
+                            .all(main_db)
+                            .await
+                    }
+                    CollectionQueryListMode::Random => {
+                        let mut query: sea_orm::sea_query::SelectStatement =
+                            $item_entity::Entity::find().as_query().to_owned();
 
-                let select = query
-                    .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
-                    .limit(limit);
+                        let select = query
+                            .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+                            .limit(limit);
 
-                let statement = main_db.get_database_backend().build(select);
+                        let statement = main_db.get_database_backend().build(select);
 
-                $item_entity::Model::find_by_statement(statement)
-                    .all(main_db)
-                    .await
-                    .with_context(|| "Failed to get random collection list")
+                        $item_entity::Model::find_by_statement(statement)
+                            .all(main_db)
+                            .await
+                    }
+                }
+                .with_context(|| "Failed to get collection list")
             }
 
             fn id(&self) -> i32 {

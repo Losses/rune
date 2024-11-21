@@ -30,6 +30,7 @@ use crate::entities::{
 
 use super::analysis::get_centralized_analysis_result;
 use super::collection::CollectionQuery;
+use super::collection::CollectionQueryListMode;
 use super::collection::CollectionQueryType;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
@@ -125,43 +126,44 @@ impl CollectionQuery for mixes::Model {
             .with_context(|| "Failed to get collection item by ids")
     }
 
-    async fn list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-        use sea_orm::QuerySelect;
+    async fn list(
+        main_db: &MainDbConnection,
+        limit: u64,
+        mode: CollectionQueryListMode,
+    ) -> Result<Vec<Self>> {
+        use sea_orm::{
+            sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryOrder,
+            QuerySelect, QueryTrait,
+        };
 
-        mixes::Entity::find()
-            .limit(limit)
-            .all(main_db)
-            .await
-            .with_context(|| "Failed to get collection list")
-    }
+        match mode {
+            CollectionQueryListMode::Forward => {
+                mixes::Entity::find().limit(limit).all(main_db).await
+            }
+            CollectionQueryListMode::Reverse => {
+                mixes::Entity::find()
+                    .order_by_desc(mixes::Column::Id)
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+            }
 
-    async fn reverse_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-        use sea_orm::{QueryOrder, QuerySelect};
+            CollectionQueryListMode::Random => {
+                let mut query: sea_orm::sea_query::SelectStatement =
+                    mixes::Entity::find().as_query().to_owned();
 
-        mixes::Entity::find()
-            .order_by_desc(mixes::Column::Id)
-            .limit(limit)
-            .all(main_db)
-            .await
-            .with_context(|| "Failed to get reversed collection list")
-    }
+                let select = query
+                    .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
+                    .limit(limit);
 
-    async fn random_list(main_db: &MainDbConnection, limit: u64) -> Result<Vec<Self>> {
-        use sea_orm::{sea_query::Func, sea_query::SimpleExpr, FromQueryResult, Order, QueryTrait};
+                let statement = main_db.get_database_backend().build(select);
 
-        let mut query: sea_orm::sea_query::SelectStatement =
-            mixes::Entity::find().as_query().to_owned();
-
-        let select = query
-            .order_by_expr(SimpleExpr::FunctionCall(Func::random()), Order::Asc)
-            .limit(limit);
-
-        let statement = main_db.get_database_backend().build(select);
-
-        mixes::Model::find_by_statement(statement)
-            .all(main_db)
-            .await
-            .with_context(|| "Failed to get random collection list")
+                mixes::Model::find_by_statement(statement)
+                    .all(main_db)
+                    .await
+            }
+        }
+        .with_context(|| "Failed to get collection list")
     }
 
     fn id(&self) -> i32 {

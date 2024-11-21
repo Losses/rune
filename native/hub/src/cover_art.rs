@@ -15,12 +15,12 @@ use tokio::task;
 use crate::messages::*;
 
 pub async fn query_cover_arts(
-    main_db: Arc<MainDbConnection>,
+    main_db: &MainDbConnection,
     recommend_db: Arc<RecommendationDbConnection>,
     queries: Vec<MixQuery>,
 ) -> Result<Vec<media_files::Model>> {
     query_mix_media_files(
-        &main_db,
+        main_db,
         &recommend_db,
         queries
             .into_iter()
@@ -44,7 +44,7 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
         async move {
-            let query = query_cover_arts(main_db, recommend_db, x.queries).await;
+            let query = query_cover_arts(&main_db, recommend_db, x.queries).await;
 
             match query {
                 Ok(files) => {

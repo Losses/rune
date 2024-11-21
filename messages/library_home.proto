@@ -1,6 +1,7 @@
 syntax = "proto3";
 package library_home;
 
+import "mix.proto";
 import "collection.proto";
 
 // [DART-SIGNAL]
@@ -14,15 +15,38 @@ message LibrarySummaryResponse {
   repeated collection.Collection artists = 2;
 }
 
+message ComplexCollectionQuery {
+  string id = 1;
+  string title = 2;
+  string domain = 3;
+  string parameter = 4;
+}
+
+// [DART-SIGNAL]
+message ComplexCollectionQueryRequest {
+  repeated ComplexCollectionQuery queries = 1;
+}
+
 enum EntryType {
   Collection = 0;
   Track = 1;
 }
 
-message LibraryHomeEntry {
+message ComplexQueryEntry {
   string name = 1;
   repeated mix.MixQuery queries = 2;
-  CollectionType collection_type = 3;
+  collection.CollectionType collection_type = 3;
   map<int32, string> cover_art_map = 4;
   bool readonly = 5;
+}
+
+message ComplexQueryGroup {
+  string id = 1;
+  string title = 2;
+  repeated ComplexQueryEntry entries = 3;
+}
+
+// [RUST-SIGNAL]
+message ComplexCollectionQueryResponse {
+  repeated ComplexQueryGroup result = 1;
 }
