@@ -13,12 +13,12 @@ use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
 use crate::utils::analyzer_utils::{build_hanning_window, AudioDescription};
-use crate::shared_utils::computing_device_type::ComputingDevice;
+use crate::shared_utils::computing_device::ComputingDevice;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 
-use crate::shared_utils::analyzer_shared_utils::*;
+use crate::shared_utils::audio_metadata_reader::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {

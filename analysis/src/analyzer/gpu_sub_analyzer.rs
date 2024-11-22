@@ -95,7 +95,7 @@ mod tests {
 
     use crate::legacy::{legacy_fft_processor::gpu_fft};
     use crate::measure_time;
-    use crate::shared_utils::computing_device_type::ComputingDevice;
+    use crate::shared_utils::computing_device::ComputingDevice;
 
     use super::*;
 

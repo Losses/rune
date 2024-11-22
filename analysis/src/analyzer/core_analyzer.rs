@@ -14,9 +14,9 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::shared_utils::computing_device_type::ComputingDevice;
+use crate::shared_utils::computing_device::ComputingDevice;
 
-use crate::shared_utils::analyzer_shared_utils::*;
+use crate::shared_utils::audio_metadata_reader::*;
 
 macro_rules! check_cancellation {
     ($self:expr) => {

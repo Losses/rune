@@ -1,2 +1,2 @@
-pub mod analyzer_shared_utils;
-pub mod computing_device_type;
+pub mod audio_metadata_reader;
+pub mod computing_device;

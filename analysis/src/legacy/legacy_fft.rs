@@ -18,7 +18,7 @@ use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 
-use crate::shared_utils::analyzer_shared_utils::*;
+use crate::shared_utils::audio_metadata_reader::*;
 
 // Define the macro at the beginning of the file, after the imports
 macro_rules! process_window {
