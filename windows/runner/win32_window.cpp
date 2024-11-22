@@ -253,7 +253,7 @@ void Win32Window::SetChildContent(HWND content) {
                                 DWORD_PTR dwRefData) {
     switch (uMsg) {
       case WM_NCHITTEST: {
-          printf("WM_NCHITTEST: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+          // printf("WM_NCHITTEST: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
           fflush(stdout);
           auto that = reinterpret_cast<Win32Window*>(dwRefData);
           return that->MessageHandler(hWnd, uMsg, wParam, lParam);
@@ -263,7 +263,7 @@ void Win32Window::SetChildContent(HWND content) {
         if (wParam == HTMAXBUTTON) {
           POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
           ::MapWindowPoints(nullptr, hWnd, &point, 1);
-          printf("WM_NCLBUTTONDOWN: %d %d\n", point.x, point.y);
+          // printf("WM_NCLBUTTONDOWN: %d %d\n", point.x, point.y);
           fflush(stdout);
           return DefSubclassProc(hWnd, WM_LBUTTONDOWN, 0, MAKELPARAM(point.x, point.y));
         }
@@ -273,7 +273,7 @@ void Win32Window::SetChildContent(HWND content) {
         if (wParam == HTMAXBUTTON) {
           POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
           ::MapWindowPoints(nullptr, hWnd, &point, 1);
-          printf("WM_NCLBUTTONUP: %d %d\n", point.x, point.y);
+          // printf("WM_NCLBUTTONUP: %d %d\n", point.x, point.y);
           fflush(stdout);
           return DefSubclassProc(hWnd, WM_LBUTTONUP, 0, MAKELPARAM(point.x, point.y));
         }
@@ -283,7 +283,7 @@ void Win32Window::SetChildContent(HWND content) {
         if (wParam == HTMAXBUTTON) {
           POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
           ::MapWindowPoints(nullptr, hWnd, &point, 1);
-          printf("WM_NCMOUSEMOVE: %d %d\n", point.x, point.y);
+          // printf("WM_NCMOUSEMOVE: %d %d\n", point.x, point.y);
           fflush(stdout);
           DefSubclassProc(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(point.x, point.y));
           return (LRESULT)0;
@@ -291,7 +291,7 @@ void Win32Window::SetChildContent(HWND content) {
         break;
       }
       case WM_MOUSEMOVE: {
-        printf("WM_MOUSEMOVE: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        // printf("WM_MOUSEMOVE: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         fflush(stdout);
         return DefSubclassProc(hWnd, uMsg, wParam, lParam);
       }
@@ -300,7 +300,7 @@ void Win32Window::SetChildContent(HWND content) {
     }
     
     if (uMsg != WM_TIMER && uMsg != 0x20) {
-      printf("Window Message: 0x%04X\n", uMsg);
+      // printf("Window Message: 0x%04X\n", uMsg);
       fflush(stdout);
     }
     return DefSubclassProc(hWnd, uMsg, wParam, lParam);
