@@ -26,7 +26,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'artists',
     icon: (context) => Symbols.face,
     titleBuilder: (context) => S.of(context).artists,
-    subtitleBuilder: (context) => S.of(context).previousSubtitle,
+    subtitleBuilder: (context) => S.of(context).artistsLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).newest, 'newest'),
       (S.of(context).oldest, 'oldest'),
@@ -39,7 +39,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'albums',
     icon: (context) => Symbols.album,
     titleBuilder: (context) => S.of(context).albums,
-    subtitleBuilder: (context) => S.of(context).previousSubtitle,
+    subtitleBuilder: (context) => S.of(context).albumsLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).newest, 'newest'),
       (S.of(context).oldest, 'oldest'),
@@ -52,7 +52,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'playlists',
     icon: (context) => Symbols.queue_music,
     titleBuilder: (context) => S.of(context).playlists,
-    subtitleBuilder: (context) => S.of(context).nextSubtitle,
+    subtitleBuilder: (context) => S.of(context).playlistsLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).newest, 'newest'),
       (S.of(context).oldest, 'oldest'),
@@ -65,7 +65,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'tracks',
     icon: (context) => Symbols.music_note,
     titleBuilder: (context) => S.of(context).tracks,
-    subtitleBuilder: (context) => S.of(context).nextSubtitle,
+    subtitleBuilder: (context) => S.of(context).tracksLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).newest, 'newest'),
       (S.of(context).oldest, 'oldest'),
@@ -77,7 +77,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'liked',
     icon: (context) => Symbols.favorite,
     titleBuilder: (context) => S.of(context).liked,
-    subtitleBuilder: (context) => S.of(context).nextSubtitle,
+    subtitleBuilder: (context) => S.of(context).likedLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).enable, 'enable'),
       (S.of(context).disable, 'disable'),
@@ -88,7 +88,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
     id: 'most',
     icon: (context) => Symbols.all_inclusive,
     titleBuilder: (context) => S.of(context).mostPlayed,
-    subtitleBuilder: (context) => S.of(context).nextSubtitle,
+    subtitleBuilder: (context) => S.of(context).mostLibraryHomeSubtitle,
     optionBuilder: (context) => [
       (S.of(context).enable, 'enable'),
       (S.of(context).disable, 'disable'),

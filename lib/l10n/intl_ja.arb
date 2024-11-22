@@ -740,7 +740,7 @@
   "noLogsAvailable": "記録がありません",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
-  }
+  },
   "home": "主画面",
   "@home": {
     "description": "Title of a the home settings page."

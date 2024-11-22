@@ -46,7 +46,7 @@ class _SettingsLibraryHomeState extends State<SettingsLibraryHome> {
                                   ? theme.resources.textFillColorDisabled
                                   : null,
                               title: item.definition.titleBuilder(context),
-                              subtitle: S.of(context).colorModeSubtitle,
+                              subtitle: item.definition.subtitleBuilder(context),
                               value: item.value ?? item.definition.defaultValue,
                               items: item.definition
                                   .optionBuilder(context)
