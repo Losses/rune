@@ -1,5 +1,5 @@
 use std::{hint::black_box, time::Duration};
-use analysis::legacy::legacy_fft_processor::cpu_fft;
+use analysis::legacy::legacy_fft_v2::cpu_fft;
 use criterion::{criterion_group, criterion_main, Criterion};
 
 fn cpu_analysis_benchmark(c: &mut Criterion) {

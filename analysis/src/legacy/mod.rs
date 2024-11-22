@@ -1,2 +1,2 @@
-pub mod legacy_fft;
-pub mod legacy_fft_processor;
+pub mod legacy_fft_v1;
+pub mod legacy_fft_v2;

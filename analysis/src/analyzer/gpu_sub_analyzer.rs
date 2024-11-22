@@ -1,6 +1,6 @@
 use crate::analyzer::sub_analyzer::SubAnalyzer;
 use crate::analyzer::core_analyzer::{Analyzer};
-use crate::utils::analyzer_utils::build_hanning_window;
+use crate::utils::hanning_window::build_hanning_window;
 
 use rubato::Resampler;
 use rustfft::num_complex::Complex;
@@ -93,7 +93,7 @@ impl SubAnalyzer for GpuSubAnalyzer {
 mod tests {
     use log::info;
 
-    use crate::legacy::{legacy_fft_processor::gpu_fft};
+    use crate::legacy::{legacy_fft_v2::gpu_fft};
     use crate::measure_time;
     use crate::shared_utils::computing_device::ComputingDevice;
 

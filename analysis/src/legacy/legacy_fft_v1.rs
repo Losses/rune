@@ -13,7 +13,8 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::utils::analyzer_utils::{build_hanning_window, AudioDescription};
+use crate::utils::audio_description::AudioDescription;
+use crate::utils::hanning_window::build_hanning_window;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;

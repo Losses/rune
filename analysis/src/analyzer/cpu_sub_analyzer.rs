@@ -1,6 +1,6 @@
 use crate::analyzer::sub_analyzer::SubAnalyzer;
 use crate::analyzer::core_analyzer::{Analyzer};
-use crate::utils::analyzer_utils::build_hanning_window;
+use crate::utils::hanning_window::build_hanning_window;
 use std::sync::Arc;
 
 

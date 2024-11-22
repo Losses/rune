@@ -1,7 +1,7 @@
 use crate::analyzer::sub_analyzer::SubAnalyzer;
 use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
 use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
-use crate::utils::analyzer_utils::AudioDescription;
+use crate::utils::audio_description::AudioDescription;
 use std::sync::{Arc, Mutex};
 
 use log::{debug, info};
