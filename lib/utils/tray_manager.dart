@@ -1,25 +1,80 @@
 import 'dart:io';
 
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/config/theme.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:system_tray/system_tray.dart';
+import 'package:window_manager/window_manager.dart';
 
+import '../config/theme.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
+import 'api/play_next.dart';
+import 'api/play_pause.dart';
+import 'api/play_play.dart';
+import 'api/play_previous.dart';
 import 'l10n.dart';
 
 class TrayManager {
+  final SystemTray systemTray = SystemTray();
+
+  TrayManager() {
+    if (!Platform.isLinux && !Platform.isWindows) return;
+
+    systemTray.initSystemTray(
+      title: "Rune",
+      iconPath: getTrayIconPath(),
+    );
+
+    systemTray.registerSystemTrayEventHandler((eventName) async {
+      if (eventName == kSystemTrayEventClick) {
+        Platform.isWindows ? showWindow() : systemTray.popUpContextMenu();
+      } else if (eventName == kSystemTrayEventRightClick) {
+        Platform.isWindows
+            ? systemTray.popUpContextMenu()
+            : windowManager.show();
+      }
+    });
+  }
+
+  static String getTrayIconPath() {
+    if (Platform.isWindows) {
+      if (SchedulerBinding.instance.platformDispatcher.platformBrightness ==
+          Brightness.light) {
+        return 'assets/tray_icon_dark.ico';
+      } else {
+        return 'assets/tray_icon_light.ico';
+      }
+    }
+
+    return 'assets/linux-tray.svg';
+  }
+
   initialize() async {
     if (!Platform.isLinux && !Platform.isWindows) return;
 
-    await trayManager.setIcon('assets/linux-tray.svg');
+    systemTray.setSystemTrayInfo(
+      title: "Rune",
+      iconPath: getTrayIconPath(),
+    );
   }
 
   String? _cachedPath;
   bool? _cachedPlaying;
   Locale? _cachedLocale;
+
+  static showWindow() {
+    windowManager.setAlwaysOnTop(true);
+    windowManager.show();
+    windowManager.focus();
+    windowManager.restore();
+    windowManager.setAlwaysOnTop(false);
+  }
+
+  static exit() {
+    windowManager.destroy();
+  }
 
   updateTray(BuildContext context) async {
     if (!Platform.isLinux && !Platform.isWindows) return;
@@ -42,57 +97,56 @@ class TrayManager {
     _cachedPlaying = playing;
     _cachedLocale = locale;
 
+    final Menu menu = Menu();
     if (status.notReady || path == '/' || path == '/scanning') {
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: 'show_window',
+      menu.buildFrom(
+        [
+          MenuItemLabel(
             label: s.showRune,
+            onClicked: (_) => showWindow(),
           ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'exit_app',
+          MenuSeparator(),
+          MenuItemLabel(
             label: s.exit,
+            onClicked: (_) => exit(),
           ),
         ],
       );
-
-      await trayManager.setContextMenu(menu);
     } else {
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: 'show_window',
+      menu.buildFrom(
+        [
+          MenuItemLabel(
             label: s.showRune,
+            onClicked: (_) => showWindow(),
           ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'previous',
+          MenuSeparator(),
+          MenuItemLabel(
             label: s.previous,
+            onClicked: (_) => playPrevious(),
           ),
           playing
-              ? MenuItem(
-                  key: 'pause',
+              ? MenuItemLabel(
                   label: s.pause,
+                  onClicked: (_) => playPause(),
                 )
-              : MenuItem(
-                  key: 'play',
+              : MenuItemLabel(
                   label: s.play,
+                  onClicked: (_) => playPlay(),
                 ),
-          MenuItem(
-            key: 'next',
+          MenuItemLabel(
             label: s.next,
+            onClicked: (_) => playNext(),
           ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'exit_app',
+          MenuSeparator(),
+          MenuItemLabel(
             label: s.exit,
+            onClicked: (_) => exit(),
           ),
         ],
       );
-
-      await trayManager.setContextMenu(menu);
     }
+
+    systemTray.setContextMenu(menu);
   }
 }
 

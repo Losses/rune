@@ -6,11 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:rune/utils/api/play_next.dart';
-import 'package:rune/utils/api/play_pause.dart';
-import 'package:rune/utils/api/play_play.dart';
 import 'package:system_theme/system_theme.dart';
-import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -20,7 +16,6 @@ import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
-import 'utils/api/play_previous.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
@@ -141,17 +136,20 @@ void main(List<String> arguments) async {
     updateTheme();
   }
 
-  if (Platform.isMacOS) {
-    WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged =
-        () {
-      WidgetsBinding.instance.handlePlatformBrightnessChanged();
+  WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged = () {
+    WidgetsBinding.instance.handlePlatformBrightnessChanged();
+    if (Platform.isMacOS) {
       updateTheme();
-    };
-  }
+    }
+
+    if (Platform.isWindows) {
+      $tray.initialize();
+    }
+  };
 
   initialPath = await getInitialPath();
-
   await findSystemLocale();
+
   await $tray.initialize();
 
   final windowSize =
@@ -180,8 +178,14 @@ void main(List<String> arguments) async {
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
-    mainLoop();
+    if (Platform.isLinux) {
+      mainLoop();
+    }
   });
+
+  if (!Platform.isLinux) {
+    mainLoop();
+  }
 }
 
 void mainLoop() {
@@ -238,18 +242,16 @@ class Rune extends StatefulWidget {
   State<Rune> createState() => _RuneState();
 }
 
-class _RuneState extends State<Rune> with TrayListener, WindowListener {
+class _RuneState extends State<Rune> with WindowListener {
   @override
   void initState() {
     super.initState();
-    trayManager.addListener(this);
     windowManager.addListener(this);
   }
 
   @override
   void dispose() {
     super.dispose();
-    trayManager.removeListener(this);
     windowManager.removeListener(this);
   }
 
@@ -259,32 +261,6 @@ class _RuneState extends State<Rune> with TrayListener, WindowListener {
 
     if (isPreventClose) {
       windowManager.hide();
-    }
-  }
-
-  @override
-  void onTrayIconRightMouseUp() {
-    print('TODO: DO SOMETHING HERE');
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) async {
-    if (menuItem.key == 'show_window') {
-      windowManager.setAlwaysOnTop(true);
-      windowManager.show();
-      windowManager.focus();
-      windowManager.restore();
-      windowManager.setAlwaysOnTop(false);
-    } else if (menuItem.key == 'exit_app') {
-      await windowManager.destroy();
-    } else if (menuItem.key == 'previous') {
-      playPrevious();
-    } else if (menuItem.key == 'play') {
-      playPlay();
-    } else if (menuItem.key == 'pause') {
-      playPause();
-    } else if (menuItem.key == 'next') {
-      playNext();
     }
   }
 
