@@ -1,11 +1,16 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
+import 'package:rune/utils/api/play_next.dart';
+import 'package:rune/utils/api/play_pause.dart';
+import 'package:rune/utils/api/play_play.dart';
 import 'package:system_theme/system_theme.dart';
+import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -15,9 +20,11 @@ import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'utils/api/play_previous.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
+import 'utils/tray_manager.dart';
 import 'utils/settings_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
@@ -145,6 +152,7 @@ void main(List<String> arguments) async {
   initialPath = await getInitialPath();
 
   await findSystemLocale();
+  await $tray.initialize();
 
   final windowSize =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
@@ -155,11 +163,28 @@ void main(List<String> arguments) async {
         Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
   );
 
+  if (!Platform.isMacOS) {
+    await windowManager.setPreventClose(true);
+  }
+
+  if (Platform.isMacOS) {
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.miniaturizeButton,
+        offset: const Offset(8, 28));
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
+  }
+
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
+    mainLoop();
   });
+}
 
+void mainLoop() {
   runApp(
     MultiProvider(
       providers: [
@@ -202,22 +227,66 @@ void main(List<String> arguments) async {
       child: const Rune(),
     ),
   );
-
-  if (Platform.isMacOS) {
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.miniaturizeButton,
-        offset: const Offset(8, 28));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
-  }
 }
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
-class Rune extends StatelessWidget {
+class Rune extends StatefulWidget {
   const Rune({super.key});
+
+  @override
+  State<Rune> createState() => _RuneState();
+}
+
+class _RuneState extends State<Rune> with TrayListener, WindowListener {
+  @override
+  void initState() {
+    super.initState();
+    trayManager.addListener(this);
+    windowManager.addListener(this);
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+    trayManager.removeListener(this);
+    windowManager.removeListener(this);
+  }
+
+  @override
+  void onWindowClose() async {
+    final bool isPreventClose = await windowManager.isPreventClose();
+
+    if (isPreventClose) {
+      windowManager.hide();
+    }
+  }
+
+  @override
+  void onTrayIconRightMouseUp() {
+    print('TODO: DO SOMETHING HERE');
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) async {
+    if (menuItem.key == 'show_window') {
+      windowManager.setAlwaysOnTop(true);
+      windowManager.show();
+      windowManager.focus();
+      windowManager.restore();
+      windowManager.setAlwaysOnTop(false);
+    } else if (menuItem.key == 'exit_app') {
+      await windowManager.destroy();
+    } else if (menuItem.key == 'previous') {
+      playPrevious();
+    } else if (menuItem.key == 'play') {
+      playPlay();
+    } else if (menuItem.key == 'pause') {
+      playPause();
+    } else if (menuItem.key == 'next') {
+      playNext();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -282,7 +351,7 @@ class Rune extends StatelessWidget {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: NavigationShortcutManager(child!),
+                  child: NavigationShortcutManager(RuneLifecycle(child!)),
                 ),
               ),
             );
@@ -290,5 +359,63 @@ class Rune extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class RuneLifecycle extends StatefulWidget {
+  final Widget child;
+  const RuneLifecycle(this.child, {super.key});
+
+  @override
+  RuneLifecycleState createState() => RuneLifecycleState();
+}
+
+class RuneLifecycleState extends State<RuneLifecycle> {
+  late PlaybackStatusProvider status;
+  Timer? _throttleTimer;
+  bool _shouldCallUpdate = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    status = Provider.of<PlaybackStatusProvider>(context, listen: false);
+
+    appTheme.addListener(_throttleUpdateTray);
+    status.addListener(_throttleUpdateTray);
+    $router.addListener(_throttleUpdateTray);
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+
+    appTheme.removeListener(_throttleUpdateTray);
+    status.removeListener(_throttleUpdateTray);
+    $router.removeListener(_throttleUpdateTray);
+    _throttleTimer?.cancel();
+  }
+
+  void _throttleUpdateTray() {
+    if (_throttleTimer?.isActive ?? false) {
+      _shouldCallUpdate = true;
+    } else {
+      _updateTray();
+      _throttleTimer = Timer(const Duration(milliseconds: 500), () {
+        if (_shouldCallUpdate) {
+          _updateTray();
+          _shouldCallUpdate = false;
+        }
+      });
+    }
+  }
+
+  void _updateTray() {
+    $tray.updateTray(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.child;
   }
 }

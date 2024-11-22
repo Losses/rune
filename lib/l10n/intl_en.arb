@@ -788,5 +788,13 @@
   "mostLibraryHomeSubtitle": "Revisit the melodies that captivate you time and again",
   "@mostLibraryHomeSubtitle": {
     "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Show Rune",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Exit",
+  "@exit": {
+    "description": "Entry in the tray menu."
   }
 }
