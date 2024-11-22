@@ -66,9 +66,17 @@ impl Analyzer {
         computing_device: ComputingDevice,
         window_size: usize,
         overlap_size: usize,
-        batch_size: usize,
+        batch_size: Option<usize>,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
+        let batch_size = if let Some(batch_size) = batch_size {
+            batch_size
+        } else if computing_device == ComputingDevice::Gpu {
+            1024 * 8
+        } else {
+            1
+        };
+
         Analyzer {
             batch_size,
             window_size,

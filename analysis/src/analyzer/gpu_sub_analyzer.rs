@@ -107,7 +107,7 @@ mod tests {
         let batch_size = 1024 * 8;
         let overlap_size = 512;
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Cpu,window_size, overlap_size, 1, None);
+        let mut analyzer = Analyzer::new(ComputingDevice::Cpu,window_size, overlap_size, None, None);
         let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path).unwrap());
 
         let gpu_result1 = measure_time!(

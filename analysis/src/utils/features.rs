@@ -339,6 +339,7 @@ pub fn perceptual_spread_from_loudness(loudness_value: &BarkLoudness) -> Result<
     Ok(spread)
 }
 
+#[allow(dead_code)]
 pub fn perceptual_spread(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
     let loudness_value = loudness(amp_spectrum, bark_scale, None)?;
 
@@ -362,6 +363,7 @@ pub fn perceptual_sharpness_from_loudness(loudness_value: &BarkLoudness) -> Resu
     Ok(output)
 }
 
+#[allow(dead_code)]
 pub fn perceptual_sharpness(amp_spectrum: &[f32], bark_scale: &[f32]) -> Result<f32> {
     let loudness_value = loudness(amp_spectrum, bark_scale, None)?;
 
