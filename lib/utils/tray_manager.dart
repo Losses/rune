@@ -3,39 +3,19 @@ import 'dart:io';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:system_tray/system_tray.dart';
-import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:tray_manager/tray_manager.dart';
 
 import '../config/theme.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
-import 'api/play_next.dart';
-import 'api/play_play.dart';
-import 'api/play_pause.dart';
-import 'api/play_previous.dart';
-
-import 'close_manager.dart';
 import 'l10n.dart';
 
 class TrayManager {
-  final SystemTray systemTray = SystemTray();
-
-  TrayManager() {
+  initialize() async {
     if (!Platform.isLinux && !Platform.isWindows) return;
 
-    systemTray.initSystemTray(
-      title: "Rune",
-      iconPath: getTrayIconPath(),
-    );
-
-    systemTray.registerSystemTrayEventHandler((eventName) async {
-      if (eventName == kSystemTrayEventClick) {
-        Platform.isWindows ? showWindow() : systemTray.popUpContextMenu();
-      } else if (eventName == kSystemTrayEventRightClick) {
-        Platform.isWindows ? systemTray.popUpContextMenu() : appWindow.show();
-      }
-    });
+    await trayManager.setIcon(getTrayIconPath());
   }
 
   static String getTrayIconPath() {
@@ -51,26 +31,9 @@ class TrayManager {
     return 'assets/linux-tray.svg';
   }
 
-  initialize() async {
-    if (!Platform.isLinux && !Platform.isWindows) return;
-
-    systemTray.setSystemTrayInfo(
-      title: "Rune",
-      iconPath: getTrayIconPath(),
-    );
-  }
-
   String? _cachedPath;
   bool? _cachedPlaying;
   Locale? _cachedLocale;
-
-  static showWindow() {
-    appWindow.show();
-  }
-
-  static exit() {
-    $closeManager.close();
-  }
 
   updateTray(BuildContext context) async {
     if (!Platform.isLinux && !Platform.isWindows) return;
@@ -93,56 +56,57 @@ class TrayManager {
     _cachedPlaying = playing;
     _cachedLocale = locale;
 
-    final Menu menu = Menu();
     if (status.notReady || path == '/' || path == '/scanning') {
-      menu.buildFrom(
-        [
-          MenuItemLabel(
+      final menu = Menu(
+        items: [
+          MenuItem(
+            key: 'show_window',
             label: s.showRune,
-            onClicked: (_) => showWindow(),
           ),
-          MenuSeparator(),
-          MenuItemLabel(
+          MenuItem.separator(),
+          MenuItem(
+            key: 'exit_app',
             label: s.exit,
-            onClicked: (_) => exit(),
           ),
         ],
       );
+
+      await trayManager.setContextMenu(menu);
     } else {
-      menu.buildFrom(
-        [
-          MenuItemLabel(
+      final menu = Menu(
+        items: [
+          MenuItem(
+            key: 'show_window',
             label: s.showRune,
-            onClicked: (_) => showWindow(),
           ),
-          MenuSeparator(),
-          MenuItemLabel(
+          MenuItem.separator(),
+          MenuItem(
+            key: 'previous',
             label: s.previous,
-            onClicked: (_) => playPrevious(),
           ),
           playing
-              ? MenuItemLabel(
+              ? MenuItem(
+                  key: 'pause',
                   label: s.pause,
-                  onClicked: (_) => playPause(),
                 )
-              : MenuItemLabel(
+              : MenuItem(
+                  key: 'play',
                   label: s.play,
-                  onClicked: (_) => playPlay(),
                 ),
-          MenuItemLabel(
+          MenuItem(
+            key: 'next',
             label: s.next,
-            onClicked: (_) => playNext(),
           ),
-          MenuSeparator(),
-          MenuItemLabel(
+          MenuItem.separator(),
+          MenuItem(
+            key: 'exit_app',
             label: s.exit,
-            onClicked: (_) => exit(),
           ),
         ],
       );
-    }
 
-    systemTray.setContextMenu(menu);
+      await trayManager.setContextMenu(menu);
+    }
   }
 }
 

@@ -9,7 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_window_close
   screen_retriever_linux
   system_theme
-  system_tray
+  tray_manager
   url_launcher_linux
   window_manager
 )
