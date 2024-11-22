@@ -249,17 +249,10 @@ class _RuneState extends State<Rune> {
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
-            if (routeName == '/') {
+            if (routeName == '/' || routeName == '/scanning') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => routes["/"]!(context),
-              );
-            }
-
-            if (routeName == '/scanning') {
-              return NoEffectPageRoute<dynamic>(
-                settings: settings,
-                builder: (context) => routes["/scanning"]!(context),
+                builder: (context) => routes[routeName]!(context),
               );
             }
 
