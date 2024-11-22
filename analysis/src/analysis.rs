@@ -56,7 +56,10 @@ pub fn analyze_audio(
         cancel_token,
     );
 
-    let audio_desc = measure_time!("Analyzer init", analyzer.process(file_path));
+    let audio_desc = measure_time!(
+        &format!("[{:?}] Analyzer", computing_device),
+        analyzer.process(file_path)
+    );
 
     if audio_desc.is_none() {
         return Ok(None);
