@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:rune/widgets/window_buttons.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -153,16 +152,6 @@ void main(List<String> arguments) async {
 
   await $tray.initialize();
 
-  final windowSize =
-      await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
-  WindowOptions windowOptions = WindowOptions(
-    size: windowSizes[windowSize],
-    center: true,
-    titleBarStyle: Platform.isMacOS || Platform.isWindows
-        ? TitleBarStyle.hidden
-        : TitleBarStyle.normal,
-  );
-
   if (!Platform.isMacOS) {
     await windowManager.setPreventClose(true);
   }
@@ -176,6 +165,14 @@ void main(List<String> arguments) async {
     WindowManipulator.overrideStandardWindowButtonPosition(
         buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
   }
+
+  final windowSize =
+      await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+  WindowOptions windowOptions = WindowOptions(
+    size: windowSizes[windowSize],
+    center: true,
+    titleBarStyle: Platform.isMacOS ? TitleBarStyle.hidden : null,
+  );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
@@ -283,15 +280,14 @@ class _RuneState extends State<Rune> with WindowListener {
             if (routeName == '/') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => WindowFrame(routes["/"]!(context)),
+                builder: (context) => routes["/"]!(context),
               );
             }
 
             if (routeName == '/scanning') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) =>
-                    WindowFrame(routes["/scanning"]!(context)),
+                builder: (context) => routes["/scanning"]!(context),
               );
             }
 
@@ -301,7 +297,7 @@ class _RuneState extends State<Rune> with WindowListener {
 
             return NoEffectPageRoute<dynamic>(
               settings: settings,
-              builder: (context) => WindowFrame(page),
+              builder: (context) => page,
             );
           },
           debugShowCheckedModeBanner: false,
