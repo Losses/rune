@@ -292,20 +292,24 @@ class _RuneState extends State<Rune> {
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 
-            return MoveWindow(
-              child: Container(
-                color: appTheme.windowEffect == WindowEffect.solid
-                    ? theme.micaBackgroundColor
-                    : Colors.transparent,
-                child: Directionality(
-                  textDirection: appTheme.textDirection,
-                  child: Shortcuts(
-                    shortcuts: shortcuts,
-                    child: NavigationShortcutManager(RuneLifecycle(child!)),
-                  ),
+            Widget content = Container(
+              color: appTheme.windowEffect == WindowEffect.solid
+                  ? theme.micaBackgroundColor
+                  : Colors.transparent,
+              child: Directionality(
+                textDirection: appTheme.textDirection,
+                child: Shortcuts(
+                  shortcuts: shortcuts,
+                  child: NavigationShortcutManager(RuneLifecycle(child!)),
                 ),
               ),
             );
+
+            if (Platform.isMacOS) {
+              content = MoveWindow(child: content);
+            }
+
+            return content;
           },
         );
       },
