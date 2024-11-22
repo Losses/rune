@@ -14,13 +14,11 @@ use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
 use crate::utils::analyzer_utils::{build_hanning_window, AudioDescription};
-use crate::shared_utils::computing_device_type::ComputingDevice;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 
 use crate::shared_utils::analyzer_shared_utils::*;
-use crate::wgpu_fft::wgpu_radix4;
 
 // Define the macro at the beginning of the file, after the imports
 macro_rules! process_window {

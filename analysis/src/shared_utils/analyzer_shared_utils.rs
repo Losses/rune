@@ -1,16 +1,12 @@
 use anyhow::Context;
 use anyhow::Result;
 
-use rubato::SincInterpolationParameters;
-use rubato::SincInterpolationType;
-use rubato::WindowFunction;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::Track;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use symphonia::core::formats::FormatReader;
-use rustfft::num_complex::Complex;
 
 pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
   // Open the media source.

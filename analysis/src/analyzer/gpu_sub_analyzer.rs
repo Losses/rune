@@ -1,27 +1,14 @@
 use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::analyzer::analyzer::{self, Analyzer};
+use crate::analyzer::core_analyzer::{Analyzer};
 use crate::utils::analyzer_utils::build_hanning_window;
-use std::string;
-use std::sync::Arc;
 
-use log::{debug, info};
-
-use realfft::{RealFftPlanner, RealToComplex};
-use rubato::{FftFixedInOut, Resampler};
+use rubato::Resampler;
 use rustfft::num_complex::Complex;
-use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::conv::IntoSample;
-use symphonia::core::errors::Error;
-use symphonia::core::sample::Sample;
-use tokio_util::sync::CancellationToken;
 
-use crate::shared_utils::computing_device_type::ComputingDevice;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 
-use crate::shared_utils::analyzer_shared_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct GpuSubAnalyzer {
@@ -104,8 +91,11 @@ impl SubAnalyzer for GpuSubAnalyzer {
 
 #[cfg(test)]
 mod tests {
+    use log::info;
+
     use crate::legacy::{legacy_fft_processor::gpu_fft};
     use crate::measure_time;
+    use crate::shared_utils::computing_device_type::ComputingDevice;
 
     use super::*;
 
