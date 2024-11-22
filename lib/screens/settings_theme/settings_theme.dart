@@ -1,6 +1,7 @@
-import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:desktop_window/desktop_window.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/ax_shadow.dart';
@@ -117,7 +118,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
       windowSize = newWindowSize;
     });
 
-    appWindow.size = size;
+    await DesktopWindow.setWindowSize(size);
     appWindow.alignment = Alignment.center;
     await SettingsManager().setValue(windowSizeKey, newWindowSize);
   }
