@@ -15,11 +15,13 @@ install_if_missing() {
 }
 
 install_if_missing flutter "Flutter" "--cask flutter"
-install_if_missing rustc "Rust" "rust"
-install_if_missing rustup "rustup"
+install_if_missing rustup "rustup" "rustup"
 
 brew install lmdb create-dmg protobuf
 
+rustup-init -y
+. "$HOME/.cargo/env"
+rustup default stable
 rustup target add x86_64-apple-darwin
 rustup target add aarch64-apple-darwin
 

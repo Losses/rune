@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
-import '../../utils/api/fetch_library_summary.dart';
-import '../../config/animation.dart';
 import '../../utils/router/navigation.dart';
+import '../../config/animation.dart';
+import '../../screens/collection/collection_item.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -15,9 +17,17 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../screens/collection/collection_item.dart';
+import '../../messages/all.dart';
+import '../../providers/library_home.dart';
 
 import './constants/first_column.dart';
+
+const groupTitleLinks = {
+  "artists": "artists",
+  "albums": "albums",
+  "playlists": "playlists",
+  "tracks": "tracks",
+};
 
 class LargeScreenLibraryHomeListView extends StatefulWidget {
   final String libraryPath;
@@ -38,13 +48,16 @@ class LargeScreenLibraryHomeListView extends StatefulWidget {
 class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<dynamic>>>? summary;
 
-  @override
-  void initState() {
-    setState(() {
-      summary = fetchSummary();
-    });
+  late LibraryHomeProvider libraryHome;
 
-    super.initState();
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    Localizations.localeOf(context);
+    libraryHome = Provider.of<LibraryHomeProvider>(context);
+
+    updateLibrary(libraryHome);
   }
 
   @override
@@ -52,27 +65,43 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     super.dispose();
   }
 
-  Future<List<Group<InternalCollection>>> fetchSummary() async {
-    final librarySummary = await fetchLibrarySummary();
+  void updateLibrary(LibraryHomeProvider libraryHome) {
+    setState(() {
+      summary = fetchSummary(libraryHome);
+    });
+  }
+
+  Future<List<Group<InternalCollection>>> fetchSummary(
+    LibraryHomeProvider libraryHome,
+  ) async {
+    final librarySummary = await complexQuery(
+      libraryHome.entries
+          .where((x) => x.value != null && x.value != 'disable')
+          .map(
+            (x) => ComplexQuery(
+              id: x.id,
+              title: x.definition.titleBuilder(context),
+              domain: x.definition.id,
+              parameter: x.value!,
+            ),
+          )
+          .toList(),
+    );
 
     if (!mounted) return [];
+    if (librarySummary == null) return [];
 
-    final groups = [
-      Group<InternalCollection>(
-        groupTitle: S.of(context).artists,
-        groupLink: "artists",
-        items: librarySummary.artists
-            .map(InternalCollection.fromRawCollection)
-            .toList(),
-      ),
-      Group<InternalCollection>(
-        groupTitle: S.of(context).albums,
-        groupLink: "albums",
-        items: librarySummary.albums
-            .map(InternalCollection.fromRawCollection)
-            .toList(),
-      ),
-    ];
+    final groups = librarySummary.result
+        .map(
+          (x) => Group<InternalCollection>(
+            groupTitle: x.title,
+            groupLink: groupTitleLinks[x.id],
+            items: x.entries
+                .map(InternalCollection.fromComplexQueryEntry)
+                .toList(),
+          ),
+        )
+        .toList();
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
@@ -135,7 +164,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                           dimensionCalculator: StartGroupImplementation
                               .startLinkDimensionCalculator,
                           gapSize: defaultGapSize,
-                          onTitleTap: () {},
+                          onTitleTap: null,
                           itemBuilder: (context, item) {
                             return LinkTile(
                               title: item.$1(context),
@@ -158,7 +187,9 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 gridLayoutVariation:
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
-                                onTitleTap: () => $push('/${item.groupLink}'),
+                                onTitleTap: item.groupLink != null
+                                    ? () => $push('/${item.groupLink}')
+                                    : null,
                                 itemBuilder: (context, item) {
                                   return CollectionItem(
                                     collectionType: item.collectionType,

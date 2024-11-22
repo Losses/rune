@@ -23,7 +23,7 @@ class LibraryHomeEntryWithValue {
       [String? value]) {
     return LibraryHomeEntryWithValue(
       id: entry.id,
-      value: value,
+      value: value ?? entry.defaultValue,
       definition: entry,
     );
   }
@@ -100,6 +100,12 @@ class LibraryHomeProvider extends ChangeNotifier {
       for (final item in libraryHomeItems) {
         if (!_entries.any((entry) => entry.id == item.id)) {
           _entries.add(LibraryHomeEntryWithValue.fromEntry(item));
+        } else {
+          _entries.add(LibraryHomeEntryWithValue(
+            id: item.id,
+            value: item.defaultValue,
+            definition: item,
+          ));
         }
       }
 

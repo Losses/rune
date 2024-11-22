@@ -5,9 +5,9 @@ use anyhow::Result;
 use futures::future::join_all;
 use rinf::DartSignal;
 
-use database::actions::collection::CollectionQuery;
+use database::actions::collection::{CollectionQuery, CollectionQueryListMode, UnifiedCollection};
 use database::connection::{MainDbConnection, RecommendationDbConnection};
-use database::entities::{albums, artists, mixes, playlists};
+use database::entities::{albums, artists, mix_queries, mixes, playlists};
 
 use crate::messages::*;
 
@@ -62,13 +62,10 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                             let recommend_db = Arc::clone(recommend_db);
 
                             async move {
-                                let query = T::query_builder(&main_db, x.0.id()).await?;
                                 Collection::from_model_bakeable(
-                                    main_db,
+                                    &main_db,
                                     recommend_db,
                                     x.0.clone(),
-                                    T::collection_type().into(),
-                                    query,
                                     params.bake_cover_arts,
                                 )
                                 .await
@@ -96,11 +93,9 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
             let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
             let futures = items.into_iter().map(|item| async move {
                 Collection::from_model_bakeable(
-                    Arc::clone(main_db),
+                    main_db,
                     Arc::clone(recommend_db),
                     item.clone(),
-                    T::collection_type().into(),
-                    T::query_builder(main_db, item.id()).await?,
                     params.bake_cover_arts,
                 )
                 .await
@@ -118,17 +113,15 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
             .send_signal_to_dart();
         }
         CollectionAction::Search => {
-            let items = T::list(main_db, params.n.unwrap().into()).await?;
-            let futures = items.into_iter().map(|x| async move {
-                match T::query_builder(main_db, x.id()).await {
-                    Ok(query_result) => Ok(Collection::from_model(
-                        &x,
-                        T::collection_type().into(),
-                        query_result,
-                    )),
-                    Err(e) => Err(e),
-                }
-            });
+            let items = T::list(
+                main_db,
+                params.n.unwrap().into(),
+                CollectionQueryListMode::Forward,
+            )
+            .await?;
+            let futures = items
+                .into_iter()
+                .map(|x| async move { Collection::from_model(main_db, &x).await });
             let results = join_all(futures).await;
             let results: Result<Vec<_>, _> = results.into_iter().collect();
             let results = results?;
@@ -144,8 +137,8 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
     Ok(())
 }
 
-impl From<database::entities::mix_queries::Model> for MixQuery {
-    fn from(model: database::entities::mix_queries::Model) -> Self {
+impl From<mix_queries::Model> for MixQuery {
+    fn from(model: mix_queries::Model) -> Self {
         MixQuery {
             operator: model.operator,
             parameter: model.parameter,
@@ -154,36 +147,69 @@ impl From<database::entities::mix_queries::Model> for MixQuery {
 }
 
 impl Collection {
-    pub fn from_model<T: CollectionQuery>(
+    pub async fn from_model<T: CollectionQuery>(
+        main_db: &MainDbConnection,
         model: &T,
-        collection_type: i32,
-        query: Vec<(String, String)>,
-    ) -> Self {
-        Collection {
+    ) -> Result<Self> {
+        let collection = Collection {
             id: model.id(),
             name: model.name().to_owned(),
-            queries: query
+            queries: T::query_builder(main_db, model.id())
+                .await?
                 .into_iter()
                 .map(|x| MixQuery {
                     operator: x.0,
                     parameter: x.1,
                 })
                 .collect(),
-            collection_type,
+            collection_type: T::collection_type().into(),
+            cover_art_map: HashMap::new(),
+            readonly: false,
+        };
+
+        Ok(collection)
+    }
+
+    pub fn from_unified_collection(x: UnifiedCollection) -> Self {
+        Collection {
+            id: x.id,
+            name: x.name,
+            queries: x
+                .queries
+                .into_iter()
+                .map(|x| MixQuery {
+                    operator: x.0,
+                    parameter: x.1,
+                })
+                .collect(),
+            collection_type: x.collection_type.into(),
             cover_art_map: HashMap::new(),
             readonly: false,
         }
     }
 
     pub async fn from_model_bakeable<T: CollectionQuery>(
-        main_db: Arc<MainDbConnection>,
+        main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
         model: T,
-        collection_type: i32,
-        query: Vec<(String, String)>,
         bake_cover_arts: bool,
     ) -> Result<Self> {
-        let mut collection = Collection::from_model(&model, collection_type, query);
+        let mut collection = Collection::from_model(main_db, &model).await?;
+
+        if bake_cover_arts {
+            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+        }
+
+        Ok(collection)
+    }
+
+    pub async fn from_unified_collection_bakeable(
+        main_db: &MainDbConnection,
+        recommend_db: Arc<RecommendationDbConnection>,
+        x: UnifiedCollection,
+        bake_cover_arts: bool,
+    ) -> Result<Self> {
+        let mut collection = Collection::from_unified_collection(x);
 
         if bake_cover_arts {
             collection = inject_cover_art_map(main_db, recommend_db, collection).await?;

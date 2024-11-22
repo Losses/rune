@@ -5,7 +5,7 @@ use anyhow::Result;
 use metadata::describe::FileDescription;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryTrait};
+use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
 use migration::{Func, SimpleExpr};
 
@@ -128,6 +128,19 @@ pub async fn get_media_files(
         .after(cursor as i32)
         .first(page_size as u64)
         .all(db)
+        .await
+}
+
+pub async fn get_reverse_listed_media_files(
+    main_db: &DatabaseConnection,
+    cursor: usize,
+    page_size: usize,
+) -> Result<Vec<media_files::Model>, sea_orm::DbErr> {
+    media_files::Entity::find()
+        .order_by(media_files::Column::Id, Order::Desc)
+        .offset(cursor as u64)
+        .limit(page_size as u64)
+        .all(main_db)
         .await
 }
 

@@ -615,10 +615,10 @@ packages:
     dependency: "direct main"
     description:
       name: macos_window_utils
-      sha256: "3d3982495376077f23556b1e235faab3c6d478fe1238766f824e920708d60eba"
+      sha256: "3534f2af024f2f24112ca28789a44e6750083f8c0065414546c6593ee48a5009"
       url: "https://pub.dev"
     source: hosted
-    version: "1.6.0"
+    version: "1.6.1"
   macros:
     dependency: transitive
     description:

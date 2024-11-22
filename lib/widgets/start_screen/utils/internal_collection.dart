@@ -1,5 +1,5 @@
 import '../../../utils/query_list.dart';
-import '../../../messages/collection.pbserver.dart';
+import '../../../messages/all.dart';
 
 class InternalCollection {
   final int id;
@@ -27,5 +27,27 @@ class InternalCollection {
       coverArtMap: x.coverArtMap,
       readonly: x.readonly,
     );
+  }
+
+  static InternalCollection fromComplexQueryEntry(ComplexQueryEntry x) {
+    return InternalCollection(
+      id: x.id,
+      name: x.name,
+      queries: QueryList.fromMixQuery(x.queries),
+      collectionType: x.collectionType,
+      coverArtMap: x.coverArtMap,
+      readonly: x.readonly,
+    );
+  }
+
+  @override
+  String toString() {
+    return '''
+InternalCollection($collectionType) #$id(
+  name: $name,
+  queries: $queries,
+  coverArtMap: $coverArtMap,
+  readonly: $readonly
+)''';
   }
 }

@@ -31,8 +31,16 @@ class StartGroupStackedLayoutState extends State<StartGroupStackedLayout> {
           // UX designers should always implement a navigation entry in the same
           // screen that has the same feature as onTitleTap here.
           MouseRegion(
-            onEnter: (_) => _changeOpacity(1.0),
-            onExit: (_) => _changeOpacity(0.5),
+            onEnter: (_) {
+              if (widget.onTitleTap != null) {
+                _changeOpacity(1.0);
+              }
+            },
+            onExit: (_) {
+              if (widget.onTitleTap != null) {
+                _changeOpacity(0.5);
+              }
+            },
             child: GestureDetector(
               onTap: widget.onTitleTap,
               child: AnimatedOpacity(

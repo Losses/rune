@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use anyhow::Result;
-use sea_orm::QuerySelect;
-use sea_orm::{DatabaseConnection, DbErr, EntityTrait, QueryOrder};
+use sea_orm::{DatabaseConnection, DbErr};
 
 use crate::entities::{
     albums, artists, media_file_albums, media_file_artists, media_file_playlists, playlists,
@@ -19,21 +18,3 @@ get_cover_ids!(
     media_file_playlists,
     PlaylistId
 );
-
-pub async fn get_latest_albums_and_artists(
-    db: &DatabaseConnection,
-) -> Result<(Vec<albums::Model>, Vec<artists::Model>)> {
-    let top_albums: Vec<albums::Model> = albums::Entity::find()
-        .order_by_desc(albums::Column::Id)
-        .limit(25)
-        .all(db)
-        .await?;
-
-    let top_artists: Vec<artists::Model> = artists::Entity::find()
-        .order_by_desc(artists::Column::Id)
-        .limit(25)
-        .all(db)
-        .await?;
-
-    Ok((top_albums, top_artists))
-}
