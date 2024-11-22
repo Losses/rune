@@ -14,7 +14,6 @@ import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
-import '../router/rune_stack.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
@@ -185,7 +184,7 @@ class NavigationBarState extends State<NavigationBar> {
 
         final isSearch = path == '/search';
 
-        return RuneStack(
+        return Stack(
           children: [
             if (Platform.isMacOS)
               DragToMoveArea(
