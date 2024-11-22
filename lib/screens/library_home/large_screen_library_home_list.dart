@@ -118,6 +118,8 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<InternalCollection>>> fetchSummary(
     LibraryHomeProvider libraryHome,
   ) async {
+    print(libraryHome.entries);
+    widget.layoutManager.resetAnimations();
     final librarySummary = await complexQuery(
       libraryHome.entries
           .where((x) => x.value != null && x.value != 'disable')
