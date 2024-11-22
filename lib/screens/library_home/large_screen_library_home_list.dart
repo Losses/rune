@@ -1,14 +1,13 @@
 import 'dart:async';
 
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
-import 'package:rune/providers/library_home.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../messages/all.dart';
 import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
+import '../../screens/collection/collection_item.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -18,9 +17,17 @@ import '../../widgets/start_screen/constants/default_gap_size.dart';
 import '../../widgets/start_screen/start_group_implementation.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../screens/collection/collection_item.dart';
+import '../../messages/all.dart';
+import '../../providers/library_home.dart';
 
 import './constants/first_column.dart';
+
+const groupTitleLinks = {
+  "artists": "artists",
+  "albums": "albums",
+  "playlists": "playlists",
+  "tracks": "tracks",
+};
 
 class LargeScreenLibraryHomeListView extends StatefulWidget {
   final String libraryPath;
@@ -88,7 +95,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         .map(
           (x) => Group<InternalCollection>(
             groupTitle: x.title,
-            groupLink: "artists",
+            groupLink: groupTitleLinks[x.id],
             items: x.entries
                 .map(InternalCollection.fromComplexQueryEntry)
                 .toList(),
@@ -157,7 +164,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                           dimensionCalculator: StartGroupImplementation
                               .startLinkDimensionCalculator,
                           gapSize: defaultGapSize,
-                          onTitleTap: () {},
+                          onTitleTap: null,
                           itemBuilder: (context, item) {
                             return LinkTile(
                               title: item.$1(context),
@@ -180,7 +187,9 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 gridLayoutVariation:
                                     StartGroupGridLayoutVariation.square,
                                 gapSize: defaultGapSize,
-                                onTitleTap: () => $push('/${item.groupLink}'),
+                                onTitleTap: item.groupLink != null
+                                    ? () => $push('/${item.groupLink}')
+                                    : null,
                                 itemBuilder: (context, item) {
                                   return CollectionItem(
                                     collectionType: item.collectionType,
