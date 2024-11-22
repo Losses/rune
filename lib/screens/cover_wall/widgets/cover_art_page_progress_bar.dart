@@ -26,7 +26,7 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
       _debounceTimer?.cancel();
     }
 
-    _debounceTimer = Timer(const Duration(milliseconds: 100), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 42), () {
       if (status != null) {
         SeekRequest(
           positionSeconds: (value / 100) * status.duration,

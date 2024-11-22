@@ -32,7 +32,7 @@ class ControllerProgressBar extends StatelessWidget {
 
     void onSeek(double value) {
       if (debounceTimer?.isActive ?? false) debounceTimer!.cancel();
-      debounceTimer = Timer(const Duration(milliseconds: 100), () {
+      debounceTimer = Timer(const Duration(milliseconds: 42), () {
         SeekRequest(
           positionSeconds: (value / 100) * (status?.duration ?? 0),
         ).sendSignalToRust();
