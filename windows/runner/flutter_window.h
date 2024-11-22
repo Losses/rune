@@ -23,8 +23,6 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
-  bool maximum_button_hover_;
-
   // The project to run.
   flutter::DartProject project_;
 
