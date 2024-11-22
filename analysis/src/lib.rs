@@ -6,3 +6,7 @@ pub mod fft_utils;
 pub mod legacy_fft;
 pub mod measure_time_utils;
 pub mod wgpu_fft;
+pub mod analyzer;
+pub mod base_analyzer;
+pub mod gpu_analyzer;
+pub mod cpu_analyzer;
