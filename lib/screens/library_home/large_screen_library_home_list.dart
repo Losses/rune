@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
 import '../../screens/collection/collection_item.dart';
+import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
 import '../../widgets/start_screen/start_group.dart';
@@ -63,6 +65,48 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   @override
   dispose() {
     super.dispose();
+    contextController.dispose();
+  }
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
+
+  void openStartScreenContextMenu(
+    Offset localPosition,
+  ) async {
+    if (!context.mounted) return;
+    final targetContext = contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    contextController.showFlyout(
+      position: position,
+      builder: (context) {
+        return MenuFlyout(
+          items: [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.refresh),
+              text: Text(S.of(context).refresh),
+              onPressed: () async {
+                updateLibrary(libraryHome);
+              },
+            ),
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.palette),
+              text: Text(S.of(context).personalize),
+              onPressed: () async {
+                $push("/settings/library_home");
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void updateLibrary(LibraryHomeProvider libraryHome) {
@@ -123,92 +167,101 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
         } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
           return Center(child: Text(S.of(context).noDataAvailable));
         } else {
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final padding = getScrollContainerPadding(context);
-              final c = constraints;
-              final trueConstraints = BoxConstraints(
-                maxWidth: c.maxWidth - padding.left - padding.right,
-                maxHeight: c.maxHeight - padding.top - padding.bottom,
-              );
+          return ContextMenuWrapper(
+            contextAttachKey: contextAttachKey,
+            contextController: contextController,
+            onContextMenu: (offset) {
+              openStartScreenContextMenu(offset);
+            },
+            onMiddleClick: (_) {},
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final padding = getScrollContainerPadding(context);
+                final c = constraints;
+                final trueConstraints = BoxConstraints(
+                  maxWidth: c.maxWidth - padding.left - padding.right,
+                  maxHeight: c.maxHeight - padding.top - padding.bottom,
+                );
 
-              return Container(
-                alignment: Alignment.centerLeft,
-                child: SmoothHorizontalScroll(
-                  builder: (context, scrollController) => SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    controller: scrollController,
-                    padding: getScrollContainerPadding(context,
-                        top: widget.topPadding),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        StartGroup<
-                            (
-                              String Function(BuildContext),
-                              String,
-                              IconData,
-                              bool
-                            )>(
-                          groupIndex: 0,
-                          groupTitle: S.of(context).start,
-                          items: smallScreenFirstColumn
-                              .where((x) => !x.$4)
-                              .toList(),
-                          constraints: trueConstraints,
-                          groupLayoutVariation:
-                              StartGroupGroupLayoutVariation.stacked,
-                          gridLayoutVariation:
-                              StartGroupGridLayoutVariation.initial,
-                          dimensionCalculator: StartGroupImplementation
-                              .startLinkDimensionCalculator,
-                          gapSize: defaultGapSize,
-                          onTitleTap: null,
-                          itemBuilder: (context, item) {
-                            return LinkTile(
-                              title: item.$1(context),
-                              path: item.$2,
-                              icon: item.$3,
-                            );
-                          },
-                        ),
-                        ...snapshot.data!.map(
-                          (item) {
-                            if (item is Group<InternalCollection>) {
-                              return StartGroup<InternalCollection>(
-                                groupIndex: item.groupTitle.hashCode,
-                                groupTitle: item.groupTitle,
-                                groupLink: item.groupLink,
-                                items: item.items,
-                                constraints: trueConstraints,
-                                groupLayoutVariation:
-                                    StartGroupGroupLayoutVariation.stacked,
-                                gridLayoutVariation:
-                                    StartGroupGridLayoutVariation.square,
-                                gapSize: defaultGapSize,
-                                onTitleTap: item.groupLink != null
-                                    ? () => $push('/${item.groupLink}')
-                                    : null,
-                                itemBuilder: (context, item) {
-                                  return CollectionItem(
-                                    collectionType: item.collectionType,
-                                    collection: item,
-                                    refreshList: () {},
-                                  );
-                                },
+                return Container(
+                  alignment: Alignment.centerLeft,
+                  child: SmoothHorizontalScroll(
+                    builder: (context, scrollController) =>
+                        SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      controller: scrollController,
+                      padding: getScrollContainerPadding(context,
+                          top: widget.topPadding),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          StartGroup<
+                              (
+                                String Function(BuildContext),
+                                String,
+                                IconData,
+                                bool
+                              )>(
+                            groupIndex: 0,
+                            groupTitle: S.of(context).start,
+                            items: smallScreenFirstColumn
+                                .where((x) => !x.$4)
+                                .toList(),
+                            constraints: trueConstraints,
+                            groupLayoutVariation:
+                                StartGroupGroupLayoutVariation.stacked,
+                            gridLayoutVariation:
+                                StartGroupGridLayoutVariation.initial,
+                            dimensionCalculator: StartGroupImplementation
+                                .startLinkDimensionCalculator,
+                            gapSize: defaultGapSize,
+                            onTitleTap: null,
+                            itemBuilder: (context, item) {
+                              return LinkTile(
+                                title: item.$1(context),
+                                path: item.$2,
+                                icon: item.$3,
                               );
-                            } else {
-                              return Container();
-                            }
-                          },
-                        )
-                      ],
+                            },
+                          ),
+                          ...snapshot.data!.map(
+                            (item) {
+                              if (item is Group<InternalCollection>) {
+                                return StartGroup<InternalCollection>(
+                                  groupIndex: item.groupTitle.hashCode,
+                                  groupTitle: item.groupTitle,
+                                  groupLink: item.groupLink,
+                                  items: item.items,
+                                  constraints: trueConstraints,
+                                  groupLayoutVariation:
+                                      StartGroupGroupLayoutVariation.stacked,
+                                  gridLayoutVariation:
+                                      StartGroupGridLayoutVariation.square,
+                                  gapSize: defaultGapSize,
+                                  onTitleTap: item.groupLink != null
+                                      ? () => $push('/${item.groupLink}')
+                                      : null,
+                                  itemBuilder: (context, item) {
+                                    return CollectionItem(
+                                      collectionType: item.collectionType,
+                                      collection: item,
+                                      refreshList: () {},
+                                    );
+                                  },
+                                );
+                              } else {
+                                return Container();
+                              }
+                            },
+                          )
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         }
       },

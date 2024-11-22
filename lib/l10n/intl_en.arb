@@ -760,5 +760,9 @@
   "mostPlayed": "Most Played",
   "@mostPlayed": {
     "description": "Title of an library home group."
+  },
+  "personalize": "Personalize",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
   }
 }
