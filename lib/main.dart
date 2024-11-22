@@ -10,6 +10,8 @@ import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
+import 'package:macos_window_utils/macos_window_utils.dart';
+import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
@@ -149,6 +151,8 @@ void main(List<String> arguments) async {
   WindowOptions windowOptions = WindowOptions(
     size: windowSizes[windowSize],
     center: true,
+    titleBarStyle:
+        Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
   );
 
   windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -198,6 +202,16 @@ void main(List<String> arguments) async {
       child: const Rune(),
     ),
   );
+
+  if (Platform.isMacOS) {
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.miniaturizeButton,
+        offset: const Offset(8, 28));
+    WindowManipulator.overrideStandardWindowButtonPosition(
+        buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
+  }
 }
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
