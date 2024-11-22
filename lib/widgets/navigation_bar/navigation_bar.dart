@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:window_manager/window_manager.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/router/navigation.dart';
@@ -13,6 +14,7 @@ import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../router/rune_stack.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
@@ -183,8 +185,12 @@ class NavigationBarState extends State<NavigationBar> {
 
         final isSearch = path == '/search';
 
-        return Stack(
+        return RuneStack(
           children: [
+            if (Platform.isMacOS)
+              DragToMoveArea(
+                child: Container(width: 28),
+              ),
             if (isZune || !isSearch)
               Transform.translate(
                 offset: Platform.isMacOS
