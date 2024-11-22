@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:desktop_window/desktop_window.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -111,8 +113,11 @@ class _SettingsThemeState extends State<SettingsTheme> {
   }
 
   void _updateWindowSize(String newWindowSize) async {
-    final size = windowSizes[newWindowSize];
-    if (size == null) return;
+    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
+
+    final size = Platform.isWindows
+        ? windowSizes[newWindowSize]! * firstView.devicePixelRatio
+        : windowSizes[newWindowSize]!;
 
     setState(() {
       windowSize = newWindowSize;

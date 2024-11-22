@@ -176,9 +176,13 @@ void main(List<String> arguments) async {
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
 
   doWhenWindowReady(() {
-    final windowSize = windowSizes[windowSizeSetting];
+    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
 
-    DesktopWindow.setWindowSize(windowSize!).then((_) {
+    final windowSize = Platform.isWindows
+        ? windowSizes[windowSizeSetting]! * firstView.devicePixelRatio
+        : windowSizes[windowSizeSetting]!;
+
+    DesktopWindow.setWindowSize(windowSize).then((_) {
       appWindow.alignment = Alignment.center;
       appWindow.show();
     });
