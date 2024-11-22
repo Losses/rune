@@ -59,7 +59,7 @@ List<LibraryHomeEntry> libraryHomeItems = [
       (S.of(context).random, 'random'),
       (S.of(context).disable, 'disable'),
     ],
-    defaultValue: 'newest',
+    defaultValue: 'disable',
   ),
   LibraryHomeEntry(
     id: 'tracks',
