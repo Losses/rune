@@ -52,14 +52,10 @@ impl SubAnalyzer for CpuSubAnalyzer {
         core_analyzer.total_zcr += zcr(resampled_chunk);
         core_analyzer.total_energy += energy(resampled_chunk);
 
-        // TODO: Already find one way to optimize this which can be 0.5ms faster in startup_0.ogg
-        let start_idx = self.batch_cache_buffer_count * core_analyzer.window_size;
-        for (i, &sample) in resampled_chunk.iter().enumerate() {
-            if i >= core_analyzer.window_size {
-                break;
-            }
-            let windowed_sample = sample * self.hanning_window[i];
-            self.fft_input_buffer[start_idx + i] = windowed_sample;
+        let start_idx = self.batch_cache_buffer_count * core_analyzer.window_size;        
+        let buffer_slice = &mut self.fft_input_buffer[start_idx..start_idx + core_analyzer.window_size];
+        for (i, sample) in buffer_slice.iter_mut().enumerate() {
+            *sample = resampled_chunk[i] * self.hanning_window[i];
         }
 
         self.batch_cache_buffer_count += 1;
