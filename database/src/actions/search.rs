@@ -123,7 +123,7 @@ pub async fn search_for(
         let top_docs = SearchResult::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             r#"SELECT * FROM search_index WHERE doc MATCH ? AND entry_type = ? ORDER BY rank LIMIT ?;"#,
-            [ query_str.to_string().into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
+            [ format!("\"{}\"", query_str.replace("\"", "\"\"")).into(), collection_type.to_string().into(), (n * 2).to_string().into() ],
         )).all(main_db).await?;
 
         for item in top_docs {
