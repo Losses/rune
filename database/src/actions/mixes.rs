@@ -607,6 +607,31 @@ macro_rules! add_subquery_filter {
     };
 }
 
+fn sort_media_files(
+    mut media_files: Vec<media_files::Model>,
+    track_ids: &[i32],
+) -> Vec<media_files::Model> {
+    let track_id_map: HashMap<i32, usize> = track_ids
+        .iter()
+        .enumerate()
+        .map(|(i, &id)| (id, i))
+        .collect();
+
+    media_files.sort_by(|a, b| {
+        let a_index = track_id_map.get(&a.id);
+        let b_index = track_id_map.get(&b.id);
+
+        match (a_index, b_index) {
+            (Some(a_idx), Some(b_idx)) => a_idx.cmp(b_idx),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        }
+    });
+
+    media_files
+}
+
 pub async fn query_mix_media_files(
     main_db: &DatabaseConnection,
     recommend_db: &RecommendationDbConnection,
@@ -705,7 +730,7 @@ pub async fn query_mix_media_files(
     if !track_ids.is_empty() {
         let subquery = media_files::Entity::find()
             .select_only()
-            .filter(media_files::Column::Id.is_in(track_ids))
+            .filter(media_files::Column::Id.is_in(track_ids.clone()))
             .column(media_files::Column::Id)
             .into_query();
 
@@ -955,5 +980,7 @@ pub async fn query_mix_media_files(
         .await
         .unwrap();
 
-    Ok(media_files)
+    let sorted_files = sort_media_files(media_files, &track_ids);
+
+    Ok(sorted_files)
 }
