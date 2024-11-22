@@ -60,6 +60,7 @@ macro_rules! process_window {
     };
 }
 
+#[allow(dead_code)]
 pub const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
     sinc_len: 256,
     f_cutoff: 0.95,
@@ -68,6 +69,7 @@ pub const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpo
     window: WindowFunction::BlackmanHarris2,
 };
 
+#[allow(dead_code)]
 pub fn fft(
     file_path: &str,
     window_size: usize,

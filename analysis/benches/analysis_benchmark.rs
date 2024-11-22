@@ -29,5 +29,9 @@ cfg_if::cfg_if! {
 
         criterion_group!(benches, cpu_analysis_benchmark);
         criterion_main!(benches);
+    } else {
+        fn main() {
+            println!("Benchmarking is disabled. Please enable the 'bench' feature to run benchmarks.");
+        }
     }
 }

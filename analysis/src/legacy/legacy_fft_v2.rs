@@ -465,6 +465,7 @@ impl FFTProcessor {
     }
 }
 
+#[allow(dead_code)]
 pub fn gpu_fft(
     file_path: &str,
     window_size: usize,
@@ -482,6 +483,7 @@ pub fn gpu_fft(
     .process_file(file_path)
 }
 
+#[allow(dead_code)]
 pub fn cpu_fft(
     file_path: &str,
     window_size: usize,
