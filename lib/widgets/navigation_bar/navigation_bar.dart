@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -185,15 +187,22 @@ class NavigationBarState extends State<NavigationBar> {
           children: [
             if (isZune || !isSearch)
               Transform.translate(
-                offset: const Offset(0, -40),
-                child: FocusTraversalGroup(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.max,
-                    children: [
-                      parentWidget,
-                      childrenWidget,
-                    ],
+                offset: Platform.isMacOS
+                    ? const Offset(0, 0)
+                    : const Offset(0, -40),
+                child: Padding(
+                  padding: Platform.isMacOS
+                      ? const EdgeInsets.only(left: 8)
+                      : const EdgeInsets.only(),
+                  child: FocusTraversalGroup(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.max,
+                      children: [
+                        parentWidget,
+                        childrenWidget,
+                      ],
+                    ),
                   ),
                 ),
               ),

@@ -2,7 +2,6 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
 
-import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
