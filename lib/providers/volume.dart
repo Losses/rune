@@ -15,6 +15,8 @@ class VolumeProvider with ChangeNotifier {
   double _volume = 1;
   double get volume => _volume;
 
+  Timer? _debounceTimer;
+
   VolumeProvider() {
     _initVolume();
     _subscription =
@@ -46,12 +48,20 @@ class VolumeProvider with ChangeNotifier {
 
   void updateVolume(double volume) {
     _updateVolume(volume);
-    VolumeRequest(volume: volume).sendSignalToRust();
+
+    // Cancel the previous timer if it exists
+    _debounceTimer?.cancel();
+
+    // Start a new timer
+    _debounceTimer = Timer(Duration(milliseconds: 200), () {
+      VolumeRequest(volume: volume).sendSignalToRust();
+    });
   }
 
   @override
   void dispose() {
-    super.dispose();
     _subscription.cancel();
+    _debounceTimer?.cancel();
+    super.dispose();
   }
 }
