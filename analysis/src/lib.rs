@@ -1,8 +1,8 @@
 pub mod analysis;
 pub mod shared_utils;
-mod wgpu_fft;
-mod utils;
 mod tests;
+mod utils;
+mod wgpu_fft;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "bench")] {

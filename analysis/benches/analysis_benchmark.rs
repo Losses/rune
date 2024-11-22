@@ -26,9 +26,8 @@ cfg_if::cfg_if! {
             );
             group.finish();
         }
-        
+
         criterion_group!(benches, cpu_analysis_benchmark);
         criterion_main!(benches);
     }
 }
-

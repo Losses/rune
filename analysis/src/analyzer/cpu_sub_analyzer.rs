@@ -1,8 +1,7 @@
+use crate::analyzer::core_analyzer::Analyzer;
 use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::analyzer::core_analyzer::{Analyzer};
 use crate::utils::hanning_window::build_hanning_window;
 use std::sync::Arc;
-
 
 use realfft::{RealFftPlanner, RealToComplex};
 use rubato::Resampler;
@@ -11,7 +10,6 @@ use rustfft::num_complex::Complex;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
-
 
 pub struct CpuSubAnalyzer {
     cpu_fft: Arc<dyn RealToComplex<f32>>,
@@ -40,12 +38,7 @@ impl CpuSubAnalyzer {
 }
 
 impl SubAnalyzer for CpuSubAnalyzer {
-    fn process_audio_chunk(
-        &mut self,
-        base_analyzer: &mut Analyzer,
-        chunk: &[f32],
-        force: bool,
-    ) {
+    fn process_audio_chunk(&mut self, base_analyzer: &mut Analyzer, chunk: &[f32], force: bool) {
         let _ = &base_analyzer
             .resampler
             .as_mut()

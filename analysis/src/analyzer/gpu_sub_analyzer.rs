@@ -1,5 +1,5 @@
+use crate::analyzer::core_analyzer::Analyzer;
 use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::analyzer::core_analyzer::{Analyzer};
 use crate::utils::hanning_window::build_hanning_window;
 
 use rubato::Resampler;
@@ -30,12 +30,7 @@ impl GpuSubAnalyzer {
 }
 
 impl SubAnalyzer for GpuSubAnalyzer {
-    fn process_audio_chunk(
-        &mut self,
-        base_analyzer: &mut Analyzer,
-        chunk: &[f32],
-        force: bool,
-    ) {
+    fn process_audio_chunk(&mut self, base_analyzer: &mut Analyzer, chunk: &[f32], force: bool) {
         let resampled_chunk = &base_analyzer
             .resampler
             .as_mut()
@@ -93,7 +88,7 @@ impl SubAnalyzer for GpuSubAnalyzer {
 mod tests {
     use log::info;
 
-    use crate::legacy::{legacy_fft_v2::gpu_fft};
+    use crate::legacy::legacy_fft_v2::gpu_fft;
     use crate::measure_time;
     use crate::shared_utils::computing_device::ComputingDevice;
 
@@ -107,7 +102,8 @@ mod tests {
         let batch_size = 1024 * 8;
         let overlap_size = 512;
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Cpu,window_size, overlap_size, None, None);
+        let mut analyzer =
+            Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
         let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path).unwrap());
 
         let gpu_result1 = measure_time!(

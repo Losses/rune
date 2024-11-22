@@ -2,9 +2,9 @@ use anyhow::Result;
 use tokio_util::sync::CancellationToken;
 
 use crate::analyzer::core_analyzer::Analyzer;
+use crate::measure_time;
 use crate::shared_utils::computing_device::ComputingDevice;
 use crate::utils::features::*;
-use crate::measure_time;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AudioStat {
@@ -48,12 +48,15 @@ pub fn analyze_audio(
     computing_device: ComputingDevice,
     cancel_token: Option<CancellationToken>,
 ) -> Result<Option<AnalysisResult>> {
-    let mut analyzer = Analyzer::new(computing_device, window_size, overlap_size, None, cancel_token);
-
-    let audio_desc =measure_time!(
-        "Analyzer init",
-        analyzer.process(file_path)
+    let mut analyzer = Analyzer::new(
+        computing_device,
+        window_size,
+        overlap_size,
+        None,
+        cancel_token,
     );
+
+    let audio_desc = measure_time!("Analyzer init", analyzer.process(file_path));
 
     if audio_desc.is_none() {
         return Ok(None);

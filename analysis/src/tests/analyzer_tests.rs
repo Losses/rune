@@ -1,4 +1,3 @@
-
 #[cfg(test)]
 mod tests {
     use crate::analyzer::core_analyzer::Analyzer;
@@ -14,13 +13,10 @@ mod tests {
         let window_size = 1024;
         let overlap_size = 512;
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
+        let mut analyzer =
+            Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
 
-        let cpu_result = measure_time!(
-            "CPU FFT",
-            analyzer.process(file_path)
-        )
-        .unwrap();
+        let cpu_result = measure_time!("CPU FFT", analyzer.process(file_path)).unwrap();
 
         let legacy_cpu_result = measure_time!(
             "LEGACY CPU FFT",
@@ -59,13 +55,10 @@ mod tests {
         let window_size = 1024;
         let overlap_size = 512;
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
+        let mut analyzer =
+            Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
 
-        let gpu_result = measure_time!(
-            "GPU FFT",
-            analyzer.process(file_path)
-        )
-        .unwrap();
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path)).unwrap();
 
         let legacy_cpu_result = measure_time!(
             "LEGACY CPU FFT",
@@ -104,21 +97,15 @@ mod tests {
         let window_size = 1024;
         let overlap_size = 512;
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
+        let mut analyzer =
+            Analyzer::new(ComputingDevice::Cpu, window_size, overlap_size, None, None);
 
-        let cpu_result = measure_time!(
-            "CPU FFT",
-            analyzer.process(file_path)
-        )
-        .unwrap();
+        let cpu_result = measure_time!("CPU FFT", analyzer.process(file_path)).unwrap();
 
-        let mut analyzer = Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
+        let mut analyzer =
+            Analyzer::new(ComputingDevice::Gpu, window_size, overlap_size, None, None);
 
-        let gpu_result = measure_time!(
-            "GPU FFT",
-            analyzer.process(file_path)
-        )
-        .unwrap();
+        let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path)).unwrap();
 
         info!("CPU result: {:?}", cpu_result);
         info!("GPU result: {:?}", gpu_result);
