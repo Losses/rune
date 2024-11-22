@@ -7,8 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
 import 'package:system_theme/system_theme.dart';
-import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:macos_window_utils/macos_window_utils.dart';
@@ -16,6 +16,7 @@ import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'utils/close_manager.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
@@ -60,7 +61,6 @@ late String? initialPath;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
-  await windowManager.ensureInitialized();
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -152,9 +152,7 @@ void main(List<String> arguments) async {
 
   await $tray.initialize();
 
-  if (!Platform.isMacOS) {
-    await windowManager.setPreventClose(true);
-  }
+  $closeManager;
 
   if (Platform.isMacOS) {
     WindowManipulator.overrideStandardWindowButtonPosition(
@@ -166,25 +164,20 @@ void main(List<String> arguments) async {
         buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
   }
 
-  final windowSize =
+  mainLoop();
+
+  final windowSizeSetting =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
-  WindowOptions windowOptions = WindowOptions(
-    size: windowSizes[windowSize],
-    center: true,
-    titleBarStyle: Platform.isMacOS ? TitleBarStyle.hidden : null,
-  );
 
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-    if (Platform.isLinux) {
-      mainLoop();
+  doWhenWindowReady(() {
+    final windowSize = windowSizes[windowSizeSetting];
+
+    if (windowSize != null) {
+      appWindow.size = windowSize;
     }
+    appWindow.alignment = Alignment.center;
+    appWindow.show();
   });
-
-  if (!Platform.isLinux) {
-    mainLoop();
-  }
 }
 
 void mainLoop() {
@@ -241,28 +234,7 @@ class Rune extends StatefulWidget {
   State<Rune> createState() => _RuneState();
 }
 
-class _RuneState extends State<Rune> with WindowListener {
-  @override
-  void initState() {
-    super.initState();
-    windowManager.addListener(this);
-  }
-
-  @override
-  void dispose() {
-    super.dispose();
-    windowManager.removeListener(this);
-  }
-
-  @override
-  void onWindowClose() async {
-    final bool isPreventClose = await windowManager.isPreventClose();
-
-    if (isPreventClose) {
-      windowManager.hide();
-    }
-  }
-
+class _RuneState extends State<Rune> {
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider.value(

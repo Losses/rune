@@ -1,5 +1,5 @@
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:window_manager/window_manager.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
@@ -117,8 +117,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
       windowSize = newWindowSize;
     });
 
-    await windowManager.setSize(size);
-    await windowManager.center(animate: true);
+    appWindow.size = size;
+    appWindow.alignment = Alignment.center;
     await SettingsManager().setValue(windowSizeKey, newWindowSize);
   }
 

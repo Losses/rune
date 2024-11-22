@@ -1,13 +1,121 @@
 import 'dart:io';
 
-import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:rune/providers/router_path.dart';
-import 'package:rune/utils/router/navigation.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../utils/l10n.dart';
+import '../utils/router/navigation.dart';
 import '../config/app_title.dart';
+import '../providers/router_path.dart';
+import 'window_frame/window_caption_button.dart';
+
+/// This class comes from Window Manager, with modification.
+/// The original code is licensed under the MIT license
+class WindowCaption extends StatefulWidget {
+  const WindowCaption({
+    super.key,
+    this.title,
+    this.backgroundColor,
+    this.brightness,
+  });
+
+  final Widget? title;
+  final Color? backgroundColor;
+  final Brightness? brightness;
+
+  @override
+  State<WindowCaption> createState() => _WindowCaptionState();
+}
+
+class _WindowCaptionState extends State<WindowCaption> {
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  static const platform = MethodChannel('ci.not.rune/snap');
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: widget.backgroundColor ??
+            (widget.brightness == Brightness.dark
+                ? const Color(0xff1C1C1C)
+                : Colors.transparent),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: WindowTitleBarBox(
+              child: SizedBox(
+                height: double.infinity,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: DefaultTextStyle(
+                        style: TextStyle(
+                          color: widget.brightness == Brightness.light
+                              ? Colors.black.withOpacity(0.8956)
+                              : Colors.white,
+                          fontSize: 14,
+                        ),
+                        child: widget.title ?? Container(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          WindowCaptionButton.minimize(
+            brightness: widget.brightness,
+            onPressed: () async {
+              appWindow.minimize();
+            },
+          ),
+          MouseRegion(
+            onEnter: (event) async {
+              await platform.invokeMethod('maximumButtonEnter');
+            },
+            onExit: (event) async {
+              await platform.invokeMethod('maximumButtonExit');
+            },
+            child: (appWindow.isMaximized)
+                ? WindowCaptionButton.unmaximize(
+                    brightness: widget.brightness,
+                    onPressed: () {
+                      appWindow.restore();
+                    },
+                  )
+                : WindowCaptionButton.maximize(
+                    brightness: widget.brightness,
+                    onPressed: () {
+                      appWindow.maximize();
+                    },
+                  ),
+          ),
+          WindowCaptionButton.close(
+            brightness: widget.brightness,
+            onPressed: () {
+              appWindow.hide();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DragToMoveArea {}
 
 class WindowButtons extends StatelessWidget {
   const WindowButtons({super.key});
@@ -40,8 +148,8 @@ class WindowFrame extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             BackButton(),
-            const Expanded(
-              child: DragToMoveArea(
+            Expanded(
+              child: WindowTitleBarBox(
                 child: SizedBox(
                   height: 50,
                   child: Align(

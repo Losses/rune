@@ -4,16 +4,18 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:system_tray/system_tray.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../config/theme.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
 import 'api/play_next.dart';
-import 'api/play_pause.dart';
 import 'api/play_play.dart';
+import 'api/play_pause.dart';
 import 'api/play_previous.dart';
+
+import 'close_manager.dart';
 import 'l10n.dart';
 
 class TrayManager {
@@ -31,9 +33,7 @@ class TrayManager {
       if (eventName == kSystemTrayEventClick) {
         Platform.isWindows ? showWindow() : systemTray.popUpContextMenu();
       } else if (eventName == kSystemTrayEventRightClick) {
-        Platform.isWindows
-            ? systemTray.popUpContextMenu()
-            : windowManager.show();
+        Platform.isWindows ? systemTray.popUpContextMenu() : appWindow.show();
       }
     });
   }
@@ -65,15 +65,11 @@ class TrayManager {
   Locale? _cachedLocale;
 
   static showWindow() {
-    windowManager.setAlwaysOnTop(true);
-    windowManager.show();
-    windowManager.focus();
-    windowManager.restore();
-    windowManager.setAlwaysOnTop(false);
+    appWindow.show();
   }
 
   static exit() {
-    windowManager.destroy();
+    $closeManager.close();
   }
 
   updateTray(BuildContext context) async {
