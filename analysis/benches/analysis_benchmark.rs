@@ -8,7 +8,7 @@ cfg_if::cfg_if! {
 
         fn cpu_analysis_benchmark(c: &mut Criterion) {
             let mut group = c.benchmark_group("cpu analysis");
-            group.significance_level(0.01).sample_size(10).measurement_time(Duration::from_secs(50));
+            group.significance_level(0.01).sample_size(10).measurement_time(Duration::from_secs(30));
             group.bench_function(
                 "cpu analysis v3", |b| b.iter(
                     || Analyzer::new(ComputingDevice::Cpu, 1024, 512, None, None).process(black_box("../assets/startup_0.ogg"))

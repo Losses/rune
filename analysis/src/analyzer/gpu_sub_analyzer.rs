@@ -30,21 +30,21 @@ impl GpuSubAnalyzer {
 }
 
 impl SubAnalyzer for GpuSubAnalyzer {
-    fn process_audio_chunk(&mut self, base_analyzer: &mut Analyzer, chunk: &[f32], force: bool) {
-        let resampled_chunk = &base_analyzer
+    fn process_audio_chunk(&mut self, core_analyzer: &mut Analyzer, chunk: &[f32], force: bool) {
+        let resampled_chunk = &core_analyzer
             .resampler
             .as_mut()
             .unwrap()
             .process(&[chunk], None)
             .unwrap()[0];
 
-        base_analyzer.total_rms += rms(resampled_chunk);
-        base_analyzer.total_zcr += zcr(resampled_chunk);
-        base_analyzer.total_energy += energy(resampled_chunk);
+        core_analyzer.total_rms += rms(resampled_chunk);
+        core_analyzer.total_zcr += zcr(resampled_chunk);
+        core_analyzer.total_energy += energy(resampled_chunk);
 
-        let start_idx = self.batch_cache_buffer_count * base_analyzer.window_size;
+        let start_idx = self.batch_cache_buffer_count * core_analyzer.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
-            if i >= base_analyzer.window_size {
+            if i >= core_analyzer.window_size {
                 break;
             }
             let windowed_sample = sample * self.hanning_window[i];
@@ -52,30 +52,22 @@ impl SubAnalyzer for GpuSubAnalyzer {
         }
 
         self.batch_cache_buffer_count += 1;
-        base_analyzer.count += 1;
+        core_analyzer.count += 1;
 
-        if force {
-            // Only process the valid portion of the batch buffer
+        if force || self.batch_cache_buffer_count >= core_analyzer.batch_size {
             pollster::block_on(self.gpu_fft.compute_fft(&mut self.batch_fft_buffer));
 
-            // Accumulate spectrums for the valid batches
-            for batch_idx in 0..self.batch_cache_buffer_count {
-                let start = batch_idx * base_analyzer.window_size;
-                for i in 0..base_analyzer.window_size {
-                    base_analyzer.avg_spectrum[i] += self.batch_fft_buffer[start + i];
-                }
-            }
+            let batch_count = if force {
+                self.batch_cache_buffer_count
+            } else {
+                core_analyzer.batch_size
+            };
 
-            self.batch_cache_buffer_count = 0;
-        } else if self.batch_cache_buffer_count >= base_analyzer.batch_size {
-            pollster::block_on(self.gpu_fft.compute_fft(&mut self.batch_fft_buffer));
-
-            // Split batch_fft_buffer into batches and accumulate into avg_spectrum
-            for batch_idx in 0..base_analyzer.batch_size {
-                let start = batch_idx * base_analyzer.window_size;
-
-                for i in 0..base_analyzer.window_size {
-                    base_analyzer.avg_spectrum[i] += self.batch_fft_buffer[start + i];
+            // Accumulate spectrums for all batches
+            for batch_idx in 0..batch_count {
+                let start = batch_idx * core_analyzer.window_size;
+                for i in 0..core_analyzer.window_size {
+                    core_analyzer.avg_spectrum[i] += self.batch_fft_buffer[start + i];
                 }
             }
 
