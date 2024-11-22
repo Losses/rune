@@ -1,6 +1,7 @@
-use crate::analyzer::SubAnalyzer;
-use crate::cpu_analyzer::CpuSubAnalyzer;
-use crate::gpu_analyzer::GpuSubAnalyzer;
+use crate::analyzer::sub_analyzer::SubAnalyzer;
+use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
+use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
+use crate::utils::analyzer_utils::AudioDescription;
 use std::ops::Sub;
 use std::string;
 use std::sync::{Arc, Mutex};
@@ -17,12 +18,12 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
-use crate::computing_device::ComputingDevice;
-use crate::features::energy;
-use crate::features::rms;
-use crate::features::zcr;
+use crate::shared_utils::computing_device_type::ComputingDevice;
+use crate::utils::features::energy;
+use crate::utils::features::rms;
+use crate::utils::features::zcr;
 
-use crate::fft_utils::*;
+use crate::shared_utils::analyzer_shared_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 macro_rules! check_cancellation {
@@ -42,7 +43,7 @@ macro_rules! check_cancellation {
     }};
 }
 
-pub struct BaseAnalyzer {
+pub struct Analyzer {
     // init in new()
     pub batch_size: usize,
     pub window_size: usize,
@@ -68,7 +69,7 @@ pub struct BaseAnalyzer {
     sub_analyzer: Arc<Mutex<dyn SubAnalyzer>>,
 }
 
-impl BaseAnalyzer {
+impl Analyzer {
     pub fn new(
         computing_device: ComputingDevice,
         window_size: usize,
@@ -76,7 +77,7 @@ impl BaseAnalyzer {
         batch_size: usize,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        BaseAnalyzer {
+        Analyzer {
             batch_size,
             window_size,
             overlap_size,
@@ -110,7 +111,7 @@ impl BaseAnalyzer {
         }
     }
 
-    pub fn process(&mut self, file_path: &str) -> Option<crate::fft_utils::AudioDescription> {
+    pub fn process(&mut self, file_path: &str) -> Option<AudioDescription> {
         let mut format = get_format(file_path).expect("no supported audio tracks");
         let track = format
             .tracks()

@@ -1,8 +1,6 @@
 const pi: f32 = 3.1415926535897932384626433832795028841971;
 
-// @group(0) @binding(0) var<storage, read> input_data: array<vec2<f32>>;
 @group(0) @binding(1) var<storage, read_write> output_data: array<vec2<f32>>;
-// @group(0) @binding(2) var<storage, read_write> debug_data: array<vec2<f32>>;
 
 var<workgroup> shared_data: array<vec2<f32>, 1024>;
 

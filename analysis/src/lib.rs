@@ -1,12 +1,6 @@
 pub mod analysis;
-pub mod computing_device;
-pub mod features;
-pub mod fft_processor;
-pub mod fft_utils;
-pub mod legacy_fft;
-pub mod measure_time_utils;
 pub mod wgpu_fft;
 pub mod analyzer;
-pub mod base_analyzer;
-pub mod gpu_analyzer;
-pub mod cpu_analyzer;
+pub mod legacy;
+pub mod shared_utils;
+pub mod utils;

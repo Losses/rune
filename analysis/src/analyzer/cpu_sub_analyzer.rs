@@ -1,5 +1,6 @@
-use crate::analyzer::SubAnalyzer;
-use crate::base_analyzer::{self, BaseAnalyzer};
+use crate::analyzer::sub_analyzer::SubAnalyzer;
+use crate::analyzer::analyzer::{self, Analyzer};
+use crate::utils::analyzer_utils::build_hanning_window;
 use std::string;
 use std::sync::Arc;
 
@@ -15,12 +16,12 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
-use crate::computing_device::ComputingDevice;
-use crate::features::energy;
-use crate::features::rms;
-use crate::features::zcr;
+use crate::shared_utils::computing_device_type::ComputingDevice;
+use crate::utils::features::energy;
+use crate::utils::features::rms;
+use crate::utils::features::zcr;
 
-use crate::fft_utils::*;
+use crate::shared_utils::analyzer_shared_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct CpuSubAnalyzer {
@@ -52,7 +53,7 @@ impl CpuSubAnalyzer {
 impl SubAnalyzer for CpuSubAnalyzer {
     fn process_audio_chunk(
         &mut self,
-        base_analyzer: &mut BaseAnalyzer,
+        base_analyzer: &mut Analyzer,
         chunk: &[f32],
         force: bool,
     ) {

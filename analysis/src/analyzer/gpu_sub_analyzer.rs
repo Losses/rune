@@ -1,5 +1,6 @@
-use crate::analyzer::SubAnalyzer;
-use crate::base_analyzer::{self, BaseAnalyzer};
+use crate::analyzer::sub_analyzer::SubAnalyzer;
+use crate::analyzer::analyzer::{self, Analyzer};
+use crate::utils::analyzer_utils::build_hanning_window;
 use std::string;
 use std::sync::Arc;
 
@@ -15,12 +16,12 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
-use crate::computing_device::ComputingDevice;
-use crate::features::energy;
-use crate::features::rms;
-use crate::features::zcr;
+use crate::shared_utils::computing_device_type::ComputingDevice;
+use crate::utils::features::energy;
+use crate::utils::features::rms;
+use crate::utils::features::zcr;
 
-use crate::fft_utils::*;
+use crate::shared_utils::analyzer_shared_utils::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct GpuSubAnalyzer {
@@ -44,7 +45,7 @@ impl GpuSubAnalyzer {
 impl SubAnalyzer for GpuSubAnalyzer {
     fn process_audio_chunk(
         &mut self,
-        base_analyzer: &mut BaseAnalyzer,
+        base_analyzer: &mut Analyzer,
         chunk: &[f32],
         force: bool,
     ) {
@@ -103,7 +104,8 @@ impl SubAnalyzer for GpuSubAnalyzer {
 
 #[cfg(test)]
 mod tests {
-    use crate::{fft_processor::gpu_fft, measure_time};
+    use crate::legacy::{legacy_fft_processor::gpu_fft};
+    use crate::measure_time;
 
     use super::*;
 
@@ -115,7 +117,7 @@ mod tests {
         let batch_size = 1024 * 8;
         let overlap_size = 512;
 
-        let mut analyzer = BaseAnalyzer::new(ComputingDevice::Cpu,window_size, overlap_size, 1, None);
+        let mut analyzer = Analyzer::new(ComputingDevice::Cpu,window_size, overlap_size, 1, None);
         let gpu_result = measure_time!("GPU FFT", analyzer.process(file_path).unwrap());
 
         let gpu_result1 = measure_time!(
