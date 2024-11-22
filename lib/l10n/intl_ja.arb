@@ -740,6 +740,26 @@
   "noLogsAvailable": "記録がありません",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "主画面",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "最古",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "お任せ",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "再生数上位",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
   }
   "home": "主画面",
   "@home": {

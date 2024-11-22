@@ -67,62 +67,96 @@ class LibraryHomeProvider extends ChangeNotifier {
     _loadEntries();
   }
 
+  /// Provides an immutable view of the list of entries
   List<LibraryHomeEntryWithValue> get entries => List.unmodifiable(_entries);
 
-  void _loadEntries() async {
-    String? storedOrderJson =
-        await settingsManager.getValue<String>(storageKey);
+  /// Safely updates the list of entries
+  void _safelyUpdateEntries(List<LibraryHomeEntryWithValue> newEntries) {
+    // Create a map based on IDs to remove duplicates, keeping the last occurrence
+    final uniqueEntries = <String, LibraryHomeEntryWithValue>{};
 
-    if (storedOrderJson != null) {
-      List<dynamic> storedOrderDynamic = jsonDecode(storedOrderJson);
-      List<String> storedSerializedEntries =
-          List<String>.from(storedOrderDynamic);
-
-      Map<String, LibraryHomeEntryWithValue> entryMap = {};
-
-      for (final serialized in storedSerializedEntries) {
-        try {
-          final entry = LibraryHomeEntryWithValue.deserialize(
-            serialized,
-            libraryHomeItems,
-          );
-          if (entry != null) {
-            entryMap[entry.id] = entry;
-          }
-        } catch (e) {
-          error$('Error deserializing entry: $serialized');
-        }
-      }
-      _entries
-        ..clear()
-        ..addAll(entryMap.values);
-
-      for (final item in libraryHomeItems) {
-        if (!_entries.any((entry) => entry.id == item.id)) {
-          _entries.add(LibraryHomeEntryWithValue.fromEntry(item));
-        } else {
-          _entries.add(LibraryHomeEntryWithValue(
-            id: item.id,
-            value: item.defaultValue,
-            definition: item,
-          ));
-        }
-      }
-
-      _entries.removeWhere(
-        (entry) => !libraryHomeItems.any((item) => item.id == entry.id),
-      );
-    } else {
-      _entries.addAll(
-        libraryHomeItems
-            .map((item) => LibraryHomeEntryWithValue.fromEntry(item)),
-      );
+    // Add entries, overwriting duplicates to keep the last one
+    for (final entry in newEntries) {
+      uniqueEntries[entry.id] = entry;
     }
 
-    notifyListeners();
+    // Ensure all required entries exist, filling missing ones with default values
+    for (final item in libraryHomeItems) {
+      if (!uniqueEntries.containsKey(item.id)) {
+        uniqueEntries[item.id] = LibraryHomeEntryWithValue.fromEntry(item);
+      }
+    }
+
+    // Remove entries not in libraryHomeItems
+    uniqueEntries.removeWhere(
+        (key, _) => !libraryHomeItems.any((item) => item.id == key));
+
+    // Update the list of entries
+    _entries
+      ..clear()
+      ..addAll(uniqueEntries.values);
   }
 
+  /// Loads entries from storage
+  Future<void> _loadEntries() async {
+    try {
+      final String? storedOrderJson =
+          await settingsManager.getValue<String>(storageKey);
+
+      if (storedOrderJson != null) {
+        // Parse stored data
+        final List<LibraryHomeEntryWithValue> loadedEntries =
+            _parseStoredEntries(storedOrderJson);
+        _safelyUpdateEntries(loadedEntries);
+      } else {
+        // Use default values if no stored data
+        _safelyUpdateEntries(libraryHomeItems
+            .map((item) => LibraryHomeEntryWithValue.fromEntry(item))
+            .toList());
+      }
+    } catch (e, stackTrace) {
+      error$('Error loading library home entries: $e\n$stackTrace');
+      // Use default values on error
+      _safelyUpdateEntries(libraryHomeItems
+          .map((item) => LibraryHomeEntryWithValue.fromEntry(item))
+          .toList());
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  /// Parses stored entries
+  List<LibraryHomeEntryWithValue> _parseStoredEntries(String storedOrderJson) {
+    final List<dynamic> storedOrderDynamic = jsonDecode(storedOrderJson);
+    final List<String> storedSerializedEntries =
+        List<String>.from(storedOrderDynamic);
+    final List<LibraryHomeEntryWithValue> loadedEntries = [];
+
+    for (final serialized in storedSerializedEntries) {
+      try {
+        final entry =
+            LibraryHomeEntryWithValue.deserialize(serialized, libraryHomeItems);
+        if (entry != null) {
+          loadedEntries.add(entry);
+        }
+      } catch (e) {
+        error$('Error deserializing entry: $serialized');
+        // Continue processing other entries
+      }
+    }
+
+    return loadedEntries;
+  }
+
+  /// Reorders entries
   void reorder(int oldIndex, int newIndex) {
+    if (oldIndex < 0 ||
+        oldIndex >= _entries.length ||
+        newIndex < 0 ||
+        newIndex >= _entries.length) {
+      return;
+    }
+
     final item = _entries.removeAt(oldIndex);
     _entries.insert(newIndex, item);
 
@@ -130,21 +164,29 @@ class LibraryHomeProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Updates entry value
   void updateEntryValue(String id, String? value) {
     final index = _entries.indexWhere((entry) => entry.id == id);
     if (index != -1) {
       final originalEntry = _entries[index].definition;
-      _entries[index] =
+      final updatedEntry =
           LibraryHomeEntryWithValue.fromEntry(originalEntry, value);
+
+      _entries[index] = updatedEntry;
       _saveEntries();
       notifyListeners();
     }
   }
 
-  void _saveEntries() {
-    List<String> serializedEntries =
-        _entries.map((e) => e.serialize()).toList();
-    String orderJson = jsonEncode(serializedEntries);
-    settingsManager.setValue(storageKey, orderJson);
+  /// Saves entries to storage
+  Future<void> _saveEntries() async {
+    try {
+      final List<String> serializedEntries =
+          _entries.map((e) => e.serialize()).toList();
+      final String orderJson = jsonEncode(serializedEntries);
+      await settingsManager.setValue(storageKey, orderJson);
+    } catch (e, stackTrace) {
+      error$('Error saving library home entries: $e\n$stackTrace');
+    }
   }
 }
