@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
+import 'package:rune/widgets/window_buttons.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -157,8 +158,9 @@ void main(List<String> arguments) async {
   WindowOptions windowOptions = WindowOptions(
     size: windowSizes[windowSize],
     center: true,
-    titleBarStyle:
-        Platform.isMacOS ? TitleBarStyle.hidden : TitleBarStyle.normal,
+    titleBarStyle: Platform.isMacOS || Platform.isWindows
+        ? TitleBarStyle.hidden
+        : TitleBarStyle.normal,
   );
 
   if (!Platform.isMacOS) {
@@ -281,14 +283,15 @@ class _RuneState extends State<Rune> with WindowListener {
             if (routeName == '/') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => routes["/"]!(context),
+                builder: (context) => WindowFrame(routes["/"]!(context)),
               );
             }
 
             if (routeName == '/scanning') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => routes["/scanning"]!(context),
+                builder: (context) =>
+                    WindowFrame(routes["/scanning"]!(context)),
               );
             }
 
@@ -298,7 +301,7 @@ class _RuneState extends State<Rune> with WindowListener {
 
             return NoEffectPageRoute<dynamic>(
               settings: settings,
-              builder: (context) => page,
+              builder: (context) => WindowFrame(page),
             );
           },
           debugShowCheckedModeBanner: false,

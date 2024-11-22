@@ -32,7 +32,8 @@ bool $pop() {
   if (!$canPop()) return false;
 
   final current = $history.current;
-  if (current != null) return false;
+
+  if (current == null) return false;
 
   if (current is ModalRouteEntry) {
     current.pop();
@@ -42,10 +43,14 @@ bool $pop() {
 
   if (current is RouteEntry) {
     final (success, result) = $history.pop();
-    final settings = current.toSettings();
-    $router.update(settings.name, settings.arguments);
-    navigation.pop(result);
-    return true;
+
+    final next = $history.current;
+
+    if (success) {
+      $router.update(next!.name, next.arguments);
+      navigation.pop();
+      return true;
+    }
   }
 
   return false;

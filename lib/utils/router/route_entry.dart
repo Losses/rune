@@ -18,4 +18,9 @@ class RouteEntry extends BaseRouteEntry {
   RouteSettings toSettings() {
     return RouteSettings(name: name, arguments: arguments);
   }
+
+  @override
+  toString() {
+    return 'RouteSettings #$name ($arguments)';
+  }
 }

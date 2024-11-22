@@ -6,6 +6,11 @@ class RouterTransitionParameter {
   Object? parameters;
 
   RouterTransitionParameter(this.from, this.to, [this.parameters]);
+
+  @override
+  String toString() {
+    return 'RouterTransitionParameter($from -> $to, $parameters)';
+  }
 }
 
 RouterTransitionParameter? getRouterTransitionParameter() {

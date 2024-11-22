@@ -796,5 +796,9 @@
   "exit": "Exit",
   "@exit": {
     "description": "Entry in the tray menu."
+  },
+  "back": "Back",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
   }
 }

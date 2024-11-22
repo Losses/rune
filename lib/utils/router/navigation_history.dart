@@ -31,11 +31,11 @@ class NavigationHistory {
     );
   }
 
-  (bool, dynamic) pop() {
+  (bool, BaseRouteEntry?) pop() {
     if (history.isEmpty) return (false, null);
 
-    history.removeLast();
-    return (true, null);
+    final routeEntry = history.removeLast();
+    return (true, routeEntry);
   }
 
   void replace(RouteSettings settings) {
