@@ -1,11 +1,18 @@
 #include "flutter_window.h"
 
+#include <flutter/event_channel.h>
+#include <flutter/event_sink.h>
+#include <flutter/event_stream_handler_functions.h>
+#include <flutter/method_channel.h>
+#include <flutter/standard_method_codec.h>
 #include <optional>
+
+#include <Windowsx.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+    : maximum_button_hover_(false), project_(project) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -25,6 +32,25 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+
+  flutter::MethodChannel<> channel(
+    flutter_controller_->engine()->messenger(), "ci.not.rune/snap",
+    &flutter::StandardMethodCodec::GetInstance());
+  channel.SetMethodCallHandler(
+    [&](const flutter::MethodCall<>& call,
+        std::unique_ptr<flutter::MethodResult<>> result) {
+        if (call.method_name() == "maximumButtonEnter") {
+          this->maximum_button_hover_ = true;
+          result->Success();
+        } else if (call.method_name() == "maximumButtonExit") {
+          this->maximum_button_hover_ = false;
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      // TODO
+    });
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -65,6 +91,20 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+
+    case WM_NCCALCSIZE: {
+      auto result = DefWindowProc (hwnd, WM_NCCALCSIZE, wparam, lparam);
+      LPNCCALCSIZE_PARAMS pncc = (LPNCCALCSIZE_PARAMS)lparam;
+      pncc->rgrc[0].top = 56;
+      return result;
+    }
+    
+    case WM_NCHITTEST: {
+      if (this->maximum_button_hover_) {
+        return HTMAXBUTTON;
+      }
+      break;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

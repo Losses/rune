@@ -1,13 +1,141 @@
 import 'dart:io';
 
-import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:rune/providers/router_path.dart';
-import 'package:rune/utils/router/navigation.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../utils/l10n.dart';
+import '../utils/router/navigation.dart';
 import '../config/app_title.dart';
+import '../providers/router_path.dart';
+
+/// This class comes from Window Manager, with modification.
+/// The original code is licensed under the MIT license
+class WindowCaption extends StatefulWidget {
+  const WindowCaption({
+    super.key,
+    this.title,
+    this.backgroundColor,
+    this.brightness,
+  });
+
+  final Widget? title;
+  final Color? backgroundColor;
+  final Brightness? brightness;
+
+  @override
+  State<WindowCaption> createState() => _WindowCaptionState();
+}
+
+class _WindowCaptionState extends State<WindowCaption> with WindowListener {
+  @override
+  void initState() {
+    windowManager.addListener(this);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  static const platform = MethodChannel('ci.not.rune/snap');
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: widget.backgroundColor ??
+            (widget.brightness == Brightness.dark
+                ? const Color(0xff1C1C1C)
+                : Colors.transparent),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: DragToMoveArea(
+              child: SizedBox(
+                height: double.infinity,
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.only(left: 16),
+                      child: DefaultTextStyle(
+                        style: TextStyle(
+                          color: widget.brightness == Brightness.light
+                              ? Colors.black.withOpacity(0.8956)
+                              : Colors.white,
+                          fontSize: 14,
+                        ),
+                        child: widget.title ?? Container(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          WindowCaptionButton.minimize(
+            brightness: widget.brightness,
+            onPressed: () async {
+              bool isMinimized = await windowManager.isMinimized();
+              if (isMinimized) {
+                windowManager.restore();
+              } else {
+                windowManager.minimize();
+              }
+            },
+          ),
+          MouseRegion(
+            onEnter: (event) async {
+              await platform.invokeMethod('maximumButtonEnter');
+            },
+            onExit: (event) async {
+              await platform.invokeMethod('maximumButtonExit');
+            },
+            child: FutureBuilder<bool>(
+              future: windowManager.isMaximized(),
+              builder: (BuildContext context, AsyncSnapshot<bool> snapshot) {
+                if (snapshot.data == true) {
+                  return WindowCaptionButton.unmaximize(
+                    brightness: widget.brightness,
+                    onPressed: () {
+                      windowManager.unmaximize();
+                    },
+                  );
+                }
+                return WindowCaptionButton.maximize(
+                  brightness: widget.brightness,
+                  onPressed: () {
+                    windowManager.maximize();
+                  },
+                );
+              },
+            ),
+          ),
+          WindowCaptionButton.close(
+            brightness: widget.brightness,
+            onPressed: () {
+              windowManager.close();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void onWindowMaximize() {
+    setState(() {});
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    setState(() {});
+  }
+}
 
 class WindowButtons extends StatelessWidget {
   const WindowButtons({super.key});

@@ -2,6 +2,9 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
+#include <commctrl.h>
+#include <Windowsx.h>
+#pragma comment(lib, "comctl32.lib")
 
 #include "resource.h"
 
@@ -162,6 +165,7 @@ LRESULT CALLBACK Win32Window::WndProc(HWND const window,
     auto window_struct = reinterpret_cast<CREATESTRUCT*>(lparam);
     SetWindowLongPtr(window, GWLP_USERDATA,
                      reinterpret_cast<LONG_PTR>(window_struct->lpCreateParams));
+    // SetWindowLong(window, GWL_STYLE, 0);
 
     auto that = static_cast<Win32Window*>(window_struct->lpCreateParams);
     EnableFullDpiSupportIfAvailable(window);
@@ -240,6 +244,68 @@ Win32Window* Win32Window::GetThisFromHandle(HWND const window) noexcept {
 
 void Win32Window::SetChildContent(HWND content) {
   child_content_ = content;
+
+    SetWindowSubclass(content, [](HWND hWnd,
+                                UINT uMsg,
+                                WPARAM wParam,
+                                LPARAM lParam,
+                                UINT_PTR uIdSubclass,
+                                DWORD_PTR dwRefData) {
+    switch (uMsg) {
+      case WM_NCHITTEST: {
+          printf("WM_NCHITTEST: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+          fflush(stdout);
+          auto that = reinterpret_cast<Win32Window*>(dwRefData);
+          return that->MessageHandler(hWnd, uMsg, wParam, lParam);
+        }
+        break;
+      case WM_NCLBUTTONDOWN: {
+        if (wParam == HTMAXBUTTON) {
+          POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+          ::MapWindowPoints(nullptr, hWnd, &point, 1);
+          printf("WM_NCLBUTTONDOWN: %d %d\n", point.x, point.y);
+          fflush(stdout);
+          return DefSubclassProc(hWnd, WM_LBUTTONDOWN, 0, MAKELPARAM(point.x, point.y));
+        }
+        break;
+      }
+      case WM_NCLBUTTONUP: {
+        if (wParam == HTMAXBUTTON) {
+          POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+          ::MapWindowPoints(nullptr, hWnd, &point, 1);
+          printf("WM_NCLBUTTONUP: %d %d\n", point.x, point.y);
+          fflush(stdout);
+          return DefSubclassProc(hWnd, WM_LBUTTONUP, 0, MAKELPARAM(point.x, point.y));
+        }
+        break;
+      }
+      case WM_NCMOUSEMOVE: {
+        if (wParam == HTMAXBUTTON) {
+          POINT point = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+          ::MapWindowPoints(nullptr, hWnd, &point, 1);
+          printf("WM_NCMOUSEMOVE: %d %d\n", point.x, point.y);
+          fflush(stdout);
+          DefSubclassProc(hWnd, WM_MOUSEMOVE, 0, MAKELPARAM(point.x, point.y));
+          return (LRESULT)0;
+        }
+        break;
+      }
+      case WM_MOUSEMOVE: {
+        printf("WM_MOUSEMOVE: %d %d\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        fflush(stdout);
+        return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+      }
+      case WM_MOUSELEAVE: 
+        return (LRESULT)0;
+    }
+    
+    if (uMsg != WM_TIMER && uMsg != 0x20) {
+      printf("Window Message: 0x%04X\n", uMsg);
+      fflush(stdout);
+    }
+    return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+  },0,reinterpret_cast<DWORD_PTR>(this));
+
   SetParent(content, window_handle_);
   RECT frame = GetClientArea();
 
