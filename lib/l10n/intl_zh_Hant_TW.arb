@@ -248,19 +248,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "無法開始漫遊。此曲目尚未分析。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 資料庫正在掃描中，無法執行分析。",
+  "noAnalysisScanning": "{baseMessage} 資料庫正在掃描中，無法執行分析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 資料庫正在分析中，請等待過程完成。",
+  "noAnalysisAnalyzing": "{baseMessage} 資料庫正在分析中，請等待過程完成。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 請分析您的資料庫以獲得最佳體驗。",
+  "noAnalysisDefault": "{baseMessage} 請分析您的資料庫以獲得最佳體驗。",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
@@ -394,7 +394,7 @@
   "@delete": {},
   "oneDirectory": "1 個目錄",
   "@oneDirectory": {},
-  "manyDirectories": "${count} 個目錄",
+  "manyDirectories": "{count} 個目錄",
   "@manyDirectories": {
     "placeholders": {
       "count": {}

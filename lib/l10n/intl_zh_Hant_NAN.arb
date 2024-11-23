@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Status text indicating one directory has been selected."
   },
-  "manyDirectories": "${count} 个資料夾",
+  "manyDirectories": "{count} 个資料夾",
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "袂當開始漫遊。這首歌猶未分析。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 媒體庫當咧掃描，所以這馬袂當分析。",
+  "noAnalysisScanning": "{baseMessage} 媒體庫當咧掃描，所以這馬袂當分析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 媒體庫當咧分析，請等伊分析了了。",
+  "noAnalysisAnalyzing": "{baseMessage} 媒體庫當咧分析，請等伊分析了了。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 若欲有較好的使用體驗，請先分析你的媒體庫。",
+  "noAnalysisDefault": "{baseMessage} 若欲有較好的使用體驗，請先分析你的媒體庫。",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

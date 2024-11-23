@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Текст статусу, що вказує, що обрано один каталог."
   },
-  "manyDirectories": "${count} каталогів",
+  "manyDirectories": "{count} каталогів",
   "@manyDirectories": {
     "description": "Текст статусу, що вказує, що обрано кілька каталогів.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Не вдалося почати блукання. Цей трек ще не проаналізований.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} Бібліотека сканується, тому аналіз не може бути виконаний.",
+  "noAnalysisScanning": "{baseMessage} Бібліотека сканується, тому аналіз не може бути виконаний.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} Бібліотека аналізується; будь ласка, зачекайте, поки процес завершиться.",
+  "noAnalysisAnalyzing": "{baseMessage} Бібліотека аналізується; будь ласка, зачекайте, поки процес завершиться.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Для найкращого досвіду, проаналізуйте свою бібліотеку.",
+  "noAnalysisDefault": "{baseMessage} Для найкращого досвіду, проаналізуйте свою бібліотеку.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Status text indicating one directory has been selected."
   },
-  "manyDirectories": "${count} 徑",
+  "manyDirectories": "{count} 徑",
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "斯集未析，無以漫奏。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 方索庫中，仍不能析。",
+  "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 方正析庫，請俟其畢。",
+  "noAnalysisAnalyzing": "{baseMessage} 方正析庫，請俟其畢。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 請析理庫藏，以臻至善",
+  "noAnalysisDefault": "{baseMessage} 請析理庫藏，以臻至善",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

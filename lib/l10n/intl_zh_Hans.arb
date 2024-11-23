@@ -374,7 +374,7 @@
     "@oneDirectory": {
         "description": "表示已选择一个目录的状态文本。"
     },
-    "manyDirectories": "${count}个目录",
+    "manyDirectories": "{count}个目录",
     "@manyDirectories": {
         "description": "表示已选择多个目录的状态文本。",
         "placeholders": {
@@ -425,19 +425,19 @@
     "@noRoamingCollection": {},
     "noRomaingTrack": "无法智能推荐。该歌曲尚未被分析。",
     "@noRomaingTrack": {},
-    "noAnalysisScanning": "${baseMessage} 媒体库正在扫描中，无法建立索引。",
+    "noAnalysisScanning": "{baseMessage} 媒体库正在扫描中，无法建立索引。",
     "@noAnalysisScanning": {
         "placeholders": {
             "baseMessage": {}
         }
     },
-    "noAnalysisAnalyzing": "${baseMessage} 媒体库正在建立索引，请等待。",
+    "noAnalysisAnalyzing": "{baseMessage} 媒体库正在建立索引，请等待。",
     "@noAnalysisAnalyzing": {
         "placeholders": {
             "baseMessage": {}
         }
     },
-    "noAnalysisDefault": "${baseMessage} 建议建立索引以获得最佳体验。",
+    "noAnalysisDefault": "{baseMessage} 建议建立索引以获得最佳体验。",
     "@noAnalysisDefault": {
         "placeholders": {
             "baseMessage": {}

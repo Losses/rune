@@ -45,6 +45,7 @@ class CollectionSearchItemState extends SearchCardState<CollectionSearchItem> {
       contextController,
       widget.collectionType,
       getItemId(),
+      widget.item.name,
     );
   }
 

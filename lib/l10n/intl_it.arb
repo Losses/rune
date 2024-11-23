@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Testo di stato che indica che è stata selezionata una directory."
   },
-  "manyDirectories": "${count} Directory",
+  "manyDirectories": "{count} Directory",
   "@manyDirectories": {
     "description": "Testo di stato che indica che sono state selezionate più directory.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Impossibile avviare il roaming. Questo brano non è ancora stato analizzato.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} La libreria è in fase di scansione, quindi non è possibile eseguire l'analisi.",
+  "noAnalysisScanning": "{baseMessage} La libreria è in fase di scansione, quindi non è possibile eseguire l'analisi.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} La libreria è in fase di analisi; attendere il completamento del processo.",
+  "noAnalysisAnalyzing": "{baseMessage} La libreria è in fase di analisi; attendere il completamento del processo.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Analizza la tua libreria per la migliore esperienza.",
+  "noAnalysisDefault": "{baseMessage} Analizza la tua libreria per la migliore esperienza.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

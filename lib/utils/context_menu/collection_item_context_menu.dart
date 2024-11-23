@@ -31,7 +31,8 @@ final Map<
       int id,
     )> typeToEdit = {
   CollectionType.Playlist: (context, refreshList, id) async {
-    final result = await showCreateEditPlaylistDialog(context, playlistId: id);
+    final result =
+        await showCreateEditPlaylistDialog(context, "", playlistId: id);
 
     if (result != null && refreshList != null) {
       refreshList();
@@ -85,7 +86,8 @@ void openCollectionItemContextMenu(
   GlobalKey contextAttachKey,
   FlyoutController contextController,
   CollectionType type,
-  int id, [
+  int id,
+  String title, [
   void Function()? refreshList,
   bool? readonly,
 ]) async {
@@ -131,6 +133,7 @@ void openCollectionItemContextMenu(
       context,
       type,
       id,
+      title,
       mixes,
       refreshList,
       readonly,
@@ -142,6 +145,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
+  String title,
   List<Mix> mixes, [
   void Function()? refreshList,
   bool? readonly,
@@ -236,6 +240,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
 
               await showCreateEditMixDialog(
                 context,
+                title,
                 mixId: null,
                 operator: (operator, id.toString()),
               );

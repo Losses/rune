@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Statusanzeige, die angibt, dass ein Verzeichnis ausgewählt wurde."
   },
-  "manyDirectories": "${count} Verzeichnisse",
+  "manyDirectories": "{count} Verzeichnisse",
   "@manyDirectories": {
     "description": "Statusanzeige, die angibt, dass mehrere Verzeichnisse ausgewählt wurden.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Roaming kann nicht gestartet werden. Dieser Titel wurde noch nicht analysiert.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyse durchgeführt werden.",
+  "noAnalysisScanning": "{baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyse durchgeführt werden.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} Die Bibliothek wird analysiert; bitte warten Sie, bis der Vorgang abgeschlossen ist.",
+  "noAnalysisAnalyzing": "{baseMessage} Die Bibliothek wird analysiert; bitte warten Sie, bis der Vorgang abgeschlossen ist.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Bitte analysieren Sie Ihre Bibliothek für das beste Erlebnis.",
+  "noAnalysisDefault": "{baseMessage} Bitte analysieren Sie Ihre Bibliothek für das beste Erlebnis.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

@@ -17,11 +17,13 @@ import '../clean_group_titles.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
+  final String? defaultTitle;
   final void Function(Playlist?) $close;
 
   const CreateEditPlaylistDialog({
     super.key,
     this.playlistId,
+    required this.defaultTitle,
     required this.$close,
   });
 
@@ -41,6 +43,13 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
   @override
   void initState() {
     super.initState();
+
+    final defaultTitle = widget.defaultTitle;
+
+    if (defaultTitle != null) {
+      titleController.text = defaultTitle;
+    }
+
     fetchGroupList();
     if (widget.playlistId != null) {
       loadPlaylist(widget.playlistId!);

@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Texte de statut indiquant qu'un répertoire a été sélectionné."
   },
-  "manyDirectories": "${count} Répertoires",
+  "manyDirectories": "{count} Répertoires",
   "@manyDirectories": {
     "description": "Texte de statut indiquant que plusieurs répertoires ont été sélectionnés.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Impossible de commencer l'itinérance. Cette piste n'a pas encore été analysée.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} La bibliothèque est en cours de balayage, l'analyse ne peut donc pas être effectuée.",
+  "noAnalysisScanning": "{baseMessage} La bibliothèque est en cours de balayage, l'analyse ne peut donc pas être effectuée.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} La bibliothèque est en cours d'analyse ; veuillez attendre la fin du processus.",
+  "noAnalysisAnalyzing": "{baseMessage} La bibliothèque est en cours d'analyse ; veuillez attendre la fin du processus.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Veuillez analyser votre bibliothèque pour une meilleure expérience.",
+  "noAnalysisDefault": "{baseMessage} Veuillez analyser votre bibliothèque pour une meilleure expérience.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

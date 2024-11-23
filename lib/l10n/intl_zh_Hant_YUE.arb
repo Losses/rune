@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "表示揀咗一個資料夾嘅狀態文字。"
   },
-  "manyDirectories": "${count}個資料夾",
+  "manyDirectories": "{count}個資料夾",
   "@manyDirectories": {
     "description": "表示揀咗多個資料夾嘅狀態文字。",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "未能開始漫遊。呢首歌仲未分析完。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 歌曲庫而家掃描緊，暫時未能分析。",
+  "noAnalysisScanning": "{baseMessage} 歌曲庫而家掃描緊，暫時未能分析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 歌曲庫而家分析緊，請等分析完成。",
+  "noAnalysisAnalyzing": "{baseMessage} 歌曲庫而家分析緊，請等分析完成。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 請分析你嘅歌曲庫以獲得最佳體驗。",
+  "noAnalysisDefault": "{baseMessage} 請分析你嘅歌曲庫以獲得最佳體驗。",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
