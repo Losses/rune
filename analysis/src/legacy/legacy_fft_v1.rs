@@ -2,6 +2,9 @@ use log::{debug, info};
 
 use rubato::Resampler;
 use rubato::SincFixedIn;
+use rubato::SincInterpolationParameters;
+use rubato::SincInterpolationType;
+use rubato::WindowFunction;
 use rustfft::{num_complex::Complex, FftPlanner};
 use symphonia::core::audio::AudioBufferRef;
 use symphonia::core::audio::Signal;
@@ -10,17 +13,17 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::features::energy;
-use crate::features::rms;
-use crate::features::zcr;
+use crate::utils::audio_description::AudioDescription;
+use crate::utils::features::energy;
+use crate::utils::features::rms;
+use crate::utils::features::zcr;
+use crate::utils::hanning_window::build_hanning_window;
 
-use crate::fft_utils::*;
+use crate::shared_utils::audio_metadata_reader::*;
 
 // Define the macro at the beginning of the file, after the imports
 macro_rules! process_window {
-    ($sample_buffer:expr, $actural_data_size:expr, $window_size:expr, $overlap_size:expr, 
-     $resampler:expr, $hanning_window:expr, $buffer:expr, $fft:expr, $avg_spectrum:expr,
-     $total_rms:expr, $total_zcr:expr, $total_energy:expr, $count:expr, $is_cancelled:expr) => {
+    ($sample_buffer:expr, $actural_data_size:expr, $window_size:expr, $overlap_size:expr, $resampler:expr, $hanning_window:expr, $buffer:expr, $fft:expr, $avg_spectrum:expr, $total_rms:expr, $total_zcr:expr, $total_energy:expr, $count:expr, $is_cancelled:expr) => {
         // Check for cancellation before processing each window
         if $is_cancelled() {
             return None;
@@ -57,6 +60,16 @@ macro_rules! process_window {
     };
 }
 
+#[allow(dead_code)]
+pub const RESAMPLER_PARAMETER: rubato::SincInterpolationParameters = SincInterpolationParameters {
+    sinc_len: 256,
+    f_cutoff: 0.95,
+    interpolation: SincInterpolationType::Linear,
+    oversampling_factor: 256,
+    window: WindowFunction::BlackmanHarris2,
+};
+
+#[allow(dead_code)]
 pub fn fft(
     file_path: &str,
     window_size: usize,
@@ -180,9 +193,20 @@ pub fn fft(
                         // Process the buffer when it reaches the window size
                         while sample_buffer.len() >= actural_data_size {
                             process_window!(
-                                sample_buffer, actural_data_size, window_size, overlap_size,
-                                resampler, hanning_window, buffer, fft, avg_spectrum,
-                                total_rms, total_zcr, total_energy, count, is_cancelled
+                                sample_buffer,
+                                actural_data_size,
+                                window_size,
+                                overlap_size,
+                                resampler,
+                                hanning_window,
+                                buffer,
+                                fft,
+                                avg_spectrum,
+                                total_rms,
+                                total_zcr,
+                                total_energy,
+                                count,
+                                is_cancelled
                             );
                         }
                     }
@@ -248,7 +272,7 @@ pub fn fft(
         *value /= count as f32;
     }
     debug!("Final average spectrum calculated");
-    
+
     info!("Total samples: {}", total_samples);
 
     Some(AudioDescription {

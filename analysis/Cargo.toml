@@ -8,6 +8,9 @@ publish = false
 name = "analysis"
 path = "src/lib.rs"
 
+[features]
+bench = []
+
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports"] }
 
@@ -32,3 +35,4 @@ rand = "0.8.5"
 tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
 tracing-subscriber = "0.3.18"
 realfft = "3.4.0"
+cfg-if = "1.0.0"

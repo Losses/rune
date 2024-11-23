@@ -12,17 +12,19 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
-use crate::computing_device::ComputingDevice;
-use crate::features::energy;
-use crate::features::rms;
-use crate::features::zcr;
+use crate::shared_utils::computing_device::ComputingDevice;
+use crate::utils::audio_description::AudioDescription;
+use crate::utils::features::energy;
+use crate::utils::features::rms;
+use crate::utils::features::zcr;
+use crate::utils::hanning_window::build_hanning_window;
 
-use crate::fft_utils::*;
+use crate::shared_utils::audio_metadata_reader::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {
     computing_device: ComputingDevice,
-    window_size: usize,
+    window_size: usize, //
     batch_size: usize,
     overlap_size: usize,
     gpu_batch_fft: Option<wgpu_radix4::FFTCompute>,
@@ -463,6 +465,7 @@ impl FFTProcessor {
     }
 }
 
+#[allow(dead_code)]
 pub fn gpu_fft(
     file_path: &str,
     window_size: usize,
@@ -480,6 +483,7 @@ pub fn gpu_fft(
     .process_file(file_path)
 }
 
+#[allow(dead_code)]
 pub fn cpu_fft(
     file_path: &str,
     window_size: usize,
@@ -494,234 +498,4 @@ pub fn cpu_fft(
         cancel_token,
     )
     .process_file(file_path)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::legacy_fft;
-    use crate::measure_time;
-    use rustfft::FftPlanner;
-
-    #[test]
-    fn test_rust_fft() {
-        let size = 1024;
-        let original_data: Vec<Complex<f32>> = (0..size)
-            .map(|i| Complex::new((i as f32).sin(), 0.0))
-            .collect();
-        let mut fft_data = original_data.clone();
-
-        // Create FFT and IFFT planners
-        let mut planner = FftPlanner::new();
-        let fft = planner.plan_fft_forward(size);
-        let ifft = planner.plan_fft_inverse(size);
-
-        // Perform FFT
-        fft.process(&mut fft_data);
-
-        // Perform inverse FFT
-        ifft.process(&mut fft_data);
-
-        for x in fft_data.iter_mut() {
-            *x /= size as f32;
-        }
-
-        // Compare original and reconstructed data
-        for (orig, reconstructed) in original_data.iter().zip(fft_data.iter()) {
-            let diff = (orig - reconstructed).norm();
-            assert!(
-                diff < 1e-6,
-                "Difference too large: {} vs {}, diff = {}",
-                orig,
-                reconstructed,
-                diff
-            );
-        }
-    }
-
-    #[test]
-    fn test_real_fft() {
-        let size = 1024;
-        // Create real input data
-        let mut real_input: Vec<f32> = (0..size).map(|i| (i as f32).sin()).collect();
-        let mut real_output = real_input.clone();
-
-        // Create real FFT planner
-        let mut planner = RealFftPlanner::<f32>::new();
-        let r2c = planner.plan_fft_forward(size);
-        let c2r = planner.plan_fft_inverse(size);
-
-        // Create complex buffer for FFT output
-        let mut spectrum = r2c.make_output_vec();
-
-        // Perform forward FFT
-        r2c.process(&mut real_input, &mut spectrum).unwrap();
-
-        // Perform inverse FFT
-        c2r.process(&mut spectrum, &mut real_output).unwrap();
-
-        // Scale the output
-        for x in real_output.iter_mut() {
-            *x /= size as f32;
-        }
-
-        // Compare original and reconstructed data
-        for (orig, reconstructed) in real_input.iter().zip(real_output.iter()) {
-            let diff = (orig - reconstructed).abs();
-            assert!(
-                diff < 1e-6,
-                "Difference too large: {} vs {}, diff = {}",
-                orig,
-                reconstructed,
-                diff
-            );
-        }
-    }
-
-    #[test]
-    fn test_fft_cpu_vs_legacy() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
-        let window_size = 1024;
-        let overlap_size = 512;
-
-        let cpu_result = measure_time!(
-            "CPU FFT",
-            cpu_fft(file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        let legacy_cpu_result = measure_time!(
-            "LEGACY CPU FFT",
-            legacy_fft::fft(file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        info!("CPU result: {:?}", cpu_result);
-        info!("Legacy CPU result: {:?}", legacy_cpu_result);
-
-        // Compare results with tolerance
-        assert!(
-            (cpu_result.rms - legacy_cpu_result.rms).abs() < 0.01,
-            "RMS difference too large: {} vs {}",
-            cpu_result.rms,
-            legacy_cpu_result.rms
-        );
-        assert!(
-            (cpu_result.energy - legacy_cpu_result.energy).abs() < 5.0,
-            "Energy difference too large: {} vs {}",
-            cpu_result.energy,
-            legacy_cpu_result.energy
-        );
-        assert!(
-            cpu_result.zcr.abs_diff(legacy_cpu_result.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            cpu_result.zcr,
-            legacy_cpu_result.zcr
-        );
-    }
-
-    #[test]
-    fn test_fft_gpu_vs_legacy() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
-        let window_size = 1024;
-        let batch_size = 1024 * 8;
-        let overlap_size = 512;
-
-        let gpu_result = measure_time!(
-            "GPU FFT",
-            gpu_fft(file_path, window_size, batch_size, overlap_size, None)
-        )
-        .unwrap();
-
-        let legacy_cpu_result = measure_time!(
-            "LEGACY CPU FFT",
-            legacy_fft::fft(file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        info!("GPU result: {:?}", gpu_result);
-        info!("Legacy CPU result: {:?}", legacy_cpu_result);
-
-        // Compare results with tolerance
-        assert!(
-            (gpu_result.rms - legacy_cpu_result.rms).abs() < 0.01,
-            "RMS difference too large: {} vs {}",
-            gpu_result.rms,
-            legacy_cpu_result.rms
-        );
-        assert!(
-            (gpu_result.energy - legacy_cpu_result.energy).abs() < 5.0,
-            "Energy difference too large: {} vs {}",
-            gpu_result.energy,
-            legacy_cpu_result.energy
-        );
-        assert!(
-            gpu_result.zcr.abs_diff(legacy_cpu_result.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            gpu_result.zcr,
-            legacy_cpu_result.zcr
-        );
-    }
-
-    #[test]
-    fn test_fft_cpu_vs_gpu() {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
-        let file_path = "../assets/startup_0.ogg";
-        let window_size = 1024;
-        let batch_size = 1024 * 8;
-        let overlap_size = 512;
-
-        let cpu_result = measure_time!(
-            "CPU FFT",
-            cpu_fft(file_path, window_size, overlap_size, None)
-        )
-        .unwrap();
-
-        let gpu_result = measure_time!(
-            "GPU FFT",
-            gpu_fft(file_path, window_size, batch_size, overlap_size, None)
-        )
-        .unwrap();
-
-        info!("CPU result: {:?}", cpu_result);
-        info!("GPU result: {:?}", gpu_result);
-
-        // Compare results with tolerance
-        assert!(
-            (cpu_result.rms - gpu_result.rms).abs() < 0.01,
-            "RMS difference too large: {} vs {}",
-            cpu_result.rms,
-            gpu_result.rms
-        );
-        assert!(
-            (cpu_result.energy - gpu_result.energy).abs() < 5.0,
-            "Energy difference too large: {} vs {}",
-            cpu_result.energy,
-            gpu_result.energy
-        );
-        assert!(
-            cpu_result.zcr.abs_diff(gpu_result.zcr) < 10,
-            "ZCR values don't match: {} vs {}",
-            cpu_result.zcr,
-            gpu_result.zcr
-        );
-
-        // Compare spectrum values
-        for (i, (cpu_value, gpu_value)) in cpu_result
-            .spectrum
-            .iter()
-            .zip(gpu_result.spectrum.iter())
-            .enumerate()
-        {
-            assert!(
-                (cpu_value.norm() - gpu_value.norm()).abs() < 0.001,
-                "Spectrum difference too large at index {}: {} vs {}",
-                i,
-                cpu_value.norm(),
-                gpu_value.norm()
-            );
-        }
-    }
 }
