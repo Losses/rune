@@ -118,6 +118,7 @@ flutter:
     - assets/startup_0.ogg
     - assets/startup_1.ogg
     - assets/linux-tray.svg
+    - assets/mac-tray.svg
     - assets/tray_icon_light.ico
     - assets/tray_icon_dark.ico
   # An image asset can refer to one or more resolution-specific "variants", see

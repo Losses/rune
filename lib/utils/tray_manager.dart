@@ -31,8 +31,7 @@ class TrayManager {
     }
 
     if (Platform.isMacOS) {
-      // TODO: Add macOS tray icon
-      return 'assets/linux-tray.svg';
+      return 'assets/mac-tray.svg';
     }
 
     return 'assets/linux-tray.svg';
