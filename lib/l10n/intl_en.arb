@@ -800,5 +800,17 @@
   "back": "Back",
   "@back": {
     "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Export As",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Playlist File",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Cover Art Wall",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
   }
 }

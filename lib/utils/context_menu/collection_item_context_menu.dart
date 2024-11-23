@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -15,6 +17,7 @@ import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
 import '../execute_middle_click_action.dart';
+import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 
 final Map<CollectionType, String> typeToOperator = {
   CollectionType.Album: "lib::album",
@@ -248,6 +251,33 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           ),
           if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
           ...mixItems
+        ],
+      ),
+    );
+  }
+
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    items.add(const MenuFlyoutSeparator());
+    items.add(
+      MenuFlyoutSubItem(
+        leading: const Icon(Symbols.upload),
+        text: Text(S.of(context).exportTracks),
+        items: (context) => [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.list_alt),
+            text: Text(S.of(context).exportM3u8),
+            onPressed: () async {
+              Flyout.of(context).close();
+            },
+          ),
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.wall_art),
+            text: Text(S.of(context).exportCoverWall),
+            onPressed: () async {
+              Flyout.of(context).close();
+              showExportCoverWallDialog(context, type, id);
+            },
+          ),
         ],
       ),
     );

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/settings_manager.dart';
 
 import '../../utils/query_list.dart';
+import '../../utils/settings_manager.dart';
 import '../../utils/api/query_mix_tracks.dart';
 
 import 'widgets/cover_wall_background_implementation.dart';
@@ -25,7 +25,7 @@ class CoverWallBackground extends StatefulWidget {
 }
 
 class _CoverWallBackgroundState extends State<CoverWallBackground> {
-  final List<String> paths = [];
+  final Set<String> paths = {};
 
   @override
   void initState() {
@@ -65,7 +65,7 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
       builder: (context, constraints) => CoverWallBackgroundImplementation(
         seed: widget.seed,
         gap: widget.gap,
-        paths: paths,
+        paths: paths.toList(),
         constraints: constraints,
       ),
     );

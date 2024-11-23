@@ -63,7 +63,7 @@ class CoverWallBackgroundImplementationState
 
   _loadAllImages() {
     final nextSize = nearestPowerOfTwo(
-      calculateCoverWallSize(widget.constraints).ceil() *
+      calculateCoverWallGridSize(widget.constraints).ceil() *
           maxRandomGridConfigSize *
           pixelRatio.ceil(),
     );
@@ -92,7 +92,7 @@ class CoverWallBackgroundImplementationState
       widget.seed,
       size,
     );
-    final gridSize = calculateCoverWallSize(widget.constraints);
+    final gridSize = calculateCoverWallGridSize(widget.constraints);
 
     return CustomPaint(
       painter: CoverWallBackgroundPainter(

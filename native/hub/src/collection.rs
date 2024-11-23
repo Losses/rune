@@ -197,7 +197,7 @@ impl Collection {
         let mut collection = Collection::from_model(main_db, &model).await?;
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
         }
 
         Ok(collection)
@@ -212,7 +212,7 @@ impl Collection {
         let mut collection = Collection::from_unified_collection(x);
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
         }
 
         Ok(collection)

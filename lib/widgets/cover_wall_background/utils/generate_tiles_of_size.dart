@@ -10,11 +10,11 @@ import '../utils/random_grid_placement.dart';
 
 List<List<RandomGridPlacement>> generateTilesOfSize(
   BoxConstraints constraints,
-  int n,
+  int nImages,
   int seed,
   int size,
 ) {
-  final gridSize = calculateCoverWallSize(constraints);
+  final gridSize = calculateCoverWallGridSize(constraints);
   final cols =
       (constraints.maxWidth / gridSize).ceil() + maxRandomGridConfigSize;
   final rows =
@@ -24,7 +24,7 @@ List<List<RandomGridPlacement>> generateTilesOfSize(
 
   final List<bool> occupied = List.filled(totalGrids, false);
   final List<List<RandomGridPlacement>> placement =
-      List.generate(n, (_) => [], growable: false);
+      List.generate(nImages, (_) => [], growable: false);
 
   for (int i = 0; i < occupied.length; i += 1) {
     final int row = i ~/ cols;
@@ -36,7 +36,7 @@ List<List<RandomGridPlacement>> generateTilesOfSize(
 
     double randomValue1 = stringToDouble('$gridKey-$seed');
     double randomValue2 = stringToDouble('$gridKey-i-$seed');
-    int coverIndex = (randomValue2 * (n - 1)).round();
+    int coverIndex = (randomValue2 * (nImages - 1)).round();
 
     int maxSize = maxRandomGridConfigSize;
 
@@ -96,7 +96,7 @@ List<List<RandomGridPlacement>> generateTilesOfSize(
 
     final gridKey = '$row-$col';
     double randomValue2 = stringToDouble('$gridKey-i-$seed');
-    int coverIndex = (randomValue2 * (n - 1)).round();
+    int coverIndex = (randomValue2 * (nImages - 1)).round();
 
     occupied[i] = true;
 
