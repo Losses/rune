@@ -812,5 +812,17 @@
   "exportCoverWall": "Cover Art Wall",
   "@exportCoverWall": {
     "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "Ratio",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Frame",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Background",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
   }
 }
