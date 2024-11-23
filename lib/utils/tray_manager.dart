@@ -13,9 +13,11 @@ import 'l10n.dart';
 
 class TrayManager {
   initialize() async {
-    if (!Platform.isLinux && !Platform.isWindows) return;
-
-    await trayManager.setIcon(getTrayIconPath());
+    if (Platform.isMacOS) {
+      await trayManager.setIcon(getTrayIconPath(), isTemplate: true);
+    } else {
+      await trayManager.setIcon(getTrayIconPath());
+    }
   }
 
   static String getTrayIconPath() {
@@ -28,6 +30,11 @@ class TrayManager {
       }
     }
 
+    if (Platform.isMacOS) {
+      // TODO: Add macOS tray icon
+      return 'assets/linux-tray.svg';
+    }
+
     return 'assets/linux-tray.svg';
   }
 
@@ -36,8 +43,6 @@ class TrayManager {
   Locale? _cachedLocale;
 
   updateTray(BuildContext context) async {
-    if (!Platform.isLinux && !Platform.isWindows) return;
-
     final path = $router.path;
 
     final s = S.of(context);
