@@ -710,6 +710,10 @@ pub async fn query_mix_media_files(
         return Ok([].to_vec());
     }
 
+    if pipe_recommend.is_some() {
+        filter_analyzed = Some(true);
+    }
+
     // Base query for media_files
     let mut query = media_files::Entity::find();
 
