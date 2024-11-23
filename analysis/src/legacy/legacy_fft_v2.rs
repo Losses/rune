@@ -399,7 +399,6 @@ impl FFTProcessor {
         self.total_zcr += zcr(resampled_chunk);
         self.total_energy += energy(resampled_chunk);
 
-        // TODO: Already find one way to optimize this which can be 0.5ms faster in startup_0.ogg
         let start_idx = self.batch_cache_buffer_count * self.window_size;
         for (i, &sample) in resampled_chunk.iter().enumerate() {
             if i >= self.window_size {
