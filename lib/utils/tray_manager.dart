@@ -13,7 +13,11 @@ import 'l10n.dart';
 
 class TrayManager {
   initialize() async {
-    await trayManager.setIcon(getTrayIconPath());
+    if (Platform.isMacOS) {
+      await trayManager.setIcon(getTrayIconPath(), isTemplate: true);
+    } else {
+      await trayManager.setIcon(getTrayIconPath());
+    }
   }
 
   static String getTrayIconPath() {
@@ -27,7 +31,8 @@ class TrayManager {
     }
 
     if (Platform.isMacOS) {
-      return 'assets/tray_icon_dark.ico';
+      // TODO: Add macOS tray icon
+      return 'assets/linux-tray.svg';
     }
 
     return 'assets/linux-tray.svg';
