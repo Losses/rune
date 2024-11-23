@@ -121,6 +121,7 @@ flutter:
     - assets/mac-tray.svg
     - assets/tray_icon_light.ico
     - assets/tray_icon_dark.ico
+    - assets/watermark.png
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
   # For details regarding adding assets from package dependencies, see

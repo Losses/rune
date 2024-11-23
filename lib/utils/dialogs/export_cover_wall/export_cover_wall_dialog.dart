@@ -16,6 +16,18 @@ import '../mix/utils/select_input_controller.dart';
 import '../mix/widgets/select_buttons_section.dart';
 import '../mix/widgets/select_input_section.dart';
 
+Size parseSize(String input) {
+  List<String> parts = input.split(' ');
+
+  int widthRatio = int.parse(parts[0]);
+  int heightRatio = int.parse(parts[1]);
+
+  int width = 1920;
+  int height = (1920 * heightRatio / widthRatio).round();
+
+  return Size(width.toDouble(), height.toDouble());
+}
+
 List<SelectItem> sizeItems(BuildContext context) => [
       SelectItem(
         value: '16 9',
@@ -153,8 +165,18 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
                           isLoading = true;
                         });
 
-                        final image =
-                            await renderCoverWall(widget.type, widget.id);
+                        final image = await renderCoverWall(
+                          widget.type,
+                          widget.id,
+                          parseSize(ratioController.selectedValue ?? '16 9'),
+                          backgroundController.selectedValue == 'light'
+                              ? Colors.white
+                              : Colors.black,
+                          frameController.selectedValue == 'enable',
+                          backgroundController.selectedValue == 'light'
+                              ? Colors.black
+                              : Colors.white,
+                        );
 
                         final FileSaveLocation? result = await getSaveLocation(
                           suggestedName: 'cover_wall.png',
