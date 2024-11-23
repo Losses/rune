@@ -183,7 +183,7 @@ macro_rules! parallel_media_files_processing {
                             info!("Cancellation requested. Exiting producer loop.");
                             // Handle the error gracefully
                             if let Err(e) = tx.send(None).await {
-                                warn!("Failed to send termination signal: {:?}", e);
+                                warn!("Failed to send termination signal: {:#?}", e);
                             }
                             break;
                         }
@@ -197,7 +197,7 @@ macro_rules! parallel_media_files_processing {
                                 error!("Database error: {:?}", e);
                                 // Send termination signal on error
                                 if let Err(e) = tx.send(None).await {
-                                    warn!("Failed to send termination signal: {:?}", e);
+                                    warn!("Failed to send termination signal: {:#?}", e);
                                 }
                                 return Err(e);
                             }
@@ -207,7 +207,7 @@ macro_rules! parallel_media_files_processing {
                         info!("No more files to process. Exiting loop.");
                         // Handle the error gracefully
                         if let Err(e) = tx.send(None).await {
-                            error!("Failed to send termination signal: {:?}", e);
+                            error!("Failed to send termination signal: {:#?}", e);
                         }
                         break;
                     }
@@ -218,7 +218,7 @@ macro_rules! parallel_media_files_processing {
                             if token.is_cancelled() {
                                 info!("Cancellation requested during file sending.");
                                 if let Err(e) = tx.send(None).await {
-                                    warn!("Failed to send termination signal: {:?}", e);
+                                    warn!("Failed to send termination signal: {:#?}", e);
                                 }
                                 return Ok(());
                             }
@@ -227,7 +227,7 @@ macro_rules! parallel_media_files_processing {
                         match tx.send(Some(file.clone())).await {
                             Ok(_) => {},
                             Err(e) => {
-                                warn!("Failed to send file: {:?}", e);
+                                warn!("Failed to send file: {:#?}", e);
                                 return Ok(());
                             }
                         }
