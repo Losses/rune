@@ -160,7 +160,7 @@ void main(List<String> arguments) async {
 
   $closeManager;
 
-  if (Platform.isMacOS) {
+  if (Platform.isMacOS) {    
     WindowManipulator.overrideStandardWindowButtonPosition(
         buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
     WindowManipulator.overrideStandardWindowButtonPosition(
@@ -292,7 +292,7 @@ class _RuneState extends State<Rune> {
           builder: (context, child) {
             final theme = FluentTheme.of(context);
 
-            return Container(
+            Widget content = Container(
               color: appTheme.windowEffect == WindowEffect.solid
                   ? theme.micaBackgroundColor
                   : Colors.transparent,
@@ -304,6 +304,12 @@ class _RuneState extends State<Rune> {
                 ),
               ),
             );
+
+            if (Platform.isMacOS) {
+              content = MoveWindow(child: content);
+            }
+
+            return content;
           },
         );
       },
