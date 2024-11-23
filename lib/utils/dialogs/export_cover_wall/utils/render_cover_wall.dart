@@ -5,8 +5,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rune/utils/query_list.dart';
 
 import '../../../../messages/all.dart';
-import '../../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../../widgets/cover_wall_background/utils/generate_tiles_of_size.dart';
+import '../../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../../widgets/cover_wall_background/utils/cover_wall_background_painter.dart';
 import '../../../../widgets/cover_wall_background/constants/max_random_grid_config_size.dart';
 

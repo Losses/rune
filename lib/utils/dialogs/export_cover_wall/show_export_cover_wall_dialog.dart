@@ -9,6 +9,7 @@ import 'export_cover_wall_dialog.dart';
 void showExportCoverWallDialog(
   BuildContext context,
   CollectionType type,
+  String title,
   int id,
 ) async {
   await $showModal<void>(
@@ -16,6 +17,7 @@ void showExportCoverWallDialog(
     (context, $close) => ExportCoverWallDialog(
       type: type,
       id: id,
+      title: title,
       $close: $close,
     ),
     dismissWithEsc: true,

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
@@ -90,12 +91,14 @@ List<SelectItem> frameItem(BuildContext context) => <SelectItem>[
 class ExportCoverWallDialog extends StatefulWidget {
   final CollectionType type;
   final int id;
+  final String title;
   final void Function(void) $close;
 
   const ExportCoverWallDialog({
     super.key,
     required this.type,
     required this.id,
+    required this.title,
     required this.$close,
   });
 
@@ -178,8 +181,12 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
                               : Colors.white,
                         );
 
-                        final FileSaveLocation? result = await getSaveLocation(
-                          suggestedName: 'cover_wall.png',
+                        final Directory appDocumentsDir =
+                            await getApplicationDocumentsDirectory();
+
+                        final FileSaveLocation? path = await getSaveLocation(
+                          suggestedName: '${widget.title}.png',
+                          initialDirectory: appDocumentsDir.path,
                           acceptedTypeGroups: const [
                             XTypeGroup(
                               label: 'images',
@@ -188,13 +195,13 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
                           ],
                         );
 
-                        if (result == null) return;
+                        if (path == null) return;
 
                         final pngBytes = await image.toByteData(
                           format: ui.ImageByteFormat.png,
                         );
 
-                        File(result.path).writeAsBytesSync(
+                        File(path.path).writeAsBytesSync(
                           pngBytes!.buffer.asInt8List(),
                         );
 

@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/utils/context_menu/utils/build_m3u8.dart';
 
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
@@ -268,6 +271,27 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             text: Text(S.of(context).exportM3u8),
             onPressed: () async {
               Flyout.of(context).close();
+
+              final Directory appDocumentsDir =
+                  await getApplicationDocumentsDirectory();
+
+              final FileSaveLocation? path = await getSaveLocation(
+                suggestedName: '$title.m3u8',
+                initialDirectory: appDocumentsDir.path,
+                acceptedTypeGroups: const [
+                  XTypeGroup(
+                    label: 'playlist',
+                    extensions: <String>['m3u8'],
+                  )
+                ],
+              );
+
+              if (path == null) return;
+
+              final playlist = await buildM3u8(type, id);
+
+              final file = File(path.path);
+              await file.writeAsString(playlist);
             },
           ),
           MenuFlyoutItem(
@@ -275,7 +299,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             text: Text(S.of(context).exportCoverWall),
             onPressed: () async {
               Flyout.of(context).close();
-              showExportCoverWallDialog(context, type, id);
+              showExportCoverWallDialog(context, type, title, id);
             },
           ),
         ],
