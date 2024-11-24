@@ -5,7 +5,9 @@
 
 ## 2. Language Requirements
 2.1. All contributions MUST be in English to ensure clear communication among developers from diverse backgrounds and regions.
+
 2.2. If you're not confident in your English, you MAY use any large language model to assist you.
+
 2.3. We do not accept pull requests for translating the README or any development documentation.
 
 ## 3. Feature Development and Requests
