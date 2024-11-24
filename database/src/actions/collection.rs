@@ -100,6 +100,7 @@ pub enum CollectionQueryListMode {
     Forward,
     Reverse,
     Random,
+    Name,
 }
 
 #[derive(Debug, Clone, Error)]
@@ -113,6 +114,7 @@ impl FromStr for CollectionQueryListMode {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "name" => Ok(CollectionQueryListMode::Name),
             "forward" => Ok(CollectionQueryListMode::Forward),
             "oldest" => Ok(CollectionQueryListMode::Forward),
             "reverse" => Ok(CollectionQueryListMode::Reverse),
@@ -162,7 +164,7 @@ macro_rules! collection_query {
             db: &DatabaseConnection,
             groups: Vec<String>,
         ) -> Result<Vec<(String, Vec<($item_entity::Model, HashSet<i32>)>)>, sea_orm::DbErr> {
-            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+            use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
             use std::collections::{HashMap, HashSet};
             use $crate::actions::cover_art::get_magic_cover_art_id;
             use $crate::get_entity_to_cover_ids;
@@ -173,6 +175,7 @@ macro_rules! collection_query {
             // Step 1: Fetch entities belonging to the specified groups
             let entities: Vec<$item_entity::Model> = $item_entity::Entity::find()
                 .filter($item_entity::Column::Group.is_in(groups.clone()))
+                .order_by_asc(<$item_entity::Column>::Name)
                 .all(db)
                 .await?;
 
@@ -281,6 +284,13 @@ macro_rules! collection_query {
                 use $crate::actions::collection::CollectionQueryListMode;
 
                 match mode {
+                    CollectionQueryListMode::Name => {
+                        $item_entity::Entity::find()
+                            .order_by_asc(<$item_entity::Column>::Name)
+                            .limit(limit)
+                            .all(main_db)
+                            .await
+                    }
                     CollectionQueryListMode::Forward => {
                         $item_entity::Entity::find().limit(limit).all(main_db).await
                     }

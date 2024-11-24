@@ -138,6 +138,13 @@ impl CollectionQuery for mixes::Model {
         };
 
         match mode {
+            CollectionQueryListMode::Name => {
+                mixes::Entity::find()
+                    .order_by_asc(mixes::Column::Name)
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+            }
             CollectionQueryListMode::Forward => {
                 mixes::Entity::find().limit(limit).all(main_db).await
             }
