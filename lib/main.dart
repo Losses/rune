@@ -173,7 +173,10 @@ void main(List<String> arguments) async {
   final windowSizeSetting =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
 
-  final windowSize = windowSizes[windowSizeSetting]!;
+  final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
+  final windowSize = Platform.isWindows
+      ? windowSizes[windowSizeSetting]!
+      : windowSizes[windowSizeSetting]! / firstView.devicePixelRatio;
   appWindow.size = windowSize;
 
   mainLoop();
