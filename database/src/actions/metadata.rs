@@ -68,6 +68,8 @@ pub async fn sync_file_descriptions(
             .find(|(key, _)| key == "track_title")
         {
             search_term = Some((file_id, value.clone()));
+        } else if let Some(file_name) = metadata.path.file_name() {
+            search_term = Some((file_id, file_name.to_string_lossy().into_owned()))
         }
     };
 
@@ -731,6 +733,14 @@ where
             value,
         )
         .await?;
+    } else if let Some(file_name) = metadata.path.file_name() {
+        add_term(
+            main_db,
+            CollectionQueryType::Track,
+            inserted_file.last_insert_id,
+            &file_name.to_string_lossy(),
+        )
+        .await?;
     }
 
     let file_id = inserted_file.last_insert_id;
@@ -935,7 +945,10 @@ pub async fn get_metadata_summary_by_files(
             file_name: file.file_name.clone(),
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
-            title: metadata.get("track_title").cloned().unwrap_or_default(),
+            title: metadata
+                .get("track_title")
+                .cloned()
+                .unwrap_or(file.file_name.clone()),
             track_number,
             duration: duration.to_f64().expect("Unable to convert track duration"),
             cover_art_id: if cover_art_id == magic_cover_art_id {
