@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../screens/collection/utils/collection_data_provider.dart';
 import '../utils/query_list.dart';
 import '../utils/api/play_mode.dart';
 import '../utils/api/load_request.dart';
@@ -59,6 +60,7 @@ class LibraryPathProvider with ChangeNotifier {
     final (success, error) = await setMediaLibraryPath(filePath);
 
     if (success) {
+      CollectionCache().clearAll();
       _fileStorageService.storeFilePath(filePath);
 
       await operatePlaybackWithMixQuery(
