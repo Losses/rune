@@ -1,14 +1,10 @@
 import 'dart:ui' as ui;
 import 'dart:async';
-import 'dart:convert';
-import 'dart:typed_data';
 
+import '../../../utils/empty_blank_image.dart';
 import '../../../utils/load_and_resize_image.dart';
 
 import 'image_proxy.dart';
-
-final Uint8List blankBytes = const Base64Codec()
-    .decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7");
 
 final emptyKey = ImageKey('', 0);
 
@@ -66,7 +62,7 @@ class ImageMemoryManager {
     Completer<ui.Image> completer,
   ) async {
     final ui.Codec codec = await ui.instantiateImageCodecFromBuffer(
-      await ui.ImmutableBuffer.fromUint8List(blankBytes),
+      await ui.ImmutableBuffer.fromUint8List(emptyBlankImage),
     );
 
     final ui.FrameInfo frameInfo = await codec.getNextFrame();

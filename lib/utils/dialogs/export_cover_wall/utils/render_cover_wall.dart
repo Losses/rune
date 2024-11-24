@@ -11,6 +11,7 @@ import '../../../../widgets/cover_wall_background/utils/cover_wall_background_pa
 import '../../../../widgets/cover_wall_background/constants/max_random_grid_config_size.dart';
 
 import '../../../build_query.dart';
+import '../../../empty_blank_image.dart';
 import '../../../load_and_resize_image.dart';
 import '../../../api/query_mix_tracks.dart';
 
@@ -21,6 +22,15 @@ Future<ui.Image> loadImageFromAsset(String assetPath) async {
   final frame = await codec.getNextFrame();
   return frame.image;
 }
+
+Future<ui.Image> emptyImage = (() async {
+  final emptyCodec = await ui.instantiateImageCodecFromBuffer(
+    await ui.ImmutableBuffer.fromUint8List(emptyBlankImage),
+  );
+
+  final frame = await emptyCodec.getNextFrame();
+  return frame.image;
+})();
 
 Future<ui.Image> renderCoverWall(
   CollectionType type,
@@ -55,12 +65,21 @@ Future<ui.Image> renderCoverWall(
   );
 
   final images = await Future.wait(
-    paths.map(
-      (path) => loadAndResizeImage(
-        path,
-        gridSize.ceil() * maxRandomGridConfigSize,
-      ),
-    ),
+    paths
+        .asMap()
+        .map(
+          (i, path) => MapEntry(
+            i,
+            grid[i].isEmpty
+                ? emptyImage
+                : loadAndResizeImage(
+                    path,
+                    gridSize.ceil() * maxRandomGridConfigSize,
+                  ),
+          ),
+        )
+        .values
+        .toList(),
   );
 
   final backgroundPaint = Paint()

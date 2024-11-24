@@ -2,9 +2,9 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
-import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:rune/utils/dialogs/export_cover_wall/constants/frame_item.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
@@ -13,80 +13,13 @@ import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../messages/playlist.pb.dart';
 import '../../../messages/collection.pb.dart';
+
 import '../mix/utils/select_input_controller.dart';
 import '../mix/widgets/select_buttons_section.dart';
-import '../mix/widgets/select_input_section.dart';
 
-Size parseSize(String input) {
-  List<String> parts = input.split(' ');
-
-  int widthRatio = int.parse(parts[0]);
-  int heightRatio = int.parse(parts[1]);
-
-  int width = 1920;
-  int height = (1920 * heightRatio / widthRatio).round();
-
-  return Size(width.toDouble(), height.toDouble());
-}
-
-List<SelectItem> sizeItems(BuildContext context) => [
-      SelectItem(
-        value: '16 9',
-        title: '¹⁶⁄₉',
-        icon: Symbols.crop_16_9,
-      ),
-      SelectItem(
-        value: '3 2',
-        title: '³⁄₂',
-        icon: Symbols.crop_3_2,
-      ),
-      SelectItem(
-        value: '7 5',
-        title: '⁷⁄₅',
-        icon: Symbols.crop_7_5,
-      ),
-      SelectItem(
-        value: '5 4',
-        title: '⁵⁄₄',
-        icon: Symbols.crop_5_4,
-      ),
-      SelectItem(
-        value: '1 1',
-        title: '¹⁄₁',
-        icon: Symbols.crop_square,
-      ),
-      SelectItem(
-        value: '9 16',
-        title: '⁹⁄₁₆',
-        icon: Symbols.crop_9_16,
-      ),
-    ];
-
-List<SelectItem> backgroundItem(BuildContext context) => [
-      SelectItem(
-        value: 'dark',
-        title: S.of(context).dark,
-        icon: Symbols.dark_mode,
-      ),
-      SelectItem(
-        value: 'light',
-        title: S.of(context).light,
-        icon: Symbols.light_mode,
-      ),
-    ];
-
-List<SelectItem> frameItem(BuildContext context) => <SelectItem>[
-      SelectItem(
-        value: 'enable',
-        title: S.of(context).enable,
-        icon: Symbols.iframe,
-      ),
-      SelectItem(
-        value: 'disable',
-        title: S.of(context).disable,
-        icon: Symbols.iframe_off,
-      ),
-    ];
+import 'utils/parse_size.dart';
+import 'constants/size_items.dart';
+import 'constants/background_item.dart';
 
 class ExportCoverWallDialog extends StatefulWidget {
   final CollectionType type;
@@ -164,6 +97,22 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
                 onPressed: isLoading
                     ? null
                     : () async {
+                        final Directory appDocumentsDir =
+                            await getApplicationDocumentsDirectory();
+
+                        final FileSaveLocation? path = await getSaveLocation(
+                          suggestedName: '${widget.title}.png',
+                          initialDirectory: appDocumentsDir.path,
+                          acceptedTypeGroups: const [
+                            XTypeGroup(
+                              label: 'images',
+                              extensions: <String>['png'],
+                            )
+                          ],
+                        );
+
+                        if (path == null) return;
+
                         setState(() {
                           isLoading = true;
                         });
@@ -180,22 +129,6 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
                               ? Colors.black
                               : Colors.white,
                         );
-
-                        final Directory appDocumentsDir =
-                            await getApplicationDocumentsDirectory();
-
-                        final FileSaveLocation? path = await getSaveLocation(
-                          suggestedName: '${widget.title}.png',
-                          initialDirectory: appDocumentsDir.path,
-                          acceptedTypeGroups: const [
-                            XTypeGroup(
-                              label: 'images',
-                              extensions: <String>['png'],
-                            )
-                          ],
-                        );
-
-                        if (path == null) return;
 
                         final pngBytes = await image.toByteData(
                           format: ui.ImageByteFormat.png,
