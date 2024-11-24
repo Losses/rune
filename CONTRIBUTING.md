@@ -12,60 +12,81 @@
 
 ### 3.1. Eligibility and Process
 3.1.1. Only paid genuine users and active code contributors SHALL have the right to submit feature requests.
+
 3.1.2. Contributors MUST contact the development team for preliminary discussion before implementing features to ensure alignment with Rune's vision.
 
 ### 3.2. Ethical Foundation
 The following principles SHALL form the ethical foundation of all product decisions:
 
 3.2.1. **User Safety:** Features MUST NOT cause harm to users or their systems
+
 3.2.2. **Privacy:** User privacy MUST be protected, and user data MUST be handled with transparency and care
+
 3.2.3. **Autonomy:** User autonomy MUST be respected and preserved
+
 3.2.4. **Attention:** User attention MUST NOT be exploited for commercial or other purposes
 
 ### 3.3. User-Centered Design
+
 All feature proposals MUST align with these core principles:
 
 3.3.1. **Core Functionality:** Features MUST serve the primary purpose of music playback and library management
+
 3.3.2. **User Intent:** Features MUST respect user choices and control
+
 3.3.3. **User Experience:** Features SHOULD enhance, not impede, the music listening experience
+
 3.3.4. **Performance:** Features MUST NOT significantly degrade system performance
 
 ### 3.4. Priority Guidelines
 3.4.1. Participants MUST NOT prioritize "commercial benefit", "community influence" or "market trends" over product first principles
+
 3.4.2. Popular feature requests that conflict with core principles SHALL be declined
+
 3.4.3. Market competitive analysis MAY inform but SHALL NOT override ethical considerations
+
 3.4.4. Monetization strategies MUST align with user interests and ethical principles
+
 3.4.5. While deviations from product value principles MAY be considered, such proposals MUST NOT disrupt the normal user experience
 
 ## 4. Software Defect Reporting
 
 ### 4.1. Definitions
 4.1.1. A "software defect" SHALL be defined as a verifiable deviation from documented functionality or performance specifications
+
 4.1.2. Personal preferences SHALL be defined as subjective opinions about software features or behaviors that conform to specifications
+
 4.1.3. Participants SHOULD distinguish between "software defects" and personal preferences
 
 ### 4.2. Report Requirements
 4.2.1. All defect reports MUST include:
-   1. Steps to reproduce
-   2. Expected behavior
-   3. Actual behavior
-   4. System environment details
+
+   a. Steps to reproduce
+   b. Expected behavior
+   c. Actual behavior
+   d. System environment details
 
 4.2.2. Reports SHOULD include objective evidence such as:
-   1. Screenshots
-   2. Log files
-   3. Video recordings
-   4. Performance metrics
+
+   a. Screenshots
+   b. Log files
+   c. Video recordings
+   d. Performance metrics
 
 ### 4.3. Communication Standards
 4.3.1. Participants SHOULD avoid using adjectives to describe observed phenomena, as they are abstract and may lead to misinterpretation
+
 4.3.2. Professional community members SHALL employ rational and objective language at all times
 
 ### 4.4. Prohibited Conduct
 Participants MUST NOT:
+
 4.4.1. Use offensive, derogatory, or discriminatory language
+
 4.4.2. Engage in trolling or harassment
+
 4.4.3. Make unfounded accusations against other participants
+
 4.4.4. Deliberately disrupt community discussions
 
 ## 5. Pull Request Standards
