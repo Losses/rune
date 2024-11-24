@@ -6,15 +6,18 @@ import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../utils/l10n.dart';
 import '../utils/router/navigation.dart';
+import '../utils/navigation/utils/escape_from_search.dart';
 import '../widgets/router/rune_stack.dart';
 import '../providers/router_path.dart';
 
 class WindowIconButton extends StatefulWidget {
   final VoidCallback onPressed;
+  final Widget? child;
 
   const WindowIconButton({
     super.key,
     required this.onPressed,
+    this.child,
   });
 
   @override
@@ -38,6 +41,7 @@ class _WindowIconButtonState extends State<WindowIconButton> {
             color:
                 isHovered ? Colors.white.withOpacity(0.08) : Colors.transparent,
           ),
+          child: widget.child,
         ),
       ),
     );
@@ -55,47 +59,82 @@ class WindowFrame extends StatefulWidget {
 }
 
 class _WindowFrameState extends State<WindowFrame> {
+  bool _isMaximized = false;
+
+  _handowWindowEvent(_) {
+    if (_isMaximized != appWindow.isMaximized) {
+      setState(() {
+        _isMaximized = appWindow.isMaximized;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final path = Provider.of<RouterPathProvider>(context).path;
+
+    final isSearch = path == '/search';
+
     return RuneStack(
       children: [
         if (Platform.isWindows)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              Expanded(
-                child: WindowTitleBarBox(
-                  child: MoveWindow(),
+          MouseRegion(
+            onEnter: _handowWindowEvent,
+            onExit: _handowWindowEvent,
+            onHover: _handowWindowEvent,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Expanded(
+                  child: WindowTitleBarBox(
+                    child: MoveWindow(),
+                  ),
                 ),
-              ),
-              WindowIconButton(
-                onPressed: () async {
-                  appWindow.minimize();
-                },
-              ),
-              MouseRegion(
-                onEnter: (event) async {
-                  // await platform.invokeMethod('maximumButtonEnter');
-                },
-                onExit: (event) async {
-                  // await platform.invokeMethod('maximumButtonExit');
-                },
-                child: WindowIconButton(
-                  onPressed: () {
-                    setState(() {
-                      appWindow.maximizeOrRestore();
-                    });
+                WindowIconButton(
+                  onPressed: () async {
+                    if (isSearch) {
+                      escapeFromSearch();
+                    } else {
+                      $push('/search');
+                    }
+                  },
+                  child: Center(
+                    child: Icon(
+                      FluentIcons.search,
+                      size: 12,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () async {
+                    appWindow.minimize();
                   },
                 ),
-              ),
-              WindowIconButton(
-                onPressed: () {
-                  appWindow.hide();
-                },
-              ),
-              appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 8),
-            ],
+                MouseRegion(
+                  onEnter: (event) async {
+                    // await platform.invokeMethod('maximumButtonEnter');
+                  },
+                  onExit: (event) async {
+                    // await platform.invokeMethod('maximumButtonExit');
+                  },
+                  child: WindowIconButton(
+                    onPressed: () {
+                      setState(() {
+                        appWindow.maximizeOrRestore();
+                      });
+                    },
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () {
+                    appWindow.hide();
+                  },
+                ),
+                appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
+              ],
+            ),
           ),
         widget.child,
       ],
