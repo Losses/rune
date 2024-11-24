@@ -12,6 +12,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
   final int groupIndex;
   final BoxConstraints constraints;
   final Widget Function(BuildContext, T) itemBuilder;
+  final Axis direction;
 
   final Dimensions Function(double, double, double, List<T>)
       dimensionCalculator;
@@ -24,6 +25,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.groupIndex,
     required this.constraints,
     required this.itemBuilder,
+    required this.direction,
     Dimensions Function(double, double, double, List<T>)? dimensionCalculator,
   }) : dimensionCalculator = dimensionCalculator ?? defaultDimensionCalculator;
 
@@ -35,6 +37,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
     required this.groupIndex,
     required this.constraints,
     required this.itemBuilder,
+    required this.direction,
   }) : dimensionCalculator = squareDimensionCalculator;
 
   static Dimensions defaultDimensionCalculator(
@@ -135,6 +138,7 @@ class StartGroupImplementation<T> extends StatelessWidget {
       groupIndex: groupIndex,
       cellSize: cellSize,
       itemBuilder: itemBuilder,
+      direction: this.direction,
     );
   }
 }

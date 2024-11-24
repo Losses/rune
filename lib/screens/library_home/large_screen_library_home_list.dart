@@ -225,6 +225,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 icon: item.$3,
                               );
                             },
+                            direction: Axis.horizontal,
                           ),
                           ...snapshot.data!.map(
                             (item) {
@@ -250,6 +251,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                       refreshList: () {},
                                     );
                                   },
+                                  direction: Axis.horizontal,
                                 );
                               } else {
                                 return Container();

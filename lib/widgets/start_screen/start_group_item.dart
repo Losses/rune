@@ -40,6 +40,7 @@ class StartGroupItem<T> extends StatelessWidget {
     required this.groupIndex,
     required this.cellSize,
     required this.itemBuilder,
+    required this.direction,
   });
 
   final double finalWidth;
@@ -50,6 +51,7 @@ class StartGroupItem<T> extends StatelessWidget {
   final int groupIndex;
   final double cellSize;
   final Widget Function(BuildContext, T) itemBuilder;
+  final Axis direction;
 
   @override
   Widget build(BuildContext context) {
@@ -59,7 +61,7 @@ class StartGroupItem<T> extends StatelessWidget {
       child: Wrap(
         spacing: gapSize,
         runSpacing: gapSize,
-        direction: Axis.vertical,
+        direction: direction,
         children: List.generate(dimensions.count, (index) {
           final int row = index ~/ dimensions.columns;
           final int column = index % dimensions.columns;

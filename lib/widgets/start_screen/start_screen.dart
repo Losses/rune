@@ -262,6 +262,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                         },
                         itemBuilder: (context, item) =>
                             collectionItemBuilder(context, item),
+                        direction: Axis.vertical,
                       );
                     },
                   );
