@@ -37,6 +37,7 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 
+import 'widgets/window_buttons.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
@@ -254,7 +255,7 @@ class _RuneState extends State<Rune> {
             if (routeName == '/' || routeName == '/scanning') {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
-                builder: (context) => routes[routeName]!(context),
+                builder: (context) => WindowFrame(routes[routeName]!(context)),
               );
             }
 
@@ -264,7 +265,7 @@ class _RuneState extends State<Rune> {
 
             return NoEffectPageRoute<dynamic>(
               settings: settings,
-              builder: (context) => page,
+              builder: (context) => WindowFrame(page),
             );
           },
           debugShowCheckedModeBanner: false,
