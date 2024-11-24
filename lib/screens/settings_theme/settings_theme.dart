@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
@@ -116,7 +118,10 @@ class _SettingsThemeState extends State<SettingsTheme> {
 
     await SettingsManager().setValue(windowSizeKey, newWindowSize);
 
-    final size = windowSizes[newWindowSize]!;
+    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
+    final size = Platform.isWindows
+        ? windowSizes[newWindowSize]!
+        : windowSizes[newWindowSize]! / firstView.devicePixelRatio;
     appWindow.size = size;
   }
 
