@@ -59,6 +59,7 @@ class StartGroupItem<T> extends StatelessWidget {
       child: Wrap(
         spacing: gapSize,
         runSpacing: gapSize,
+        direction: Axis.vertical,
         children: List.generate(dimensions.count, (index) {
           final int row = index ~/ dimensions.columns;
           final int column = index % dimensions.columns;
