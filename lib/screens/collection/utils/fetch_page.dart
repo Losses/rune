@@ -27,13 +27,6 @@ Future<(List<Group<InternalCollection>>, bool)> fetchCollectionPagePage(
 
   final groupTitles =
       currentPageSummaries.map((summary) => summary.groupTitle).toList();
-      
-  final runeIndex = groupTitles.indexOf('\u{200B}Rune');
-
-  if (runeIndex != -1) {
-    groupTitles.removeAt(runeIndex);
-    groupTitles.insert(0, '\u{200B}Rune');
-  }
 
   final groups = await fetchCollectionPageGroups(collectionType, groupTitles);
 

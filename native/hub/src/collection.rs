@@ -38,7 +38,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
     match action {
         CollectionAction::FetchGroupSummary => {
             let entry = T::count_by_first_letter(main_db).await?;
-            let collection_groups = entry
+            let mut collection_groups: Vec<_> = entry
                 .into_iter()
                 .map(|x| CollectionGroupSummary {
                     group_title: x.0,
@@ -46,12 +46,22 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                 })
                 .collect();
 
+            // Partition the collection_groups to separate the special entry
+            let (mut special, mut others): (Vec<_>, Vec<_>) = collection_groups
+                .into_iter()
+                .partition(|x| x.group_title == "\u{200B}Rune");
+
+            // Combine special and others, with special at the front
+            special.append(&mut others);
+            collection_groups = special;
+
             CollectionGroupSummaryResponse {
                 collection_type: T::collection_type().into(),
                 groups: collection_groups,
             }
             .send_signal_to_dart();
         }
+
         CollectionAction::FetchGroups => {
             let entry = T::get_groups(main_db, params.group_titles.unwrap()).await?;
             let collection_groups: Vec<CollectionGroup> =
