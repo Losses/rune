@@ -301,7 +301,7 @@ pub async fn get_analyse_count(main_db: &DatabaseConnection) -> Result<u64> {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```compile_fail
 /// let main_db: DatabaseConnection = ...;
 /// let file_ids = vec![1, 2, 3];
 /// let result = get_centralized_analysis_result(&main_db, file_ids).await;
