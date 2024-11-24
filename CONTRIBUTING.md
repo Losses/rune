@@ -1,55 +1,72 @@
-# Contributing
+# Rune Project Contribution Guidelines
 
-Welcome to the Rune project! We appreciate your interest in contributing. Please follow these guidelines to ensure smooth collaboration.
+## 1. Preamble
+1.1. The terms "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be interpreted as described in BCP 14, RFC 2119.
 
-## Language
+## 2. Language Requirements
+2.1. All contributions MUST be in English to ensure clear communication among developers from diverse backgrounds and regions.
+2.2. If you're not confident in your English, you MAY use any large language model to assist you.
+2.3. We do not accept pull requests for translating the README or any development documentation.
 
-All contributions must be in English. This ensures clear communication among developers from diverse backgrounds and regions, fostering efficient collaboration and minimizing misunderstandings. If you're not confident in your English, we encourage you to use any large language model to assist you.
+## 3. Feature Development and Requests
 
-## Features
+### 3.1. Eligibility and Process
+3.1.1. Only paid genuine users and active code contributors SHALL have the right to submit feature requests.
+3.1.2. Contributors MUST contact the development team for preliminary discussion before implementing features to ensure alignment with Rune's vision.
 
-- **No Feature Requests**: As Rune is in its early development phase, we are not accepting feature requests. However, contributions are welcome.
-- **Implementing Features**: Please contact the development team for a preliminary discussion to ensure alignment with Rune's vision.
+### 3.2. Ethical Foundation
+The following principles SHALL form the ethical foundation of all product decisions:
 
-## Pull Requests
+3.2.1. **User Safety:** Features MUST NOT cause harm to users or their systems
+3.2.2. **Privacy:** User privacy MUST be protected, and user data MUST be handled with transparency and care
+3.2.3. **Autonomy:** User autonomy MUST be respected and preserved
+3.2.4. **Attention:** User attention MUST NOT be exploited for commercial or other purposes
 
-- **Language**: English is the sole language for collaboration. We do not accept pull requests for translating the README or any development documentation.
-- **Commits**: Use clear and descriptive commit messages. Please follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+### 3.3. User-Centered Design
+All feature proposals MUST align with these core principles:
 
-## Issues
+3.3.1. **Core Functionality:** Features MUST serve the primary purpose of music playback and library management
+3.3.2. **User Intent:** Features MUST respect user choices and control
+3.3.3. **User Experience:** Features SHOULD enhance, not impede, the music listening experience
+3.3.4. **Performance:** Features MUST NOT significantly degrade system performance
 
-When reporting issues, please follow these guidelines to help us address your problem efficiently:
+### 3.4. Priority Guidelines
+3.4.1. Participants MUST NOT prioritize "commercial benefit", "community influence" or "market trends" over product first principles
+3.4.2. Popular feature requests that conflict with core principles SHALL be declined
+3.4.3. Market competitive analysis MAY inform but SHALL NOT override ethical considerations
+3.4.4. Monetization strategies MUST align with user interests and ethical principles
+3.4.5. While deviations from product value principles MAY be considered, such proposals MUST NOT disrupt the normal user experience
 
-### Check for Existing Issues
+## 4. Software Defect Reporting
 
-- Before opening a new issue, search the [existing issues](https://github.com/losses/rune/issues) to see if your problem has already been reported.
-- If you find a similar issue, consider adding a 👍 reaction instead of a "+1" comment.
+### 4.1. Definitions
+4.1.1. A "software defect" SHALL be defined as a verifiable deviation from documented functionality or performance specifications
+4.1.2. Personal preferences SHALL be defined as subjective opinions about software features or behaviors that conform to specifications
+4.1.3. Participants SHOULD distinguish between "software defects" and personal preferences
 
-### Specify the Version
+### 4.2. Report Requirements
+4.2.1. All defect reports MUST include:
+   1. Steps to reproduce
+   2. Expected behavior
+   3. Actual behavior
+   4. System environment details
 
-- Indicate which version(s) of *Rune* the issue occurs in.
+4.2.2. Reports SHOULD include objective evidence such as:
+   1. Screenshots
+   2. Log files
+   3. Video recordings
+   4. Performance metrics
 
-### Steps to Reproduce
+### 4.3. Communication Standards
+4.3.1. Participants SHOULD avoid using adjectives to describe observed phenomena, as they are abstract and may lead to misinterpretation
+4.3.2. Professional community members SHALL employ rational and objective language at all times
 
-- List the steps needed to reproduce the issue. This helps us understand how to encounter the problem:
-  1. Describe the actions taken with the client.
-  2. Note the error or problem observed.
+### 4.4. Prohibited Conduct
+Participants MUST NOT:
+4.4.1. Use offensive, derogatory, or discriminatory language
+4.4.2. Engage in trolling or harassment
+4.4.3. Make unfounded accusations against other participants
+4.4.4. Deliberately disrupt community discussions
 
-### Include Logs
-
-- Provide a full **debug** log.
-- Ensure the log covers the steps to reproduce the issue.
-- Format the log as code or use a non-expiring [pastebin](https://pastebin.com/).
-- Redact personal data but do not remove or trim other information.
-
-### Host Information
-
-- Include details about the system running `Rune`:
-  - OS (e.g., NixOS 24.05.20240830.6e99f2a)
-  - Platform (e.g., x86_64)
-
-### Additional Context
-
-- Add any other relevant information, such as the type and make of your output device if the issue involves sound playback.
-
-Thank you for contributing to Rune!
+## 5. Pull Request Standards
+5.1. All commits MUST follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification with clear and descriptive messages.
