@@ -170,13 +170,16 @@ void main(List<String> arguments) async {
         buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
   }
 
-  mainLoop();
-
   final windowSizeSetting =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
 
+  final windowSize = windowSizes[windowSizeSetting]!;
+  appWindow.size = windowSize;
+
+  mainLoop();
+  appWindow.show();
+
   doWhenWindowReady(() {
-    final windowSize = windowSizes[windowSizeSetting]!;
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
