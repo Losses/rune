@@ -144,7 +144,7 @@ void main(List<String> arguments) async {
 
   WidgetsBinding.instance.platformDispatcher.onPlatformBrightnessChanged = () {
     WidgetsBinding.instance.handlePlatformBrightnessChanged();
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isWindows) {
       updateTheme();
     }
 

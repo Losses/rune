@@ -29,6 +29,8 @@ class _WindowIconButtonState extends State<WindowIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     return MouseRegion(
       onEnter: (_) => setState(() => isHovered = true),
       onExit: (_) => setState(() => isHovered = false),
@@ -39,7 +41,7 @@ class _WindowIconButtonState extends State<WindowIconButton> {
           height: 30,
           decoration: BoxDecoration(
             color:
-                isHovered ? Colors.white.withOpacity(0.08) : Colors.transparent,
+                isHovered ? theme.resources.textFillColorPrimary.withOpacity(0.08) : Colors.transparent,
           ),
           child: widget.child,
         ),
@@ -71,18 +73,22 @@ class _WindowFrameState extends State<WindowFrame> {
 
   @override
   Widget build(BuildContext context) {
+    if (!Platform.isWindows) {
+      return widget.child;
+    }
+
     final path = Provider.of<RouterPathProvider>(context).path;
 
     final isSearch = path == '/search';
 
-    return RuneStack(
-      children: [
-        if (Platform.isWindows)
-          MouseRegion(
-            onEnter: _handowWindowEvent,
-            onExit: _handowWindowEvent,
-            onHover: _handowWindowEvent,
-            child: Row(
+    return MouseRegion(
+      onEnter: _handowWindowEvent,
+      onExit: _handowWindowEvent,
+      onHover: _handowWindowEvent,
+      child: RuneStack(
+        children: [
+          if (Platform.isWindows)
+            Row(
               mainAxisAlignment: MainAxisAlignment.end,
               mainAxisSize: MainAxisSize.max,
               children: [
@@ -103,7 +109,6 @@ class _WindowFrameState extends State<WindowFrame> {
                     child: Icon(
                       FluentIcons.search,
                       size: 12,
-                      color: Colors.white,
                     ),
                   ),
                 ),
@@ -135,9 +140,9 @@ class _WindowFrameState extends State<WindowFrame> {
                 appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
               ],
             ),
-          ),
-        widget.child,
-      ],
+          widget.child,
+        ],
+      ),
     );
   }
 }
