@@ -4,13 +4,12 @@ import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:rune/utils/dialogs/export_cover_wall/constants/frame_item.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/dialogs/unavailable_dialog_on_band.dart';
-import '../../../utils/dialogs/export_cover_wall/utils/render_cover_wall.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
+import '../../../screens/settings_library/widgets/progress_button.dart';
 import '../../../messages/playlist.pb.dart';
 import '../../../messages/collection.pb.dart';
 
@@ -18,7 +17,9 @@ import '../mix/utils/select_input_controller.dart';
 import '../mix/widgets/select_buttons_section.dart';
 
 import 'utils/parse_size.dart';
+import 'utils/render_cover_wall.dart';
 import 'constants/size_items.dart';
+import 'constants/frame_item.dart';
 import 'constants/background_item.dart';
 
 class ExportCoverWallDialog extends StatefulWidget {
@@ -41,6 +42,7 @@ class ExportCoverWallDialog extends StatefulWidget {
 
 class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
   bool isLoading = false;
+  double progress = 0;
 
   Playlist? playlist;
 
@@ -93,59 +95,17 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
           ),
           actions: [
             ResponsiveDialogActions(
-              FilledButton(
-                onPressed: isLoading
-                    ? null
-                    : () async {
-                        final Directory appDocumentsDir =
-                            await getApplicationDocumentsDirectory();
-
-                        final FileSaveLocation? path = await getSaveLocation(
-                          suggestedName: '${widget.title}.png',
-                          initialDirectory: appDocumentsDir.path,
-                          acceptedTypeGroups: const [
-                            XTypeGroup(
-                              label: 'images',
-                              extensions: <String>['png'],
-                            )
-                          ],
-                        );
-
-                        if (path == null) return;
-
-                        setState(() {
-                          isLoading = true;
-                        });
-
-                        final image = await renderCoverWall(
-                          widget.type,
-                          widget.id,
-                          parseSize(ratioController.selectedValue ?? '16 9'),
-                          backgroundController.selectedValue == 'light'
-                              ? Colors.white
-                              : Colors.black,
-                          frameController.selectedValue == 'enable',
-                          backgroundController.selectedValue == 'light'
-                              ? Colors.black
-                              : Colors.white,
-                        );
-
-                        final pngBytes = await image.toByteData(
-                          format: ui.ImageByteFormat.png,
-                        );
-
-                        File(path.path).writeAsBytesSync(
-                          pngBytes!.buffer.asInt8List(),
-                        );
-
-                        setState(() {
-                          isLoading = false;
-                        });
-
-                        widget.$close(null);
-                      },
-                child: Text(S.of(context).save),
-              ),
+              isLoading
+                  ? ProgressButton(
+                      onPressed: null,
+                      title: S.of(context).save,
+                      progress: progress,
+                      filled: true,
+                    )
+                  : FilledButton(
+                      onPressed: onConfirmPressed,
+                      child: Text(S.of(context).save),
+                    ),
               Button(
                 onPressed: isLoading ? null : () => widget.$close(null),
                 child: Text(S.of(context).cancel),
@@ -155,5 +115,60 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
         ),
       ),
     );
+  }
+
+  void onProgress(double x) {
+    setState(() {
+      progress = x;
+    });
+  }
+
+  Future<void> onConfirmPressed() async {
+    final Directory appDocumentsDir = await getApplicationDocumentsDirectory();
+
+    final FileSaveLocation? path = await getSaveLocation(
+      suggestedName: '${widget.title}.png',
+      initialDirectory: appDocumentsDir.path,
+      acceptedTypeGroups: const [
+        XTypeGroup(
+          label: 'images',
+          extensions: <String>['png'],
+        )
+      ],
+    );
+
+    if (path == null) return;
+
+    setState(() {
+      isLoading = true;
+    });
+
+    final image = await renderCoverWall(
+      widget.type,
+      widget.id,
+      parseSize(ratioController.selectedValue ?? '16 9'),
+      backgroundController.selectedValue == 'light'
+          ? Colors.white
+          : Colors.black,
+      frameController.selectedValue == 'enable',
+      backgroundController.selectedValue == 'light'
+          ? Colors.black
+          : Colors.white,
+      onProgress,
+    );
+
+    final pngBytes = await image.toByteData(
+      format: ui.ImageByteFormat.png,
+    );
+
+    File(path.path).writeAsBytesSync(
+      pngBytes!.buffer.asInt8List(),
+    );
+
+    setState(() {
+      isLoading = false;
+    });
+
+    widget.$close(null);
   }
 }

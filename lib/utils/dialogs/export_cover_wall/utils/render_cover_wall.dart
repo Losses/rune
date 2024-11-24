@@ -39,6 +39,7 @@ Future<ui.Image> renderCoverWall(
   Color background,
   bool frame,
   Color watermarkColor,
+  void Function(double) onProgress,
 ) async {
   final sizeDefinition =
       BoxConstraints(maxWidth: size.width, maxHeight: size.height);
