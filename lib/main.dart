@@ -8,7 +8,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
-import 'package:desktop_window/desktop_window.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -160,7 +159,7 @@ void main(List<String> arguments) async {
 
   $closeManager;
 
-  if (Platform.isMacOS) {    
+  if (Platform.isMacOS) {
     WindowManipulator.overrideStandardWindowButtonPosition(
         buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
     WindowManipulator.overrideStandardWindowButtonPosition(
@@ -176,16 +175,10 @@ void main(List<String> arguments) async {
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
 
   doWhenWindowReady(() {
-    final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-
-    final windowSize = Platform.isWindows
-        ? windowSizes[windowSizeSetting]! * firstView.devicePixelRatio
-        : windowSizes[windowSizeSetting]!;
-
-    DesktopWindow.setWindowSize(windowSize).then((_) {
-      appWindow.alignment = Alignment.center;
-      appWindow.show();
-    });
+    final windowSize = windowSizes[windowSizeSetting]!;
+    appWindow.size = windowSize;
+    appWindow.alignment = Alignment.center;
+    appWindow.show();
   });
 }
 

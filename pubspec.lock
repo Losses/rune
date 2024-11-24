@@ -246,14 +246,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.3.7"
-  desktop_window:
-    dependency: "direct main"
-    description:
-      name: desktop_window
-      sha256: d0590e75a0a8f91245b439fb7f2bf0ebb62d9cd9fdc7aa0622a5d50615c46845
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.4.2"
   device_info_plus:
     dependency: "direct main"
     description:
