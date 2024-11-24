@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import '../utils/l10n.dart';
 import '../utils/router/navigation.dart';
@@ -40,8 +42,9 @@ class _WindowIconButtonState extends State<WindowIconButton> {
           width: 46,
           height: 30,
           decoration: BoxDecoration(
-            color:
-                isHovered ? theme.resources.textFillColorPrimary.withOpacity(0.08) : Colors.transparent,
+            color: isHovered
+                ? theme.resources.textFillColorPrimary.withOpacity(0.08)
+                : Colors.transparent,
           ),
           child: widget.child,
         ),
@@ -60,7 +63,7 @@ class WindowFrame extends StatefulWidget {
   State<WindowFrame> createState() => _WindowFrameState();
 }
 
-class _WindowFrameState extends State<WindowFrame> {
+class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
   bool _isMaximized = false;
 
   _handowWindowEvent(_) {
@@ -69,6 +72,23 @@ class _WindowFrameState extends State<WindowFrame> {
         _isMaximized = appWindow.isMaximized;
       });
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    FullScreen.addListener(this);
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+    FullScreen.removeListener(this);
+  }
+
+  @override
+  void onFullScreenChanged(bool enabled, SystemUiMode? systemUiMode) {
+    setState(() => {});
   }
 
   @override
@@ -87,7 +107,7 @@ class _WindowFrameState extends State<WindowFrame> {
       onHover: _handowWindowEvent,
       child: RuneStack(
         children: [
-          if (Platform.isWindows)
+          if (FullScreen.isFullScreen)
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               mainAxisSize: MainAxisSize.max,
@@ -98,7 +118,45 @@ class _WindowFrameState extends State<WindowFrame> {
                   ),
                 ),
                 WindowIconButton(
-                  onPressed: () async {
+                  onPressed: () {
+                    if (isSearch) {
+                      escapeFromSearch();
+                    } else {
+                      $push('/search');
+                    }
+                  },
+                  child: Center(
+                    child: Icon(
+                      FluentIcons.search,
+                      size: 12,
+                    ),
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () {
+                    FullScreen.setFullScreen(false);
+                  },
+                  child: Center(
+                    child: Icon(
+                      FluentIcons.full_screen,
+                      size: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (!FullScreen.isFullScreen)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Expanded(
+                  child: WindowTitleBarBox(
+                    child: MoveWindow(),
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () {
                     if (isSearch) {
                       escapeFromSearch();
                     } else {
