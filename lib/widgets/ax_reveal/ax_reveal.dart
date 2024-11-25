@@ -26,7 +26,7 @@ class _AxRevealState extends State<AxReveal> {
   @override
   didChangeDependencies() {
     super.didChangeDependencies();
-    _controller = RevealEffectController(context);
+    _controller = RevealEffectController(context, widget.config);
   }
 
   @override

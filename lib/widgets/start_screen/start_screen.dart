@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/show_group_list_dialog.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
@@ -16,7 +17,6 @@ import '../../screens/collection/utils/is_user_generated.dart';
 import '../../screens/collection/utils/collection_item_builder.dart';
 import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../messages/all.dart';
-import '../../utils/l10n.dart';
 
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
