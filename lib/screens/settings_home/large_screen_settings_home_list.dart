@@ -53,7 +53,8 @@ class LargeScreenSettingsHomeListViewState
               return Row(
                 mainAxisAlignment: MainAxisAlignment.start,
                 children: [
-                  StartGroup<(String Function(BuildContext), String, IconData, bool)>(
+                  StartGroup<
+                      (String Function(BuildContext), String, IconData, bool)>(
                     groupIndex: 0,
                     groupTitle: S.of(context).explore,
                     items: firstColumn,
@@ -72,6 +73,7 @@ class LargeScreenSettingsHomeListViewState
                         icon: item.$3,
                       );
                     },
+                    direction: Axis.horizontal,
                   ),
                 ],
               );

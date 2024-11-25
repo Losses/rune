@@ -118,7 +118,6 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
   Future<List<Group<InternalCollection>>> fetchSummary(
     LibraryHomeProvider libraryHome,
   ) async {
-    print(libraryHome.entries);
     widget.layoutManager.resetAnimations();
     final librarySummary = await complexQuery(
       libraryHome.entries
@@ -226,6 +225,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                 icon: item.$3,
                               );
                             },
+                            direction: Axis.horizontal,
                           ),
                           ...snapshot.data!.map(
                             (item) {
@@ -251,6 +251,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                                       refreshList: () {},
                                     );
                                   },
+                                  direction: Axis.horizontal,
                                 );
                               } else {
                                 return Container();

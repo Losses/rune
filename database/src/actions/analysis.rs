@@ -14,7 +14,7 @@ use seq_macro::seq;
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
-use analysis::computing_device::ComputingDevice;
+use analysis::shared_utils::computing_device::ComputingDevice;
 
 use crate::entities::{media_analysis, media_files};
 use crate::parallel_media_files_processing;
@@ -301,7 +301,7 @@ pub async fn get_analyse_count(main_db: &DatabaseConnection) -> Result<u64> {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```compile_fail
 /// let main_db: DatabaseConnection = ...;
 /// let file_ids = vec![1, 2, 3];
 /// let result = get_centralized_analysis_result(&main_db, file_ids).await;

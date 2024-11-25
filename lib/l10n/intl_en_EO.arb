@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Statusa teksto indikanta ke unu dosierujo estis elektita."
   },
-  "manyDirectories": "${count} Dosierujoj",
+  "manyDirectories": "{count} Dosierujoj",
   "@manyDirectories": {
     "description": "Statusa teksto indikanta ke pluraj dosierujoj estis elektitaj.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Ne eblas komenci vagadon. Ĉi tiu trako ankoraŭ ne estis analizita.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
+  "noAnalysisScanning": "{baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} La bibliotekon estas analizata; bonvolu atendi ĝis la procezo finiĝos.",
+  "noAnalysisAnalyzing": "{baseMessage} La bibliotekon estas analizata; bonvolu atendi ĝis la procezo finiĝos.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Bonvolu analizi vian bibliotekon por la plej bona sperto.",
+  "noAnalysisDefault": "{baseMessage} Bonvolu analizi vian bibliotekon por la plej bona sperto.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

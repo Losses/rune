@@ -19,6 +19,7 @@ pub async fn inject_cover_art_map(
     main_db: &MainDbConnection,
     recommend_db: Arc<RecommendationDbConnection>,
     collection: Collection,
+    n: Option<i32>,
 ) -> Result<Collection> {
     let files = query_cover_arts(
         main_db,
@@ -32,6 +33,7 @@ pub async fn inject_cover_art_map(
         } else {
             collection.queries.clone()
         },
+        n,
     )
     .await?;
     let cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;

@@ -75,6 +75,7 @@ class LibraryTaskButton extends StatelessWidget {
             title: progressTitle,
             onPressed: () => onPressedCancel(libraryManager, itemPath),
             progress: progress,
+            filled: false,
           )
         : Button(
             onPressed: isWorking

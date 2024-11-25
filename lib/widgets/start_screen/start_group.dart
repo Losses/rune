@@ -23,6 +23,7 @@ class StartGroup<T> extends StatelessWidget {
   final BoxConstraints constraints;
   final Dimensions Function(double, double, double, List<T>)?
       dimensionCalculator;
+  final Axis direction;
 
   final double gapSize;
   final VoidCallback? onTitleTap;
@@ -40,6 +41,7 @@ class StartGroup<T> extends StatelessWidget {
     this.gridLayoutVariation = StartGroupGridLayoutVariation.initial,
     this.groupLayoutVariation = StartGroupGroupLayoutVariation.normal,
     this.dimensionCalculator,
+    required this.direction,
   });
 
   @override
@@ -80,6 +82,7 @@ class StartGroup<T> extends StatelessWidget {
           groupIndex: groupIndex,
           constraints: constraints,
           itemBuilder: itemBuilder,
+          direction: direction,
         );
       case StartGroupGridLayoutVariation.initial:
       default:
@@ -91,6 +94,7 @@ class StartGroup<T> extends StatelessWidget {
           constraints: constraints,
           itemBuilder: itemBuilder,
           dimensionCalculator: dimensionCalculator,
+          direction: direction,
         );
     }
   }

@@ -11,6 +11,7 @@ message GetCoverArtIdsByMixQueriesRequestUnit {
 // [DART-SIGNAL]
 message GetCoverArtIdsByMixQueriesRequest {
     repeated GetCoverArtIdsByMixQueriesRequestUnit requests = 1;
+    int32 n = 2;
 }
 
 message GetCoverArtIdsByMixQueriesResponseUnit {

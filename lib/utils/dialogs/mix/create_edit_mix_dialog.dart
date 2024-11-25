@@ -17,12 +17,14 @@ import '../unavailable_dialog_on_band.dart';
 
 class CreateEditMixDialog extends StatefulWidget {
   final int? mixId;
+  final String? defaultTitle;
   final (String, String)? operator;
   final void Function(Mix?) $close;
 
   const CreateEditMixDialog({
     super.key,
     this.mixId,
+    required this.defaultTitle,
     this.operator,
     required this.$close,
   });
@@ -42,6 +44,13 @@ class CreateEditMixDialogState extends State<CreateEditMixDialog> {
   @override
   void initState() {
     super.initState();
+
+    final defaultTitle = widget.defaultTitle;
+
+    if (defaultTitle != null) {
+      titleController.text = defaultTitle;
+    }
+
     fetchGroupList();
     if (widget.mixId != null) {
       loadMix(widget.mixId!);

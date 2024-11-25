@@ -126,6 +126,8 @@ impl ComplexQuery for NaiveTrackComplexQuery {
         _: &RecommendationDbConnection,
     ) -> Result<Vec<UnifiedCollection>> {
         let tracks = match self.mode {
+            // This is actually fake since we didn't find anywhere that use this case
+            CollectionQueryListMode::Name => get_media_files(main_db, 0, 25).await,
             CollectionQueryListMode::Forward => get_media_files(main_db, 0, 25).await,
             CollectionQueryListMode::Reverse => {
                 get_reverse_listed_media_files(main_db, 0, 25).await

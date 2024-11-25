@@ -6,13 +6,15 @@ import '../../../utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 import '../../../messages/playlist.pb.dart';
 
 Future<Playlist?> showCreateEditPlaylistDialog(
-  BuildContext context, {
+  BuildContext context,
+  String? defaultTitle, {
   int? playlistId,
 }) async {
   return await $showModal<Playlist?>(
     context,
     (context, $close) => CreateEditPlaylistDialog(
       playlistId: playlistId,
+      defaultTitle: defaultTitle,
       $close: $close,
     ),
     dismissWithEsc: true,

@@ -35,7 +35,7 @@ impl FFTCompute {
             .await
             .unwrap();
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shader7.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: None,

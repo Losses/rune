@@ -38,7 +38,7 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
     match action {
         CollectionAction::FetchGroupSummary => {
             let entry = T::count_by_first_letter(main_db).await?;
-            let collection_groups = entry
+            let mut collection_groups: Vec<_> = entry
                 .into_iter()
                 .map(|x| CollectionGroupSummary {
                     group_title: x.0,
@@ -46,14 +46,30 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
                 })
                 .collect();
 
+            // Partition the collection_groups to separate the special entry
+            let (mut special, mut others): (Vec<_>, Vec<_>) = collection_groups
+                .into_iter()
+                .partition(|x| x.group_title == "\u{200B}Rune");
+
+            // Combine special and others, with special at the front
+            special.append(&mut others);
+            collection_groups = special;
+
             CollectionGroupSummaryResponse {
                 collection_type: T::collection_type().into(),
                 groups: collection_groups,
             }
             .send_signal_to_dart();
         }
+
         CollectionAction::FetchGroups => {
-            let entry = T::get_groups(main_db, params.group_titles.unwrap()).await?;
+            let entry = T::get_groups(
+                main_db,
+                params
+                    .group_titles
+                    .ok_or_else(|| anyhow::anyhow!("Group title is None"))?,
+            )
+            .await?;
             let collection_groups: Vec<CollectionGroup> =
                 join_all(entry.into_iter().map(|x| async {
                     let collections_result: Result<Vec<Collection>> =
@@ -90,7 +106,13 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
             .send_signal_to_dart();
         }
         CollectionAction::FetchById => {
-            let items = T::get_by_ids(main_db, &params.ids.unwrap()).await?;
+            let items = T::get_by_ids(
+                main_db,
+                &params
+                    .ids
+                    .ok_or_else(|| anyhow::anyhow!("ID paraneter is None"))?,
+            )
+            .await?;
             let futures = items.into_iter().map(|item| async move {
                 Collection::from_model_bakeable(
                     main_db,
@@ -115,7 +137,10 @@ async fn handle_collection_action<T: CollectionQuery + std::clone::Clone>(
         CollectionAction::Search => {
             let items = T::list(
                 main_db,
-                params.n.unwrap().into(),
+                params
+                    .n
+                    .ok_or_else(|| anyhow::anyhow!("Parameter N is None"))?
+                    .into(),
                 CollectionQueryListMode::Forward,
             )
             .await?;
@@ -197,7 +222,7 @@ impl Collection {
         let mut collection = Collection::from_model(main_db, &model).await?;
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
         }
 
         Ok(collection)
@@ -212,7 +237,7 @@ impl Collection {
         let mut collection = Collection::from_unified_collection(x);
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection).await?;
+            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
         }
 
         Ok(collection)
@@ -312,7 +337,7 @@ pub async fn search_collection_summary_request(
         dart_signal.message.collection_type,
         CollectionAction::Search,
         CollectionActionParams {
-            n: Some(dart_signal.message.n.try_into().unwrap()),
+            n: Some(dart_signal.message.n.try_into()?),
             ..Default::default()
         },
     )

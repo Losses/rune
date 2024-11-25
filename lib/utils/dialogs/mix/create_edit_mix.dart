@@ -5,7 +5,8 @@ import '../../../utils/dialogs/mix/create_edit_mix_dialog.dart';
 import '../../../messages/mix.pb.dart';
 
 Future<Mix?> showCreateEditMixDialog(
-  BuildContext context, {
+  BuildContext context, 
+  String? defaultTitle, {
   int? mixId,
   (String, String)? operator,
 }) async {
@@ -13,6 +14,7 @@ Future<Mix?> showCreateEditMixDialog(
     context,
     (context, $close) => CreateEditMixDialog(
       mixId: mixId,
+      defaultTitle: defaultTitle,
       operator: operator,
       $close: $close,
     ),

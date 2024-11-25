@@ -186,8 +186,11 @@ Widget buildTrackItemContextMenu(
             onPressed: () async {
               Flyout.of(context).close();
 
-              final playlist =
-                  await showCreateEditPlaylistDialog(context, playlistId: null);
+              final playlist = await showCreateEditPlaylistDialog(
+                context,
+                item.file.title,
+                playlistId: null,
+              );
 
               if (playlist == null) return;
 
@@ -208,8 +211,11 @@ Widget buildTrackItemContextMenu(
             onPressed: () async {
               Flyout.of(context).close();
 
-              final playlist =
-                  await showCreateEditMixDialog(context, mixId: null);
+              final playlist = await showCreateEditMixDialog(
+                context,
+                item.file.title,
+                mixId: null,
+              );
 
               if (playlist == null) return;
 

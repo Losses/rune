@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Status text indicating one directory has been selected."
   },
-  "manyDirectories": "${count} 徑",
+  "manyDirectories": "{count} 徑",
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
@@ -393,7 +393,7 @@
   "@allDirectories": {
     "description": "Prompt indicating that all directories have been selected."
   },
-  "randomTracks": "雜曲",
+  "randomTracks": "散曲",
   "@randomTracks": {
     "description": "A title for an entry in the modal settings options, informing users that the following options are for selecting a number of random tracks."
   },
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "斯集未析，無以漫奏。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 方索庫中，仍不能析。",
+  "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 方正析庫，請俟其畢。",
+  "noAnalysisAnalyzing": "{baseMessage} 方正析庫，請俟其畢。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 請析理庫藏，以臻至善",
+  "noAnalysisDefault": "{baseMessage} 請析理庫藏，以臻至善",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
@@ -523,7 +523,7 @@
   },
   "hiddenSubtitle": "下者將隱於別目",
   "@hiddenSubtitle": {},
-  "coverWall": "曲護壁",
+  "coverWall": "曲護影壁",
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
@@ -633,7 +633,7 @@
   "@unknownError": {
     "description": "Modal error content indicating an unknown error."
   },
-  "close": "閉",
+  "close": "畢",
   "@close": {
     "description": "Action button in the modal guiding users to close it."
   },
@@ -675,7 +675,7 @@
   "@continueTask": {
     "description": "Action button text in the modal indicating that pressing it will continue the task."
   },
-  "refresh": "重整",
+  "refresh": "更生",
   "@refresh": {
     "description": "Context menu item guiding users to refresh the current page's information."
   },
@@ -709,7 +709,7 @@
   "@slimWindowSize": {
     "description": "Option for a narrower window size."
   },
-  "stockyWindowSize": "廣",
+  "stockyWindowSize": "闊",
   "@stockyWindowSize": {
     "description": "Option for a wider window size."
   },
@@ -740,5 +740,65 @@
   "noLogsAvailable": "尚無載記",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "戶",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "新",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "陳",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "散",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "最",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "裁設",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "探伶尋伎",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "浸心匠輯",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "奏章由己",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "深鼓入瑟",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "溫享鐘曲",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "縈縈不絕",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "示符聆",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "離去",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "歸返",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
   }
 }

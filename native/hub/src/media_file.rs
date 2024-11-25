@@ -37,7 +37,10 @@ pub async fn parse_media_files(
             Ok(media_path) => {
                 let media_file = MediaFile {
                     id: file.id,
-                    path: media_path.to_str().unwrap().to_string(),
+                    path: media_path
+                        .to_str()
+                        .ok_or_else(|| anyhow::anyhow!("Media path is None"))?
+                        .to_string(),
                     artist: if file.artist.is_empty() {
                         "Unknown Artist".to_owned()
                     } else {
@@ -77,12 +80,8 @@ pub async fn fetch_media_files_request(
     let cursor = request.cursor;
     let page_size = request.page_size;
 
-    let media_entries = get_media_files(
-        &main_db,
-        cursor.try_into().unwrap(),
-        page_size.try_into().unwrap(),
-    )
-    .await?;
+    let media_entries =
+        get_media_files(&main_db, cursor.try_into()?, page_size.try_into()?).await?;
 
     let cover_art_map = if request.bake_cover_arts {
         bake_cover_art_by_media_files(&main_db, media_entries.clone()).await?
@@ -192,7 +191,7 @@ pub async fn search_media_file_summary_request(
 ) -> Result<()> {
     let request = dart_signal.message;
 
-    let items = list_files(&main_db, request.n.try_into().unwrap())
+    let items = list_files(&main_db, request.n.try_into()?)
         .await
         .with_context(|| "Failed to search media file summary")?;
 

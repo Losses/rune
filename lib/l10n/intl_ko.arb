@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "하나의 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다."
   },
-  "manyDirectories": "${count}개의 디렉토리",
+  "manyDirectories": "{count}개의 디렉토리",
   "@manyDirectories": {
     "description": "여러 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "로밍을 시작할 수 없습니다. 이 트랙이 아직 분석되지 않았습니다.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
+  "noAnalysisScanning": "{baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 라이브러리가 분석 중입니다. 프로세스가 완료될 때까지 기다려 주십시오.",
+  "noAnalysisAnalyzing": "{baseMessage} 라이브러리가 분석 중입니다. 프로세스가 완료될 때까지 기다려 주십시오.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 최상의 경험을 위해 라이브러리를 분석하십시오.",
+  "noAnalysisDefault": "{baseMessage} 최상의 경험을 위해 라이브러리를 분석하십시오.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

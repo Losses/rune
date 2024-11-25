@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:window_manager/window_manager.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/router/navigation.dart';
@@ -14,7 +14,6 @@ import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
-import '../router/rune_stack.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
@@ -185,10 +184,10 @@ class NavigationBarState extends State<NavigationBar> {
 
         final isSearch = path == '/search';
 
-        return RuneStack(
+        return Stack(
           children: [
             if (Platform.isMacOS)
-              DragToMoveArea(
+              WindowTitleBarBox(
                 child: Container(width: 28),
               ),
             if (isZune || !isSearch)
@@ -210,7 +209,7 @@ class NavigationBarState extends State<NavigationBar> {
                   ),
                 ),
               ),
-            if (!isZune)
+            if (!isZune && !Platform.isWindows)
               Positioned(
                 top: 16,
                 right: 16,

@@ -22,6 +22,7 @@ use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::MainDbConnection;
 use crate::connection::RecommendationDbConnection;
+use crate::entities::media_analysis;
 use crate::entities::mix_queries;
 use crate::entities::mixes;
 use crate::entities::{
@@ -137,6 +138,13 @@ impl CollectionQuery for mixes::Model {
         };
 
         match mode {
+            CollectionQueryListMode::Name => {
+                mixes::Entity::find()
+                    .order_by_asc(mixes::Column::Name)
+                    .limit(limit)
+                    .all(main_db)
+                    .await
+            }
             CollectionQueryListMode::Forward => {
                 mixes::Entity::find().limit(limit).all(main_db).await
             }
@@ -384,6 +392,7 @@ enum QueryOperator {
     SortSkipped(bool),
     FilterLiked(bool),
     FilterWithCoverArt(bool),
+    FilterAnalyzed(bool),
     PipeLimit(u64),
     PipeRecommend(i32),
     Unknown(String),
@@ -538,6 +547,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
         "filter::liked" => parse_parameter::<bool>(parameter, operator)
             .map(QueryOperator::FilterLiked)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "filter::analyzed" => parse_parameter::<bool>(parameter, operator)
+            .map(QueryOperator::FilterAnalyzed)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "filter::with_cover_art" => parse_parameter::<bool>(parameter, operator)
             .map(QueryOperator::FilterWithCoverArt)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
@@ -554,6 +566,7 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
 fn apply_join_filter(
     query: Select<media_files::Entity>,
     filter_liked: Option<bool>,
+    filter_analyzed: Option<bool>,
     sort_track_number: Option<bool>,
     sort_playedthrough_asc: Option<bool>,
     sort_skipped_asc: Option<bool>,
@@ -568,6 +581,15 @@ fn apply_join_filter(
             .column(media_file_stats::Column::Liked)
             .column(media_file_stats::Column::PlayedThrough)
             .column(media_file_stats::Column::Skipped);
+    }
+
+    if filter_analyzed.is_some() {
+        _query = _query
+            .join(
+                JoinType::LeftJoin,
+                media_analysis::Relation::MediaFiles.def().rev(),
+            )
+            .column(media_analysis::Column::Id);
     }
 
     if sort_track_number.is_some() {
@@ -658,6 +680,7 @@ pub async fn query_mix_media_files(
 
     let mut filter_liked: Option<bool> = None;
     let mut filter_cover_art: Option<bool> = None;
+    let mut filter_analyzed: Option<bool> = None;
     let mut pipe_limit: Option<u64> = None;
     let mut pipe_recommend: Option<i32> = None;
 
@@ -679,6 +702,7 @@ pub async fn query_mix_media_files(
             QueryOperator::SortSkipped(asc) => sort_skipped_asc = Some(asc),
             QueryOperator::FilterLiked(liked) => filter_liked = Some(liked),
             QueryOperator::FilterWithCoverArt(cover_art) => filter_cover_art = Some(cover_art),
+            QueryOperator::FilterAnalyzed(analyzed) => filter_analyzed = Some(analyzed),
             QueryOperator::PipeLimit(limit) => pipe_limit = Some(limit),
             QueryOperator::PipeRecommend(recommend) => pipe_recommend = Some(recommend),
             QueryOperator::Unknown(op) => warn!("Unknown operator: {}", op),
@@ -691,6 +715,10 @@ pub async fn query_mix_media_files(
 
     if pipe_recommend.is_some() && get_analyse_count(main_db).await? < 1 {
         return Ok([].to_vec());
+    }
+
+    if pipe_recommend.is_some() {
+        filter_analyzed = Some(true);
     }
 
     // Base query for media_files
@@ -792,8 +820,9 @@ pub async fn query_mix_media_files(
 
     let has_liked = filter_liked.is_some();
     let has_cover_art = filter_cover_art.is_some();
+    let has_analyzed = filter_analyzed.is_some();
 
-    if has_liked || has_cover_art {
+    if has_liked || has_cover_art || has_analyzed {
         let mut filter = Condition::all();
 
         if !all {
@@ -802,6 +831,14 @@ pub async fn query_mix_media_files(
 
         if let Some(liked) = filter_liked {
             filter = filter.add(media_file_stats::Column::Liked.eq(liked));
+        }
+
+        if let Some(analyzed) = filter_analyzed {
+            if analyzed {
+                filter = filter.add(media_analysis::Column::Id.is_not_null());
+            } else {
+                filter = filter.add(media_analysis::Column::Id.is_null());
+            }
         }
 
         if let Some(cover_art) = filter_cover_art {
@@ -837,6 +874,7 @@ pub async fn query_mix_media_files(
     query = apply_join_filter(
         query,
         filter_liked,
+        filter_analyzed,
         sort_track_number_asc,
         sort_playedthrough_asc,
         sort_skipped_asc,

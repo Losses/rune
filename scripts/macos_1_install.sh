@@ -17,9 +17,15 @@ install_if_missing() {
 install_if_missing flutter "Flutter" "--cask flutter"
 install_if_missing rustup "rustup" "rustup"
 
-brew install lmdb create-dmg protobuf
+brew install lmdb create-dmg protobuf CocoaPods
+brew link cocoapods
 
-rustup-init -y
+if [ -f "$HOME/.cargo/env" ] && command -v rustc >/dev/null 2>&1; then
+    echo "Skip rustup-init due to already installed"
+else
+    rustup-init -y
+fi
+
 . "$HOME/.cargo/env"
 rustup default stable
 rustup target add x86_64-apple-darwin

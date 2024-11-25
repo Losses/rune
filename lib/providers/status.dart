@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:rinf/rinf.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/playback.pb.dart';
@@ -16,6 +17,8 @@ class PlaybackStatusProvider with ChangeNotifier {
 
   late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
 
+  bool _hasPendingNotification = false;
+
   PlaybackStatusProvider() {
     subscription =
         PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
@@ -25,6 +28,18 @@ class PlaybackStatusProvider with ChangeNotifier {
   void dispose() {
     super.dispose();
     subscription.cancel();
+  }
+
+  void _scheduleNotification() {
+    if (!_hasPendingNotification) {
+      _hasPendingNotification = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (_hasPendingNotification) {
+          notifyListeners();
+          _hasPendingNotification = false;
+        }
+      });
+    }
   }
 
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
@@ -39,7 +54,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }
 
-      notifyListeners();
+      _scheduleNotification();
     }
   }
 
@@ -60,6 +75,6 @@ class PlaybackStatusProvider with ChangeNotifier {
   }
 
   bool get notReady {
-    return _playbackStatus?.ready == null || _playbackStatus!.ready == false;
+    return playbackStatus?.ready == null || playbackStatus!.ready == false;
   }
 }

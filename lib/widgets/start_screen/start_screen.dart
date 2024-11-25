@@ -183,7 +183,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 leading: const Icon(Symbols.add),
                 text: Text(S.of(context).newPlaylist),
                 onPressed: () async {
-                  final x = await showCreateEditPlaylistDialog(context);
+                  final x = await showCreateEditPlaylistDialog(context, "");
 
                   if (x != null) data.reloadData();
                 },
@@ -262,6 +262,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                         },
                         itemBuilder: (context, item) =>
                             collectionItemBuilder(context, item),
+                        direction: Axis.vertical,
                       );
                     },
                   );

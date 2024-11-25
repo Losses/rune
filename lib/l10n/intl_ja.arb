@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Status text indicating one directory has been selected."
   },
-  "manyDirectories": "${count} つの格納場所",
+  "manyDirectories": "{count} つの格納場所",
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "漫奏を開始できません。この曲はまだ解析されていません。",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} 資料集を検査中のため、解析は実行できません。",
+  "noAnalysisScanning": "{baseMessage} 資料集を検査中のため、解析は実行できません。",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} 資料集を解析中です。処理が終了するまでお待ちください。",
+  "noAnalysisAnalyzing": "{baseMessage} 資料集を解析中です。処理が終了するまでお待ちください。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} 最良の体験のために資料集を解析してください。",
+  "noAnalysisDefault": "{baseMessage} 最良の体験のために資料集を解析してください。",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}

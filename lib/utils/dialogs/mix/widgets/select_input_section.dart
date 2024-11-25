@@ -7,7 +7,7 @@ class SelectItem {
   final String title;
   final IconData icon;
 
-  SelectItem({
+  const SelectItem({
     required this.value,
     required this.title,
     required this.icon,

@@ -52,7 +52,7 @@ class CoverWallBackgroundPainter extends CustomPainter {
   @override
   bool shouldRepaint(CoverWallBackgroundPainter oldDelegate) {
     if (gridSize != oldDelegate.gridSize) return true;
-    if (gap != oldDelegate.gap) return true; // 增加gap变化的判断
+    if (gap != oldDelegate.gap) return true;
 
     if (images.length != oldDelegate.images.length) return true;
 

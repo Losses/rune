@@ -18,6 +18,7 @@ pub async fn query_cover_arts(
     main_db: &MainDbConnection,
     recommend_db: Arc<RecommendationDbConnection>,
     queries: Vec<MixQuery>,
+    n: Option<i32>,
 ) -> Result<Vec<media_files::Model>> {
     query_mix_media_files(
         main_db,
@@ -28,7 +29,16 @@ pub async fn query_cover_arts(
             .chain([("filter::with_cover_art".to_string(), "true".to_string())])
             .collect(),
         0,
-        18,
+        match n {
+            Some(n) => {
+                if n == 0 {
+                    18
+                } else {
+                    n as usize
+                }
+            }
+            None => 18,
+        },
     )
     .await
 }
@@ -38,13 +48,14 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
     recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<GetCoverArtIdsByMixQueriesRequest>,
 ) -> Result<()> {
-    let requests = dart_signal.message.requests;
+    let request = dart_signal.message;
+    let queries = request.requests;
 
-    let files_futures = requests.clone().into_iter().map(|x| {
+    let files_futures = queries.clone().into_iter().map(|x| {
         let main_db = Arc::clone(&main_db);
         let recommend_db = Arc::clone(&recommend_db);
         async move {
-            let query = query_cover_arts(&main_db, recommend_db, x.queries).await;
+            let query = query_cover_arts(&main_db, recommend_db, x.queries, Some(request.n)).await;
 
             match query {
                 Ok(files) => {

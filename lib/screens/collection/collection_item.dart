@@ -83,6 +83,7 @@ class _CollectionItemState extends State<CollectionItem> {
               contextController,
               widget.collectionType,
               widget.collection.id,
+              widget.collection.name,
               widget.refreshList,
               widget.collection.readonly,
             );

@@ -48,7 +48,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final gridSize = calculateCoverWallSize(constraints);
+        final gridSize = calculateCoverWallGridSize(constraints);
         final crossAxisCount = (constraints.maxWidth / gridSize).ceil();
         final mainAxisCount = (constraints.maxHeight / gridSize).ceil();
 

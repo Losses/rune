@@ -374,7 +374,7 @@
   "@oneDirectory": {
     "description": "Status text indicating one directory has been selected."
   },
-  "manyDirectories": "${count} Directories",
+  "manyDirectories": "{count} Directories",
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
@@ -425,19 +425,19 @@
   "@noRoamingCollection": {},
   "noRomaingTrack": "Unable to start roaming. This track hasn't been analyzed yet.",
   "@noRomaingTrack": {},
-  "noAnalysisScanning": "${baseMessage} The library is being scanned, so analysis cannot be performed.",
+  "noAnalysisScanning": "{baseMessage} The library is being scanned, so analysis cannot be performed.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "${baseMessage} The library is being analyzed; please wait until the process is finished.",
+  "noAnalysisAnalyzing": "{baseMessage} The library is being analyzed; please wait until the process is finished.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "${baseMessage} Please analyze your library for the best experience.",
+  "noAnalysisDefault": "{baseMessage} Please analyze your library for the best experience.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
@@ -788,5 +788,41 @@
   "mostLibraryHomeSubtitle": "Revisit the melodies that captivate you time and again",
   "@mostLibraryHomeSubtitle": {
     "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Show Rune",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Exit",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Back",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Export As",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Playlist File",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Cover Art Wall",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "Ratio",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Frame",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Background",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
   }
 }

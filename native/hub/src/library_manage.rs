@@ -116,7 +116,7 @@ pub async fn scan_audio_library_request(
                         }
                         .send_signal_to_dart()
                     },
-                    None,
+                    Some(new_token.clone()),
                 )
                 .await?;
 

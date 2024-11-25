@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_selector/file_selector.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/get_all_mixes.dart';
@@ -15,6 +19,9 @@ import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
 import '../execute_middle_click_action.dart';
+import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
+
+import 'utils/build_m3u8.dart';
 
 final Map<CollectionType, String> typeToOperator = {
   CollectionType.Album: "lib::album",
@@ -31,7 +38,8 @@ final Map<
       int id,
     )> typeToEdit = {
   CollectionType.Playlist: (context, refreshList, id) async {
-    final result = await showCreateEditPlaylistDialog(context, playlistId: id);
+    final result =
+        await showCreateEditPlaylistDialog(context, "", playlistId: id);
 
     if (result != null && refreshList != null) {
       refreshList();
@@ -85,7 +93,8 @@ void openCollectionItemContextMenu(
   GlobalKey contextAttachKey,
   FlyoutController contextController,
   CollectionType type,
-  int id, [
+  int id,
+  String title, [
   void Function()? refreshList,
   bool? readonly,
 ]) async {
@@ -131,6 +140,7 @@ void openCollectionItemContextMenu(
       context,
       type,
       id,
+      title,
       mixes,
       refreshList,
       readonly,
@@ -142,6 +152,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
   BuildContext context,
   CollectionType type,
   int id,
+  String title,
   List<Mix> mixes, [
   void Function()? refreshList,
   bool? readonly,
@@ -236,6 +247,7 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
 
               await showCreateEditMixDialog(
                 context,
+                title,
                 mixId: null,
                 operator: (operator, id.toString()),
               );
@@ -243,6 +255,54 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
           ),
           if (mixItems.isNotEmpty) const MenuFlyoutSeparator(),
           ...mixItems
+        ],
+      ),
+    );
+  }
+
+  if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    items.add(const MenuFlyoutSeparator());
+    items.add(
+      MenuFlyoutSubItem(
+        leading: const Icon(Symbols.upload),
+        text: Text(S.of(context).exportTracks),
+        items: (context) => [
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.list_alt),
+            text: Text(S.of(context).exportM3u8),
+            onPressed: () async {
+              Flyout.of(context).close();
+
+              final Directory appDocumentsDir =
+                  await getApplicationDocumentsDirectory();
+
+              final FileSaveLocation? path = await getSaveLocation(
+                suggestedName: '$title.m3u8',
+                initialDirectory: appDocumentsDir.path,
+                acceptedTypeGroups: const [
+                  XTypeGroup(
+                    label: 'playlist',
+                    extensions: <String>['m3u8'],
+                  )
+                ],
+              );
+
+              if (path == null) return;
+
+              final playlist = await buildM3u8(type, id);
+
+              final file = File(path.path);
+              await file.writeAsString(playlist);
+            },
+          ),
+          MenuFlyoutItem(
+            leading: const Icon(Symbols.wall_art),
+            text: Text(S.of(context).exportCoverWall),
+            onPressed: () async {
+              Flyout.of(context).close();
+              showExportCoverWallDialog(context, type, title, id);
+            },
+          ),
         ],
       ),
     );
