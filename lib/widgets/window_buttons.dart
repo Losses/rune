@@ -6,6 +6,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
+import '../main.dart';
 import '../utils/l10n.dart';
 import '../utils/router/navigation.dart';
 import '../utils/navigation/utils/escape_from_search.dart';
@@ -174,6 +175,14 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
                   onPressed: () async {
                     appWindow.minimize();
                   },
+                  child: isWindows11
+                      ? null
+                      : Center(
+                          child: Icon(
+                            FluentIcons.chrome_minimize,
+                            size: 12,
+                          ),
+                        ),
                 ),
                 MouseRegion(
                   onEnter: (event) async {
@@ -188,12 +197,30 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
                         appWindow.maximizeOrRestore();
                       });
                     },
+                    child: isWindows11
+                        ? null
+                        : Center(
+                            child: Icon(
+                              appWindow.isMaximized
+                                  ? FluentIcons.chrome_restore
+                                  : FluentIcons.square_shape,
+                              size: 12,
+                            ),
+                          ),
                   ),
                 ),
                 WindowIconButton(
                   onPressed: () {
                     appWindow.hide();
                   },
+                  child: isWindows11
+                      ? null
+                      : Center(
+                          child: Icon(
+                            FluentIcons.chrome_close,
+                            size: 12,
+                          ),
+                        ),
                 ),
                 appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
               ],

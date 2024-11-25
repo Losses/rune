@@ -65,6 +65,7 @@ import 'theme.dart';
 
 late bool disableBrandingAnimation;
 late String? initialPath;
+late bool isWindows11;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,6 +85,7 @@ void main(List<String> arguments) async {
     final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
     final windowsInfo = await deviceInfo.windowsInfo;
     final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
+    isWindows11 = windowsInfo.productName.startsWith('Windows 11');
 
     if (isWindows10 && appTheme.windowEffect == WindowEffect.mica) {
       appTheme.windowEffect = WindowEffect.solid;
