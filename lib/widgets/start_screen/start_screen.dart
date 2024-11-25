@@ -18,7 +18,6 @@ import '../../screens/collection/utils/collection_data_provider.dart';
 import '../../messages/all.dart';
 import '../../utils/l10n.dart';
 
-import '../ax_reveal/utils/reveal_effect_controller.dart';
 import '../infinite_list_loading.dart';
 import '../smooth_horizontal_scroll.dart';
 import '../navigation_bar/page_content_frame.dart';
@@ -224,52 +223,50 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 openStartScreenContextMenu(offset);
               },
               onMiddleClick: (_) {},
-              child: RevealEffectContext(
-                child: SmoothHorizontalScroll(
-                  controller: scrollController,
-                  builder: (context, smoothScrollController) {
-                    return InfiniteList(
-                      itemCount: data.items.length,
-                      scrollDirection: Axis.horizontal,
-                      scrollController: smoothScrollController,
-                      loadingBuilder: (context) => const InfiniteListLoading(),
-                      centerLoading: true,
-                      centerEmpty: true,
-                      isLoading: data.isLoading,
-                      padding: padding,
-                      emptyBuilder: (context) => Center(
-                        child: data.initialized
-                            ? NoItems(
-                                title: S.of(context).noCollectionFound,
-                                hasRecommendation: false,
-                                reloadData: data.reloadData,
-                                userGenerated: isUserGenerated,
-                              )
-                            : Container(),
-                      ),
-                      onFetchData: _fetchData,
-                      hasReachedMax: data.isLastPage,
-                      itemBuilder: (context, index) {
-                        final item = data.items[index];
-                        return StartGroup<InternalCollection>(
-                          key: ValueKey(item.groupTitle),
-                          groupIndex: index,
-                          groupTitle: item.groupTitle,
-                          items: item.items,
-                          constraints: trueConstraints,
-                          onTitleTap: () {
-                            if (!isUserGenerated) {
-                              showGroupListDialog(context, scrollToGroup);
-                            }
-                          },
-                          itemBuilder: (context, item) =>
-                              collectionItemBuilder(context, item),
-                          direction: Axis.vertical,
-                        );
-                      },
-                    );
-                  },
-                ),
+              child: SmoothHorizontalScroll(
+                controller: scrollController,
+                builder: (context, smoothScrollController) {
+                  return InfiniteList(
+                    itemCount: data.items.length,
+                    scrollDirection: Axis.horizontal,
+                    scrollController: smoothScrollController,
+                    loadingBuilder: (context) => const InfiniteListLoading(),
+                    centerLoading: true,
+                    centerEmpty: true,
+                    isLoading: data.isLoading,
+                    padding: padding,
+                    emptyBuilder: (context) => Center(
+                      child: data.initialized
+                          ? NoItems(
+                              title: S.of(context).noCollectionFound,
+                              hasRecommendation: false,
+                              reloadData: data.reloadData,
+                              userGenerated: isUserGenerated,
+                            )
+                          : Container(),
+                    ),
+                    onFetchData: _fetchData,
+                    hasReachedMax: data.isLastPage,
+                    itemBuilder: (context, index) {
+                      final item = data.items[index];
+                      return StartGroup<InternalCollection>(
+                        key: ValueKey(item.groupTitle),
+                        groupIndex: index,
+                        groupTitle: item.groupTitle,
+                        items: item.items,
+                        constraints: trueConstraints,
+                        onTitleTap: () {
+                          if (!isUserGenerated) {
+                            showGroupListDialog(context, scrollToGroup);
+                          }
+                        },
+                        itemBuilder: (context, item) =>
+                            collectionItemBuilder(context, item),
+                        direction: Axis.vertical,
+                      );
+                    },
+                  );
+                },
               ),
             );
           }

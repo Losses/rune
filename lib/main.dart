@@ -40,6 +40,7 @@ import 'config/shortcuts.dart';
 import 'widgets/window_buttons.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
+import 'widgets/ax_reveal/utils/reveal_effect_controller.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
@@ -300,7 +301,11 @@ class _RuneState extends State<Rune> {
                 textDirection: appTheme.textDirection,
                 child: Shortcuts(
                   shortcuts: shortcuts,
-                  child: NavigationShortcutManager(RuneLifecycle(child!)),
+                  child: NavigationShortcutManager(
+                    RuneLifecycle(
+                      RevealEffectContext(child: child!),
+                    ),
+                  ),
                 ),
               ),
             );
