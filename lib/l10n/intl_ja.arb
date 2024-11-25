@@ -760,5 +760,69 @@
   "mostPlayed": "再生数上位",
   "@mostPlayed": {
     "description": "Title of an library home group."
+  },
+  "personalize": "個性化",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "お気に入りの芸人の世界を発見し、探検しましょう。",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "才能ある芸人たちが手がけた歌集の世界に浸りましょう。",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "貴方だけの個性化された音楽の旅を作り上げましょう",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "知っている曲や愛している曲に深く浸りましょう",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "最も大切にしている曲をもう一度楽しみましょう",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "何度も心を惹きつける旋律を再び楽しみましょう。",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Rune を顕明",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "終了",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "戻る",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "書き出す",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "再生一覧表",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "表紙画像の寄せ集め",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "比例",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "枠",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
   }
 }
