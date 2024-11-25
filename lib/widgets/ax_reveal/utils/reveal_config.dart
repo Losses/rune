@@ -1,5 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+enum AxRevealPressAnimationFillMode {
+  normal,
+  constrained,
+}
+
 class RevealConfig {
   final Color borderColor;
   final Color hoverLightColor;
@@ -12,7 +17,7 @@ class RevealConfig {
   final bool hoverLight;
   final bool diffuse;
   final bool pressAnimation;
-  final String pressAnimationFillMode;
+  final AxRevealPressAnimationFillMode pressAnimationFillMode;
 
   const RevealConfig({
     this.borderColor = Colors.white,
@@ -26,6 +31,6 @@ class RevealConfig {
     this.hoverLight = true,
     this.diffuse = true,
     this.pressAnimation = true,
-    this.pressAnimationFillMode = 'constrained',
+    this.pressAnimationFillMode = AxRevealPressAnimationFillMode.normal,
   });
 }

@@ -49,7 +49,7 @@ class RevealEffectPainter extends CustomPainter {
   }
 
   void _drawHoverLight(Canvas canvas, Size size, Path path) {
-    final radius = size.shortestSide * config.hoverLightFillRadius;
+    final radius = size.longestSide * config.hoverLightFillRadius;
     final gradient = ui.Gradient.radial(
       mousePosition!,
       radius,
@@ -95,11 +95,15 @@ class RevealEffectPainter extends CustomPainter {
   }
 
   void _drawPressAnimation(Canvas canvas, Size size, Path path) {
-    final position = mouseReleased ? mouseDownPosition : mousePosition;
+    final position = mouseDownPosition;
 
     if (position == null) return;
 
-    final radius = config.pressAnimationFillMode == 'constrained'
+    if (!mousePressed) return;
+    if (logicFrame == 0) return;
+
+    final radius = config.pressAnimationFillMode ==
+            AxRevealPressAnimationFillMode.constrained
         ? size.shortestSide
         : size.longestSide;
 
