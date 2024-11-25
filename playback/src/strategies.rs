@@ -41,7 +41,7 @@ pub struct ShuffleStrategy {
 /// Returns a Vec<usize> with a randomized sequence, 0 always at the first position
 pub fn get_random_sequence(max_value: usize) -> Vec<usize> {
     if max_value == 0 {
-        return vec![];
+        return vec![0];
     }
 
     let mut values: Vec<usize> = (1..(max_value + 1)).collect();
