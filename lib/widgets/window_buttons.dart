@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import '../utils/l10n.dart';
 import '../utils/router/navigation.dart';
@@ -29,6 +31,8 @@ class _WindowIconButtonState extends State<WindowIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FluentTheme.of(context);
+
     return MouseRegion(
       onEnter: (_) => setState(() => isHovered = true),
       onExit: (_) => setState(() => isHovered = false),
@@ -38,8 +42,9 @@ class _WindowIconButtonState extends State<WindowIconButton> {
           width: 46,
           height: 30,
           decoration: BoxDecoration(
-            color:
-                isHovered ? Colors.white.withOpacity(0.08) : Colors.transparent,
+            color: isHovered
+                ? theme.resources.textFillColorPrimary.withOpacity(0.08)
+                : Colors.transparent,
           ),
           child: widget.child,
         ),
@@ -58,7 +63,7 @@ class WindowFrame extends StatefulWidget {
   State<WindowFrame> createState() => _WindowFrameState();
 }
 
-class _WindowFrameState extends State<WindowFrame> {
+class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
   bool _isMaximized = false;
 
   _handowWindowEvent(_) {
@@ -70,19 +75,40 @@ class _WindowFrameState extends State<WindowFrame> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    FullScreen.addListener(this);
+  }
+
+  @override
+  dispose() {
+    super.dispose();
+    FullScreen.removeListener(this);
+  }
+
+  @override
+  void onFullScreenChanged(bool enabled, SystemUiMode? systemUiMode) {
+    setState(() => {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (!Platform.isWindows) {
+      return widget.child;
+    }
+
     final path = Provider.of<RouterPathProvider>(context).path;
 
     final isSearch = path == '/search';
 
-    return RuneStack(
-      children: [
-        if (Platform.isWindows)
-          MouseRegion(
-            onEnter: _handowWindowEvent,
-            onExit: _handowWindowEvent,
-            onHover: _handowWindowEvent,
-            child: Row(
+    return MouseRegion(
+      onEnter: _handowWindowEvent,
+      onExit: _handowWindowEvent,
+      onHover: _handowWindowEvent,
+      child: RuneStack(
+        children: [
+          if (FullScreen.isFullScreen)
+            Row(
               mainAxisAlignment: MainAxisAlignment.end,
               mainAxisSize: MainAxisSize.max,
               children: [
@@ -92,7 +118,7 @@ class _WindowFrameState extends State<WindowFrame> {
                   ),
                 ),
                 WindowIconButton(
-                  onPressed: () async {
+                  onPressed: () {
                     if (isSearch) {
                       escapeFromSearch();
                     } else {
@@ -103,7 +129,44 @@ class _WindowFrameState extends State<WindowFrame> {
                     child: Icon(
                       FluentIcons.search,
                       size: 12,
-                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () {
+                    FullScreen.setFullScreen(false);
+                  },
+                  child: Center(
+                    child: Icon(
+                      FluentIcons.full_screen,
+                      size: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          if (!FullScreen.isFullScreen)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              mainAxisSize: MainAxisSize.max,
+              children: [
+                Expanded(
+                  child: WindowTitleBarBox(
+                    child: MoveWindow(),
+                  ),
+                ),
+                WindowIconButton(
+                  onPressed: () {
+                    if (isSearch) {
+                      escapeFromSearch();
+                    } else {
+                      $push('/search');
+                    }
+                  },
+                  child: Center(
+                    child: Icon(
+                      FluentIcons.search,
+                      size: 12,
                     ),
                   ),
                 ),
@@ -135,9 +198,9 @@ class _WindowFrameState extends State<WindowFrame> {
                 appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
               ],
             ),
-          ),
-        widget.child,
-      ],
+          widget.child,
+        ],
+      ),
     );
   }
 }
