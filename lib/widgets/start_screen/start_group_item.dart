@@ -26,7 +26,7 @@ class Dimensions {
   }
 
   @override
-  String toString() => "Dimensions($rows x $columns, count: $count)";
+  String toString() => "Dimensions(r$rows x c$columns, count: $count)";
 }
 
 class StartGroupItem<T> extends StatelessWidget {
@@ -63,8 +63,13 @@ class StartGroupItem<T> extends StatelessWidget {
         runSpacing: gapSize,
         direction: direction,
         children: List.generate(dimensions.count, (index) {
-          final int row = index ~/ dimensions.columns;
-          final int column = index % dimensions.columns;
+          final int row = direction == Axis.horizontal
+              ? index ~/ dimensions.columns
+              : index % dimensions.rows;
+          final int column = direction == Axis.horizontal
+              ? index % dimensions.columns
+              : index ~/ dimensions.rows;
+
           final T item = items[index];
           return ManagedStartScreenItem(
             groupId: groupIndex,
