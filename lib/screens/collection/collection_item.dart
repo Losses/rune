@@ -9,7 +9,9 @@ import '../../utils/router/query_tracks_parameter.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../utils/context_menu/collection_item_context_menu.dart';
 import '../../widgets/ax_pressure.dart';
+import '../../widgets/ax_reveal/utils/reveal_config.dart';
 import '../../widgets/tile/flip_tile.dart';
+import '../../widgets/ax_reveal/ax_reveal.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/start_screen/utils/internal_collection.dart';
 import '../../messages/all.dart';
@@ -64,70 +66,76 @@ class _CollectionItemState extends State<CollectionItem> {
   @override
   Widget build(BuildContext context) {
     return AxPressure(
-      child: ContextMenuWrapper(
-        contextAttachKey: contextAttachKey,
-        contextController: contextController,
-        onMiddleClick: (_) {
-          executeMiddleClickAction(
-            context,
-            widget.collectionType,
-            widget.collection.id,
-          );
-        },
-        onContextMenu: (position) {
-          if (widget.collectionType != CollectionType.Track) {
-            openCollectionItemContextMenu(
-              position,
+      child: AxReveal(
+        config: defaultRevealConfig,
+        child: ContextMenuWrapper(
+          contextAttachKey: contextAttachKey,
+          contextController: contextController,
+          onMiddleClick: (_) {
+            executeMiddleClickAction(
               context,
-              contextAttachKey,
-              contextController,
               widget.collectionType,
               widget.collection.id,
-              widget.collection.name,
-              widget.refreshList,
-              widget.collection.readonly,
             );
-          } else {
-            openTrackItemContextMenu(
-              position,
-              context,
-              contextAttachKey,
-              contextController,
-              widget.collection.id,
-            );
-          }
-        },
-        child: FlipTile(
-          name: widget.collection.name,
-          paths:
-              filterDuplicates(widget.collection.coverArtMap.values.toList()),
-          emptyTileType: BoringAvatarType.bauhaus,
-          onPressed: () {
+          },
+          onContextMenu: (position) {
             if (widget.collectionType != CollectionType.Track) {
-              $push(
-                '/${collectionTypeToRouterName(widget.collectionType)}/detail',
-                arguments: QueryTracksParameter(
-                  widget.collection.id,
-                  widget.collection.name,
-                ),
+              openCollectionItemContextMenu(
+                position,
+                context,
+                contextAttachKey,
+                contextController,
+                widget.collectionType,
+                widget.collection.id,
+                widget.collection.name,
+                widget.refreshList,
+                widget.collection.readonly,
               );
             } else {
-              safeOperatePlaybackWithMixQuery(
-                context: context,
-                queries: widget.collection.queries,
-                playbackMode: 99,
-                hintPosition: 0,
-                initialPlaybackId: widget.collection.id,
-                instantlyPlay: true,
-                operateMode: PlaylistOperateMode.Replace,
-                fallbackFileIds: widget.collection.queries
-                    .map((x) => int.parse(x.$2))
-                    .toList(),
+              openTrackItemContextMenu(
+                position,
+                context,
+                contextAttachKey,
+                contextController,
+                widget.collection.id,
               );
             }
           },
+          child: FlipTile(
+            name: widget.collection.name,
+            paths:
+                filterDuplicates(widget.collection.coverArtMap.values.toList()),
+            emptyTileType: BoringAvatarType.bauhaus,
+            onPressed: () {
+              if (widget.collectionType != CollectionType.Track) {
+                $push(
+                  '/${collectionTypeToRouterName(widget.collectionType)}/detail',
+                  arguments: QueryTracksParameter(
+                    widget.collection.id,
+                    widget.collection.name,
+                  ),
+                );
+              } else {
+                safeOperatePlaybackWithMixQuery(
+                  context: context,
+                  queries: widget.collection.queries,
+                  playbackMode: 99,
+                  hintPosition: 0,
+                  initialPlaybackId: widget.collection.id,
+                  instantlyPlay: true,
+                  operateMode: PlaylistOperateMode.Replace,
+                  fallbackFileIds: widget.collection.queries
+                      .map((x) => int.parse(x.$2))
+                      .toList(),
+                );
+              }
+            },
+          ),
         ),
       ),
     );
   }
 }
+
+final defaultRevealConfig =
+    RevealConfig(borderRadius: BorderRadius.circular(4.0));
