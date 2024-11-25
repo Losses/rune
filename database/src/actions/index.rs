@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Result, Error};
 use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
@@ -153,7 +153,7 @@ pub async fn index_audio_library(
     main_db: &DatabaseConnection,
     batch_size: usize,
     cancel_token: Option<&CancellationToken>,
-) -> Result<(), sea_orm::DbErr> {
+) -> Result<()> {
     let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
 
     info!(
@@ -168,7 +168,7 @@ pub async fn index_audio_library(
         loop {
             // Fetch the next batch of files
             let files: Vec<media_files::Model> = cursor
-                .first(batch_size.try_into().unwrap())
+                .first(batch_size.try_into()?)
                 .all(main_db)
                 .await?;
 
@@ -178,7 +178,7 @@ pub async fn index_audio_library(
             }
 
             for file in &files {
-                tx.send(file.clone()).await.unwrap();
+                tx.send(file.clone()).await?;
             }
 
             // Move the cursor to the next batch
@@ -191,7 +191,7 @@ pub async fn index_audio_library(
         }
 
         drop(tx); // Close the channel to signal consumers to stop
-        Ok::<(), sea_orm::DbErr>(())
+        Ok::<(), Error>(())
     };
 
     // Consumer task: process files as they are received

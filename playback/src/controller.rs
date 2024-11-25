@@ -11,9 +11,9 @@ use std::{
 use anyhow::{bail, Error, Result};
 use log::{debug, error, info};
 use once_cell::sync::OnceCell;
+
 #[cfg(target_os = "android")]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
-
 #[cfg(not(target_os = "android"))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 use tokio::sync::{broadcast, Mutex};
@@ -146,7 +146,13 @@ pub async fn handle_media_control_event(
                 SeekDirection::Backward => -10.0,
             };
 
-            let current_position = player.lock().await.current_status.lock().unwrap().position;
+            let current_position = player
+                .lock()
+                .await
+                .current_status
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Unable to lock the player: {}", e))?
+                .position;
 
             player
                 .lock()
