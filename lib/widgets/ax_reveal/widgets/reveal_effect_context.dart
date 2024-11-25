@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -16,6 +17,10 @@ class RevealEffectContext extends StatefulWidget {
 
   static RevealEffectContextState of(BuildContext context) {
     return context.findAncestorStateOfType<RevealEffectContextState>()!;
+  }
+
+  static RevealEffectContextState? maybeOf(BuildContext context) {
+    return context.findAncestorStateOfType<RevealEffectContextState>();
   }
 }
 
@@ -115,6 +120,17 @@ class RevealEffectContextState extends State<RevealEffectContext>
     }
   }
 
+  void forceRefresh() {
+    // Notify all controllers about the mouse position change
+    for (final unit in _units) {
+      unit.controller.updateMousePosition(_currentPosition);
+    }
+
+    if (_mouseInBoundary || hasActiveAnimations) {
+      _ensureTickerStarted();
+    }
+  }
+
   void updateMousePosition(Offset? position) {
     _currentPosition = position;
     _mouseInBoundary = position != null;
@@ -166,9 +182,16 @@ class RevealEffectContextState extends State<RevealEffectContext>
       onExit: (event) {
         updateMousePosition(null);
       },
-      child: Container(
-        key: _containerKey,
-        child: widget.child,
+      child: Listener(
+        onPointerSignal: (event) {
+          if (event is PointerScrollEvent || event is PointerScaleEvent) {
+            updateMousePosition(event.position);
+          }
+        },
+        child: Container(
+          key: _containerKey,
+          child: widget.child,
+        ),
       ),
     );
   }
