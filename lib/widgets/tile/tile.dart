@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
@@ -24,6 +26,8 @@ class TileState extends State<Tile> {
   bool _isHovered = false;
   bool _isFocused = false;
 
+  Timer? _delayTimer;
+
   final FocusNode _focusNode = FocusNode(debugLabel: 'Tile');
 
   @override
@@ -41,6 +45,20 @@ class TileState extends State<Tile> {
   void _handleHoverHighlight(bool value) {
     setState(() {
       _isHovered = value;
+    });
+  }
+
+  void _handleDelayedPress() {
+    if (widget.onPressed == null) return;
+
+    // Cancel any existing timer
+    _delayTimer?.cancel();
+
+    // Create new timer for 50ms delay
+    _delayTimer = Timer(const Duration(milliseconds: 50), () {
+      if (mounted) {
+        widget.onPressed?.call();
+      }
     });
   }
 
@@ -68,7 +86,7 @@ class TileState extends State<Tile> {
     }
 
     return GestureDetector(
-      onTap: widget.onPressed,
+      onTap: _handleDelayedPress,
       child: FocusableActionDetector(
         focusNode: _focusNode,
         onShowFocusHighlight: _handleFocusHighlight,
