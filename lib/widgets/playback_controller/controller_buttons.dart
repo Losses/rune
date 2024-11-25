@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/widgets/ax_reveal/ax_reveal.dart';
 
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/unavailable_menu_entry.dart';
@@ -10,6 +11,7 @@ import '../../providers/status.dart';
 import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+import '../collection_item.dart';
 
 class ControllerButtons extends StatefulWidget {
   const ControllerButtons({super.key});
@@ -80,6 +82,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 
+    final brightness = FluentTheme.of(context).brightness;
+
     return Selector<PlaybackStatusProvider, (bool, PlaybackStatus?)>(
       selector: (context, value) => (value.notReady, value.playbackStatus),
       builder: (context, value, child) {
@@ -94,31 +98,41 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                 : visibleEntries)
               Tooltip(
                 message: entry.tooltipBuilder(context),
-                child: entry.controllerButtonBuilder(context, null),
+                child: AxReveal(
+                  config: brightness == Brightness.dark
+                      ? defaultLightRevealConfig
+                      : defaultDarkRevealConfig,
+                  child: entry.controllerButtonBuilder(context, null),
+                ),
               ),
             if (hiddenEntries.isNotEmpty)
               FlyoutTarget(
                 controller: menuController,
-                child: IconButton(
-                  icon: const Icon(Symbols.more_vert),
-                  onPressed: () {
-                    menuController.showFlyout(
-                      builder: (context) {
-                        return Container(
-                          constraints: const BoxConstraints(maxWidth: 200),
-                          child: MenuFlyout(
-                            items: hiddenEntries
-                                .map(
-                                  (x) =>
-                                      flyoutItems[x.id] ??
-                                      unavailableMenuEntry(context),
-                                )
-                                .toList(),
-                          ),
-                        );
-                      },
-                    );
-                  },
+                child: AxReveal(
+                  config: brightness == Brightness.dark
+                      ? defaultLightRevealConfig
+                      : defaultDarkRevealConfig,
+                  child: IconButton(
+                    icon: const Icon(Symbols.more_vert),
+                    onPressed: () {
+                      menuController.showFlyout(
+                        builder: (context) {
+                          return Container(
+                            constraints: const BoxConstraints(maxWidth: 200),
+                            child: MenuFlyout(
+                              items: hiddenEntries
+                                  .map(
+                                    (x) =>
+                                        flyoutItems[x.id] ??
+                                        unavailableMenuEntry(context),
+                                  )
+                                  .toList(),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
                 ),
               ),
             const SizedBox(width: 8),

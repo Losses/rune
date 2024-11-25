@@ -19,7 +19,7 @@ class RevealConfig {
     this.hoverLightColor = Colors.white,
     this.pressAnimationColor = Colors.white,
     this.borderWidth = 1.0,
-    this.opacity = 0.5,
+    this.opacity = 0.26,
     this.borderFillRadius = 1.0,
     this.hoverLightFillRadius = 1.0,
     this.borderRadius = BorderRadius.zero,

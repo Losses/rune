@@ -17,7 +17,6 @@ import 'ax_reveal/ax_reveal.dart';
 import 'ax_reveal/utils/reveal_config.dart';
 import 'start_screen/utils/internal_collection.dart';
 
-
 class CollectionItem extends StatefulWidget {
   final InternalCollection collection;
   final CollectionType collectionType;
@@ -67,9 +66,13 @@ class _CollectionItemState extends State<CollectionItem> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = FluentTheme.of(context).brightness;
+
     return AxPressure(
       child: AxReveal(
-        config: defaultRevealConfig,
+        config: brightness == Brightness.dark
+            ? defaultLightRevealConfig
+            : defaultDarkRevealConfig,
         child: ContextMenuWrapper(
           contextAttachKey: contextAttachKey,
           contextController: contextController,
@@ -139,5 +142,11 @@ class _CollectionItemState extends State<CollectionItem> {
   }
 }
 
-final defaultRevealConfig =
+final defaultLightRevealConfig =
     RevealConfig(borderRadius: BorderRadius.circular(4.0));
+final defaultDarkRevealConfig = RevealConfig(
+  borderRadius: BorderRadius.circular(4.0),
+  borderColor: Colors.black,
+  hoverLightColor: Colors.black,
+  pressAnimationColor: Colors.black,
+);
