@@ -8,6 +8,7 @@ import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
+import '../../widgets/ax_reveal/utils/reveal_effect_controller.dart';
 import '../../screens/collection/collection_item.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -186,79 +187,81 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
 
                 return Container(
                   alignment: Alignment.centerLeft,
-                  child: SmoothHorizontalScroll(
-                    builder: (context, scrollController) =>
-                        SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      controller: scrollController,
-                      padding: getScrollContainerPadding(context,
-                          top: widget.topPadding),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.start,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          StartGroup<
-                              (
-                                String Function(BuildContext),
-                                String,
-                                IconData,
-                                bool
-                              )>(
-                            groupIndex: 0,
-                            groupTitle: S.of(context).start,
-                            items: smallScreenFirstColumn
-                                .where((x) => !x.$4)
-                                .toList(),
-                            constraints: trueConstraints,
-                            groupLayoutVariation:
-                                StartGroupGroupLayoutVariation.stacked,
-                            gridLayoutVariation:
-                                StartGroupGridLayoutVariation.initial,
-                            dimensionCalculator: StartGroupImplementation
-                                .startLinkDimensionCalculator,
-                            gapSize: defaultGapSize,
-                            onTitleTap: null,
-                            itemBuilder: (context, item) {
-                              return LinkTile(
-                                title: item.$1(context),
-                                path: item.$2,
-                                icon: item.$3,
-                              );
-                            },
-                            direction: Axis.horizontal,
-                          ),
-                          ...snapshot.data!.map(
-                            (item) {
-                              if (item is Group<InternalCollection>) {
-                                return StartGroup<InternalCollection>(
-                                  groupIndex: item.groupTitle.hashCode,
-                                  groupTitle: item.groupTitle,
-                                  groupLink: item.groupLink,
-                                  items: item.items,
-                                  constraints: trueConstraints,
-                                  groupLayoutVariation:
-                                      StartGroupGroupLayoutVariation.stacked,
-                                  gridLayoutVariation:
-                                      StartGroupGridLayoutVariation.square,
-                                  gapSize: defaultGapSize,
-                                  onTitleTap: item.groupLink != null
-                                      ? () => $push('/${item.groupLink}')
-                                      : null,
-                                  itemBuilder: (context, item) {
-                                    return CollectionItem(
-                                      collectionType: item.collectionType,
-                                      collection: item,
-                                      refreshList: () {},
-                                    );
-                                  },
-                                  direction: Axis.horizontal,
+                  child: RevealEffectContext(
+                    child: SmoothHorizontalScroll(
+                      builder: (context, scrollController) =>
+                          SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        controller: scrollController,
+                        padding: getScrollContainerPadding(context,
+                            top: widget.topPadding),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            StartGroup<
+                                (
+                                  String Function(BuildContext),
+                                  String,
+                                  IconData,
+                                  bool
+                                )>(
+                              groupIndex: 0,
+                              groupTitle: S.of(context).start,
+                              items: smallScreenFirstColumn
+                                  .where((x) => !x.$4)
+                                  .toList(),
+                              constraints: trueConstraints,
+                              groupLayoutVariation:
+                                  StartGroupGroupLayoutVariation.stacked,
+                              gridLayoutVariation:
+                                  StartGroupGridLayoutVariation.initial,
+                              dimensionCalculator: StartGroupImplementation
+                                  .startLinkDimensionCalculator,
+                              gapSize: defaultGapSize,
+                              onTitleTap: null,
+                              itemBuilder: (context, item) {
+                                return LinkTile(
+                                  title: item.$1(context),
+                                  path: item.$2,
+                                  icon: item.$3,
                                 );
-                              } else {
-                                return Container();
-                              }
-                            },
-                          )
-                        ],
+                              },
+                              direction: Axis.horizontal,
+                            ),
+                            ...snapshot.data!.map(
+                              (item) {
+                                if (item is Group<InternalCollection>) {
+                                  return StartGroup<InternalCollection>(
+                                    groupIndex: item.groupTitle.hashCode,
+                                    groupTitle: item.groupTitle,
+                                    groupLink: item.groupLink,
+                                    items: item.items,
+                                    constraints: trueConstraints,
+                                    groupLayoutVariation:
+                                        StartGroupGroupLayoutVariation.stacked,
+                                    gridLayoutVariation:
+                                        StartGroupGridLayoutVariation.square,
+                                    gapSize: defaultGapSize,
+                                    onTitleTap: item.groupLink != null
+                                        ? () => $push('/${item.groupLink}')
+                                        : null,
+                                    itemBuilder: (context, item) {
+                                      return CollectionItem(
+                                        collectionType: item.collectionType,
+                                        collection: item,
+                                        refreshList: () {},
+                                      );
+                                    },
+                                    direction: Axis.horizontal,
+                                  );
+                                } else {
+                                  return Container();
+                                }
+                              },
+                            )
+                          ],
+                        ),
                       ),
                     ),
                   ),

@@ -95,7 +95,10 @@ class RevealEffectPainter extends CustomPainter {
   }
 
   void _drawPressAnimation(Canvas canvas, Size size, Path path) {
-    final position = mouseReleased ? mouseUpPosition! : mousePosition!;
+    final position = mouseReleased ? mouseUpPosition : mousePosition;
+
+    if (position == null) return;
+
     final radius = config.pressAnimationFillMode == 'constrained'
         ? size.shortestSide
         : size.longestSide;

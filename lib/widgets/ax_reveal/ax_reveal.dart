@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import 'utils/reveal_config.dart';
 import 'utils/reveal_effect_painter.dart';
+import 'utils/reveal_effect_controller.dart';
 
 class AxReveal extends StatefulWidget {
   final Widget child;
@@ -17,78 +18,63 @@ class AxReveal extends StatefulWidget {
   State<AxReveal> createState() => _AxRevealState();
 }
 
-class _AxRevealState extends State<AxReveal>
-    with SingleTickerProviderStateMixin {
-  Offset? _mousePosition;
+class _AxRevealState extends State<AxReveal> {
+  late final RevealEffectController _controller;
   bool _mousePressed = false;
-  bool _mouseReleased = false;
   Offset? _mouseUpPosition;
-  late AnimationController _pressAnimationController;
 
   @override
-  void initState() {
-    super.initState();
-    _pressAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 400),
-    );
+  didChangeDependencies() {
+    super.didChangeDependencies();
+    _controller = RevealEffectController(context);
   }
 
   @override
   void dispose() {
-    _pressAnimationController.dispose();
+    _controller.dispose();
     super.dispose();
-  }
-
-  void _handleMouseMove(PointerEvent event) {
-    setState(() {
-      _mousePosition = event.localPosition;
-    });
   }
 
   void _handleMouseDown(PointerEvent event) {
     setState(() {
       _mousePressed = true;
-      _mouseReleased = false;
       _mouseUpPosition = null;
     });
-    _pressAnimationController.forward(from: 0);
+
+    _controller.mouseDown();
   }
 
   void _handleMouseUp(PointerEvent event) {
     setState(() {
       _mousePressed = false;
-      _mouseReleased = true;
       _mouseUpPosition = event.localPosition;
     });
-  }
 
-  void _handleMouseExit(PointerEvent event) {
-    setState(() {
-      _mousePosition = null;
-    });
+    _controller.mouseUp();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MouseRegion(
-      onHover: _handleMouseMove,
-      onExit: _handleMouseExit,
-      child: Listener(
-        onPointerDown: _handleMouseDown,
-        onPointerUp: _handleMouseUp,
-        onPointerMove: _handleMouseMove,
-        child: CustomPaint(
-          foregroundPainter: RevealEffectPainter(
-            mousePosition: _mousePosition,
-            mousePressed: _mousePressed,
-            mouseReleased: _mouseReleased,
-            mouseUpPosition: _mouseUpPosition,
-            mouseDownAnimateFrame: _pressAnimationController.value,
-            config: widget.config,
-          ),
-          child: widget.child,
-        ),
+    return Listener(
+      key: _controller.widgetKey,
+      onPointerDown: _handleMouseDown,
+      onPointerUp: _handleMouseUp,
+      child: ListenableBuilder(
+        listenable: _controller,
+        builder: (context, child) {
+          return CustomPaint(
+            foregroundPainter: RevealEffectPainter(
+              mousePosition: _controller.localPosition,
+              mousePressed: _mousePressed,
+              mouseReleased: _controller.mouseReleased,
+              mouseUpPosition: _mouseUpPosition,
+              mouseDownAnimateFrame: _controller.mouseDownAnimateLogicFrame,
+              config: widget.config,
+            ),
+            child: child,
+          );
+        },
+        child: widget.child,
       ),
     );
   }
