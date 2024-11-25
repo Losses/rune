@@ -59,14 +59,16 @@ class RevealEffectController extends ChangeNotifier {
   }
 
   void mouseDown() {
+    _animationUnit.mousePressed = true;
     _animationUnit.mouseReleased = false;
+    _animationUnit.mouseDownAnimateCurrentFrame = _effectContext.currentFrame;
     _effectContext.startAnimation(_animationUnit);
   }
 
   void mouseUp() {
+    _animationUnit.mousePressed = false;
     _animationUnit.mouseReleased = true;
-    _animationUnit.mouseDownAnimateReleasedFrame =
-        _animationUnit.mouseDownAnimateCurrentFrame;
+    _animationUnit.mouseDownAnimateReleasedFrame = _effectContext.currentFrame;
   }
 
   void mouseExit() {
@@ -81,6 +83,7 @@ class RevealEffectController extends ChangeNotifier {
   }
 
   notify() {
+    _animationUnit.currentFrame = _effectContext.currentFrame;
     notifyListeners();
   }
 

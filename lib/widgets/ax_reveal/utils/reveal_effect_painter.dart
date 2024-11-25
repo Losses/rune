@@ -5,18 +5,18 @@ import 'reveal_config.dart';
 
 class RevealEffectPainter extends CustomPainter {
   final Offset? mousePosition;
+  final Offset? mouseDownPosition;
   final bool mousePressed;
   final bool mouseReleased;
-  final Offset? mouseUpPosition;
-  final double mouseDownAnimateFrame;
+  final double logicFrame;
   final RevealConfig config;
 
   RevealEffectPainter({
     this.mousePosition,
+    this.mouseDownPosition,
     this.mousePressed = false,
     this.mouseReleased = false,
-    this.mouseUpPosition,
-    this.mouseDownAnimateFrame = 0,
+    this.logicFrame = 0,
     this.config = const RevealConfig(),
   });
 
@@ -95,7 +95,7 @@ class RevealEffectPainter extends CustomPainter {
   }
 
   void _drawPressAnimation(Canvas canvas, Size size, Path path) {
-    final position = mouseReleased ? mouseUpPosition : mousePosition;
+    final position = mouseReleased ? mouseDownPosition : mousePosition;
 
     if (position == null) return;
 
@@ -103,9 +103,9 @@ class RevealEffectPainter extends CustomPainter {
         ? size.shortestSide
         : size.longestSide;
 
-    final innerAlpha = (0.2 - mouseDownAnimateFrame) * config.opacity;
-    final outerAlpha = (0.1 - mouseDownAnimateFrame * 0.07) * config.opacity;
-    final outerBorder = (0.1 + mouseDownAnimateFrame * 0.8).clamp(0.0, 1.0);
+    final innerAlpha = (0.2 - logicFrame) * config.opacity;
+    final outerAlpha = (0.1 - logicFrame * 0.07) * config.opacity;
+    final outerBorder = (0.1 + logicFrame * 0.8).clamp(0.0, 1.0);
 
     final gradient = ui.Gradient.radial(
       position,
@@ -125,11 +125,11 @@ class RevealEffectPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(RevealEffectPainter oldDelegate) {
+  bool shouldRepaint(covariant RevealEffectPainter oldDelegate) {
     return mousePosition != oldDelegate.mousePosition ||
         mousePressed != oldDelegate.mousePressed ||
         mouseReleased != oldDelegate.mouseReleased ||
-        mouseUpPosition != oldDelegate.mouseUpPosition ||
-        mouseDownAnimateFrame != oldDelegate.mouseDownAnimateFrame;
+        mouseDownPosition != oldDelegate.mouseDownPosition ||
+        logicFrame != oldDelegate.logicFrame;
   }
 }

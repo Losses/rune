@@ -1,11 +1,12 @@
 import 'reveal_effect_controller.dart';
 
 class AnimationUnit {
-  int? currentFrameId;
+  int? currentFrame;
   int? mouseDownAnimateStartFrame;
   int mouseDownAnimateCurrentFrame = 0;
   double mouseDownAnimateLogicFrame = 0;
   int? mouseDownAnimateReleasedFrame;
+  bool mousePressed = false;
   bool mouseReleased = false;
   bool cleanedUpForAnimation = false;
   RevealEffectController controller;
@@ -20,7 +21,7 @@ class AnimationUnit {
   });
 
   void reset() {
-    currentFrameId = null;
+    currentFrame = null;
     mouseDownAnimateStartFrame = null;
     mouseDownAnimateCurrentFrame = 0;
     mouseDownAnimateLogicFrame = 0;

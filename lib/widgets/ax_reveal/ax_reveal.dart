@@ -21,7 +21,7 @@ class AxReveal extends StatefulWidget {
 class _AxRevealState extends State<AxReveal> {
   late final RevealEffectController _controller;
   bool _mousePressed = false;
-  Offset? _mouseUpPosition;
+  Offset? _mouseDownPosition;
 
   @override
   didChangeDependencies() {
@@ -38,7 +38,7 @@ class _AxRevealState extends State<AxReveal> {
   void _handleMouseDown(PointerEvent event) {
     setState(() {
       _mousePressed = true;
-      _mouseUpPosition = null;
+      _mouseDownPosition = event.localPosition;
     });
 
     _controller.mouseDown();
@@ -47,7 +47,6 @@ class _AxRevealState extends State<AxReveal> {
   void _handleMouseUp(PointerEvent event) {
     setState(() {
       _mousePressed = false;
-      _mouseUpPosition = event.localPosition;
     });
 
     _controller.mouseUp();
@@ -67,8 +66,8 @@ class _AxRevealState extends State<AxReveal> {
               mousePosition: _controller.localPosition,
               mousePressed: _mousePressed,
               mouseReleased: _controller.mouseReleased,
-              mouseUpPosition: _mouseUpPosition,
-              mouseDownAnimateFrame: _controller.mouseDownAnimateLogicFrame,
+              mouseDownPosition: _mouseDownPosition,
+              logicFrame: _controller.mouseDownAnimateLogicFrame,
               config: widget.config,
             ),
             child: child,

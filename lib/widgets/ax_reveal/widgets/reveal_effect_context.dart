@@ -25,19 +25,11 @@ class RevealEffectContext extends StatefulWidget {
 }
 
 class RevealEffectContextState extends State<RevealEffectContext>
-    with TickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   Ticker? _ticker;
-  bool _isInitialized = false;
   final GlobalKey _containerKey = GlobalKey();
 
-  void initialize(TickerProvider vsync) {
-    if (_isInitialized) return;
-
-    _ticker = vsync.createTicker(_handleTick);
-    _ticker?.dispose();
-  }
-
-  void _handleTick(Duration elapsed) {
+  void _handleTick(_) {
     _currentFrame++;
     _updateAnimations(_currentFrame);
 
@@ -46,7 +38,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
         stopAnimation(unit);
         unit.cleanedUpForAnimation = false;
       } else {
-        final isPlayingAnimation = _animationQueue.contains(unit);
+        final isPlayingAnimation = unit.mousePressed || unit.mouseReleased;
         if (_mouseInBoundary || isPlayingAnimation) {
           unit.controller.notify();
         }
@@ -55,7 +47,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
 
     _paintedPosition = _currentPosition;
 
-    if (!_mouseInBoundary && !hasActiveAnimations) {
+    if (!hasActiveAnimations) {
       _ticker?.stop();
     }
   }
@@ -75,7 +67,8 @@ class RevealEffectContextState extends State<RevealEffectContext>
   @override
   initState() {
     super.initState();
-    _isInitialized = true;
+
+    _ticker = createTicker(_handleTick);
   }
 
   final List<AnimationUnit> _animationQueue = [];
@@ -85,6 +78,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
   Offset? _currentPosition;
   Offset? _paintedPosition;
 
+  int get currentFrame => _currentFrame;
   bool get hasActiveAnimations => _animationQueue.isNotEmpty;
   bool get mouseInBoundary => _mouseInBoundary;
   Offset? get currentPosition => _currentPosition;
@@ -109,7 +103,7 @@ class RevealEffectContextState extends State<RevealEffectContext>
   void stopAnimation(AnimationUnit unit) {
     unit.reset();
     _animationQueue.remove(unit);
-    if (_animationQueue.isEmpty && !_mouseInBoundary) {
+    if (_animationQueue.isEmpty) {
       _ticker?.stop();
     }
   }
@@ -147,11 +141,11 @@ class RevealEffectContextState extends State<RevealEffectContext>
 
   void _updateAnimations(int frame) {
     for (final unit in _animationQueue) {
-      if (frame == 0 || unit.currentFrameId == frame) {
+      if (frame == 0 || unit.currentFrame == frame) {
         continue;
       }
 
-      unit.currentFrameId = frame;
+      unit.currentFrame = frame;
 
       unit.mouseDownAnimateStartFrame ??= frame;
 
@@ -183,6 +177,9 @@ class RevealEffectContextState extends State<RevealEffectContext>
         updateMousePosition(null);
       },
       child: Listener(
+        onPointerMove: (event) {
+          updateMousePosition(event.position);
+        },
         onPointerSignal: (event) {
           if (event is PointerScrollEvent || event is PointerScaleEvent) {
             updateMousePosition(event.position);
