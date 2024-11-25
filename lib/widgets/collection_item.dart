@@ -1,20 +1,22 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
-import '../../utils/execute_middle_click_action.dart';
-import '../../utils/api/operate_playback_with_mix_query.dart';
-import '../../utils/router/navigation.dart';
-import '../../utils/router/router_name.dart';
-import '../../utils/router/query_tracks_parameter.dart';
-import '../../utils/context_menu/track_item_context_menu.dart';
-import '../../utils/context_menu/collection_item_context_menu.dart';
-import '../../widgets/ax_pressure.dart';
-import '../../widgets/ax_reveal/utils/reveal_config.dart';
-import '../../widgets/tile/flip_tile.dart';
-import '../../widgets/ax_reveal/ax_reveal.dart';
-import '../../widgets/context_menu_wrapper.dart';
-import '../../widgets/start_screen/utils/internal_collection.dart';
-import '../../messages/all.dart';
+import '../utils/execute_middle_click_action.dart';
+import '../utils/api/operate_playback_with_mix_query.dart';
+import '../utils/router/navigation.dart';
+import '../utils/router/router_name.dart';
+import '../utils/router/query_tracks_parameter.dart';
+import '../utils/context_menu/track_item_context_menu.dart';
+import '../utils/context_menu/collection_item_context_menu.dart';
+import '../messages/all.dart';
+
+import 'ax_pressure.dart';
+import 'context_menu_wrapper.dart';
+import 'tile/flip_tile.dart';
+import 'ax_reveal/ax_reveal.dart';
+import 'ax_reveal/utils/reveal_config.dart';
+import 'start_screen/utils/internal_collection.dart';
+
 
 class CollectionItem extends StatefulWidget {
   final InternalCollection collection;

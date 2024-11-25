@@ -8,7 +8,7 @@ import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
-import '../../screens/collection/collection_item.dart';
+import '../../widgets/collection_item.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
