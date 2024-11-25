@@ -114,8 +114,19 @@ class RevealEffectContextState extends State<RevealEffectContext>
     }
   }
 
-  void forceRefresh() {
-    // Notify all controllers about the mouse position change
+  bool _isUpdateScheduled = false;
+
+  void _scheduleUpdate() {
+    if (!_isUpdateScheduled) {
+      _isUpdateScheduled = true;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _executeUpdate();
+        _isUpdateScheduled = false;
+      });
+    }
+  }
+
+  void _executeUpdate() {
     for (final unit in _units) {
       unit.controller.updateMousePosition(_currentPosition);
     }
@@ -125,18 +136,15 @@ class RevealEffectContextState extends State<RevealEffectContext>
     }
   }
 
+  void forceRefresh() {
+    _scheduleUpdate();
+  }
+
   void updateMousePosition(Offset? position) {
     _currentPosition = position;
     _mouseInBoundary = position != null;
 
-    // Notify all controllers about the mouse position change
-    for (final unit in _units) {
-      unit.controller.updateMousePosition(position);
-    }
-
-    if (_mouseInBoundary || hasActiveAnimations) {
-      _ensureTickerStarted();
-    }
+    _scheduleUpdate();
   }
 
   void _updateAnimations(int frame) {
