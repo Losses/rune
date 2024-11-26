@@ -1,16 +1,16 @@
 mod internal;
 mod sfx_internal;
 mod realtime_fft;
-mod output_stream;
+mod simple_channel;
 
 pub mod strategies;
-
-#[cfg(target_os = "android")]
-mod dummy_souvlaki;
-
+pub mod output_stream;
 pub mod controller;
 pub mod player;
 pub mod sfx_player;
+
+#[cfg(target_os = "android")]
+mod dummy_souvlaki;
 
 #[cfg(not(target_os = "android"))]
 pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};

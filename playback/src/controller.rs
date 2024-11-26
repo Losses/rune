@@ -9,14 +9,15 @@ use std::{
 };
 
 use anyhow::{bail, Error, Result};
-use log::{debug, error, info};
+use log::{debug, info};
 use once_cell::sync::OnceCell;
 
 #[cfg(target_os = "android")]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
+use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 #[cfg(not(target_os = "android"))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::Mutex;
 
 use crate::player::{PlaybackState, Player};
 
@@ -42,7 +43,7 @@ pub fn get_default_cover_art_path() -> &'static Path {
 
 pub struct MediaControlManager {
     pub controls: MediaControls,
-    event_sender: broadcast::Sender<MediaControlEvent>,
+    event_sender: SimpleSender<MediaControlEvent>,
     #[cfg(target_os = "windows")]
     _dummy_window: windows::DummyWindow,
 }
@@ -74,7 +75,7 @@ impl MediaControlManager {
             Err(e) => bail!(Error::msg(format!("{:?}", e))),
         };
 
-        let (event_sender, _) = broadcast::channel(32);
+        let (event_sender, _) = SimpleChannel::channel(32);
 
         Ok(Self {
             controls,
@@ -91,9 +92,7 @@ impl MediaControlManager {
         let request = self.controls.attach(move |event: MediaControlEvent| {
             let event_sender = event_sender.clone();
             thread::spawn(move || {
-                if let Err(e) = event_sender.send(event) {
-                    error!("Error sending media control event: {:?}", e);
-                }
+                event_sender.send(event);
             });
         });
 
@@ -116,7 +115,7 @@ impl MediaControlManager {
         Ok(())
     }
 
-    pub fn subscribe_controller_events(&self) -> broadcast::Receiver<MediaControlEvent> {
+    pub fn subscribe_controller_events(&self) -> SimpleReceiver<MediaControlEvent> {
         self.event_sender.subscribe()
     }
 }

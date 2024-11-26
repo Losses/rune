@@ -2,13 +2,14 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use rustfft::{num_complex::Complex, FftPlanner};
-use tokio::sync::broadcast;
+
+use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 
 pub struct RealTimeFFT {
     window_size: usize,
     window: Arc<Mutex<Vec<f32>>>,
     fft_window: Vec<f32>,
-    fft_result_tx: broadcast::Sender<Vec<f32>>,
+    fft_result_tx: SimpleSender<Vec<f32>>,
 }
 
 pub fn build_nuttall_window(window_size: usize) -> Vec<f32> {
@@ -27,7 +28,7 @@ pub fn build_nuttall_window(window_size: usize) -> Vec<f32> {
 
 impl RealTimeFFT {
     pub fn new(window_size: usize) -> Self {
-        let (fft_result_tx, _) = broadcast::channel(30);
+        let (fft_result_tx, _) = SimpleChannel::channel(30);
         let window = vec![0.0; window_size];
         RealTimeFFT {
             window_size,
@@ -81,11 +82,11 @@ impl RealTimeFFT {
                 .unwrap();
 
             // Send the FFT result
-            let _ = fft_result_tx.send(amp_spectrum.into_iter().map(|x| x / max_value).collect());
+            fft_result_tx.send(amp_spectrum.into_iter().map(|x| x / max_value).collect());
         });
     }
 
-    pub fn subscribe(&self) -> broadcast::Receiver<Vec<f32>> {
+    pub fn subscribe(&self) -> SimpleReceiver<Vec<f32>> {
         self.fft_result_tx.subscribe()
     }
 }

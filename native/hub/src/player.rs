@@ -31,11 +31,11 @@ pub async fn initialize_player(
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
 ) -> Result<()> {
-    let mut status_receiver = player.lock().await.subscribe_status();
-    let mut played_through_receiver = player.lock().await.subscribe_played_through();
-    let mut playlist_receiver = player.lock().await.subscribe_playlist();
-    let mut realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
-    let mut crash_receiver = player.lock().await.subscribe_crash();
+    let status_receiver = player.lock().await.subscribe_status();
+    let played_through_receiver = player.lock().await.subscribe_played_through();
+    let playlist_receiver = player.lock().await.subscribe_playlist();
+    let realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
+    let crash_receiver = player.lock().await.subscribe_crash();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
@@ -44,7 +44,7 @@ pub async fn initialize_player(
 
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
-    let mut os_controller_receiver = manager.lock().await.subscribe_controller_events();
+    let os_controller_receiver = manager.lock().await.subscribe_controller_events();
 
     manager.lock().await.initialize()?;
 
