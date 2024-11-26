@@ -83,28 +83,28 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     final List<ControllerEntry> hiddenEntries =
         hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
-    return MouseRegion(
-      onEnter: (_) => _fetchFlyoutItems(Localizations.localeOf(context)),
-      child: Row(
-        mainAxisAlignment: coverArtWallLayout
-            ? MainAxisAlignment.spaceAround
-            : MainAxisAlignment.end,
-        children: [
-          if (coverArtWallLayout) const SizedBox(width: 8),
-          for (final entry in (miniLayout && !coverArtWallLayout)
-              ? miniEntries
-              : visibleEntries)
-            Tooltip(
-              message: entry.tooltipBuilder(context),
-              child: AxReveal(
-                config: brightness == Brightness.dark
-                    ? defaultLightRevealConfig
-                    : defaultDarkRevealConfig,
-                child: entry.controllerButtonBuilder(context, null),
-              ),
+    return Row(
+      mainAxisAlignment: coverArtWallLayout
+          ? MainAxisAlignment.spaceAround
+          : MainAxisAlignment.end,
+      children: [
+        if (coverArtWallLayout) const SizedBox(width: 8),
+        for (final entry in (miniLayout && !coverArtWallLayout)
+            ? miniEntries
+            : visibleEntries)
+          Tooltip(
+            message: entry.tooltipBuilder(context),
+            child: AxReveal(
+              config: brightness == Brightness.dark
+                  ? defaultLightRevealConfig
+                  : defaultDarkRevealConfig,
+              child: entry.controllerButtonBuilder(context, null),
             ),
-          if (hiddenEntries.isNotEmpty)
-            FlyoutTarget(
+          ),
+        if (hiddenEntries.isNotEmpty)
+          MouseRegion(
+            onEnter: (_) => _fetchFlyoutItems(Localizations.localeOf(context)),
+            child: FlyoutTarget(
               controller: menuController,
               child: AxReveal(
                 config: brightness == Brightness.dark
@@ -133,9 +133,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                 ),
               ),
             ),
-          const SizedBox(width: 8),
-        ],
-      ),
+          ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 }
