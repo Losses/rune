@@ -29,8 +29,8 @@ class _QueueState extends State<Queue> {
   Widget build(BuildContext context) {
     return Selector<PlaybackStatusProvider, (int?, int?)>(
       selector: (context, playbackStatusProvider) => (
-        playbackStatusProvider.playbackStatus?.index,
-        playbackStatusProvider.playbackStatus?.id
+        playbackStatusProvider.playbackStatus.index,
+        playbackStatusProvider.playbackStatus.id
       ),
       builder: (context, playbackStatusProvider, child) {
         Typography typography = FluentTheme.of(context).typography;

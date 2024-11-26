@@ -6,7 +6,6 @@ import 'package:rune/widgets/ax_reveal/ax_reveal.dart';
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
-import '../../messages/playback.pb.dart';
 import '../../providers/status.dart';
 import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
@@ -22,26 +21,23 @@ class ControllerButtons extends StatefulWidget {
 
 class _ControllerButtonsState extends State<ControllerButtons> {
   Map<String, MenuFlyoutItem> flyoutItems = {};
-  bool initialized = false;
   Locale? currentLocale;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _checkLocaleAndFetchItems();
+  }
 
+  void _checkLocaleAndFetchItems() {
     final newLocale = Localizations.localeOf(context);
-
     if (currentLocale != newLocale) {
       _fetchFlyoutItems(newLocale);
     }
   }
 
   Future<void> _fetchFlyoutItems(Locale locale) async {
-    if (initialized && locale == currentLocale) return;
-
-    initialized = true;
     currentLocale = locale;
-
     final Map<String, MenuFlyoutItem> itemMap = await fetchFlyoutItems(context);
 
     if (!context.mounted) {
@@ -67,12 +63,6 @@ class _ControllerButtonsState extends State<ControllerButtons> {
         .smallerOrEqualTo(DeviceType.mobile);
 
     final controllerProvider = Provider.of<PlaybackControllerProvider>(context);
-    final entries = controllerProvider.entries;
-    final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
-    final List<ControllerEntry> visibleEntries =
-        hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
-    final List<ControllerEntry> hiddenEntries =
-        hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
 
     final path = Provider.of<RouterPathProvider>(context).path;
 
@@ -84,61 +74,68 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
     final brightness = FluentTheme.of(context).brightness;
 
-    return Selector<PlaybackStatusProvider, (bool, PlaybackStatus?)>(
-      selector: (context, value) => (value.notReady, value.playbackStatus),
-      builder: (context, value, child) {
-        return Row(
-          mainAxisAlignment: coverArtWallLayout
-              ? MainAxisAlignment.spaceAround
-              : MainAxisAlignment.end,
-          children: [
-            if (coverArtWallLayout) const SizedBox(width: 8),
-            for (final entry in (miniLayout && !coverArtWallLayout)
-                ? miniEntries
-                : visibleEntries)
-              Tooltip(
-                message: entry.tooltipBuilder(context),
-                child: AxReveal(
-                  config: brightness == Brightness.dark
-                      ? defaultLightRevealConfig
-                      : defaultDarkRevealConfig,
-                  child: entry.controllerButtonBuilder(context, null),
+    Provider.of<PlaybackStatusProvider>(context);
+
+    final entries = controllerProvider.entries;
+    final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
+    final List<ControllerEntry> visibleEntries =
+        hiddenIndex != -1 ? entries.sublist(0, hiddenIndex) : entries;
+    final List<ControllerEntry> hiddenEntries =
+        hiddenIndex != -1 ? entries.sublist(hiddenIndex + 1) : [];
+
+    return MouseRegion(
+      onEnter: (_) => _fetchFlyoutItems(Localizations.localeOf(context)),
+      child: Row(
+        mainAxisAlignment: coverArtWallLayout
+            ? MainAxisAlignment.spaceAround
+            : MainAxisAlignment.end,
+        children: [
+          if (coverArtWallLayout) const SizedBox(width: 8),
+          for (final entry in (miniLayout && !coverArtWallLayout)
+              ? miniEntries
+              : visibleEntries)
+            Tooltip(
+              message: entry.tooltipBuilder(context),
+              child: AxReveal(
+                config: brightness == Brightness.dark
+                    ? defaultLightRevealConfig
+                    : defaultDarkRevealConfig,
+                child: entry.controllerButtonBuilder(context, null),
+              ),
+            ),
+          if (hiddenEntries.isNotEmpty)
+            FlyoutTarget(
+              controller: menuController,
+              child: AxReveal(
+                config: brightness == Brightness.dark
+                    ? defaultLightRevealConfig
+                    : defaultDarkRevealConfig,
+                child: IconButton(
+                  icon: const Icon(Symbols.more_vert),
+                  onPressed: () {
+                    menuController.showFlyout(
+                      builder: (context) {
+                        return Container(
+                          constraints: const BoxConstraints(maxWidth: 200),
+                          child: MenuFlyout(
+                            items: hiddenEntries
+                                .map(
+                                  (x) =>
+                                      flyoutItems[x.id] ??
+                                      unavailableMenuEntry(context),
+                                )
+                                .toList(),
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
               ),
-            if (hiddenEntries.isNotEmpty)
-              FlyoutTarget(
-                controller: menuController,
-                child: AxReveal(
-                  config: brightness == Brightness.dark
-                      ? defaultLightRevealConfig
-                      : defaultDarkRevealConfig,
-                  child: IconButton(
-                    icon: const Icon(Symbols.more_vert),
-                    onPressed: () {
-                      menuController.showFlyout(
-                        builder: (context) {
-                          return Container(
-                            constraints: const BoxConstraints(maxWidth: 200),
-                            child: MenuFlyout(
-                              items: hiddenEntries
-                                  .map(
-                                    (x) =>
-                                        flyoutItems[x.id] ??
-                                        unavailableMenuEntry(context),
-                                  )
-                                  .toList(),
-                            ),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ),
-            const SizedBox(width: 8),
-          ],
-        );
-      },
+            ),
+          const SizedBox(width: 8),
+        ],
+      ),
     );
   }
 }

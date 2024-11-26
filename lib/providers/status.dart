@@ -11,9 +11,10 @@ import '../utils/theme_color_manager.dart';
 const lastQueueIndexKey = 'last_queue_index';
 
 class PlaybackStatusProvider with ChangeNotifier {
-  PlaybackStatus? _playbackStatus;
+  final PlaybackStatus _playbackStatus =
+      PlaybackStatus(state: "Stopped", ready: false);
 
-  PlaybackStatus? get playbackStatus => _playbackStatus;
+  PlaybackStatus get playbackStatus => _playbackStatus;
 
   late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
 
@@ -44,10 +45,21 @@ class PlaybackStatusProvider with ChangeNotifier {
 
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
     final newStatus = signal.message;
-    if (_playbackStatus == null ||
-        !_isPlaybackStatusEqual(_playbackStatus!, newStatus)) {
-      final bool isNewTrack = _playbackStatus?.id != newStatus.id;
-      _playbackStatus = newStatus;
+    if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
+      final bool isNewTrack = _playbackStatus.id != newStatus.id;
+
+      _playbackStatus.state = newStatus.state;
+      _playbackStatus.progressSeconds = newStatus.progressSeconds;
+      _playbackStatus.progressPercentage = newStatus.progressPercentage;
+      _playbackStatus.artist = newStatus.artist;
+      _playbackStatus.album = newStatus.album;
+      _playbackStatus.title = newStatus.title;
+      _playbackStatus.duration = newStatus.duration;
+      _playbackStatus.index = newStatus.index;
+      _playbackStatus.id = newStatus.id;
+      _playbackStatus.playbackMode = newStatus.playbackMode;
+      _playbackStatus.ready = newStatus.ready;
+      _playbackStatus.coverArtPath = newStatus.coverArtPath;
 
       if (isNewTrack && newStatus.state != "Stopped") {
         ThemeColorManager().handleCoverArtColorChange(newStatus.id);
@@ -75,6 +87,6 @@ class PlaybackStatusProvider with ChangeNotifier {
   }
 
   bool get notReady {
-    return playbackStatus?.ready == null || playbackStatus!.ready == false;
+    return playbackStatus.ready == false;
   }
 }

@@ -14,8 +14,7 @@ class CoverArtPageProgressBar extends StatefulWidget {
   });
 
   @override
-  CoverArtPageProgressBarState createState() =>
-      CoverArtPageProgressBarState();
+  CoverArtPageProgressBarState createState() => CoverArtPageProgressBarState();
 }
 
 class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
@@ -49,9 +48,8 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
       children: [
         Expanded(
           child: Slider(
-            value: status != null ? status.progressPercentage * 100 : 0,
-            onChanged:
-                status != null && !notReady ? (v) => _onSeek(v, status) : null,
+            value: status.progressPercentage * 100,
+            onChanged: !notReady ? (v) => _onSeek(v, status) : null,
             style: const SliderThemeData(useThumbBall: false),
           ),
         ),
@@ -63,12 +61,12 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  formatTime(status?.progressSeconds ?? 0),
+                  formatTime(status.progressSeconds),
                   style: typography.caption
                       ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
                 ),
                 Text(
-                  '-${formatTime((status?.duration ?? 0) - (status?.progressSeconds ?? 0))}',
+                  '-${formatTime((status.duration) - (status.progressSeconds))}',
                   style: typography.caption
                       ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
                 ),
