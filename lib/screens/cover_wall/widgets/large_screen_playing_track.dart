@@ -56,16 +56,16 @@ class LargeScreenPlayingTrack extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    p.$3.isNotEmpty ? S.of(context).unknownAlbum : p.$3,
+                    p.$3.isEmpty ? S.of(context).unknownAlbum : p.$3,
                     style: typography.bodyLarge?.apply(shadows: shadows),
                   ),
                   Text(
-                    p.$4.isNotEmpty ? S.of(context).unknownTrack : p.$4,
+                    p.$4.isEmpty ? S.of(context).unknownTrack : p.$4,
                     style: typography.subtitle?.apply(shadows: shadows),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    p.$2.isNotEmpty ? S.of(context).unknownArtist : p.$2,
+                    p.$2.isEmpty ? S.of(context).unknownArtist : p.$2,
                     style: typography.body?.apply(shadows: shadows),
                   ),
                   const SizedBox(height: 28),

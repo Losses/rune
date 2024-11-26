@@ -4,9 +4,9 @@ import 'package:rinf/rinf.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../messages/playback.pb.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
+import '../messages/all.dart';
 
 const lastQueueIndexKey = 'last_queue_index';
 
@@ -46,8 +46,6 @@ class PlaybackStatusProvider with ChangeNotifier {
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
     final newStatus = signal.message;
     if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
-      final bool isNewTrack = _playbackStatus.id != newStatus.id;
-
       _playbackStatus.state = newStatus.state;
       _playbackStatus.progressSeconds = newStatus.progressSeconds;
       _playbackStatus.progressPercentage = newStatus.progressPercentage;
@@ -60,6 +58,8 @@ class PlaybackStatusProvider with ChangeNotifier {
       _playbackStatus.playbackMode = newStatus.playbackMode;
       _playbackStatus.ready = newStatus.ready;
       _playbackStatus.coverArtPath = newStatus.coverArtPath;
+
+      final bool isNewTrack = _playbackStatus.id != newStatus.id;
 
       if (isNewTrack && newStatus.state != "Stopped") {
         ThemeColorManager().handleCoverArtColorChange(newStatus.id);

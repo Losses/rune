@@ -1,10 +1,10 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/ax_reveal/ax_reveal.dart';
 
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/unavailable_menu_entry.dart';
+import '../../widgets/ax_reveal/ax_reveal.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 import '../../providers/status.dart';
 import '../../providers/router_path.dart';
