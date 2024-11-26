@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
+import 'package:rune/providers/responsive_providers.dart';
 
 import '../main.dart';
 import '../utils/l10n.dart';
@@ -65,16 +66,6 @@ class WindowFrame extends StatefulWidget {
 }
 
 class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
-  bool _isMaximized = false;
-
-  _handowWindowEvent(_) {
-    if (_isMaximized != appWindow.isMaximized) {
-      setState(() {
-        _isMaximized = appWindow.isMaximized;
-      });
-    }
-  }
-
   @override
   void initState() {
     super.initState();
@@ -99,135 +90,131 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
     }
 
     final path = Provider.of<RouterPathProvider>(context).path;
+    Provider.of<ScreenSizeProvider>(context);
 
     final isSearch = path == '/search';
 
-    return MouseRegion(
-      onEnter: _handowWindowEvent,
-      onExit: _handowWindowEvent,
-      onHover: _handowWindowEvent,
-      child: RuneStack(
-        children: [
-          if (FullScreen.isFullScreen)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              mainAxisSize: MainAxisSize.max,
-              children: [
-                Expanded(
-                  child: WindowTitleBarBox(
-                    child: MoveWindow(),
+    return RuneStack(
+      children: [
+        if (FullScreen.isFullScreen)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Expanded(
+                child: WindowTitleBarBox(
+                  child: MoveWindow(),
+                ),
+              ),
+              WindowIconButton(
+                onPressed: () {
+                  if (isSearch) {
+                    escapeFromSearch();
+                  } else {
+                    $push('/search');
+                  }
+                },
+                child: Center(
+                  child: Icon(
+                    FluentIcons.search,
+                    size: 12,
                   ),
                 ),
-                WindowIconButton(
+              ),
+              WindowIconButton(
+                onPressed: () {
+                  FullScreen.setFullScreen(false);
+                },
+                child: Center(
+                  child: Icon(
+                    FluentIcons.full_screen,
+                    size: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        if (!FullScreen.isFullScreen)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Expanded(
+                child: WindowTitleBarBox(
+                  child: MoveWindow(),
+                ),
+              ),
+              WindowIconButton(
+                onPressed: () {
+                  if (isSearch) {
+                    escapeFromSearch();
+                  } else {
+                    $push('/search');
+                  }
+                },
+                child: Center(
+                  child: Icon(
+                    FluentIcons.search,
+                    size: 12,
+                  ),
+                ),
+              ),
+              WindowIconButton(
+                onPressed: () async {
+                  appWindow.minimize();
+                },
+                child: isWindows11
+                    ? null
+                    : Center(
+                        child: Icon(
+                          FluentIcons.chrome_minimize,
+                          size: 12,
+                        ),
+                      ),
+              ),
+              MouseRegion(
+                onEnter: (event) async {
+                  // await platform.invokeMethod('maximumButtonEnter');
+                },
+                onExit: (event) async {
+                  // await platform.invokeMethod('maximumButtonExit');
+                },
+                child: WindowIconButton(
                   onPressed: () {
-                    if (isSearch) {
-                      escapeFromSearch();
-                    } else {
-                      $push('/search');
-                    }
-                  },
-                  child: Center(
-                    child: Icon(
-                      FluentIcons.search,
-                      size: 12,
-                    ),
-                  ),
-                ),
-                WindowIconButton(
-                  onPressed: () {
-                    FullScreen.setFullScreen(false);
-                  },
-                  child: Center(
-                    child: Icon(
-                      FluentIcons.full_screen,
-                      size: 12,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          if (!FullScreen.isFullScreen)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              mainAxisSize: MainAxisSize.max,
-              children: [
-                Expanded(
-                  child: WindowTitleBarBox(
-                    child: MoveWindow(),
-                  ),
-                ),
-                WindowIconButton(
-                  onPressed: () {
-                    if (isSearch) {
-                      escapeFromSearch();
-                    } else {
-                      $push('/search');
-                    }
-                  },
-                  child: Center(
-                    child: Icon(
-                      FluentIcons.search,
-                      size: 12,
-                    ),
-                  ),
-                ),
-                WindowIconButton(
-                  onPressed: () async {
-                    appWindow.minimize();
+                    setState(() {
+                      appWindow.maximizeOrRestore();
+                    });
                   },
                   child: isWindows11
                       ? null
                       : Center(
                           child: Icon(
-                            FluentIcons.chrome_minimize,
+                            appWindow.isMaximized
+                                ? FluentIcons.chrome_restore
+                                : FluentIcons.square_shape,
                             size: 12,
                           ),
                         ),
                 ),
-                MouseRegion(
-                  onEnter: (event) async {
-                    // await platform.invokeMethod('maximumButtonEnter');
-                  },
-                  onExit: (event) async {
-                    // await platform.invokeMethod('maximumButtonExit');
-                  },
-                  child: WindowIconButton(
-                    onPressed: () {
-                      setState(() {
-                        appWindow.maximizeOrRestore();
-                      });
-                    },
-                    child: isWindows11
-                        ? null
-                        : Center(
-                            child: Icon(
-                              appWindow.isMaximized
-                                  ? FluentIcons.chrome_restore
-                                  : FluentIcons.square_shape,
-                              size: 12,
-                            ),
-                          ),
-                  ),
-                ),
-                WindowIconButton(
-                  onPressed: () {
-                    appWindow.hide();
-                  },
-                  child: isWindows11
-                      ? null
-                      : Center(
-                          child: Icon(
-                            FluentIcons.chrome_close,
-                            size: 12,
-                          ),
+              ),
+              WindowIconButton(
+                onPressed: () {
+                  appWindow.hide();
+                },
+                child: isWindows11
+                    ? null
+                    : Center(
+                        child: Icon(
+                          FluentIcons.chrome_close,
+                          size: 12,
                         ),
-                ),
-                appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
-              ],
-            ),
-          widget.child,
-        ],
-      ),
+                      ),
+              ),
+              appWindow.isMaximized ? SizedBox(width: 2) : SizedBox(width: 7),
+            ],
+          ),
+        widget.child,
+      ],
     );
   }
 }
