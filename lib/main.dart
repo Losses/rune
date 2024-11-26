@@ -239,6 +239,20 @@ void mainLoop() {
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
+String? getWindowsFont(AppTheme theme) {
+  if (!Platform.isWindows) return null;
+
+  final lc = theme.locale?.languageCode.toLowerCase();
+  final cc = theme.locale?.scriptCode?.toLowerCase();
+
+  if (lc == 'ja') return "Yu Gothic";
+  if (lc == 'ko') return 'Malgun Gothic';
+  if (lc == 'zh' && cc == 'hant') return "Microsoft JhengHei";
+  if (lc == 'zh' && cc == 'hans') return "Microsoft YaHei";
+
+  return null;
+}
+
 class Rune extends StatefulWidget {
   const Rune({super.key});
 
@@ -281,10 +295,12 @@ class _RuneState extends State<Rune> {
           color: appTheme.color,
           themeMode: appTheme.mode,
           theme: FluentThemeData(
+            fontFamily: getWindowsFont(appTheme),
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
           ),
           darkTheme: FluentThemeData(
+            fontFamily: getWindowsFont(appTheme),
             brightness: Brightness.dark,
             accentColor: appTheme.color,
             visualDensity: VisualDensity.standard,
