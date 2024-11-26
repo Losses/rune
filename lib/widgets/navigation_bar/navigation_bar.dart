@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
@@ -135,6 +136,35 @@ class NavigationBarState extends State<NavigationBar> {
                   : Container();
             });
 
+        late Widget macOSParentWidget = SmallerOrEqualTo(
+            deviceType: DeviceType.fish,
+            builder: (context, isFish) {
+              final movableParentWidget = MacOSMoveWindow(
+                  isEnabledDoubleTap: false, child: parentWidget);
+
+              if (isFish) {
+                return MacOSMoveWindow(
+                    isEnabledDoubleTap: false, child: movableParentWidget);
+              }
+
+              final MoveWindow = MacOSMoveWindow(
+                child: Container(
+                  height: 80,
+                ),
+              );
+
+              return parent != null
+                  ? IntrinsicHeight(
+                      child: Row(
+                        children: [
+                          movableParentWidget,
+                          Expanded(child: MoveWindow)
+                        ],
+                      ),
+                    )
+                  : IntrinsicHeight(child: MoveWindow);
+            });
+
         final baseSlibings = (slibings ?? emptySlibings);
         final validSlibings = isZune
             ? baseSlibings
@@ -181,7 +211,50 @@ class NavigationBarState extends State<NavigationBar> {
           },
         );
 
+        final macOSChildrenWidget = SmallerOrEqualTo(
+          deviceType: DeviceType.fish,
+          builder: (context, isFish) {
+            final movableChildrenWidget = MacOSMoveWindow(
+              isEnabledDoubleTap: false,
+              child: childrenWidget,
+            );
+
+            final MoveWindow = MacOSMoveWindow();
+
+            return parent != null
+                ? IntrinsicHeight(
+                    child: Row(
+                      children: [
+                        movableChildrenWidget,
+                        Expanded(child: MoveWindow)
+                      ],
+                    ),
+                  )
+                : IntrinsicHeight(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 0,
+                          child: movableChildrenWidget,
+                        ),
+                        Expanded(child: MoveWindow)
+                      ],
+                    ),
+                  );
+          },
+        );
+
         final isSearch = path == '/search';
+
+        final navigationContent = Platform.isMacOS
+            ? [
+                macOSParentWidget,
+                macOSChildrenWidget,
+              ]
+            : [
+                parentWidget,
+                childrenWidget,
+              ];
 
         return Stack(
           children: [
@@ -196,10 +269,7 @@ class NavigationBarState extends State<NavigationBar> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.max,
-                      children: [
-                        parentWidget,
-                        childrenWidget,
-                      ],
+                      children: navigationContent,
                     ),
                   ),
                 ),
