@@ -813,7 +813,7 @@
     "@exportCoverWall": {
         "description": "上下文菜单中的一个条目，允许用户导出封面墙"
     },
-    "ratio": "比率",
+    "ratio": "比例",
     "@ratio": {
         "description": "封面墙模态的输入字段标题"
     },

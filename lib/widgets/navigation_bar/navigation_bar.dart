@@ -186,10 +186,6 @@ class NavigationBarState extends State<NavigationBar> {
 
         return Stack(
           children: [
-            if (Platform.isMacOS)
-              WindowTitleBarBox(
-                child: Container(width: 28),
-              ),
             if (isZune || !isSearch)
               Transform.translate(
                 offset: const Offset(0, -40),
