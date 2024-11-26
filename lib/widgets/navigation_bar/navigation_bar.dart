@@ -162,7 +162,7 @@ class NavigationBarState extends State<NavigationBar> {
                         ],
                       ),
                     )
-                  : IntrinsicHeight(child: Expanded(child: MoveWindow));
+                  : IntrinsicHeight(child: MoveWindow);
             });
 
         final baseSlibings = (slibings ?? emptySlibings);
