@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/router/navigation.dart';
