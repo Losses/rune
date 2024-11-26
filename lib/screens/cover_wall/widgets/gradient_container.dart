@@ -51,7 +51,7 @@ class GradientContainer extends StatefulWidget {
 }
 
 class GradientContainerState extends State<GradientContainer> {
-  late Future<ui.FragmentProgram> _shaderProgram;
+  late Future<(ui.FragmentProgram, FragmentShader)> _shaderProgram;
   late Timer _timer;
   double _time = 0.0;
   Offset _mousePosition = Offset.zero;
@@ -74,9 +74,13 @@ class GradientContainerState extends State<GradientContainer> {
     WidgetsBinding.instance.pointerRouter.addGlobalRoute(_updateMousePosition);
   }
 
-  Future<ui.FragmentProgram> _loadShader() async {
+  Future<(ui.FragmentProgram, FragmentShader)> _loadShader() async {
     try {
-      return await ui.FragmentProgram.fromAsset('lib/shaders/gradient.frag');
+      final fragmentProgram =
+          await ui.FragmentProgram.fromAsset('lib/shaders/gradient.frag');
+      final fragmentShader = fragmentProgram.fragmentShader();
+
+      return (fragmentProgram, fragmentShader);
     } catch (e) {
       rethrow;
     }
@@ -104,7 +108,7 @@ class GradientContainerState extends State<GradientContainer> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<ui.FragmentProgram>(
+    return FutureBuilder<(ui.FragmentProgram, FragmentShader)>(
       future: _shaderProgram,
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
@@ -114,10 +118,10 @@ class GradientContainerState extends State<GradientContainer> {
         final isDark = FluentTheme.of(context).brightness.isDark;
 
         final shader = snapshot.data!;
+        final fragmentShader = shader.$2;
 
         return AnimatedSampler(
           (ui.Image image, Size size, Canvas canvas) {
-            final fragmentShader = shader.fragmentShader();
             fragmentShader
               ..setImageSampler(0, image)
               // resolution
