@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
+import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -275,11 +276,32 @@ class _RuneState extends State<Rune> {
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
-            if (routeName == '/' || routeName == '/scanning') {
-              return NoEffectPageRoute<dynamic>(
-                settings: settings,
-                builder: (context) => WindowFrame(routes[routeName]!(context)),
-              );
+            if (!Platform.isMacOS) {
+              if (routeName == '/' || routeName == '/scanning') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) =>
+                      WindowFrame(routes[routeName]!(context)),
+                );
+              }
+            } else {
+              if (routeName == '/scanning') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) => MacOSMoveWindow(
+                    child: WindowFrame(routes[routeName]!(context)),
+                  ),
+                );
+              }
+              if (routeName == '/') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) => MacOSMoveWindow(
+                    isEnabledDoubleTap: false,
+                    child: WindowFrame(routes[routeName]!(context)),
+                  ),
+                );
+              }
             }
 
             final page = RuneWithNavigationBarAndPlaybackControllor(
@@ -327,10 +349,6 @@ class _RuneState extends State<Rune> {
                 ),
               ),
             );
-
-            if (Platform.isMacOS) {
-              content = MoveWindow(child: content);
-            }
 
             return content;
           },

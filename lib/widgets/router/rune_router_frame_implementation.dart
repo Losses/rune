@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/screens/cover_wall/widgets/playing_track.dart';
+import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 
 import '../../main.dart';
 
@@ -84,6 +88,25 @@ class _RuneRouterFrameImplementationState
                     ? Alignment.centerRight
                     : Alignment.bottomCenter,
                 children: [
+                  // macos move window in small view
+                  if (Platform.isMacOS)
+                    DeviceTypeBuilder(
+                        deviceType: const [
+                          DeviceType.band,
+                          DeviceType.dock,
+                          DeviceType.tv
+                        ],
+                        builder: (context, activeBreakpoint) {
+                          final isSmallView =
+                              activeBreakpoint == DeviceType.band ||
+                                  activeBreakpoint == DeviceType.dock;
+                          if (isSmallView) {
+                            return MacOSMoveWindow(
+                              isEnabledDoubleTap: false,
+                            );
+                          }
+                          return Container();
+                        }),
                   if (path == '/cover_wall' && !showDisk) mainContent,
                   if (!showDisk)
                     const FocusTraversalOrder(
