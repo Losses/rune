@@ -1,9 +1,8 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../widgets/collection_item.dart';
 import '../../../widgets/start_screen/utils/internal_collection.dart';
-
-import '../collection_item.dart';
 
 import 'collection_data_provider.dart';
 

@@ -119,7 +119,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
     await SettingsManager().setValue(windowSizeKey, newWindowSize);
 
     final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-    final size = Platform.isWindows
+    final size = Platform.isWindows || Platform.isMacOS
         ? windowSizes[newWindowSize]!
         : windowSizes[newWindowSize]! / firstView.devicePixelRatio;
     appWindow.size = size;

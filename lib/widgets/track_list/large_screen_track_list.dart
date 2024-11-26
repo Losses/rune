@@ -9,6 +9,8 @@ import '../../widgets/ax_pressure.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 
+import '../collection_item.dart';
+import '../ax_reveal/ax_reveal.dart';
 import '../navigation_bar/page_content_frame.dart';
 import '../start_screen/managed_start_screen_item.dart';
 
@@ -30,6 +32,8 @@ class LargeScreenTrackList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = FluentTheme.of(context).brightness;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
       child: LayoutBuilder(
@@ -89,13 +93,18 @@ class LargeScreenTrackList extends StatelessWidget {
                       width: cellSize / ratio,
                       height: cellSize,
                       child: AxPressure(
-                        child: LargeScreenTrackListItem(
-                          index: index,
-                          item: item,
-                          queries: queries,
-                          fallbackFileIds: fallbackFileIds,
-                          coverArtPath: item.coverArtPath,
-                          mode: mode,
+                        child: AxReveal(
+                          config: brightness == Brightness.dark
+                              ? defaultLightRevealConfig
+                              : defaultDarkRevealConfig,
+                          child: LargeScreenTrackListItem(
+                            index: index,
+                            item: item,
+                            queries: queries,
+                            fallbackFileIds: fallbackFileIds,
+                            coverArtPath: item.coverArtPath,
+                            mode: mode,
+                          ),
                         ),
                       ),
                     );

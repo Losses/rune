@@ -800,5 +800,29 @@
   "back": "歸返",
   "@back": {
     "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "付梓",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "錄文",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "曲護影壁",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "比",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "框",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "底",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
   }
 }

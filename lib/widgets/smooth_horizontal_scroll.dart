@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/lerp_controller.dart';
+import 'ax_reveal/widgets/reveal_effect_context.dart';
 
 class SmoothScrollController extends ScrollController {
   final TickerProvider vsync;
@@ -57,6 +58,7 @@ class SmoothHorizontalScroll extends StatefulWidget {
 class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
     with SingleTickerProviderStateMixin {
   late final SmoothScrollController _scrollController;
+  late RevealEffectContextState? _revealEffect;
   bool _isInternalController = false;
 
   @override
@@ -68,10 +70,29 @@ class SmoothHorizontalScrollState extends State<SmoothHorizontalScroll>
   }
 
   @override
+  didChangeDependencies() {
+    super.didChangeDependencies();
+    _revealEffect = RevealEffectContext.maybeOf(context);
+
+    if (_revealEffect != null) {
+      _scrollController.addListener(_refreshReveal);
+    }
+  }
+
+  _refreshReveal() {
+    _revealEffect?.forceRefresh();
+  }
+
+  @override
   void dispose() {
     if (_isInternalController) {
       _scrollController.dispose();
     }
+
+    if (_revealEffect != null) {
+      _scrollController.removeListener(_refreshReveal);
+    }
+
     super.dispose();
   }
 
