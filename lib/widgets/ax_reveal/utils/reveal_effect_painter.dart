@@ -6,7 +6,6 @@ import 'reveal_config.dart';
 class RevealEffectPainter extends CustomPainter {
   final Offset? mousePosition;
   final Offset? mouseDownPosition;
-  final bool mousePressed;
   final bool mouseReleased;
   final double logicFrame;
   final RevealConfig config;
@@ -14,7 +13,6 @@ class RevealEffectPainter extends CustomPainter {
   RevealEffectPainter({
     this.mousePosition,
     this.mouseDownPosition,
-    this.mousePressed = false,
     this.mouseReleased = false,
     this.logicFrame = 0,
     this.config = const RevealConfig(),
@@ -22,7 +20,7 @@ class RevealEffectPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (mousePosition == null && !mousePressed) return;
+    if (mousePosition == null) return;
 
     final path = Path();
     final rrect = config.borderRadius
@@ -43,7 +41,7 @@ class RevealEffectPainter extends CustomPainter {
       _drawBorderLight(canvas, size, path);
     }
 
-    if (config.pressAnimation && mousePressed) {
+    if (config.pressAnimation && logicFrame < 1 && logicFrame > 0) {
       _drawPressAnimation(canvas, size, path);
     }
   }
@@ -98,8 +96,6 @@ class RevealEffectPainter extends CustomPainter {
     final position = mouseDownPosition;
 
     if (position == null) return;
-
-    if (!mousePressed) return;
     if (logicFrame == 0) return;
 
     final radius = config.pressAnimationFillMode ==
@@ -131,7 +127,6 @@ class RevealEffectPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant RevealEffectPainter oldDelegate) {
     return mousePosition != oldDelegate.mousePosition ||
-        mousePressed != oldDelegate.mousePressed ||
         mouseReleased != oldDelegate.mouseReleased ||
         mouseDownPosition != oldDelegate.mouseDownPosition ||
         logicFrame != oldDelegate.logicFrame;
