@@ -120,6 +120,8 @@ pub async fn search_for(
             }
         }
 
+        let query_str = deunicode(query_str);
+
         let top_docs = SearchResult::find_by_statement(Statement::from_sql_and_values(
             DbBackend::Sqlite,
             r#"SELECT * FROM search_index WHERE doc MATCH ? AND entry_type = ? ORDER BY rank LIMIT ?;"#,
