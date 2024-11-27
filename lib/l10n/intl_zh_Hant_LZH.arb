@@ -824,5 +824,41 @@
   "background": "底",
   "@background": {
     "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "評估態式",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "符聆並非道邊李，望君購執於肆集。",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "夫執者，得享自更新之於肆，且有權直語著者所望。",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "可暫擱此示，期滿百八十日，彼還複告。",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "暫擱",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "玄鈕",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "蔽",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "機巧已發，室構即改，新域以探。",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "試",
+  "@laboratory": {
+    "description": "The title of a link title"
   }
 }

@@ -824,5 +824,41 @@
     "background": "背景",
     "@background": {
         "description": "封面墙模态的输入字段标题"
+    },
+    "evaluationMode": "评估模式",
+    "@evaluationMode": {
+        "description": "评估模式模态框的标题"
+    },
+    "evaluationModeContent1": "Rune 不是免费的午餐。我们鼓励您从应用商店购买正版许可证。",
+    "@evaluationModeContent1": {
+        "description": "评估模式模态框的内容"
+    },
+    "evaluationModeContent2": "许可用户可享受由应用商店提供的自动更新，并有权直接向开发人员提出新功能。",
+    "@evaluationModeContent2": {
+        "description": "评估模式模态框的内容"
+    },
+    "evaluationModeContent3": "您可以选择在 180 天内关闭此提醒，我们稍后会再次提醒您。",
+    "@evaluationModeContent3": {
+        "description": "评估模式模态框的内容"
+    },
+    "remindMeLater": "稍后提醒",
+    "@remindMeLater": {
+        "description": "评估模式模态框的动作按钮"
+    },
+    "mysteriousButton": "神秘按钮",
+    "@mysteriousButton": {
+        "description": "上下文菜单中的项目"
+    },
+    "mysteriousModalTitle": "嘎吱",
+    "@mysteriousModalTitle": {
+        "description": "模态框的标题"
+    },
+    "mysteriousModalContent": "你似乎触发了一个神秘的机关。空间的结构好像发生了变化，露出了新的探索区域。",
+    "@mysteriousModalContent": {
+        "description": "模态框的内容"
+    },
+    "laboratory": "实验室",
+    "@laboratory": {
+        "description": "链接标题的标题"
     }
 }
