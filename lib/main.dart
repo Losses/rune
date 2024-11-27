@@ -66,9 +66,12 @@ import 'theme.dart';
 late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
+late bool isPro;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  isPro = arguments.contains('--pro');
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]

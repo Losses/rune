@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:rune/widgets/pro/non_pro_mark.dart';
 
 import '../../main.dart';
 
@@ -143,6 +144,12 @@ class _RuneRouterFrameImplementationState
                       order: NumericFocusOrder(4),
                       child: CoverArtDisk(),
                     ),
+
+                  const Positioned(
+                    left: 0,
+                    bottom: 0,
+                    child: NonProMark(),
+                  ),
                 ],
               ),
             ),
