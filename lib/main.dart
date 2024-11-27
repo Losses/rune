@@ -259,7 +259,7 @@ String? getWindowsFont(AppTheme theme) {
   final rg = locale.countryCode?.toLowerCase();
 
   if (lc == 'ja') return "Yu Gothic";
-  if (lc == 'ko') return 'Malgun Gothic';
+  if (lc == 'ko') return "Malgun Gothic";
   if (lc == 'zh' && cc == 'hant') return "Microsoft JhengHei";
   if (lc == 'zh' && rg == 'tw') return "Microsoft JhengHei";
   if (lc == 'zh' && rg == 'hk') return "Microsoft JhengHei";
