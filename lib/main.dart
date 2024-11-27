@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
+import 'package:rune/utils/macos_window_control_button_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -164,13 +165,7 @@ void main(List<String> arguments) async {
   $closeManager;
 
   if (Platform.isMacOS) {
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.miniaturizeButton,
-        offset: const Offset(8, 28));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
+    MacOSWindowControlButtonManager.setVertical();
   }
 
   final windowSizeSetting =
