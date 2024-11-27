@@ -3,11 +3,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use log::{debug, error, warn};
-use tokio::sync::{broadcast, mpsc};
+use log::{debug, error};
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
@@ -50,11 +51,11 @@ impl std::fmt::Display for PlaybackState {
 pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
     pub current_status: Arc<Mutex<PlayerStatus>>,
-    status_sender: broadcast::Sender<PlayerStatus>,
-    playlist_sender: broadcast::Sender<PlaylistStatus>,
-    played_through_sender: broadcast::Sender<i32>,
-    realtime_fft_sender: broadcast::Sender<Vec<f32>>,
-    crash_sender: broadcast::Sender<String>,
+    status_sender: SimpleSender<PlayerStatus>,
+    playlist_sender: SimpleSender<PlaylistStatus>,
+    played_through_sender: SimpleSender<i32>,
+    realtime_fft_sender: SimpleSender<Vec<f32>>,
+    crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
 }
 
@@ -72,15 +73,15 @@ impl Player {
         // Create an unbounded channel for receiving events
         let (event_sender, mut event_receiver) = mpsc::unbounded_channel();
         // Create a broadcast channel for status updates
-        let (status_sender, _) = broadcast::channel(16);
+        let (status_sender, _) = SimpleChannel::channel(16);
         // Create a broadcast channel for played through update
-        let (played_through_sender, _) = broadcast::channel(16);
+        let (played_through_sender, _) = SimpleChannel::channel(16);
         // Create a broadcast channel for playlist updates
-        let (playlist_sender, _) = broadcast::channel(16);
+        let (playlist_sender, _) = SimpleChannel::channel(16);
         // Create a broadcast channel for realtime FFT updates
-        let (realtime_fft_sender, _) = broadcast::channel(32);
+        let (realtime_fft_sender, _) = SimpleChannel::channel(32);
         // Create a broadcast channel player crash report
-        let (crash_sender, _) = broadcast::channel(16);
+        let (crash_sender, _) = SimpleChannel::channel(16);
 
         // Create a cancellation token
         let cancellation_token = cancellation_token.unwrap_or_default();
@@ -123,9 +124,7 @@ impl Player {
             if let Err(e) = runtime.block_on(internal.run()) {
                 error!("PlayerInternal runtime error: {:?}", e);
 
-                if let Err(e) = crash_sender.send(format!("{:#?}", e)) {
-                    error!("Failed to send error report: {:?}", e);
-                }
+                crash_sender.send(format!("{:#?}", e));
             }
         });
 
@@ -219,9 +218,7 @@ impl Player {
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        if let Err(e) = played_through_sender.send(id) {
-                            warn!("Failed to send played through update: {:?}", e);
-                        }
+                        played_through_sender.send(id);
                     }
                     PlayerEvent::Error {
                         id,
@@ -234,26 +231,18 @@ impl Player {
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.playlist = playlist.clone();
                         debug!("Sending playlist status");
-                        if let Err(e) = playlist_sender_clone.send(PlaylistStatus {
+                        playlist_sender_clone.send(PlaylistStatus {
                             items: playlist.clone(),
-                        }) {
-                            error!("Failed to send playlist status: {:?}", e);
-                        } else {
-                            debug!("Playlist status sent successfully");
-                        }
+                        });
                     }
                     PlayerEvent::RealtimeFFT(data) => {
-                        if let Err(e) = realtime_fft_sender_clone.send(data) {
-                            error!("Unable to send realtime FFT data: {:?}", e);
-                        }
+                        realtime_fft_sender_clone.send(data);
                     }
                     PlayerEvent::VolumeUpdate(value) => {
                         status.volume = value;
                     }
                 }
-                if let Err(e) = status_sender_clone.send(status.clone()) {
-                    warn!("Failed to send status update: {:?}", e);
-                }
+                status_sender_clone.send(status.clone());
             }
         });
 
@@ -268,23 +257,23 @@ impl Player {
         self.current_status.lock().unwrap().playlist.clone()
     }
 
-    pub fn subscribe_status(&self) -> broadcast::Receiver<PlayerStatus> {
+    pub fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
         self.status_sender.subscribe()
     }
 
-    pub fn subscribe_played_through(&self) -> broadcast::Receiver<i32> {
+    pub fn subscribe_played_through(&self) -> SimpleReceiver<i32> {
         self.played_through_sender.subscribe()
     }
 
-    pub fn subscribe_playlist(&self) -> broadcast::Receiver<PlaylistStatus> {
+    pub fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
         self.playlist_sender.subscribe()
     }
 
-    pub fn subscribe_realtime_fft(&self) -> broadcast::Receiver<Vec<f32>> {
+    pub fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
         self.realtime_fft_sender.subscribe()
     }
 
-    pub fn subscribe_crash(&self) -> broadcast::Receiver<String> {
+    pub fn subscribe_crash(&self) -> SimpleReceiver<String> {
         self.crash_sender.subscribe()
     }
 

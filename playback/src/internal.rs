@@ -201,7 +201,7 @@ impl PlayerInternal {
     pub async fn run(&mut self) -> Result<()> {
         let mut progress_interval = interval(Duration::from_millis(100));
 
-        let mut fft_receiver = match self.realtime_fft.lock() {
+        let fft_receiver = match self.realtime_fft.lock() {
             Ok(fft) => fft.subscribe(),
             Err(e) => {
                 bail!("Failed to lock realtime FFT: {:?}", e);

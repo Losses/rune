@@ -97,7 +97,8 @@ class PlaybackModeButton extends StatelessWidget {
     return Consumer<PlaybackStatusProvider>(
       builder: (context, playbackStatusProvider, child) {
         final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-            playbackStatusProvider.playbackStatus?.playbackMode ?? 0);
+          playbackStatusProvider.playbackStatus.playbackMode,
+        );
 
         return IconButton(
           onPressed: () async {

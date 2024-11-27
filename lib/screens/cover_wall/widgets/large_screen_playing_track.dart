@@ -23,16 +23,15 @@ class LargeScreenPlayingTrack extends StatelessWidget {
 
     final Typography typography = theme.typography;
 
-    return Selector<PlaybackStatusProvider,
-        (String?, String?, String?, String?)>(
+    return Selector<PlaybackStatusProvider, (String, String, String, String)>(
       selector: (context, playbackStatusProvider) => (
-        playbackStatusProvider.playbackStatus?.coverArtPath,
-        playbackStatusProvider.playbackStatus?.artist,
-        playbackStatusProvider.playbackStatus?.album,
-        playbackStatusProvider.playbackStatus?.title,
+        playbackStatusProvider.playbackStatus.coverArtPath,
+        playbackStatusProvider.playbackStatus.artist,
+        playbackStatusProvider.playbackStatus.album,
+        playbackStatusProvider.playbackStatus.title,
       ),
       builder: (context, p, child) {
-        if (p.$1 == null) return Container();
+        if (p.$1 == "") return Container();
         return Container(
           padding: const EdgeInsets.fromLTRB(
               48, 48, 48, playbackControllerHeight + 48),
@@ -46,7 +45,7 @@ class LargeScreenPlayingTrack extends StatelessWidget {
                   boxShadow: axShadow(9),
                 ),
                 child: CoverArt(
-                  key: p.$1 != null ? Key(p.$1.toString()) : null,
+                  key: p.$1.isNotEmpty ? Key(p.$1.toString()) : null,
                   path: p.$1,
                   size: 120,
                 ),
@@ -57,16 +56,16 @@ class LargeScreenPlayingTrack extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    p.$3 ?? S.of(context).unknownAlbum,
+                    p.$3.isEmpty ? S.of(context).unknownAlbum : p.$3,
                     style: typography.bodyLarge?.apply(shadows: shadows),
                   ),
                   Text(
-                    p.$4 ?? S.of(context).unknownTrack,
+                    p.$4.isEmpty ? S.of(context).unknownTrack : p.$4,
                     style: typography.subtitle?.apply(shadows: shadows),
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    p.$2 ?? S.of(context).unknownArtist,
+                    p.$2.isEmpty ? S.of(context).unknownArtist : p.$2,
                     style: typography.body?.apply(shadows: shadows),
                   ),
                   const SizedBox(height: 28),

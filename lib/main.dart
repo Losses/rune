@@ -37,9 +37,10 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 
-import 'widgets/window_buttons.dart';
 import 'widgets/router/no_effect_page_route.dart';
+import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
+import 'widgets/navigation_bar/utils/macos_move_window.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
@@ -117,12 +118,6 @@ void main(List<String> arguments) async {
       await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
           false;
 
-  bool? storedFullScreen =
-      await settingsManager.getValue<bool>('fullscreen_state');
-  if (storedFullScreen != null) {
-    FullScreen.setFullScreen(storedFullScreen);
-  }
-
   WidgetsFlutterBinding.ensureInitialized();
 
   // if it's not on the web, windows or android, load the accent color
@@ -185,10 +180,17 @@ void main(List<String> arguments) async {
   mainLoop();
   appWindow.show();
 
+  bool? storedFullScreen =
+      await settingsManager.getValue<bool>('fullscreen_state');
+
   doWhenWindowReady(() {
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
+
+    if (storedFullScreen != null) {
+      FullScreen.setFullScreen(storedFullScreen);
+    }
   });
 }
 
@@ -275,11 +277,32 @@ class _RuneState extends State<Rune> {
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
-            if (routeName == '/' || routeName == '/scanning') {
-              return NoEffectPageRoute<dynamic>(
-                settings: settings,
-                builder: (context) => WindowFrame(routes[routeName]!(context)),
-              );
+            if (!Platform.isMacOS) {
+              if (routeName == '/' || routeName == '/scanning') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) =>
+                      WindowFrame(routes[routeName]!(context)),
+                );
+              }
+            } else {
+              if (routeName == '/scanning') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) => MacOSMoveWindow(
+                    child: WindowFrame(routes[routeName]!(context)),
+                  ),
+                );
+              }
+              if (routeName == '/') {
+                return NoEffectPageRoute<dynamic>(
+                  settings: settings,
+                  builder: (context) => MacOSMoveWindow(
+                    isEnabledDoubleTap: false,
+                    child: WindowFrame(routes[routeName]!(context)),
+                  ),
+                );
+              }
             }
 
             final page = RuneWithNavigationBarAndPlaybackControllor(
@@ -327,10 +350,6 @@ class _RuneState extends State<Rune> {
                 ),
               ),
             );
-
-            if (Platform.isMacOS) {
-              content = MoveWindow(child: content);
-            }
 
             return content;
           },

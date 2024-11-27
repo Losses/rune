@@ -135,7 +135,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
                       ..translate(animatedTranslateX, animatedTranslateY)
                       ..scale(0.9)
                       ..rotateZ(
-                        status?.state == 'Playing'
+                        status.state == 'Playing'
                             ? _controller.value * 2 * pi
                             : 0,
                       ),
@@ -191,14 +191,12 @@ class CoverArtDiskState extends State<CoverArtDisk>
                             borderRadius: BorderRadius.circular(radius - 1),
                             child: CoverArt(
                               size: size,
-                              path: status?.coverArtPath,
-                              hint: status != null
-                                  ? (
-                                      status.album,
-                                      status.artist,
-                                      'Total Time ${formatTime(status.duration)}'
-                                    )
-                                  : null,
+                              path: status.coverArtPath,
+                              hint: (
+                                status.album,
+                                status.artist,
+                                'Total Time ${formatTime(status.duration)}'
+                              ),
                             ),
                           ),
                         ),

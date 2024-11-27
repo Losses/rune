@@ -111,7 +111,7 @@ List<ControllerEntry> controllerItems = [
       final statusProvider =
           Provider.of<PlaybackStatusProvider>(context, listen: false);
 
-      if (statusProvider.playbackStatus?.state == "Playing") {
+      if (statusProvider.playbackStatus.state == "Playing") {
         return Symbols.pause;
       } else {
         return Symbols.play_arrow;
@@ -130,7 +130,7 @@ List<ControllerEntry> controllerItems = [
 
       if (notReady) return;
 
-      if (statusProvider.playbackStatus?.state == "Playing") {
+      if (statusProvider.playbackStatus.state == "Playing") {
         playPause();
       } else {
         playPlay();
@@ -141,7 +141,7 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      return status?.state == "Playing"
+      return status.state == "Playing"
           ? S.of(context).pause
           : S.of(context).play;
     },
@@ -153,7 +153,7 @@ List<ControllerEntry> controllerItems = [
 
       return PlayPauseButton(
         disabled: notReady,
-        state: status?.state ?? "Stopped",
+        state: status.state,
         shadows: shadows,
       );
     },
@@ -164,11 +164,11 @@ List<ControllerEntry> controllerItems = [
       final notReady = statusProvider.notReady;
 
       return MenuFlyoutItem(
-        leading: status?.state == "Playing"
+        leading: status.state == "Playing"
             ? const Icon(Symbols.pause)
             : const Icon(Symbols.play_arrow),
         text: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          status?.state == "Playing"
+          status.state == "Playing"
               ? Text(S.of(context).pause)
               : Text(S.of(context).play),
           const ShortcutText('Ctrl+P'),
@@ -177,7 +177,7 @@ List<ControllerEntry> controllerItems = [
             ? null
             : () {
                 Navigator.pop(context);
-                status?.state == "Playing" ? playPause() : playPlay();
+                status.state == "Playing" ? playPause() : playPlay();
               },
       );
     },
@@ -298,7 +298,7 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
 
       final PlaybackMode currentMode = PlaybackModeExtension.fromValue(
-        statusProvider.playbackStatus?.playbackMode ?? 0,
+        statusProvider.playbackStatus.playbackMode,
       );
 
       return modeToIcon(currentMode);
@@ -311,7 +311,7 @@ List<ControllerEntry> controllerItems = [
       final status = statusProvider.playbackStatus;
 
       final currentMode =
-          PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
+          PlaybackModeExtension.fromValue(status.playbackMode);
 
       return modeToLabel(context, currentMode);
     },
@@ -332,7 +332,7 @@ List<ControllerEntry> controllerItems = [
       final status = statusProvider.playbackStatus;
 
       final currentMode =
-          PlaybackModeExtension.fromValue(status?.playbackMode ?? 0);
+          PlaybackModeExtension.fromValue(status.playbackMode);
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()

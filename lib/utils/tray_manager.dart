@@ -47,7 +47,7 @@ class TrayManager {
     final s = S.of(context);
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
-        !status.notReady && status.playbackStatus?.state == "Playing";
+        !status.notReady && status.playbackStatus.state == "Playing";
 
     final locale = appTheme.locale;
     final suppressRefresh = path == _cachedPath &&

@@ -31,14 +31,12 @@ class NowPlayingTrackCoverArtButton extends StatelessWidget {
       child: ClipRRect(
         borderRadius: BorderRadius.circular(3),
         child: CoverArt(
-          path: status?.coverArtPath,
-          hint: status != null
-              ? (
-                  status.album,
-                  status.artist,
-                  'Total Time ${formatTime(status.duration)}'
-                )
-              : null,
+          path: status.coverArtPath,
+          hint: (
+            status.album,
+            status.artist,
+            'Total Time ${formatTime(status.duration)}'
+          ),
           size: size,
         ),
       ),
