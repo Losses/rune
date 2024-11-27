@@ -2,8 +2,6 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/screens/cover_wall/widgets/playing_track.dart';
-import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 
 import '../../main.dart';
 
@@ -12,6 +10,7 @@ import '../../screens/bsod/bsod.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
+import '../../widgets/navigation_bar/utils/macos_move_window.dart';
 import '../../widgets/banding_animation/branding_animation.dart';
 import '../../widgets/playback_controller/cover_art_disk.dart';
 import '../../widgets/playback_controller/playback_controller.dart';
