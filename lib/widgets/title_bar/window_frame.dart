@@ -94,21 +94,33 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
                   ),
                 ),
               if (!FullScreen.isFullScreen)
-                WindowIconButton(
-                  onPressed: () {
-                    if (isSearch) {
-                      escapeFromSearch();
-                    } else {
-                      $push('/search');
-                    }
-                  },
-                  child: Center(
-                    child: Icon(
-                      FluentIcons.search,
-                      size: 12,
-                    ),
-                  ),
-                ),
+                DeviceTypeBuilder(
+                    deviceType: const [
+                      DeviceType.band,
+                      DeviceType.belt,
+                      DeviceType.zune,
+                      DeviceType.tv
+                    ],
+                    builder: (context, activeBreakpoint) {
+                      return activeBreakpoint == DeviceType.zune ||
+                              activeBreakpoint == DeviceType.belt
+                          ? Container()
+                          : WindowIconButton(
+                              onPressed: () {
+                                if (isSearch) {
+                                  escapeFromSearch();
+                                } else {
+                                  $push('/search');
+                                }
+                              },
+                              child: Center(
+                                child: Icon(
+                                  FluentIcons.search,
+                                  size: 12,
+                                ),
+                              ),
+                            );
+                    }),
               if (!FullScreen.isFullScreen)
                 WindowIconButton(
                   onPressed: () async {
