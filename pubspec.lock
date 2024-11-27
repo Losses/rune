@@ -660,7 +660,7 @@ packages:
     source: hosted
     version: "0.2.1"
   macos_window_utils:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: macos_window_utils
       sha256: "3534f2af024f2f24112ca28789a44e6750083f8c0065414546c6593ee48a5009"

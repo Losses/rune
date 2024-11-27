@@ -13,8 +13,6 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:macos_window_utils/macos_window_utils.dart';
-import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 

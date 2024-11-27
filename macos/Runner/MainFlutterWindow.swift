@@ -2,7 +2,6 @@ import AppKit
 import Cocoa
 import FlutterMacOS
 import bitsdojo_window_macos
-import macos_window_utils
 
 class MainFlutterWindow: BitsdojoWindow {
   override func bitsdojo_window_configure() -> UInt {
@@ -10,17 +9,14 @@ class MainFlutterWindow: BitsdojoWindow {
   }
 
   override func awakeFromNib() {
+    let flutterViewController = FlutterViewController.init()
     let windowFrame = self.frame
-    let macOSWindowUtilsViewController = MacOSWindowUtilsViewController()
-    self.contentViewController = macOSWindowUtilsViewController
+    self.contentViewController = flutterViewController
     self.setFrame(windowFrame, display: true)
-
-    /* Initialize the macos_window_utils plugin */
-    MainFlutterWindowManipulator.start(mainFlutterWindow: self)
 
     let windowControlButtonChannel = FlutterMethodChannel(
       name: "not.ci.rune/window_control_button",
-      binaryMessenger: macOSWindowUtilsViewController.flutterViewController.engine.binaryMessenger)
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
     windowControlButtonChannel.setMethodCallHandler { (call, result) in
       switch call.method {
       case "set_vertical":
@@ -30,7 +26,7 @@ class MainFlutterWindow: BitsdojoWindow {
       }
     }
 
-    RegisterGeneratedPlugins(registry: macOSWindowUtilsViewController.flutterViewController)
+    RegisterGeneratedPlugins(registry: flutterViewController)
 
     WindowButtonPositioner.shared.mainFlutterWindow = self
 
