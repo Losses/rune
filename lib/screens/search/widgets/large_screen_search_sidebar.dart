@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/slide_fade_transition.dart';
@@ -45,6 +47,7 @@ class LargeScreenSearchSidebar extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.start,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (Platform.isWindows) SizedBox(height: 16),
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     vertical: 13,
