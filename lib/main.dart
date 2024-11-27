@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -38,9 +37,10 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 
-import 'widgets/window_buttons.dart';
 import 'widgets/router/no_effect_page_route.dart';
+import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
+import 'widgets/navigation_bar/utils/macos_move_window.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 

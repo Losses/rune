@@ -5,57 +5,17 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:rune/providers/responsive_providers.dart';
 
-import '../main.dart';
-import '../utils/l10n.dart';
-import '../utils/router/navigation.dart';
-import '../utils/navigation/utils/escape_from_search.dart';
-import '../widgets/router/rune_stack.dart';
-import '../providers/router_path.dart';
+import '../../main.dart';
+import '../../utils/router/navigation.dart';
+import '../../utils/navigation/utils/escape_from_search.dart';
+import '../../widgets/title_bar/darg_move_window_area.dart';
+import '../../providers/router_path.dart';
+import '../../providers/responsive_providers.dart';
 
-class WindowIconButton extends StatefulWidget {
-  final VoidCallback onPressed;
-  final Widget? child;
+import '../router/rune_stack.dart';
 
-  const WindowIconButton({
-    super.key,
-    required this.onPressed,
-    this.child,
-  });
-
-  @override
-  State<WindowIconButton> createState() => _WindowIconButtonState();
-}
-
-class _WindowIconButtonState extends State<WindowIconButton> {
-  bool isHovered = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-
-    return MouseRegion(
-      onEnter: (_) => setState(() => isHovered = true),
-      onExit: (_) => setState(() => isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onPressed,
-        child: Container(
-          width: 46,
-          height: 30,
-          decoration: BoxDecoration(
-            color: isHovered
-                ? theme.resources.textFillColorPrimary.withOpacity(0.08)
-                : Colors.transparent,
-          ),
-          child: widget.child,
-        ),
-      ),
-    );
-  }
-}
-
-class DragToMoveArea {}
+import 'window_icon_button.dart';
 
 class WindowFrame extends StatefulWidget {
   final Widget child;
@@ -101,11 +61,7 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
             mainAxisAlignment: MainAxisAlignment.end,
             mainAxisSize: MainAxisSize.max,
             children: [
-              Expanded(
-                child: WindowTitleBarBox(
-                  child: MoveWindow(),
-                ),
-              ),
+              Expanded(child: DargMoveWindowArea()),
               WindowIconButton(
                 onPressed: () {
                   if (isSearch) {
@@ -140,9 +96,7 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
             mainAxisSize: MainAxisSize.max,
             children: [
               Expanded(
-                child: WindowTitleBarBox(
-                  child: MoveWindow(),
-                ),
+                child: WindowTitleBarBox(child: DargMoveWindowArea()),
               ),
               WindowIconButton(
                 onPressed: () {
@@ -215,39 +169,6 @@ class _WindowFrameState extends State<WindowFrame> with FullScreenListener {
           ),
         widget.child,
       ],
-    );
-  }
-}
-
-class BackButton extends StatefulWidget {
-  const BackButton({
-    super.key,
-  });
-
-  @override
-  State<BackButton> createState() => _BackButtonState();
-}
-
-class _BackButtonState extends State<BackButton> {
-  @override
-  Widget build(BuildContext context) {
-    Provider.of<RouterPathProvider>(context);
-
-    return Builder(
-      builder: (context) => PaneItem(
-        icon: const Center(child: Icon(FluentIcons.back, size: 12.0)),
-        title: Text(S.of(context).back),
-        body: const SizedBox.shrink(),
-        enabled: $canPop(),
-      ).build(
-        context,
-        false,
-        () {
-          $pop();
-          setState(() => {});
-        },
-        displayMode: PaneDisplayMode.compact,
-      ),
     );
   }
 }
