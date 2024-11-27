@@ -237,16 +237,36 @@ void mainLoop() {
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
+Locale getLocaleFromPlatform() {
+  final String localeName = Platform.localeName;
+
+  final String normalized = localeName.split('.')[0];
+  final List<String> parts = normalized.split('_');
+
+  final String languageCode = parts[0];
+  final String? countryCode = parts.length > 1 ? parts[1] : null;
+
+  return Locale(languageCode, countryCode);
+}
+
 String? getWindowsFont(AppTheme theme) {
   if (!Platform.isWindows) return null;
 
-  final lc = theme.locale?.languageCode.toLowerCase();
-  final cc = theme.locale?.scriptCode?.toLowerCase();
+  final locale = theme.locale ?? getLocaleFromPlatform();
+
+  final lc = locale.languageCode.toLowerCase();
+  final cc = locale.scriptCode?.toLowerCase();
+  final rg = locale.countryCode?.toLowerCase();
 
   if (lc == 'ja') return "Yu Gothic";
   if (lc == 'ko') return 'Malgun Gothic';
   if (lc == 'zh' && cc == 'hant') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'tw') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'hk') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'mo') return "Microsoft JhengHei";
   if (lc == 'zh' && cc == 'hans') return "Microsoft YaHei";
+  if (lc == 'zh' && rg == 'cn') return "Microsoft YaHei";
+  if (lc == 'zh' && rg == 'sg') return "Microsoft YaHei";
 
   return null;
 }
