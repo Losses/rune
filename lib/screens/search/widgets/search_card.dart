@@ -4,6 +4,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/ax_pressure.dart';
 import '../../../widgets/hover_opacity.dart';
+import '../../../widgets/collection_item.dart';
+import '../../../widgets/ax_reveal/ax_reveal.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../providers/responsive_providers.dart';
 
@@ -38,6 +40,8 @@ abstract class SearchCardState<T extends SearchCard> extends State<T> {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = FluentTheme.of(context).brightness;
+
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,
@@ -110,38 +114,43 @@ abstract class SearchCardState<T extends SearchCard> extends State<T> {
               );
             }
 
-            return Button(
-              style: const ButtonStyle(
-                padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
-              ),
-              onPressed: () => onPressed(context),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final size =
-                        min(constraints.maxWidth, constraints.maxHeight);
-                    return Row(
-                      children: [
-                        buildLeadingWidget(size),
-                        Expanded(
-                          child: Padding(
-                            padding: const EdgeInsets.all(8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  getItemTitle(),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
+            return AxReveal(
+              config: brightness == Brightness.dark
+                  ? defaultLightRevealConfig
+                  : defaultDarkRevealConfig,
+              child: Button(
+                style: const ButtonStyle(
+                  padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
+                ),
+                onPressed: () => onPressed(context),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final size =
+                          min(constraints.maxWidth, constraints.maxHeight);
+                      return Row(
+                        children: [
+                          buildLeadingWidget(size),
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    getItemTitle(),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
             );
