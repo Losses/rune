@@ -844,5 +844,21 @@
   "remindMeLater": "Remind me later",
   "@remindMeLater": {
     "description": "Action button of the evaliation mode modal"
+  },
+  "mysteriousButton": "Mysterious Button",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Creak",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "It seems you've triggered a mysterious mechanism. The room's structure appears to have changed, revealing new areas to explore.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Laboratory",
+  "@laboratory": {
+    "description": "The title of a link title"
   }
 }
