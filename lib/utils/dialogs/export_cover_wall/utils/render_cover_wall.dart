@@ -4,13 +4,11 @@ import 'package:flutter/services.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:rune/utils/query_list.dart';
 
-import '../../../../messages/all.dart';
 import '../../../../widgets/cover_wall_background/utils/generate_tiles_of_size.dart';
 import '../../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../../widgets/cover_wall_background/utils/cover_wall_background_painter.dart';
 import '../../../../widgets/cover_wall_background/constants/max_random_grid_config_size.dart';
 
-import '../../../build_query.dart';
 import '../../../empty_blank_image.dart';
 import '../../../load_and_resize_image.dart';
 import '../../../api/query_mix_tracks.dart';
@@ -33,8 +31,7 @@ Future<ui.Image> emptyImage = (() async {
 })();
 
 Future<ui.Image> renderCoverWall(
-  CollectionType type,
-  int id,
+  List<(String, String)> queries,
   Size size,
   Color background,
   bool frame,
@@ -49,7 +46,6 @@ Future<ui.Image> renderCoverWall(
   ui.PictureRecorder recorder = ui.PictureRecorder();
   ui.Canvas canvas = ui.Canvas(recorder);
 
-  final queries = await buildQuery(type, id);
   final newItems = await queryMixTracks(
     QueryList([...queries, ('filter::with_cover_art', 'true')]),
     0,

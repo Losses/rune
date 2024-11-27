@@ -38,9 +38,10 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
       QueryList([
         (
           "lib::random",
-          (await SettingsManager().getValue<int?>(randomCoverWallCountKey) ??
-                  coverCount)
-              .toString()
+          (
+            await SettingsManager().getValue<int?>(randomCoverWallCountKey) ??
+                coverCount,
+          ).toString()
         ),
         ("filter::with_cover_art", "true"),
       ]),

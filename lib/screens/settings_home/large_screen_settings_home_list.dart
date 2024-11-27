@@ -100,7 +100,7 @@ class LargeScreenSettingsHomeListViewState
                       items: [
                         (
                           (context) => S.of(context).laboratory,
-                          '/settings/library',
+                          '/settings/laboratory',
                           Symbols.interests,
                           false
                         ),
