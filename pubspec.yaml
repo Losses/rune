@@ -61,7 +61,6 @@ dependencies:
   flutter_boring_avatars: ^2.0.1
   logger: ^2.4.0
   flutter_svg: ^2.0.10+1
-  macos_window_utils: ^1.5.0
   rinf: ^7.0.2
   fixnum: ^1.1.0
   very_good_infinite_list: ^0.9.0
