@@ -12,7 +12,9 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
 import '../../messages/all.dart';
 
+import '../collection_item.dart';
 import '../tile/cover_art.dart';
+import '../ax_reveal/ax_reveal.dart';
 
 class SmallScreenTrackListItem extends StatefulWidget {
   final InternalMediaFile item;
@@ -154,7 +156,9 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                           height: 40,
                           decoration: BoxDecoration(
                             border: Border.all(
-                              color: theme.accentColor,
+                              color: focusValue == 0.0
+                                  ? Colors.transparent
+                                  : theme.accentColor,
                               width: focusValue * 2,
                             ),
                             boxShadow: [
@@ -166,13 +170,21 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                               ),
                             ],
                           ),
-                          child: CoverArt(
-                            path: widget.coverArtPath,
-                            size: 40,
-                            hint: (
-                              widget.item.album,
-                              widget.item.artist,
-                              'Total Time ${formatTime(widget.item.duration)}'
+                          child: AxReveal(
+                            config: theme.brightness == Brightness.dark
+                                ? defaultLightRevealConfig
+                                : defaultDarkRevealConfig,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: CoverArt(
+                                path: widget.coverArtPath,
+                                size: 40,
+                                hint: (
+                                  widget.item.album,
+                                  widget.item.artist,
+                                  'Total Time ${formatTime(widget.item.duration)}'
+                                ),
+                              ),
                             ),
                           ),
                         ),
