@@ -401,7 +401,7 @@
   "@amount": {
     "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
   },
-  "mode": "形式",
+  "mode": "再生順番",
   "@mode": {
     "description": "The playback mode for tracks."
   },
