@@ -829,7 +829,7 @@
   "@evaluationMode": {
     "description": "Title of the evaliation mode modal"
   },
-  "evaluationModeContent1": "Rune is not a free software. We encourage you to purchase a genuine license from the app store.",
+  "evaluationModeContent1": "Rune is not a free pint of beer. We encourage you to purchase a genuine license from the app store.",
   "@evaluationModeContent1": {
     "description": "Content of the evaliation mode modal"
   },
