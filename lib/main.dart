@@ -12,7 +12,6 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:rune/utils/macos_window_control_button_manager.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
@@ -30,6 +29,7 @@ import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
+import 'utils/macos_window_control_button_manager.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
