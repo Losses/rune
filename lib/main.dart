@@ -118,12 +118,6 @@ void main(List<String> arguments) async {
       await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
           false;
 
-  bool? storedFullScreen =
-      await settingsManager.getValue<bool>('fullscreen_state');
-  if (storedFullScreen != null) {
-    FullScreen.setFullScreen(storedFullScreen);
-  }
-
   WidgetsFlutterBinding.ensureInitialized();
 
   // if it's not on the web, windows or android, load the accent color
@@ -186,10 +180,17 @@ void main(List<String> arguments) async {
   mainLoop();
   appWindow.show();
 
+  bool? storedFullScreen =
+      await settingsManager.getValue<bool>('fullscreen_state');
+
   doWhenWindowReady(() {
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
+
+    if (storedFullScreen != null) {
+      FullScreen.setFullScreen(storedFullScreen);
+    }
   });
 }
 
