@@ -47,6 +47,10 @@ impl SfxPlayerInternal {
 
     pub async fn run(&mut self) -> Result<()> {
         loop {
+            if (self.cancellation_token.is_cancelled()) {
+                break;
+            }
+
             if let Some(sink) = &self.sink {
                 if sink.empty() && self.state == InternalSfxPlaybackState::Playing {
                     self.state = InternalSfxPlaybackState::Empty;
