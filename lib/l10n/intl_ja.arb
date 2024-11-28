@@ -94,7 +94,7 @@
   },
   "productId": "製品身元確認",
   "@productId": {},
-  "youMayBeAVictimOfGenuineSoftware": "貴方は正銘被害者である可能性があります。",
+  "youMayBeAVictimOfGenuineSoftware": "貴方は正銘被害者かもしれません。",
   "@youMayBeAVictimOfGenuineSoftware": {
     "description": "This phrase is an Easter egg, satirizing how anti-piracy measures often make the experience worse for legitimate users than for those using pirated versions. Feel free to keep it playful."
   },
@@ -208,7 +208,7 @@
   "@followSystemTheme": {
     "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
   },
-  "dynamicColors": " 変化する色",
+  "dynamicColors": " 動的配色",
   "@dynamicColors": {
     "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
   },
@@ -527,7 +527,7 @@
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
-  "coverWallSubtitle": "独自の雰囲気を演出するため、表紙画像を表示します",
+  "coverWallSubtitle": "表紙画像を表示して、特別な雰囲気を楽しめます",
   "@coverWallSubtitle": {},
   "fullscreen": "全画面",
   "@fullscreen": {
@@ -865,7 +865,7 @@
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "libraryModeSubtitle": "資料集についてもう少し詳しく教えてください。あなたの資料保管場所は雲上に保存されていますか？",
+  "libraryModeSubtitle": "資料集についてもう少し詳しく教えてください。あなたの資料保存先は雲上に保存されていますか？",
   "@libraryModeSubtitle": {
     "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
@@ -881,8 +881,16 @@
   "@localMode": {
     "description": "One candidate library mode for users"
   },
-  "localModeSubtitle": "あなたの資料索引を Rune の設定用配置場所に保存します。",
+  "localModeSubtitle": "あなたの資料索引を Rune の設定保存先に保存します。",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "窓の形態を記憶する",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "調整した窓の形態を保存し、次回は同じ形態で Rune を起動します。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
   }
 }
