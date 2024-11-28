@@ -884,5 +884,13 @@
   "localModeSubtitle": "We will store your media index in Rune's configuration directory.",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Remember Window Size",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Save your window size as you adjust it, and launch the program with the same dimensions next time.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
   }
 }

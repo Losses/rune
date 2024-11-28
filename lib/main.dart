@@ -164,13 +164,27 @@ void main(List<String> arguments) async {
     MacOSWindowControlButtonManager.setVertical();
   }
 
-  final windowSizeSetting =
+  final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+  final bool? rememberWindowSize =
+      await SettingsManager().getValue<bool>(rememberWindowSizeKey);
 
   final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-  final windowSize = Platform.isWindows || Platform.isMacOS
-      ? windowSizes[windowSizeSetting]!
-      : windowSizes[windowSizeSetting]! / firstView.devicePixelRatio;
+
+  Size windowSize = windowSizes[windowSizeMode]!;
+
+  if (rememberWindowSize == true) {
+    final rememberedWindowSize = await getSavedWindowSize();
+
+    if (rememberedWindowSize != null) {
+      windowSize = rememberedWindowSize;
+    }
+  }
+
+  if (Platform.isLinux) {
+    windowSize = windowSize / firstView.devicePixelRatio;
+  }
+
   appWindow.size = windowSize;
 
   mainLoop();

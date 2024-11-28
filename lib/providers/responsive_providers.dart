@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+
+import '../screens/settings_theme/settings_theme.dart';
+import '../utils/settings_manager.dart';
 
 enum DeviceOrientation {
   vertical,
@@ -130,8 +135,30 @@ enum DeviceType {
   }
 }
 
+Future<Size?> getSavedWindowSize() async {
+  final savedSize =
+      await SettingsManager().getValue<String>(rememberdWindowSizeKey);
+
+  if (savedSize == null) return null;
+
+  try {
+    final parts = savedSize.split(',');
+    if (parts.length == 2) {
+      final width = double.parse(parts[0]);
+      final height = double.parse(parts[1]);
+      return Size(width, height);
+    }
+  } catch (e) {
+    debugPrint('Error parsing saved window size: $e');
+  }
+  return Size.zero;
+}
+
+Timer? _debounceTimer;
+
 class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
   Size _screenSize = Size.zero;
+
   ScreenSizeProvider() {
     WidgetsBinding.instance.addObserver(this);
     _updateScreenSize();
@@ -151,11 +178,20 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
     if (size != _screenSize) {
       _screenSize = size;
       notifyListeners();
+
+      // Debounce the save operation
+      _debounceTimer?.cancel();
+
+      _debounceTimer = Timer(const Duration(seconds: 1), () {
+        final sizeString = '${size.width},${size.height}';
+        SettingsManager().setValue<String>(rememberdWindowSizeKey, sizeString);
+      });
     }
   }
 
   @override
   void dispose() {
+    _debounceTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
