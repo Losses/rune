@@ -102,7 +102,7 @@ where
                                 not_ready: true,
                             }
                             .send_signal_to_dart();
-                            return Ok(());
+                            continue;
                         }
                         LibraryState::Initialized(_) => {}
                     },
@@ -114,7 +114,7 @@ where
                             not_ready: false,
                         }
                         .send_signal_to_dart();
-                        return Ok(());
+                        continue;
                     }
                 }
             }

@@ -112,6 +112,8 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           onPressed: () async {
                             final path = allOpenedFiles[index - 1];
 
+                            print('path: $path');
+
                             final (switched, cancelled, error) =
                                 await libraryPath.setLibraryPath(
                               context,

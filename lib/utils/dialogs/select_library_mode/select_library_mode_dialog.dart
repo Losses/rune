@@ -28,7 +28,12 @@ class SelectLibraryModeDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     return NoShortcuts(
       ContentDialog(
-        title: Text(S.of(context).libraryMode),
+        title: Column(
+          children: [
+            const SizedBox(height: 8),
+            Text(S.of(context).libraryMode),
+          ],
+        ),
         constraints: const BoxConstraints(
           maxWidth: 386.0,
           maxHeight: 756.0,

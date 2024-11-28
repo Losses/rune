@@ -65,7 +65,15 @@ class LibraryPathProvider with ChangeNotifier {
     var (success, notReady, error) =
         await setMediaLibraryPath(filePath, selectedMode);
 
+    print('S$success, NR$notReady, E$error');
+
+    if (notReady && context == null) {
+      print('OOH!');
+      return (false, true, null);
+    }
+
     if (notReady && context != null) {
+      print('!!!!');
       selectedMode = stringToLibraryInitializeMode(
         await showSelectLibraryModeDialog(context),
       );

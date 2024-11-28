@@ -861,27 +861,27 @@
   "@laboratory": {
     "description": "The title of a link title"
   },
-  "libraryMode": "Library Mode",
+  "libraryMode": "Library Setup",
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "libraryModeSubtitle": "Please select how you would like to store the media metadata for your Library:",
+  "libraryModeSubtitle": "We need to know a bit more about your library. Is your media folder stored in the cloud?",
   "@libraryModeSubtitle": {
     "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
-  "portableMode": "Portable Mode",
+  "portableMode": "Local hard drive",
   "@portableMode": {
     "description": "One candidate library mode for users"
   },
-  "portableModeSubtitle": "Store the media index and Library in the same directory, making it easy to migrate metadata and analytical data.",
+  "portableModeSubtitle": "We will store your media index together in the library folder.",
   "@portableModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   },
-  "localMode": "Local Mode",
+  "localMode": "In the cloud",
   "@localMode": {
     "description": "One candidate library mode for users"
   },
-  "localModeSubtitle": "Store the media index in Rune's configuration directory. If your media directory is in a cloud drive, choose this mode.",
+  "localModeSubtitle": "We will store your media index in Rune's configuration directory.",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   }
