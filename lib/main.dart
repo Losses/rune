@@ -181,11 +181,13 @@ void main(List<String> arguments) async {
     }
   }
 
+  if (!Platform.isLinux) {
+    appWindow.size = windowSize;
+  }
+
   if (Platform.isLinux) {
     windowSize = windowSize / firstView.devicePixelRatio;
   }
-
-  appWindow.size = windowSize;
 
   mainLoop();
   appWindow.show();
