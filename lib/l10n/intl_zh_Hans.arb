@@ -829,7 +829,7 @@
     "@evaluationMode": {
         "description": "评估模式模态框的标题"
     },
-    "evaluationModeContent1": "Rune 不是免费的午餐。我们鼓励您从应用商店购买正版许可证。",
+    "evaluationModeContent1": "Rune 不是免费软件。我们鼓励您从应用商店购买正版许可证。",
     "@evaluationModeContent1": {
         "description": "评估模式模态框的内容"
     },

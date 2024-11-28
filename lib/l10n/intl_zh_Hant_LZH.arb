@@ -829,11 +829,11 @@
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
   },
-  "evaluationModeContent1": "符聆並非道邊李，望君購執於肆集。",
+  "evaluationModeContent1": "符聆並非無償物，望君購執於市鋪。",
   "@evaluationModeContent1": {
     "description": "Content of the evaluation mode modal"
   },
-  "evaluationModeContent2": "夫執者，得享自更新之於肆，且有權直語著者所望。",
+  "evaluationModeContent2": "夫執者，得享自更新之於市，且有權直語著者所望。",
   "@evaluationModeContent2": {
     "description": "Content of the evaluation mode modal"
   },
