@@ -10,7 +10,7 @@ import '../../../utils/l10n.dart';
 
 import '../unavailable_dialog_on_band.dart';
 
-import './not_analysed_text.dart';
+import './not_analyzed_text.dart';
 
 Future<String?> showNoAnalysisDialog(
   BuildContext context, [
@@ -31,7 +31,7 @@ Future<String?> showNoAnalysisDialog(
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            NotAnalysedText(
+            NotAnalyzedText(
               collection: collection,
             ),
             const SizedBox(height: 4),
@@ -39,7 +39,7 @@ Future<String?> showNoAnalysisDialog(
         ),
         actions: [
           ResponsiveDialogActions(
-            const AnalyseLibraryButton(),
+            const AnalyzeLibraryButton(),
             Button(
               child: Text(S.of(context).cancel),
               onPressed: () => $close('Cancel'),

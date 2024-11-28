@@ -41,27 +41,27 @@ enum ComputingDevice {
 }
 
 // [DART-SIGNAL]
-message AnalyseAudioLibraryRequest {
+message AnalyzeAudioLibraryRequest {
     string path = 1;
     ComputingDevice computingDevice = 2;
     float workloadFactor = 3;
 }
 
 // [RUST-SIGNAL]
-message AnalyseAudioLibraryProgress {
+message AnalyzeAudioLibraryProgress {
     string path = 1;
     int32 progress = 2;
     int32 total = 3;
 }
 
 // [RUST-SIGNAL]
-message AnalyseAudioLibraryResponse {
+message AnalyzeAudioLibraryResponse {
     string path = 1;
     int32 total = 2;
 }
 
 enum CancelTaskType {
-  AnalyseAudioLibrary = 0;
+  AnalyzeAudioLibrary = 0;
   ScanAudioLibrary = 1;
 }
 

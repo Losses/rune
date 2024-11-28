@@ -33,7 +33,7 @@ void openTrackItemContextMenu(
     localPosition,
     ancestor: Navigator.of(context).context.findRenderObject(),
   );
-  final analysed = await ifAnalyseExists(fileId);
+  final analyzed = await ifAnalyzeExists(fileId);
 
   final playlists = await getAllPlaylists();
   final mixes = await getAllMixes();
@@ -70,7 +70,7 @@ void openTrackItemContextMenu(
       parsedMediaFile,
       playlists,
       mixes,
-      analysed,
+      analyzed,
     ),
   );
 }
@@ -80,7 +80,7 @@ Widget buildTrackItemContextMenu(
   FetchParsedMediaFileResponse item,
   List<Playlist> playlists,
   List<Mix> mixes,
-  bool analysed,
+  bool analyzed,
 ) {
   final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {
     return MenuFlyoutItem(

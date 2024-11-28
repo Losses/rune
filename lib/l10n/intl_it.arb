@@ -423,8 +423,8 @@
   },
   "noRoamingCollection": "Impossibile avviare il roaming. I brani nella collezione non sono ancora stati analizzati.",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "Impossibile avviare il roaming. Questo brano non è ancora stato analizzato.",
-  "@noRomaingTrack": {},
+  "noRoamingTrack": "Impossibile avviare il roaming. Questo brano non è ancora stato analizzato.",
+  "@noRoamingTrack": {},
   "noAnalysisScanning": "{baseMessage} La libreria è in fase di scansione, quindi non è possibile eseguire l'analisi.",
   "@noAnalysisScanning": {
     "placeholders": {
@@ -455,8 +455,8 @@
   "@scanLibrary": {
     "description": "Testo del pulsante di azione nel modale, che avvia una scansione della libreria multimediale quando premuto."
   },
-  "analyseTracks": "Analizza Brani",
-  "@analyseTracks": {
+  "analyzeTracks": "Analizza Brani",
+  "@analyzeTracks": {
     "description": "Testo del pulsante di azione nel modale, che avvia l'analisi di tutti i brani nella libreria multimediale quando premuto."
   },
   "scan": "Scansiona",
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "Testo del pulsante nell'interfaccia delle impostazioni, che indica che la libreria multimediale è attualmente in fase di scansione."
   },
-  "analyse": "Analizza",
-  "@analyse": {
+  "analyze": "Analizza",
+  "@analyze": {
     "description": "Testo del pulsante nell'interfaccia delle impostazioni, che avvia l'analisi di tutti i brani nella libreria multimediale quando premuto."
   },
-  "analysing": "Analisi in Corso",
-  "@analysing": {
+  "analyzing": "Analisi in Corso",
+  "@analyzing": {
     "description": "Testo del pulsante nell'interfaccia delle impostazioni, che indica che la libreria multimediale è attualmente in fase di analisi."
   },
   "tryCreatingYourOwnCollection": "Prova a creare la tua collezione",

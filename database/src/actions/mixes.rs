@@ -16,7 +16,7 @@ use sea_orm::JoinType;
 use sea_orm::TransactionTrait;
 use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
 
-use crate::actions::analysis::get_analyse_count;
+use crate::actions::analysis::get_analyze_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
@@ -713,7 +713,7 @@ pub async fn query_mix_media_files(
         return Ok([].to_vec());
     }
 
-    if pipe_recommend.is_some() && get_analyse_count(main_db).await? < 1 {
+    if pipe_recommend.is_some() && get_analyze_count(main_db).await? < 1 {
         return Ok([].to_vec());
     }
 

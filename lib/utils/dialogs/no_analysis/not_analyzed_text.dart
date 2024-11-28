@@ -5,10 +5,10 @@ import '../../../utils/l10n.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 
-class NotAnalysedText extends StatelessWidget {
+class NotAnalyzedText extends StatelessWidget {
   final bool? collection;
 
-  const NotAnalysedText({
+  const NotAnalyzedText({
     super.key,
     required this.collection,
   });
@@ -21,21 +21,21 @@ class NotAnalysedText extends StatelessWidget {
     final itemPath = libraryPath.currentPath ?? '';
 
     final scanProgress = libraryManager.getScanTaskProgress(itemPath);
-    final analyseProgress = libraryManager.getAnalyseTaskProgress(itemPath);
+    final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
 
     final scanWorking = scanProgress?.status == TaskStatus.working;
-    final analyseWorking = analyseProgress?.status == TaskStatus.working;
+    final analyzeWorking = analyzeProgress?.status == TaskStatus.working;
 
     String getMessage(bool isCollection) {
       final baseMessage = isCollection
           ? S.of(context).noRoamingCollection
-          : S.of(context).noRomaingTrack;
+          : S.of(context).noRoamingTrack;
 
       if (scanWorking) {
         return S.of(context).noAnalysisScanning(baseMessage);
       }
 
-      if (analyseWorking) {
+      if (analyzeWorking) {
         return S.of(context).noAnalysisAnalyzing(baseMessage);
       }
 

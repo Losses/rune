@@ -1,11 +1,11 @@
 import '../../messages/all.dart';
 
-Future<bool> ifAnalyseExists(int fileId) async {
-  final fetchRequest = IfAnalyseExistsRequest(fileId: fileId);
+Future<bool> ifAnalyzeExists(int fileId) async {
+  final fetchRequest = IfAnalyzeExistsRequest(fileId: fileId);
   fetchRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await IfAnalyseExistsResponse.rustSignalStream.first;
+  final rustSignal = await IfAnalyzeExistsResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
   return response.exists;

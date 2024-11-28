@@ -302,19 +302,10 @@ class _RuneState extends State<Rune> {
                 );
               }
             } else {
-              if (routeName == '/scanning') {
+              if (routeName == '/' || routeName == '/scanning') {
                 return NoEffectPageRoute<dynamic>(
                   settings: settings,
                   builder: (context) => MacOSMoveWindow(
-                    child: WindowFrame(routes[routeName]!(context)),
-                  ),
-                );
-              }
-              if (routeName == '/') {
-                return NoEffectPageRoute<dynamic>(
-                  settings: settings,
-                  builder: (context) => MacOSMoveWindow(
-                    isEnabledDoubleTap: false,
                     child: WindowFrame(routes[routeName]!(context)),
                   ),
                 );

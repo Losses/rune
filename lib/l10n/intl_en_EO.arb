@@ -423,8 +423,8 @@
   },
   "noRoamingCollection": "Ne eblas komenci vagadon. Trakoj en la kolekto ankoraŭ ne estis analizitaj.",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "Ne eblas komenci vagadon. Ĉi tiu trako ankoraŭ ne estis analizita.",
-  "@noRomaingTrack": {},
+  "noRoamingTrack": "Ne eblas komenci vagadon. Ĉi tiu trako ankoraŭ ne estis analizita.",
+  "@noRoamingTrack": {},
   "noAnalysisScanning": "{baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
   "@noAnalysisScanning": {
     "placeholders": {
@@ -455,8 +455,8 @@
   "@scanLibrary": {
     "description": "Agada butona teksto en la modalo, inicianta skanadon de la amaskomunikila biblioteko kiam premitaj."
   },
-  "analyseTracks": "Analizu Trakojn",
-  "@analyseTracks": {
+  "analyzeTracks": "Analizu Trakojn",
+  "@analyzeTracks": {
     "description": "Agada butona teksto en la modalo, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
   },
   "scan": "Skanu",
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe skanata."
   },
-  "analyse": "Analizu",
-  "@analyse": {
+  "analyze": "Analizu",
+  "@analyze": {
     "description": "Butona teksto en la agorda interfaco, inicianta analizon de ĉiuj trakoj en la amaskomunikila biblioteko kiam premitaj."
   },
-  "analysing": "Analizado",
-  "@analysing": {
+  "analyzing": "Analizado",
+  "@analyzing": {
     "description": "Butona teksto en la agorda interfaco, indikante ke la amaskomunikila biblioteko estas nuntempe analizata."
   },
   "tryCreatingYourOwnCollection": "Provu krei vian propran kolekton",

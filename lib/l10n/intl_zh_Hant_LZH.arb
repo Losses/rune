@@ -423,8 +423,8 @@
   },
   "noRoamingCollection": "集未析畢，無以漫奏。",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "斯集未析，無以漫奏。",
-  "@noRomaingTrack": {},
+  "noRoamingTrack": "斯集未析，無以漫奏。",
+  "@noRoamingTrack": {},
   "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
   "@noAnalysisScanning": {
     "placeholders": {
@@ -455,8 +455,8 @@
   "@scanLibrary": {
     "description": "Action button text in the modal, initiating a media library scan when pressed."
   },
-  "analyseTracks": "析曲",
-  "@analyseTracks": {
+  "analyzeTracks": "析曲",
+  "@analyzeTracks": {
     "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
   },
   "scan": "索",
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
   },
-  "analyse": "析",
-  "@analyse": {
+  "analyze": "析",
+  "@analyze": {
     "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
   },
-  "analysing": "方析",
-  "@analysing": {
+  "analyzing": "方析",
+  "@analyzing": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
   },
   "tryCreatingYourOwnCollection": "試立己集",
@@ -829,11 +829,11 @@
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
   },
-  "evaluationModeContent1": "符聆並非道邊李，望君購執於肆集。",
+  "evaluationModeContent1": "符聆並非無償物，望君購執於市鋪。",
   "@evaluationModeContent1": {
     "description": "Content of the evaluation mode modal"
   },
-  "evaluationModeContent2": "夫執者，得享自更新之於肆，且有權直語著者所望。",
+  "evaluationModeContent2": "夫執者，得享自更新之於市，且有權直語著者所望。",
   "@evaluationModeContent2": {
     "description": "Content of the evaluation mode modal"
   },

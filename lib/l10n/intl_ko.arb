@@ -423,8 +423,8 @@
   },
   "noRoamingCollection": "로밍을 시작할 수 없습니다. 컬렉션의 트랙이 아직 분석되지 않았습니다.",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "로밍을 시작할 수 없습니다. 이 트랙이 아직 분석되지 않았습니다.",
-  "@noRomaingTrack": {},
+  "noRoamingTrack": "로밍을 시작할 수 없습니다. 이 트랙이 아직 분석되지 않았습니다.",
+  "@noRoamingTrack": {},
   "noAnalysisScanning": "{baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
   "@noAnalysisScanning": {
     "placeholders": {
@@ -455,8 +455,8 @@
   "@scanLibrary": {
     "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리 스캔을 시작합니다."
   },
-  "analyseTracks": "트랙 분석",
-  "@analyseTracks": {
+  "analyzeTracks": "트랙 분석",
+  "@analyzeTracks": {
     "description": "모달의 액션 버튼 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
   },
   "scan": "스캔",
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 스캔 중임을 나타냅니다."
   },
-  "analyse": "분석",
-  "@analyse": {
+  "analyze": "분석",
+  "@analyze": {
     "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 누르면 미디어 라이브러리의 모든 트랙 분석을 시작합니다."
   },
-  "analysing": "분석 중",
-  "@analysing": {
+  "analyzing": "분석 중",
+  "@analyzing": {
     "description": "설정 인터페이스의 버튼 프롬프트 텍스트로, 미디어 라이브러리가 현재 분석 중임을 나타냅니다."
   },
   "tryCreatingYourOwnCollection": "자신만의 컬렉션을 만들어 보세요",

@@ -1,4 +1,4 @@
-mod analyse;
+mod analyze;
 mod collection;
 mod connection;
 mod cover_art;
@@ -32,7 +32,7 @@ pub use tokio;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 
-use crate::analyse::*;
+use crate::analyze::*;
 use crate::collection::*;
 use crate::connection::*;
 use crate::cover_art::*;
@@ -92,7 +92,7 @@ macro_rules! select_signal {
 #[derive(Default)]
 struct TaskTokens {
     scan_token: Option<CancellationToken>,
-    analyse_token: Option<CancellationToken>,
+    analyze_token: Option<CancellationToken>,
 }
 
 async fn player_loop(path: String, db_connections: DatabaseConnections) {
@@ -127,9 +127,10 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
         select_signal!(
             main_cancel_token,
 
+            TestLibraryInitializedRequest => (main_db),
             CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
             ScanAudioLibraryRequest => (main_db, task_tokens),
-            AnalyseAudioLibraryRequest => (main_db, recommend_db, task_tokens),
+            AnalyzeAudioLibraryRequest => (main_db, recommend_db, task_tokens),
             CancelTaskRequest => (task_tokens),
 
             LoadRequest => (player),
@@ -147,8 +148,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             SfxPlayRequest => (sfx_player),
 
-            IfAnalyseExistsRequest => (main_db),
-            GetAnalyseCountRequest => (main_db),
+            IfAnalyzeExistsRequest => (main_db),
+            GetAnalyzeCountRequest => (main_db),
 
             FetchMediaFilesRequest => (main_db, lib_path),
             FetchMediaFileByIdsRequest => (main_db, lib_path),

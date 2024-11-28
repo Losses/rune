@@ -96,11 +96,11 @@ pub async fn sync_recommendation(
     let arroy_db = recommend_db.db;
 
     // Fetch all analysis data
-    let analyses = media_analysis::Entity::find().all(main_db).await?;
+    let analyzes = media_analysis::Entity::find().all(main_db).await?;
 
     // Track existing IDs in the main database
     let mut existing_ids: HashSet<i32> = HashSet::new();
-    for analysis in &analyses {
+    for analysis in &analyzes {
         existing_ids.insert(analysis.file_id);
     }
 
@@ -109,7 +109,7 @@ pub async fn sync_recommendation(
     let writer = Writer::<Euclidean>::new(arroy_db, 0, 61);
 
     // Insert or update analysis data in the recommendation database
-    for analysis in analyses {
+    for analysis in analyzes {
         let mut vector = vec![
             analysis
                 .rms

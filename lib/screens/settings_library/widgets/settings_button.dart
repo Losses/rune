@@ -9,6 +9,7 @@ class SettingsButton extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.onPressed,
+    this.wrap = false,
     this.suffixIcon,
   });
 
@@ -16,6 +17,7 @@ class SettingsButton extends StatelessWidget {
   final IconData? suffixIcon;
   final String title;
   final String subtitle;
+  final bool wrap;
   final void Function()? onPressed;
 
   @override
@@ -38,6 +40,7 @@ class SettingsButton extends StatelessWidget {
           subtitle: subtitle,
           showActions: false,
           actionsBuilder: (context) => Container(),
+          wrap: wrap,
         ),
       ),
     );
