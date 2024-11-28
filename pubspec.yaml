@@ -86,6 +86,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^5.0.0
+  msix: ^3.16.8
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -146,3 +147,13 @@ flutter:
   # see https://flutter.dev/custom-fonts/#from-packages
 flutter_intl:
   enabled: true
+
+msix_config:
+  display_name: Rune Player
+  publisher_display_name: Losses Don
+  identity_name: 23662LossesDon.RunePlayer
+  publisher: CN=16FBEDB1-15BD-44BA-B4B4-FF0448A66E6C
+  msix_version: 1.0.1.0
+  store: true
+  capabilities: removableStorage
+  logo_path: ./assets/source/microsoft_store/installer_icon.png
