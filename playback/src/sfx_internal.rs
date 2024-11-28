@@ -47,7 +47,7 @@ impl SfxPlayerInternal {
 
     pub async fn run(&mut self) -> Result<()> {
         loop {
-            if (self.cancellation_token.is_cancelled()) {
+            if self.cancellation_token.is_cancelled() {
                 break;
             }
 
