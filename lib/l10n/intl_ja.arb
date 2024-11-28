@@ -402,7 +402,6 @@
     "description": "Prompt text in the modal indicating the number of tracks selected via slider or input box."
   },
   "mode": "再生順番",
-  "mode": "再生順番",
   "@mode": {
     "description": "The playback mode for tracks."
   },
@@ -830,7 +829,7 @@
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
   },
-  "evaluationModeContent1": "Rune はただで提供されるものではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
+  "evaluationModeContent1": "Rune は無料ではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
   "@evaluationModeContent1": {
     "description": "Content of the evaluation mode modal"
   },
@@ -862,40 +861,28 @@
   "@laboratory": {
     "description": "The title of a link title"
    },
-  "evaluationMode": "試用期間",
-  "@evaluationMode": {
-    "description": "Title of the evaluation mode modal"
+"libraryMode": "資料集設置",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "evaluationModeContent1": "Rune はただで提供されるものではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
-  "@evaluationModeContent1": {
-    "description": "Content of the evaluation mode modal"
+  "libraryModeSubtitle": "資料集についてもう少し詳しく教えてください。あなたの資料保管場所は雲上に保存されていますか？",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
-  "evaluationModeContent2": "認証済み使用者は商店を通じて自動更新を受けることができ、さらに開発者に直接新機能の提案を行う特権があります。",
-  "@evaluationModeContent2": {
-    "description": "Content of the evaluation mode modal"
+  "portableMode": "本機の記憶装置",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
   },
-  "evaluationModeContent3": "この通知を 180 日間非表示にすることができます。その後、再度お知らせします。
-  "@evaluationModeContent3": {
-    "description": "Content of the evaluation mode modal"
+  "portableModeSubtitle": "あなたの資料索引を資料保管場所と同じ場所に保存します。",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
   },
-  "remindMeLater": "後で思い出す",
-  "@remindMeLater": {
-    "description": "Action button of the evaluation mode modal"
+  "localMode": "雲上へ",
+  "@localMode": {
+    "description": "One candidate library mode for users"
   },
-  "mysteriousButton": "謎の鍵",
-  "@mysteriousButton": {
-    "description": "A context menu item"
-  },
-  "mysteriousModalTitle": "きし",
-  "@mysteriousModalTitle": {
-    "description": "The title of a modal"
-  },
-  "mysteriousModalContent": 何やら不思議な仕掛けを作動させたようです。部屋の構造が変化し、新たに探索できる場所が現れたようです。",
-  "@mysteriousModalContent": {
-    "description": "The content of a modal"
-  },
-  "laboratory": "研究室",
-  "@laboratory": {
-    "description": "The title of a link title"
+  "localModeSubtitle": あなたの資料索引を Rune の設定用配置場所に保存します。",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
   }
 }
