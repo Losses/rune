@@ -104,7 +104,7 @@
   },
   "computingDevice": "Rechengerät",
   "@computingDevice": {
-    "description": "Ein Einstellungs-Eintragstitel, der es Benutzern ermöglicht, das Hardwaregerät auszuwählen, das für die Durchführung von Audioanalyseaufgaben verantwortlich ist."
+    "description": "Ein Einstellungs-Eintragstitel, der es Benutzern ermöglicht, das Hardwaregerät auszuwählen, das für die Durchführung von Audioanalyzeaufgaben verantwortlich ist."
   },
   "computingDeviceSubtitle": "Wählen Sie GPU oder CPU für schnellere oder effizientere Verarbeitung.",
   "@computingDeviceSubtitle": {},
@@ -423,9 +423,9 @@
   },
   "noRoamingCollection": "Roaming kann nicht gestartet werden. Titel in der Sammlung wurden noch nicht analysiert.",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "Roaming kann nicht gestartet werden. Dieser Titel wurde noch nicht analysiert.",
-  "@noRomaingTrack": {},
-  "noAnalysisScanning": "{baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyse durchgeführt werden.",
+  "noRoamingTrack": "Roaming kann nicht gestartet werden. Dieser Titel wurde noch nicht analysiert.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyze durchgeführt werden.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
@@ -455,9 +455,9 @@
   "@scanLibrary": {
     "description": "Aktionsknopftext im Modal, der beim Drücken einen Medienbibliothek-Scan einleitet."
   },
-  "analyseTracks": "Titel analysieren",
-  "@analyseTracks": {
-    "description": "Aktionsknopftext im Modal, der beim Drücken die Analyse aller Titel in der Medienbibliothek einleitet."
+  "analyzeTracks": "Titel analysieren",
+  "@analyzeTracks": {
+    "description": "Aktionsknopftext im Modal, der beim Drücken die Analyze aller Titel in der Medienbibliothek einleitet."
   },
   "scan": "Scannen",
   "@scan": {
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit gescannt wird."
   },
-  "analyse": "Analysieren",
-  "@analyse": {
-    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken die Analyse aller Titel in der Medienbibliothek einleitet."
+  "analyze": "Analysieren",
+  "@analyze": {
+    "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der beim Drücken die Analyze aller Titel in der Medienbibliothek einleitet."
   },
-  "analysing": "Analysieren",
-  "@analysing": {
+  "analyzing": "Analysieren",
+  "@analyzing": {
     "description": "Button-Aufforderungstext in der Einstellungen-Oberfläche, der anzeigt, dass die Medienbibliothek derzeit analysiert wird."
   },
   "tryCreatingYourOwnCollection": "Versuchen Sie, Ihre eigene Sammlung zu erstellen",
@@ -571,9 +571,9 @@
   "@settings": {
     "description": "Titel der Einstellungen-Oberfläche."
   },
-  "analysis": "Analyse",
+  "analysis": "Analyze",
   "@analysis": {
-    "description": "Titel der Analyse-Einstellungen-Oberfläche."
+    "description": "Titel der Analyze-Einstellungen-Oberfläche."
   },
   "playback": "Wiedergabe",
   "@playback": {

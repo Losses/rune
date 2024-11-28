@@ -88,7 +88,7 @@ where
                         }
                     };
                 }
-                Err(e) => error!("Failed to analyse track: {}", e),
+                Err(e) => error!("Failed to analyze track: {}", e),
             }
         }
     )
@@ -273,7 +273,7 @@ macro_rules! calculate_array_mean {
     }};
 }
 
-pub async fn if_analyse_exists(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
+pub async fn if_analyze_exists(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
     Ok(media_analysis::Entity::find()
         .filter(media_analysis::Column::FileId.eq(file_id))
         .count(main_db)
@@ -281,7 +281,7 @@ pub async fn if_analyse_exists(main_db: &DatabaseConnection, file_id: i32) -> Re
         != 0)
 }
 
-pub async fn get_analyse_count(main_db: &DatabaseConnection) -> Result<u64> {
+pub async fn get_analyze_count(main_db: &DatabaseConnection) -> Result<u64> {
     Ok(media_analysis::Entity::find().count(main_db).await?)
 }
 

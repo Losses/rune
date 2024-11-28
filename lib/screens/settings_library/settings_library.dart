@@ -8,6 +8,7 @@ import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/library_task_button.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -98,24 +99,24 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                         final scanProgress =
                             libraryManager.getScanTaskProgress(itemPath);
-                        final analyseProgress =
-                            libraryManager.getAnalyseTaskProgress(itemPath);
+                        final analyzeProgress =
+                            libraryManager.getAnalyzeTaskProgress(itemPath);
 
                         final scanWorking =
                             scanProgress?.status == TaskStatus.working;
-                        final analyseWorking =
-                            analyseProgress?.status == TaskStatus.working;
+                        final analyzeWorking =
+                            analyzeProgress?.status == TaskStatus.working;
 
                         final initializing =
                             (scanProgress?.initialize ?? false) ||
-                                (analyseProgress?.isInitializeTask ?? false);
+                                (analyzeProgress?.isInitializeTask ?? false);
 
                         String fileName = File(itemPath).uri.pathSegments.last;
 
                         void Function()? whileWorking(void Function() x) {
                           return isCurrentLibrary ||
                                   (initializing &&
-                                      (scanWorking || analyseWorking))
+                                      (scanWorking || analyzeWorking))
                               ? null
                               : x;
                         }
@@ -131,9 +132,27 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                 Button(
                                   onPressed: whileWorking(
                                     () async {
-                                      await closeLibrary(context);
-                                      libraryPath.setLibraryPath(
+                                      final result =
+                                          await testAndSelectLibraryMode(
+                                        context,
                                         allOpenedFiles[index],
+                                      );
+
+                                      if (result == null) return;
+                                      final (initialized, initializeMode) =
+                                          result;
+                                      if (!initialized &&
+                                          initializeMode == null) return;
+
+                                      if (!context.mounted) return;
+                                      await closeLibrary(context);
+
+                                      if (!context.mounted) return;
+
+                                      libraryPath.setLibraryPath(
+                                        context,
+                                        allOpenedFiles[index],
+                                        initializeMode,
                                       );
 
                                       if (!context.mounted) return;
@@ -155,7 +174,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   const SizedBox(width: 12),
                                   const ScanLibraryButton(),
                                   const SizedBox(width: 12),
-                                  const AnalyseLibraryButton(),
+                                  const AnalyzeLibraryButton(),
                                 ]
                               ],
                             ),

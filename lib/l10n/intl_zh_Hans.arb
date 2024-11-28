@@ -423,8 +423,8 @@
     },
     "noRoamingCollection": "无法开始漫游。尚未分析合集中的歌曲。",
     "@noRoamingCollection": {},
-    "noRomaingTrack": "无法开始漫游。尚未分析该曲目。",
-    "@noRomaingTrack": {},
+    "noRoamingTrack": "无法开始漫游。尚未分析该曲目。",
+    "@noRoamingTrack": {},
     "noAnalysisScanning": "{baseMessage} 正在扫描媒体库，无法分析。",
     "@noAnalysisScanning": {
         "placeholders": {
@@ -455,8 +455,8 @@
     "@scanLibrary": {
         "description": "模态框中的操作按钮文本，按下时启动媒体库扫描。"
     },
-    "analyseTracks": "分析曲目",
-    "@analyseTracks": {
+    "analyzeTracks": "分析曲目",
+    "@analyzeTracks": {
         "description": "模态框中的操作按钮文本，按下时启动对媒体库中所有歌曲的分析。"
     },
     "scan": "扫描",
@@ -467,12 +467,12 @@
     "@scanning": {
         "description": "设置界面中的按钮提示文字，表示当前正在扫描媒体库。"
     },
-    "analyse": "分析",
-    "@analyse": {
+    "analyze": "分析",
+    "@analyze": {
         "description": "设置界面中的按钮提示文字，按下时启动对媒体库中所有歌曲的分析。"
     },
-    "analysing": "正在分析",
-    "@analysing": {
+    "analyzing": "正在分析",
+    "@analyzing": {
         "description": "设置界面中的按钮提示文字，表示当前正在分析媒体库。"
     },
     "tryCreatingYourOwnCollection": "尝试创建您自己的合集",

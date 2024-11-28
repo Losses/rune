@@ -112,11 +112,16 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           onPressed: () async {
                             final path = allOpenedFiles[index - 1];
 
-                            final (switched, error) =
-                                await libraryPath.setLibraryPath(path);
+                            final (switched, cancelled, error) =
+                                await libraryPath.setLibraryPath(
+                              context,
+                              path,
+                              null,
+                            );
 
                             if (!context.mounted) return;
                             if (switched) return;
+                            if (cancelled) return;
 
                             await showFailedToInitializeLibrary(
                               context,

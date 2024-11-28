@@ -1,9 +1,29 @@
 syntax = "proto3";
 package connection;
 
+enum LibraryInitializeMode {
+  Portable = 0;
+  Redirected = 1;
+}
+
+// [DART-SIGNAL]
+message TestLibraryInitializedRequest {
+  string path = 1;
+}
+
+// [RUST-SIGNAL]
+message TestLibraryInitializedResponse {
+  string path = 1;
+  bool success = 2;
+  optional string error = 3;
+  bool notReady = 4;
+}
+
 // [DART-SIGNAL]
 message SetMediaLibraryPathRequest {
   string path = 1;
+  string db_path = 2;
+  optional LibraryInitializeMode mode = 3;
 }
 
 // [RUST-SIGNAL]
@@ -11,4 +31,5 @@ message SetMediaLibraryPathResponse {
   string path = 1;
   bool success = 2;
   optional string error = 3;
+  bool notReady = 4;
 }

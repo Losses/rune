@@ -25,8 +25,8 @@ class ActionButtons extends StatelessWidget {
         ),
         if (hasRecommendation) ...[
           const SizedBox(width: 12),
-          AnalyseLibraryButton(
-            title: S.of(context).analyseTracks,
+          AnalyzeLibraryButton(
+            title: S.of(context).analyzeTracks,
             onFinished: reloadData,
           ),
         ]

@@ -63,14 +63,14 @@ class LibraryTaskButton extends StatelessWidget {
         Provider.of<LibraryManagerProvider>(context, listen: true);
 
     final scanProgress = libraryManager.getScanTaskProgress(itemPath);
-    final analyseProgress = libraryManager.getAnalyseTaskProgress(itemPath);
+    final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
 
     final scanWorking = scanProgress?.status == TaskStatus.working;
-    final analyseWorking = analyseProgress?.status == TaskStatus.working;
+    final analyzeWorking = analyzeProgress?.status == TaskStatus.working;
 
-    final isWorking = scanWorking || analyseWorking;
+    final isWorking = scanWorking || analyzeWorking;
 
-    return isWorking && isTaskWorking(scanWorking, analyseWorking)
+    return isWorking && isTaskWorking(scanWorking, analyzeWorking)
         ? ProgressButton(
             title: progressTitle,
             onPressed: () => onPressedCancel(libraryManager, itemPath),
@@ -117,16 +117,16 @@ class ScanLibraryButton extends StatelessWidget {
           onFinished!();
         }
       },
-      isTaskWorking: (scanWorking, analyseWorking) => scanWorking,
+      isTaskWorking: (scanWorking, analyzeWorking) => scanWorking,
     );
   }
 }
 
-class AnalyseLibraryButton extends StatelessWidget {
+class AnalyzeLibraryButton extends StatelessWidget {
   final String? title;
   final void Function()? onFinished;
 
-  const AnalyseLibraryButton({
+  const AnalyzeLibraryButton({
     super.key,
     this.title,
     this.onFinished,
@@ -142,34 +142,34 @@ class AnalyseLibraryButton extends StatelessWidget {
     final libraryManager =
         Provider.of<LibraryManagerProvider>(context, listen: true);
 
-    final analyseProgress = libraryManager.getAnalyseTaskProgress(itemPath);
+    final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
 
-    final progress = analyseProgress == null
+    final progress = analyzeProgress == null
         ? null
-        : analyseProgress.progress / analyseProgress.total;
+        : analyzeProgress.progress / analyzeProgress.total;
 
     return LibraryTaskButton(
-      title: title ?? S.of(context).analyse,
-      progressTitle: S.of(context).analysing,
+      title: title ?? S.of(context).analyze,
+      progressTitle: S.of(context).analyzing,
       onPressedCancel: (libraryManager, itemPath) async {
         final confirm = await showCancelDialog(context);
 
         if (confirm == true) {
           libraryManager.cancelTask(
             itemPath,
-            CancelTaskType.AnalyseAudioLibrary,
+            CancelTaskType.AnalyzeAudioLibrary,
           );
         }
       },
       onPressedStart: (libraryManager, itemPath) async {
-        libraryManager.analyseLibrary(itemPath, false);
-        await libraryManager.waitForAnalyseToComplete(itemPath);
+        libraryManager.analyzeLibrary(itemPath, false);
+        await libraryManager.waitForAnalyzeToComplete(itemPath);
 
         if (onFinished != null) {
           onFinished!();
         }
       },
-      isTaskWorking: (scanWorking, analyseWorking) => analyseWorking,
+      isTaskWorking: (scanWorking, analyzeWorking) => analyzeWorking,
       progress: progress,
     );
   }

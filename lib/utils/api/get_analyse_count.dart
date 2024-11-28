@@ -1,11 +1,11 @@
 import '../../messages/all.dart';
 
-ifAnalyseExists(int fileId) async {
-  final fetchRequest = GetAnalyseCountRequest();
+ifAnalyzeExists(int fileId) async {
+  final fetchRequest = GetAnalyzeCountRequest();
   fetchRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await GetAnalyseCountResponse.rustSignalStream.first;
+  final rustSignal = await GetAnalyzeCountResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
   return response.count.toInt();

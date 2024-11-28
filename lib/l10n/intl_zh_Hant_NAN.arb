@@ -423,8 +423,8 @@
   },
   "noRoamingCollection": "袂當開始漫遊。歌曲猶未分析完成。",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "袂當開始漫遊。這首歌猶未分析。",
-  "@noRomaingTrack": {},
+  "noRoamingTrack": "袂當開始漫遊。這首歌猶未分析。",
+  "@noRoamingTrack": {},
   "noAnalysisScanning": "{baseMessage} 媒體庫當咧掃描，所以這馬袂當分析。",
   "@noAnalysisScanning": {
     "placeholders": {
@@ -455,8 +455,8 @@
   "@scanLibrary": {
     "description": "Action button text in the modal, initiating a media library scan when pressed."
   },
-  "analyseTracks": "分析歌曲",
-  "@analyseTracks": {
+  "analyzeTracks": "分析歌曲",
+  "@analyzeTracks": {
     "description": "Action button text in the modal, initiating analysis of all tracks in the media library when pressed."
   },
   "scan": "掃描",
@@ -467,12 +467,12 @@
   "@scanning": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being scanned."
   },
-  "analyse": "分析",
-  "@analyse": {
+  "analyze": "分析",
+  "@analyze": {
     "description": "Button prompt text in the settings interface, initiating analysis of all tracks in the media library when pressed."
   },
-  "analysing": "當咧分析",
-  "@analysing": {
+  "analyzing": "當咧分析",
+  "@analyzing": {
     "description": "Button prompt text in the settings interface, indicating the media library is currently being analyzed."
   },
   "tryCreatingYourOwnCollection": "試看覓建立你家己的收藏",

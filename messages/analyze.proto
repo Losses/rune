@@ -1,22 +1,22 @@
 syntax = "proto3";
-package analyse;
+package analyze;
 
 // [DART-SIGNAL]
-message IfAnalyseExistsRequest {
+message IfAnalyzeExistsRequest {
   int32 file_id = 1;
 }
 
 // [RUST-SIGNAL]
-message IfAnalyseExistsResponse {
+message IfAnalyzeExistsResponse {
   int32 file_id = 1;
   bool exists = 2;
 }
 
 // [DART-SIGNAL]
-message GetAnalyseCountRequest {
+message GetAnalyzeCountRequest {
 }
 
 // [RUST-SIGNAL]
-message GetAnalyseCountResponse {
+message GetAnalyzeCountResponse {
   uint64 count = 1;
 }

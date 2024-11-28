@@ -9,6 +9,7 @@ class SettingsTileTitle extends StatelessWidget {
   final String subtitle;
   final bool showActions;
   final Widget Function(BuildContext context) actionsBuilder;
+  final bool wrap;
 
   const SettingsTileTitle({
     super.key,
@@ -18,6 +19,7 @@ class SettingsTileTitle extends StatelessWidget {
     required this.showActions,
     required this.actionsBuilder,
     this.suffixIcon,
+    this.wrap = false,
   });
 
   @override
@@ -68,7 +70,7 @@ class SettingsTileTitle extends StatelessWidget {
                       style: theme.typography.caption?.apply(
                         color: theme.inactiveColor.withAlpha(160),
                       ),
-                      overflow: TextOverflow.ellipsis,
+                      overflow: wrap ? null : TextOverflow.ellipsis,
                       textAlign: TextAlign.start,
                     ),
                     if (showActions) ...[

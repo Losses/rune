@@ -138,13 +138,13 @@ async fn main() {
 
     let lib_path = match canonicalized_path.to_str() {
         Some(path) => path,
-        None => {
+        _ => {
             error!("Invalid path, could not convert to string");
             return;
         }
     };
 
-    let main_db = match connect_main_db(lib_path).await {
+    let main_db = match connect_main_db(lib_path, None).await {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to main database: {}", e);
@@ -152,7 +152,7 @@ async fn main() {
         }
     };
 
-    let analysis_db = match connect_recommendation_db(lib_path) {
+    let analysis_db = match connect_recommendation_db(lib_path, None) {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to analysis database: {}", e);
@@ -170,7 +170,7 @@ async fn main() {
             index_audio_library(&main_db).await;
         }
         Commands::Analyze { computing_device } => {
-            analyse_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
+            analyze_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
         }
         Commands::Info { file_ids } => {
             match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {

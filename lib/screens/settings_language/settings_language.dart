@@ -78,16 +78,18 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
                     await _updateLocale(null);
                   },
                 ),
-                ...supportedLanguages.map((language) => SettingsButton(
-                      icon: language.experimental
-                          ? Symbols.experiment
-                          : Symbols.language,
-                      title: language.title,
-                      subtitle: language.sampleText,
-                      onPressed: () {
-                        _updateLocale(language.locale);
-                      },
-                    )),
+                ...supportedLanguages.map(
+                  (language) => SettingsButton(
+                    icon: language.experimental
+                        ? Symbols.experiment
+                        : Symbols.language,
+                    title: language.title,
+                    subtitle: language.sampleText,
+                    onPressed: () {
+                      _updateLocale(language.locale);
+                    },
+                  ),
+                ),
               ],
             ),
           ),

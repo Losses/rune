@@ -24,7 +24,7 @@ async fn main() {
         .init();
 
     let path = ".";
-    let main_db = connect_main_db(path).await.unwrap();
+    let main_db = connect_main_db(path, None).await.unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();
@@ -42,7 +42,7 @@ async fn main() {
     )
     .await;
 
-    info!("Analysing tracks");
+    info!("Analyzing tracks");
     // Analyze the audio files in the database
     analysis_audio_library(
         &main_db,
@@ -56,7 +56,7 @@ async fn main() {
     .expect("Audio analysis failed");
 
     info!("Syncing recommendation");
-    let recommend_db = connect_recommendation_db(&path).unwrap();
+    let recommend_db = connect_recommendation_db(&path, None).unwrap();
     match sync_recommendation(&main_db, &recommend_db).await {
         Ok(_) => info!("OK!"),
         Err(e) => error!("Unable to sync recommendation: {}", e),

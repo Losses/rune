@@ -7,10 +7,11 @@ import '../utils/api/set_media_library_path.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/settings_manager.dart';
 import '../utils/router/navigation.dart';
+import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dart';
 import '../utils/file_storage/file_storage_service.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
-
 import '../messages/all.dart';
+
 import 'status.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
@@ -31,7 +32,7 @@ class LibraryPathProvider with ChangeNotifier {
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
-      setLibraryPath(initialPath).then((result) {
+      setLibraryPath(null, initialPath, null).then((result) {
         final success = result.$1;
         if (!success) {
           $$replace("/");
@@ -52,12 +53,30 @@ class LibraryPathProvider with ChangeNotifier {
 
   String? get currentPath => _currentPath;
 
-  Future<(bool, String?)> setLibraryPath(String filePath) async {
+  Future<(bool, bool, String?)> setLibraryPath(
+    BuildContext? context,
+    String filePath,
+    LibraryInitializeMode? selectedMode,
+  ) async {
     _currentPath = filePath;
     libraryHistory.add(filePath);
     notifyListeners();
 
-    final (success, error) = await setMediaLibraryPath(filePath);
+    var (success, notReady, error) =
+        await setMediaLibraryPath(filePath, selectedMode);
+
+    if (notReady && context != null) {
+      selectedMode = stringToLibraryInitializeMode(
+        await showSelectLibraryModeDialog(context),
+      );
+
+      if (selectedMode == null) {
+        return (false, true, null);
+      }
+
+      (success, notReady, error) =
+          await setMediaLibraryPath(filePath, selectedMode);
+    }
 
     if (success) {
       CollectionCache().clearAll();
@@ -81,7 +100,7 @@ class LibraryPathProvider with ChangeNotifier {
       removeCurrentPath();
     }
 
-    return (success, error);
+    return (success, false, error);
   }
 
   Future<List<String>> getAllOpenedFiles() {

@@ -1,11 +1,13 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use arroy::distances::Euclidean;
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
 use log::{info, LevelFilter};
 use sea_orm::{ConnectOptions, Database};
+use uuid::Uuid;
 #[cfg(windows)]
 use windows::core::PWSTR;
 #[cfg(windows)]
@@ -16,63 +18,153 @@ use migration::MigratorTrait;
 
 use crate::actions::mixes::initialize_mix_queries;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum StorageMode {
+    Portable,
+    Redirected(Uuid),
+}
+
+pub struct StorageInfo {
+    pub state: LibraryState,
+    pub rune_dir: PathBuf,
+    pub db_dir: PathBuf,
+}
+
+impl StorageInfo {
+    pub fn get_main_db_path(&self) -> PathBuf {
+        self.db_dir.join(".0.db")
+    }
+
+    pub fn get_recommendation_db_path(&self) -> PathBuf {
+        self.db_dir.join(".analysis")
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LibraryState {
+    Uninitialized,
+    Initialized(StorageMode),
+}
+
+impl LibraryState {
+    pub fn storage_mode(&self) -> Option<&StorageMode> {
+        match self {
+            LibraryState::Uninitialized => None,
+            LibraryState::Initialized(mode) => Some(mode),
+        }
+    }
+}
+
+pub fn check_library_state(lib_path: &str) -> Result<LibraryState> {
+    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+
+    if !rune_dir.exists() {
+        return Ok(LibraryState::Uninitialized);
+    }
+
+    let mode = detect_storage_mode(&rune_dir)?;
+    Ok(LibraryState::Initialized(mode))
+}
+
+pub fn detect_storage_mode(rune_dir: &Path) -> Result<StorageMode> {
+    let redirect_file = rune_dir.join(".redirect");
+
+    if redirect_file.exists() {
+        let content = fs::read_to_string(redirect_file)?;
+        let uuid = Uuid::parse_str(content.trim()).context("Invalid UUID in .redirect file")?;
+        Ok(StorageMode::Redirected(uuid))
+    } else {
+        Ok(StorageMode::Portable)
+    }
+}
+
 #[cfg(windows)]
 fn set_hidden_attribute(path: &std::path::Path) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-    // Convert path to wide string (UTF-16) as required by Windows API
-    let wide: Vec<u16> = path
-        .as_os_str()
-        .encode_wide()
-        .chain(Some(0)) // Add null terminator
-        .collect();
-
-    // Call Windows API to set hidden attribute
     unsafe {
         SetFileAttributesW(PWSTR(wide.as_ptr() as *mut u16), FILE_ATTRIBUTE_HIDDEN)?;
     }
-
     Ok(())
+}
+
+pub fn check_storage_mode(lib_path: &str) -> Result<StorageMode> {
+    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+    let redirect_file = rune_dir.join(".redirect");
+
+    if !rune_dir.exists() {
+        return Ok(StorageMode::Portable);
+    }
+
+    if redirect_file.exists() {
+        let content = fs::read_to_string(redirect_file)?;
+        let uuid = Uuid::parse_str(content.trim())?;
+        Ok(StorageMode::Redirected(uuid))
+    } else {
+        Ok(StorageMode::Portable)
+    }
+}
+
+pub fn create_redirect(lib_path: &str, uuid: Uuid) -> Result<()> {
+    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+    if !rune_dir.exists() {
+        fs::create_dir_all(&rune_dir)?;
+        #[cfg(windows)]
+        set_hidden_attribute(&rune_dir)?;
+    }
+
+    let redirect_file = rune_dir.join(".redirect");
+    fs::write(redirect_file, uuid.to_string())?;
+    Ok(())
+}
+
+pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<StorageInfo> {
+    let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
+    let state = check_library_state(lib_path)?;
+
+    let db_dir = match &state {
+        LibraryState::Uninitialized => rune_dir.clone(),
+        LibraryState::Initialized(mode) => match mode {
+            StorageMode::Portable => rune_dir.clone(),
+            StorageMode::Redirected(uuid) => {
+                let db_path = db_path.context("db_path is required for redirected storage")?;
+                PathBuf::from(db_path).join(uuid.to_string())
+            }
+        }
+    };
+
+    Ok(StorageInfo {
+        state,
+        rune_dir,
+        db_dir,
+    })
 }
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
-pub async fn connect_main_db(lib_path: &str) -> Result<MainDbConnection> {
-    let path: PathBuf = [lib_path, ".rune", ".0.db"].iter().collect();
+pub async fn connect_main_db(lib_path: &str, db_path: Option<&str>) -> Result<MainDbConnection> {
+    let storage_info = get_storage_info(lib_path, db_path)?;
+    let db_path = storage_info.get_main_db_path();
 
-    let dir_path = path
-        .parent()
-        .with_context(|| "Invalid path: parent directory not found")?;
-
-    if !dir_path.exists() {
-        std::fs::create_dir_all(dir_path)?;
-
-        // Set hidden attribute for .rune directory on Windows
-        #[cfg(windows)]
-        set_hidden_attribute(dir_path)?;
+    if !storage_info.db_dir.exists() {
+        fs::create_dir_all(&storage_info.db_dir)?;
     }
 
-    let path_str = path.into_os_string().into_string().unwrap();
-    let db_url = format!("sqlite:{}?mode=rwc", path_str);
-    let mut opt = ConnectOptions::new(db_url);
+    let db_url = format!(
+        "sqlite:{}?mode=rwc",
+        db_path.into_os_string().into_string().unwrap()
+    );
+    let mut opt = ConnectOptions::new(db_url.clone());
     opt.sqlx_logging(true)
         .sqlx_logging_level(LevelFilter::Debug);
 
-    info!("Initializing main database: {}", path_str);
+    info!("Initializing main database: {}", db_url);
 
     let db = Database::connect(opt).await?;
-
     initialize_db(&db).await?;
 
     Ok(db)
-}
-
-pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
-    Migrator::up(conn, None).await?;
-
-    initialize_mix_queries(conn).await?;
-
-    Ok(())
 }
 
 const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
@@ -83,24 +175,21 @@ pub struct RecommendationDbConnection {
     pub db: ArroyDatabase<Euclidean>,
 }
 
-/// Initialize the recommendation database.
-///
-/// # Arguments
-/// * `db_path` - The path to the database directory.
-///
-/// # Returns
-/// * `Result<(Env, ArroyDatabase<Euclidean>), Box<dyn std::error::Error>>` - The database environment and the Arroy database.
-pub fn connect_recommendation_db(lib_path: &str) -> Result<RecommendationDbConnection> {
-    let path: PathBuf = [lib_path, ".rune", ".analysis"].iter().collect();
+pub fn connect_recommendation_db(
+    lib_path: &str,
+    db_path: Option<&str>,
+) -> Result<RecommendationDbConnection> {
+    let storage_info = get_storage_info(lib_path, db_path)?;
+    let analysis_path = storage_info.get_recommendation_db_path();
 
-    if !path.exists() {
-        std::fs::create_dir_all(&path)?;
+    if !analysis_path.exists() {
+        fs::create_dir_all(&analysis_path)?;
     }
 
-    let path_str = match path.into_os_string().into_string() {
-        Ok(x) => x,
-        Err(_) => bail!("Failed to convert database path"),
-    };
+    let path_str = analysis_path
+        .into_os_string()
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("Failed to convert database path"))?;
 
     info!("Initializing recommendation database: {}", path_str);
 
@@ -112,10 +201,14 @@ pub fn connect_recommendation_db(lib_path: &str) -> Result<RecommendationDbConne
     };
 
     let mut wtxn = env.write_txn()?;
-
     let db: ArroyDatabase<Euclidean> = env.create_database(&mut wtxn, None)?;
-
     wtxn.commit()?;
 
     Ok(RecommendationDbConnection { env, db })
+}
+
+pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
+    Migrator::up(conn, None).await?;
+    initialize_mix_queries(conn).await?;
+    Ok(())
 }

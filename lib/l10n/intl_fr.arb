@@ -104,7 +104,7 @@
   },
   "computingDevice": "Appareil informatique",
   "@computingDevice": {
-    "description": "Un titre d'entrée des paramètres permettant aux utilisateurs de sélectionner le périphérique matériel responsable des tâches d'analyse audio."
+    "description": "Un titre d'entrée des paramètres permettant aux utilisateurs de sélectionner le périphérique matériel responsable des tâches d'analyze audio."
   },
   "computingDeviceSubtitle": "Sélectionnez GPU ou CPU pour un traitement plus rapide ou plus efficace.",
   "@computingDeviceSubtitle": {},
@@ -423,21 +423,21 @@
   },
   "noRoamingCollection": "Impossible de commencer l'itinérance. Les pistes de la collection n'ont pas encore été analysées.",
   "@noRoamingCollection": {},
-  "noRomaingTrack": "Impossible de commencer l'itinérance. Cette piste n'a pas encore été analysée.",
-  "@noRomaingTrack": {},
-  "noAnalysisScanning": "{baseMessage} La bibliothèque est en cours de balayage, l'analyse ne peut donc pas être effectuée.",
+  "noRoamingTrack": "Impossible de commencer l'itinérance. Cette piste n'a pas encore été analysée.",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} La bibliothèque est en cours de balayage, l'analyze ne peut donc pas être effectuée.",
   "@noAnalysisScanning": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisAnalyzing": "{baseMessage} La bibliothèque est en cours d'analyse ; veuillez attendre la fin du processus.",
+  "noAnalysisAnalyzing": "{baseMessage} La bibliothèque est en cours d'analyze ; veuillez attendre la fin du processus.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
       "baseMessage": {}
     }
   },
-  "noAnalysisDefault": "{baseMessage} Veuillez analyser votre bibliothèque pour une meilleure expérience.",
+  "noAnalysisDefault": "{baseMessage} Veuillez analyzer votre bibliothèque pour une meilleure expérience.",
   "@noAnalysisDefault": {
     "placeholders": {
       "baseMessage": {}
@@ -455,9 +455,9 @@
   "@scanLibrary": {
     "description": "Texte du bouton d'action dans le modal, initiant un balayage de la bibliothèque multimédia lorsqu'il est pressé."
   },
-  "analyseTracks": "Analyser les pistes",
-  "@analyseTracks": {
-    "description": "Texte du bouton d'action dans le modal, initiant l'analyse de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
+  "analyzeTracks": "Analyzer les pistes",
+  "@analyzeTracks": {
+    "description": "Texte du bouton d'action dans le modal, initiant l'analyze de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
   },
   "scan": "Scanner",
   "@scan": {
@@ -467,13 +467,13 @@
   "@scanning": {
     "description": "Texte du bouton d'invite dans l'interface des paramètres, indiquant que la bibliothèque multimédia est en cours de balayage."
   },
-  "analyse": "Analyser",
-  "@analyse": {
-    "description": "Texte du bouton d'invite dans l'interface des paramètres, initiant l'analyse de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
+  "analyze": "Analyzer",
+  "@analyze": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, initiant l'analyze de toutes les pistes de la bibliothèque multimédia lorsqu'il est pressé."
   },
-  "analysing": "Analyse en cours",
-  "@analysing": {
-    "description": "Texte du bouton d'invite dans l'interface des paramètres, indiquant que la bibliothèque multimédia est en cours d'analyse."
+  "analyzing": "Analyze en cours",
+  "@analyzing": {
+    "description": "Texte du bouton d'invite dans l'interface des paramètres, indiquant que la bibliothèque multimédia est en cours d'analyze."
   },
   "tryCreatingYourOwnCollection": "Essayez de créer votre propre collection",
   "@tryCreatingYourOwnCollection": {
@@ -571,9 +571,9 @@
   "@settings": {
     "description": "Titre de l'interface des paramètres."
   },
-  "analysis": "Analyse",
+  "analysis": "Analyze",
   "@analysis": {
-    "description": "Titre de l'interface des paramètres d'analyse."
+    "description": "Titre de l'interface des paramètres d'analyze."
   },
   "playback": "Lecture",
   "@playback": {
@@ -591,7 +591,7 @@
   "@about": {
     "description": "Titre de l'interface à propos."
   },
-  "selectLibraryDirectorySubtitle": "Sélectionnez votre répertoire de bibliothèque audio, et nous scannerons et analyserons toutes les pistes qu'il contient.",
+  "selectLibraryDirectorySubtitle": "Sélectionnez votre répertoire de bibliothèque audio, et nous scannerons et analyzerons toutes les pistes qu'il contient.",
   "@selectLibraryDirectorySubtitle": {},
   "resetLibrary": "Réinitialiser la bibliothèque",
   "@resetLibrary": {

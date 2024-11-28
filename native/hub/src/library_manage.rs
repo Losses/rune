@@ -34,7 +34,7 @@ pub async fn close_library_request(
     if let Some(token) = tokens.scan_token.take() {
         token.cancel();
     }
-    if let Some(token) = tokens.analyse_token.take() {
+    if let Some(token) = tokens.analyze_token.take() {
         token.cancel();
     }
 
@@ -147,11 +147,11 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
     std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
 }
 
-pub async fn analyse_audio_library_request(
+pub async fn analyze_audio_library_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
     task_tokens: Arc<Mutex<TaskTokens>>,
-    dart_signal: DartSignal<AnalyseAudioLibraryRequest>,
+    dart_signal: DartSignal<AnalyzeAudioLibraryRequest>,
 ) -> Result<()> {
     let mut tokens = task_tokens.lock().await;
     // If there is scanning task
@@ -161,12 +161,12 @@ pub async fn analyse_audio_library_request(
 
     // Create a new cancel token
     let new_token = CancellationToken::new();
-    tokens.analyse_token = Some(new_token.clone());
+    tokens.analyze_token = Some(new_token.clone());
     drop(tokens); // Release the lock
 
     let request = dart_signal.message;
 
-    debug!("Analysing media files: {:#?}", request);
+    debug!("Analyzing media files: {:#?}", request);
 
     let request_path = request.path.clone();
     let closure_request_path = request_path.clone();
@@ -182,7 +182,7 @@ pub async fn analyse_audio_library_request(
                     batch_size,
                     request.computing_device.into(),
                     move |progress, total| {
-                        AnalyseAudioLibraryProgress {
+                        AnalyzeAudioLibraryProgress {
                             path: closure_request_path.clone(),
                             progress: progress.try_into().unwrap(),
                             total: total.try_into().unwrap(),
@@ -198,7 +198,7 @@ pub async fn analyse_audio_library_request(
                     .await
                     .with_context(|| "Recommendation synchronization failed")?;
 
-                AnalyseAudioLibraryResponse {
+                AnalyzeAudioLibraryResponse {
                     path: request_path.clone(),
                     total: total_files as i32,
                 }
@@ -227,8 +227,8 @@ pub async fn cancel_task_request(
 
     let success = match request.r#type {
         0 => {
-            if let Some(token) = tokens.analyse_token.take() {
-                warn!("Cancelling analyse task");
+            if let Some(token) = tokens.analyze_token.take() {
+                warn!("Cancelling analyze task");
                 token.cancel();
                 true
             } else {
