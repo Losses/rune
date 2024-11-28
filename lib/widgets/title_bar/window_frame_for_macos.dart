@@ -11,7 +11,6 @@ import '../../providers/responsive_providers.dart';
 
 import '../router/rune_stack.dart';
 
-
 class WindowFrameForMacOS extends StatefulWidget {
   final Widget child;
   final String? customRouteName;

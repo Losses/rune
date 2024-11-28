@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'macos_window_frame.dart';
+import 'window_frame_for_macos.dart';
 import 'window_frame_for_windows.dart';
 
 class WindowFrame extends StatelessWidget {
