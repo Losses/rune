@@ -9,6 +9,7 @@ import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/responsive_providers.dart';
 
+import '../../../utils/router/navigation.dart';
 import '../../settings_library/widgets/add_library_setting_button.dart';
 import '../../settings_library/widgets/settings_button.dart';
 
@@ -112,8 +113,6 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                           onPressed: () async {
                             final path = allOpenedFiles[index - 1];
 
-                            print('path: $path');
-
                             final (switched, cancelled, error) =
                                 await libraryPath.setLibraryPath(
                               context,
@@ -121,9 +120,12 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
                               null,
                             );
 
-                            if (!context.mounted) return;
-                            if (switched) return;
+                            if (switched) {
+                              $$replace('/library');
+                              return;
+                            }
                             if (cancelled) return;
+                            if (!context.mounted) return;
 
                             await showFailedToInitializeLibrary(
                               context,
