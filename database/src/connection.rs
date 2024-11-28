@@ -106,7 +106,7 @@ pub fn check_storage_mode(lib_path: &str) -> Result<StorageMode> {
     }
 }
 
-pub fn create_redirect(lib_path: &str, uuid: Uuid) -> Result<()> {
+pub fn create_redirect(lib_path: &str) -> Result<()> {
     let rune_dir: PathBuf = [lib_path, ".rune"].iter().collect();
     if !rune_dir.exists() {
         fs::create_dir_all(&rune_dir)?;
@@ -115,7 +115,7 @@ pub fn create_redirect(lib_path: &str, uuid: Uuid) -> Result<()> {
     }
 
     let redirect_file = rune_dir.join(".redirect");
-    fs::write(redirect_file, uuid.to_string())?;
+    fs::write(redirect_file, Uuid::new_v4().to_string())?;
     Ok(())
 }
 

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use log::{error, info};
 
 use database::connection::{
-    check_library_state, connect_main_db, connect_recommendation_db, LibraryState,
+    check_library_state, connect_main_db, connect_recommendation_db, create_redirect, LibraryState,
     MainDbConnection, RecommendationDbConnection,
 };
 use rinf::DartSignal;
@@ -89,24 +89,39 @@ where
             let database_mode = dart_signal.message.mode;
             info!("Received path: {}", media_library_path);
 
-            if database_mode.is_none() {
-                let test_result = check_library_state(&media_library_path);
+            let library_test = match check_library_state(&media_library_path) {
+                Ok(x) => x,
+                Err(e) => {
+                    SetMediaLibraryPathResponse {
+                        path: media_library_path.clone(),
+                        success: false,
+                        error: Some(format!("{:#?}", e)),
+                        not_ready: false,
+                    }
+                    .send_signal_to_dart();
+                    continue;
+                }
+            };
 
-                match test_result {
-                    Ok(state) => match &state {
-                        LibraryState::Uninitialized => {
-                            SetMediaLibraryPathResponse {
-                                path: media_library_path.clone(),
-                                success: false,
-                                error: None,
-                                not_ready: true,
-                            }
-                            .send_signal_to_dart();
-                            continue;
+            if database_mode.is_none() {
+                match &library_test {
+                    LibraryState::Uninitialized => {
+                        SetMediaLibraryPathResponse {
+                            path: media_library_path.clone(),
+                            success: false,
+                            error: None,
+                            not_ready: true,
                         }
-                        LibraryState::Initialized(_) => {}
-                    },
-                    Err(e) => {
+                        .send_signal_to_dart();
+                        continue;
+                    }
+                    LibraryState::Initialized(_) => {}
+                }
+            }
+
+            if let Some(mode) = database_mode {
+                if mode == 1 {
+                    if let Err(e) = create_redirect(&media_library_path) {
                         SetMediaLibraryPathResponse {
                             path: media_library_path.clone(),
                             success: false,
