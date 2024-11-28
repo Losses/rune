@@ -10,6 +10,7 @@ class WindowFrame extends StatelessWidget {
   final String? customRouteName;
   const WindowFrame(this.child, {super.key, this.customRouteName});
   
+  @override
   Widget build(BuildContext context) {
     if (Platform.isMacOS) {
       return WindowFrameForMacOS(child, customRouteName: customRouteName);

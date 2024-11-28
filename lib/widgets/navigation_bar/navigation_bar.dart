@@ -16,7 +16,6 @@ import '../../providers/responsive_providers.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
-import 'utils/macos_move_window.dart';
 
 const List<NavigationItem> emptySlibings = [];
 
