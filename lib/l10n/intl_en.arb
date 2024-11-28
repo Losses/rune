@@ -827,23 +827,23 @@
   },
   "evaluationMode": "Evaluation Mode",
   "@evaluationMode": {
-    "description": "Title of the evaliation mode modal"
+    "description": "Title of the evaluation mode modal"
   },
   "evaluationModeContent1": "Rune is not a free pint of beer. We encourage you to purchase a genuine license from the app store.",
   "@evaluationModeContent1": {
-    "description": "Content of the evaliation mode modal"
+    "description": "Content of the evaluation mode modal"
   },
   "evaluationModeContent2": "Licensed users benefit from automatic updates provided by the app store and have the privilege to propose new features directly to the developers.",
   "@evaluationModeContent2": {
-    "description": "Content of the evaliation mode modal"
+    "description": "Content of the evaluation mode modal"
   },
   "evaluationModeContent3": "You can choose to dismiss this reminder for 180 days, and we will remind you again later.",
   "@evaluationModeContent3": {
-    "description": "Content of the evaliation mode modal"
+    "description": "Content of the evaluation mode modal"
   },
   "remindMeLater": "Remind me later",
   "@remindMeLater": {
-    "description": "Action button of the evaliation mode modal"
+    "description": "Action button of the evaluation mode modal"
   },
   "mysteriousButton": "Mysterious Button",
   "@mysteriousButton": {
