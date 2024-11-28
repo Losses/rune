@@ -89,25 +89,6 @@ class _RuneRouterFrameImplementationState
                     ? Alignment.centerRight
                     : Alignment.bottomCenter,
                 children: [
-                  // macos move window in small view
-                  if (Platform.isMacOS)
-                    DeviceTypeBuilder(
-                        deviceType: const [
-                          DeviceType.band,
-                          DeviceType.dock,
-                          DeviceType.tv
-                        ],
-                        builder: (context, activeBreakpoint) {
-                          final isSmallView =
-                              activeBreakpoint == DeviceType.band ||
-                                  activeBreakpoint == DeviceType.dock;
-                          if (isSmallView) {
-                            return MacOSMoveWindow(
-                              isEnabledDoubleTap: false,
-                            );
-                          }
-                          return Container();
-                        }),
                   if (path == '/cover_wall' && !showDisk) mainContent,
                   if (!showDisk)
                     const FocusTraversalOrder(

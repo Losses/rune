@@ -5,8 +5,9 @@ import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 class DargMoveWindowArea extends StatelessWidget {
   final Widget? child;
+  final bool isEnabledDoubleTap;
 
-  const DargMoveWindowArea({super.key, this.child});
+  const DargMoveWindowArea({super.key, this.child, this.isEnabledDoubleTap = true});
 
   @override
   Widget build(BuildContext context) {
@@ -27,7 +28,7 @@ class DargMoveWindowArea extends StatelessWidget {
     }
 
     return Listener(
-      onPointerUp: (_) => handleTap(),
+      onPointerUp: (_) => isEnabledDoubleTap ? handleTap() : null,
       child: GestureDetector(
         onPanStart: (_) => appWindow.startDragging(),
         child: SizedBox(
