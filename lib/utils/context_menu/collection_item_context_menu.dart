@@ -18,6 +18,7 @@ import '../../messages/collection.pb.dart';
 import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
+import '../build_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 
@@ -300,7 +301,9 @@ MenuFlyout buildLargeScreenCollectionItemContextMenu(
             text: Text(S.of(context).exportCoverWall),
             onPressed: () async {
               Flyout.of(context).close();
-              showExportCoverWallDialog(context, type, title, id);
+              final queries = await buildQuery(type, id);
+              if (!context.mounted) return;
+              showExportCoverWallDialog(context, queries, title);
             },
           ),
         ],

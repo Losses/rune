@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/nearest_power_of_two.dart';
 
+import '../../utils/nearest_power_of_two.dart';
 import '../../widgets/tile/fancy_cover.dart';
 
 class EmptyCoverArt extends StatelessWidget {

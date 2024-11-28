@@ -92,6 +92,9 @@ class AxPressureState extends State<AxPressure> {
       onPointerUp: (event) {
         setState(() => _resetTransform());
       },
+      onPointerCancel: (event) {
+        setState(() => _resetTransform());
+      },
       onPointerPanZoomStart: (event) {
         _updateTransform(event.localPosition, context.size!);
       },

@@ -11,7 +11,6 @@ import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/responsive_dialog_actions.dart';
 import '../../../screens/settings_library/widgets/progress_button.dart';
 import '../../../messages/playlist.pb.dart';
-import '../../../messages/collection.pb.dart';
 
 import '../mix/utils/select_input_controller.dart';
 import '../mix/widgets/select_buttons_section.dart';
@@ -23,15 +22,13 @@ import 'constants/frame_item.dart';
 import 'constants/background_item.dart';
 
 class ExportCoverWallDialog extends StatefulWidget {
-  final CollectionType type;
-  final int id;
+  final List<(String, String)> queries;
   final String title;
   final void Function(void) $close;
 
   const ExportCoverWallDialog({
     super.key,
-    required this.type,
-    required this.id,
+    required this.queries,
     required this.title,
     required this.$close,
   });
@@ -144,8 +141,7 @@ class ExportCoverWallDialogState extends State<ExportCoverWallDialog> {
     });
 
     final image = await renderCoverWall(
-      widget.type,
-      widget.id,
+      widget.queries,
       parseSize(ratioController.selectedValue ?? '16 9'),
       backgroundController.selectedValue == 'light'
           ? Colors.white

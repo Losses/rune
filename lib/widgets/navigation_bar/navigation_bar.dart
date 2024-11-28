@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:rune/widgets/navigation_bar/utils/macos_move_window.dart';
 
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/navigation_item.dart';
@@ -17,6 +16,7 @@ import '../../providers/responsive_providers.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
+import 'utils/macos_move_window.dart';
 
 const List<NavigationItem> emptySlibings = [];
 

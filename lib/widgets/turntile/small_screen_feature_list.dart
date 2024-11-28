@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
+
 import '../../config/animation.dart';
 
 import '../start_screen/constants/default_gap_size.dart';

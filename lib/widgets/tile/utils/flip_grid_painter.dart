@@ -2,7 +2,8 @@ import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/draw_image_to_canvas.dart';
+
+import '../../../utils/draw_image_to_canvas.dart';
 
 class FlipGridPainter extends CustomPainter {
   final List<ui.Image?> images;

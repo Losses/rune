@@ -1,4 +1,4 @@
-import 'package:rune/screens/cover_wall/utils/random_grid_config.dart';
+import '../../../screens/cover_wall/utils/random_grid_config.dart';
 
 const randomGridConfig = [
   RandomGridConfig(size: 4, probability: 0.2),

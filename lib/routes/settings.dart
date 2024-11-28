@@ -7,5 +7,6 @@ export '../screens/settings_library/settings_library.dart';
 export '../screens/settings_language/settings_language.dart';
 export '../screens/settings_playback/settings_playback.dart';
 export '../screens/settings_analysis/settings_analysis.dart';
+export '../screens/settings_laboratory/settings_laboratory.dart';
 export '../screens/settings_library_home/settings_library_home.dart';
 export '../screens/settings_media_controller/settings_media_controller.dart';

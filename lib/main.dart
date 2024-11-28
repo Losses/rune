@@ -12,8 +12,6 @@ import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
-import 'package:macos_window_utils/macos_window_utils.dart';
-import 'package:macos_window_utils/macos/ns_window_button_type.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
@@ -31,6 +29,7 @@ import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
+import 'utils/macos_window_control_button_manager.dart';
 
 import 'config/theme.dart';
 import 'config/routes.dart';
@@ -67,9 +66,12 @@ import 'theme.dart';
 late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
+late bool isPro;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  isPro = arguments.contains('--pro');
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -159,13 +161,7 @@ void main(List<String> arguments) async {
   $closeManager;
 
   if (Platform.isMacOS) {
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.closeButton, offset: const Offset(8, 8));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.miniaturizeButton,
-        offset: const Offset(8, 28));
-    WindowManipulator.overrideStandardWindowButtonPosition(
-        buttonType: NSWindowButtonType.zoomButton, offset: const Offset(8, 48));
+    MacOSWindowControlButtonManager.setVertical();
   }
 
   final windowSizeSetting =
@@ -241,16 +237,36 @@ void mainLoop() {
 
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
+Locale getLocaleFromPlatform() {
+  final String localeName = Platform.localeName;
+
+  final String normalized = localeName.split('.')[0];
+  final List<String> parts = normalized.split('_');
+
+  final String languageCode = parts[0];
+  final String? countryCode = parts.length > 1 ? parts[1] : null;
+
+  return Locale(languageCode, countryCode);
+}
+
 String? getWindowsFont(AppTheme theme) {
   if (!Platform.isWindows) return null;
 
-  final lc = theme.locale?.languageCode.toLowerCase();
-  final cc = theme.locale?.scriptCode?.toLowerCase();
+  final locale = theme.locale ?? getLocaleFromPlatform();
+
+  final lc = locale.languageCode.toLowerCase();
+  final cc = locale.scriptCode?.toLowerCase();
+  final rg = locale.countryCode?.toLowerCase();
 
   if (lc == 'ja') return "Yu Gothic";
-  if (lc == 'ko') return 'Malgun Gothic';
+  if (lc == 'ko') return "Malgun Gothic";
   if (lc == 'zh' && cc == 'hant') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'tw') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'hk') return "Microsoft JhengHei";
+  if (lc == 'zh' && rg == 'mo') return "Microsoft JhengHei";
   if (lc == 'zh' && cc == 'hans') return "Microsoft YaHei";
+  if (lc == 'zh' && rg == 'cn') return "Microsoft YaHei";
+  if (lc == 'zh' && rg == 'sg') return "Microsoft YaHei";
 
   return null;
 }

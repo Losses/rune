@@ -824,5 +824,41 @@
   "background": "Background",
   "@background": {
     "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Evaluation Mode",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune is not a free pint of beer. We encourage you to purchase a genuine license from the app store.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Licensed users benefit from automatic updates provided by the app store and have the privilege to propose new features directly to the developers.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "You can choose to dismiss this reminder for 180 days, and we will remind you again later.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Remind me later",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Mysterious Button",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Creak",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "It seems you've triggered a mysterious mechanism. The room's structure appears to have changed, revealing new areas to explore.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Laboratory",
+  "@laboratory": {
+    "description": "The title of a link title"
   }
 }

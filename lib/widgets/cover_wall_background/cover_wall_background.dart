@@ -6,7 +6,7 @@ import '../../utils/api/query_mix_tracks.dart';
 
 import 'widgets/cover_wall_background_implementation.dart';
 
-const coverCount = 40;
+const coverCount = '40';
 
 const randomCoverWallCountKey = 'random_cover_wall_count';
 
@@ -25,7 +25,7 @@ class CoverWallBackground extends StatefulWidget {
 }
 
 class _CoverWallBackgroundState extends State<CoverWallBackground> {
-  final Set<String> paths = {};
+  Set<String> paths = {};
 
   @override
   void initState() {
@@ -34,24 +34,23 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
   }
 
   loadCoverList() async {
+    final String count =
+        await SettingsManager().getValue<String?>(randomCoverWallCountKey) ??
+            coverCount;
+
     final queryResult = await queryMixTracks(
       QueryList([
-        (
-          "lib::random",
-          (await SettingsManager().getValue<int?>(randomCoverWallCountKey) ??
-                  coverCount)
-              .toString()
-        ),
+        ("lib::random", count.toString()),
         ("filter::with_cover_art", "true"),
       ]),
+      0,
+      int.parse(count),
     );
 
     if (!mounted) return;
 
     setState(() {
-      for (final file in queryResult) {
-        paths.add(file.coverArtPath);
-      }
+      paths = queryResult.map((x) => x.coverArtPath).toSet();
     });
   }
 

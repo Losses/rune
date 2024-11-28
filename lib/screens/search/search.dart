@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 
 import 'package:provider/provider.dart';
@@ -226,8 +227,9 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
           value: mediumScreenLayoutManager,
           child: Column(
             children: [
+              if (Platform.isWindows) SizedBox(height: 20),
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 18, 64, 20),
+                padding: const EdgeInsets.fromLTRB(32, 18, 32, 20),
                 child: autoSuggestBox,
               ),
               Expanded(

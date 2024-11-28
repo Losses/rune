@@ -2,9 +2,14 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
+import '../../utils/router/navigation.dart';
+import '../../widgets/context_menu_wrapper.dart';
+import '../../widgets/no_shortcuts.dart';
 import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -13,6 +18,7 @@ import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
 const size = 400.0;
+const mysteriousKey = 'mysterious_key';
 
 class SettingsAboutPage extends StatelessWidget {
   const SettingsAboutPage({super.key});
@@ -68,7 +74,15 @@ class SettingsAboutPage extends StatelessWidget {
   }
 }
 
-class _LogoSection extends StatelessWidget {
+class _LogoSection extends StatefulWidget {
+  @override
+  State<_LogoSection> createState() => _LogoSectionState();
+}
+
+class _LogoSectionState extends State<_LogoSection> {
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     return SmallerOrEqualTo(
@@ -78,9 +92,78 @@ class _LogoSection extends StatelessWidget {
           crossAxisAlignment:
               isMini ? CrossAxisAlignment.start : CrossAxisAlignment.center,
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 220),
-              child: const Device(),
+            ContextMenuWrapper(
+              contextAttachKey: contextAttachKey,
+              contextController: contextController,
+              onContextMenu: (offset) async {
+                final triggeredMysterious =
+                    await SettingsManager().getValue<bool>(mysteriousKey);
+
+                if (triggeredMysterious == true) return;
+                if (!context.mounted) return;
+
+                final targetContext = contextAttachKey.currentContext;
+
+                if (targetContext == null) return;
+                final box = targetContext.findRenderObject() as RenderBox;
+
+                if (!mounted) return;
+                final position = box.localToGlobal(
+                  offset,
+                  ancestor: Navigator.of(context).context.findRenderObject(),
+                );
+
+                contextController.showFlyout(
+                  position: position,
+                  builder: (context) {
+                    return MenuFlyout(
+                      items: [
+                        MenuFlyoutItem(
+                          leading: const Icon(Symbols.controller_gen),
+                          text: Text(S.of(context).mysteriousButton),
+                          onPressed: () {
+                            SettingsManager().setValue(mysteriousKey, true);
+
+                            $showModal<void>(
+                              context,
+                              (context, $close) => NoShortcuts(
+                                ContentDialog(
+                                  title:
+                                      Text(S.of(context).mysteriousModalTitle),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        S.of(context).mysteriousModalContent,
+                                        style: TextStyle(height: 1.4),
+                                      ),
+                                    ],
+                                  ),
+                                  actions: [
+                                    Button(
+                                      onPressed: () {
+                                        $close(null);
+                                      },
+                                      child: Text(S.of(context).close),
+                                    )
+                                  ],
+                                ),
+                              ),
+                              barrierDismissible: true,
+                              dismissWithEsc: true,
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                );
+              },
+              onMiddleClick: (_) {},
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 220),
+                child: const Device(),
+              ),
             ),
             const SizedBox(height: 24),
             SvgPicture.asset(

@@ -54,8 +54,7 @@ class TileState extends State<Tile> {
     // Cancel any existing timer
     _delayTimer?.cancel();
 
-    // Create new timer for 50ms delay
-    _delayTimer = Timer(const Duration(milliseconds: 50), () {
+    _delayTimer = Timer(const Duration(milliseconds: 120), () {
       if (mounted) {
         widget.onPressed?.call();
       }

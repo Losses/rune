@@ -106,6 +106,8 @@ final Map<String, WidgetBuilder> routes = {
   '/settings/library_home': (context) => const settings.SettingsLibraryHome(),
   '/settings/media_controller': (context) =>
       const settings.SettingsMediaControllerPage(),
+  '/settings/laboratory': (context) =>
+      const settings.SettingsLaboratory(),
   '/search': (context) => const search.SearchPage(),
   '/cover_wall': (context) => const cover_wall.CoverWallPage(),
 };

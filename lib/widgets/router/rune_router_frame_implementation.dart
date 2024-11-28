@@ -20,6 +20,8 @@ import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../pro/non_pro_mark.dart';
+
 import 'rune_stack.dart';
 import 'scale_fade_container.dart';
 
@@ -143,6 +145,12 @@ class _RuneRouterFrameImplementationState
                       order: NumericFocusOrder(4),
                       child: CoverArtDisk(),
                     ),
+
+                  const Positioned(
+                    left: 0,
+                    bottom: 0,
+                    child: NonProMark(),
+                  ),
                 ],
               ),
             ),

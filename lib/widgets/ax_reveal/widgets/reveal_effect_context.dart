@@ -162,9 +162,8 @@ class RevealEffectContextState extends State<RevealEffectContext>
 
       double unitLogicFrame = relativeFrame.toDouble();
       if (unit.mouseReleased && unit.mouseDownAnimateReleasedFrame != null) {
-        unitLogicFrame +=
-            (relativeFrame - unit.mouseDownAnimateReleasedFrame!) *
-                unit.releaseAnimationAccelerateRate;
+        unitLogicFrame += (frame - unit.mouseDownAnimateReleasedFrame!) *
+            unit.releaseAnimationAccelerateRate;
       }
       unit.mouseDownAnimateLogicFrame =
           unitLogicFrame / unit.pressAnimationSpeed;
