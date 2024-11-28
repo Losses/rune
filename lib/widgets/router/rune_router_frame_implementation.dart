@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/widgets/pro/non_pro_mark.dart';
 
 import '../../main.dart';
 
@@ -20,6 +19,8 @@ import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
+
+import '../pro/non_pro_mark.dart';
 
 import 'rune_stack.dart';
 import 'scale_fade_container.dart';

@@ -1,7 +1,9 @@
 import 'dart:ui' as ui;
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:rune/utils/draw_image_to_canvas.dart';
-import 'package:rune/widgets/cover_wall_background/utils/random_grid_placement.dart';
+
+import '../../../utils/draw_image_to_canvas.dart';
+
+import 'random_grid_placement.dart';
 
 class CoverWallBackgroundPainter extends CustomPainter {
   final int gridSize;

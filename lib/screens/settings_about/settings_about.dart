@@ -3,8 +3,8 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
-import 'package:rune/utils/settings_manager.dart';
 
+import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
 import '../../utils/router/navigation.dart';
