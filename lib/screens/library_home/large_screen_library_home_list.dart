@@ -227,7 +227,9 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
                             },
                             direction: Axis.horizontal,
                           ),
-                          ...snapshot.data!.map(
+                          ...snapshot.data!
+                              .where((x) => x.items.isNotEmpty)
+                              .map(
                             (item) {
                               if (item is Group<InternalCollection>) {
                                 return StartGroup<InternalCollection>(
