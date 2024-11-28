@@ -865,7 +865,7 @@
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "libraryModeSubtitle": "We need to know a bit more about your library. Is your media folder stored in the cloud?",
+  "libraryModeSubtitle": "We need to know a bit more about your library. Where are your media files stored?",
   "@libraryModeSubtitle": {
     "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
