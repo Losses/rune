@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:async';
 
+import 'package:local_notifier/local_notifier.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -162,6 +163,10 @@ void main(List<String> arguments) async {
   await $tray.initialize();
 
   $closeManager;
+  await localNotifier.setup(
+    appName: 'Rune',
+    shortcutPolicy: ShortcutPolicy.requireCreate,
+  );
 
   if (Platform.isMacOS) {
     MacOSWindowControlButtonManager.setVertical();
