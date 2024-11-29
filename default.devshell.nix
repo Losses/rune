@@ -47,6 +47,7 @@ pkgs.mkShell {
     util-linux.dev
     libsysprof-capture
     libayatana-appindicator
+    libnotify.dev
   ];
 
   env = {
