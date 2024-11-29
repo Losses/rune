@@ -5,6 +5,7 @@ mod cover_art;
 mod directory;
 mod library_home;
 mod library_manage;
+mod license;
 mod logging;
 mod media_file;
 mod messages;
@@ -21,6 +22,7 @@ mod utils;
 use std::sync::Arc;
 
 use anyhow::Context;
+use license::check_store_license;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -225,6 +227,31 @@ async fn main() {
         init_logging();
         None
     };
+
+    let license = check_store_license().await;
+
+    match license {
+        Ok(license) => match license {
+            Some((_sku, is_active, is_trial)) => StoreLicense {
+                is_store_mode: true,
+                is_active,
+                is_trial,
+            }
+            .send_signal_to_dart(),
+            _ => StoreLicense {
+                is_store_mode: false,
+                is_active: false,
+                is_trial: false,
+            }
+            .send_signal_to_dart(),
+        },
+        Err(e) => {
+            CrashResponse {
+                detail: format!("{:#?}", e),
+            }
+            .send_signal_to_dart();
+        }
+    }
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(player_loop).await {
