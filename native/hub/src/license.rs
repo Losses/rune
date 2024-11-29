@@ -1,5 +1,7 @@
 use anyhow::Result;
+#[cfg(target_os = "windows")]
 use tokio::time::{sleep, Duration};
+#[cfg(target_os = "windows")]
 use windows::Foundation::AsyncStatus;
 
 #[cfg(target_os = "windows")]
@@ -28,6 +30,6 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub async fn check_store_license() -> Result<(bool, bool), &'static str> {
+pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
     Ok(None)
 }
