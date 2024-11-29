@@ -829,7 +829,7 @@
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
   },
-  "evaluationModeContent1": "Rune はただで提供されるものではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
+  "evaluationModeContent1": "Rune は無料ではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
   "@evaluationModeContent1": {
     "description": "Content of the evaluation mode modal"
   },
@@ -860,5 +860,29 @@
   "laboratory": "研究室",
   "@laboratory": {
     "description": "The title of a link title"
+   },
+"libraryMode": "資料集設置",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "資料集についてもう少し詳しく教えてください。あなたの資料保管場所は雲上に保存されていますか？",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "本機の記憶装置",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "あなたの資料索引を資料保管場所と同じ場所に保存します。",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "雲上へ",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": あなたの資料索引を Rune の設定用配置場所に保存します。",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
   }
 }

@@ -6,7 +6,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import '../../utils/macos_window_control_button_manager.dart';
-import '../../widgets/title_bar/darg_move_window_area.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -51,6 +50,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
 
     final path =
         widget.customRouteName ?? Provider.of<RouterPathProvider>(context).path;
+
     Provider.of<ScreenSizeProvider>(context);
 
     return RuneStack(
@@ -69,6 +69,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                 activeBreakpoint == DeviceType.dock ||
                 path == '/' ||
                 path == '/scanning') {
+
               return DargMoveWindowArea();
             }
 
@@ -89,7 +90,8 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                 SizedBox(
                   height: 40,
                   child: Expanded(
-                      child: DargMoveWindowArea(isEnabledDoubleTap: false)),
+                      child: DargMoveWindowArea(isEnabledDoubleTap: false),
+                  ),
                 ),
               ],
             );
