@@ -39,7 +39,6 @@ import 'config/shortcuts.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
-import 'widgets/navigation_bar/utils/macos_move_window.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
@@ -164,14 +163,30 @@ void main(List<String> arguments) async {
     MacOSWindowControlButtonManager.setVertical();
   }
 
-  final windowSizeSetting =
+  final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+  final bool? rememberWindowSize =
+      await SettingsManager().getValue<bool>(rememberWindowSizeKey);
 
   final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
-  final windowSize = Platform.isWindows || Platform.isMacOS
-      ? windowSizes[windowSizeSetting]!
-      : windowSizes[windowSizeSetting]! / firstView.devicePixelRatio;
-  appWindow.size = windowSize;
+
+  Size windowSize = windowSizes[windowSizeMode]!;
+
+  if (rememberWindowSize == true) {
+    final rememberedWindowSize = await getSavedWindowSize();
+
+    if (rememberedWindowSize != null) {
+      windowSize = rememberedWindowSize;
+    }
+  }
+
+  if (!Platform.isLinux) {
+    appWindow.size = windowSize;
+  }
+
+  if (Platform.isLinux) {
+    windowSize = windowSize / firstView.devicePixelRatio;
+  }
 
   mainLoop();
   appWindow.show();
@@ -293,23 +308,14 @@ class _RuneState extends State<Rune> {
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
 
-            if (!Platform.isMacOS) {
-              if (routeName == '/' || routeName == '/scanning') {
-                return NoEffectPageRoute<dynamic>(
-                  settings: settings,
-                  builder: (context) =>
-                      WindowFrame(routes[routeName]!(context)),
-                );
-              }
-            } else {
-              if (routeName == '/' || routeName == '/scanning') {
-                return NoEffectPageRoute<dynamic>(
-                  settings: settings,
-                  builder: (context) => MacOSMoveWindow(
-                    child: WindowFrame(routes[routeName]!(context)),
-                  ),
-                );
-              }
+            if (routeName == '/' || routeName == '/scanning') {
+              return NoEffectPageRoute<dynamic>(
+                settings: settings,
+                builder: (context) => WindowFrame(
+                  routes[routeName]!(context),
+                  customRouteName: routeName,
+                ),
+              );
             }
 
             final page = RuneWithNavigationBarAndPlaybackControllor(

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -10,7 +8,6 @@ import '../../screens/bsod/bsod.dart';
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
-import '../../widgets/navigation_bar/utils/macos_move_window.dart';
 import '../../widgets/banding_animation/branding_animation.dart';
 import '../../widgets/playback_controller/cover_art_disk.dart';
 import '../../widgets/playback_controller/playback_controller.dart';
@@ -89,25 +86,6 @@ class _RuneRouterFrameImplementationState
                     ? Alignment.centerRight
                     : Alignment.bottomCenter,
                 children: [
-                  // macos move window in small view
-                  if (Platform.isMacOS)
-                    DeviceTypeBuilder(
-                        deviceType: const [
-                          DeviceType.band,
-                          DeviceType.dock,
-                          DeviceType.tv
-                        ],
-                        builder: (context, activeBreakpoint) {
-                          final isSmallView =
-                              activeBreakpoint == DeviceType.band ||
-                                  activeBreakpoint == DeviceType.dock;
-                          if (isSmallView) {
-                            return MacOSMoveWindow(
-                              isEnabledDoubleTap: false,
-                            );
-                          }
-                          return Container();
-                        }),
                   if (path == '/cover_wall' && !showDisk) mainContent,
                   if (!showDisk)
                     const FocusTraversalOrder(

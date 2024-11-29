@@ -25,6 +25,8 @@ const themeColorKey = 'theme_color';
 const disableBrandingAnimationKey = 'disable_branding_animation';
 const enableDynamicColorsKey = 'enable_dynamic_color';
 const windowSizeKey = 'window_size';
+const rememberWindowSizeKey = 'remember_window_size';
+const rememberdWindowSizeKey = 'rememberd_window_size';
 
 final _settingsManager = SettingsManager();
 
@@ -40,6 +42,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
   bool? disableBrandingAnimation;
   bool? enableDynamicColors;
   String? windowSize;
+  bool? rememberWindowSize;
   String colorMode = "system";
 
   @override
@@ -59,6 +62,8 @@ class _SettingsThemeState extends State<SettingsTheme> {
         await _settingsManager.getValue<bool>(enableDynamicColorsKey);
     final String? storedWindowSize =
         await _settingsManager.getValue<String>(windowSizeKey);
+    final bool? storedRememberWindowSize =
+        await _settingsManager.getValue<bool>(rememberWindowSizeKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -75,6 +80,9 @@ class _SettingsThemeState extends State<SettingsTheme> {
       }
       if (storedWindowSize != null) {
         windowSize = storedWindowSize;
+      }
+      if (storedRememberWindowSize != null) {
+        rememberWindowSize = storedRememberWindowSize;
       }
     });
   }
@@ -264,6 +272,18 @@ class _SettingsThemeState extends State<SettingsTheme> {
                     if (newValue != null) {
                       _updateWindowSize(newValue);
                     }
+                  },
+                ),
+                SettingsBoxToggle(
+                  title: S.of(context).rememberWindowSize,
+                  subtitle: S.of(context).rememberWindowSizeSubtitle,
+                  value: rememberWindowSize ?? false,
+                  onChanged: (value) {
+                    _settingsManager.setValue(rememberWindowSizeKey, value);
+
+                    setState(() {
+                      rememberWindowSize = value;
+                    });
                   },
                 ),
               ],
