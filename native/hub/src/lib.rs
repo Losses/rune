@@ -22,7 +22,7 @@ mod utils;
 use std::sync::Arc;
 
 use anyhow::Context;
-use license::check_store_license;
+use license::validate_license_request;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -228,28 +228,14 @@ async fn main() {
         None
     };
 
-    let license = check_store_license().await;
+    let license_receiver = ValidateLicenseRequest::get_dart_signal_receiver();
 
-    match license {
-        Ok(license) => match license {
-            Some((_sku, is_active, is_trial)) => StoreLicense {
-                is_store_mode: true,
-                is_active,
-                is_trial,
-            }
-            .send_signal_to_dart(),
-            _ => StoreLicense {
-                is_store_mode: false,
-                is_active: false,
-                is_trial: false,
-            }
-            .send_signal_to_dart(),
-        },
-        Err(e) => {
-            CrashResponse {
-                detail: format!("{:#?}", e),
-            }
-            .send_signal_to_dart();
+    loop {
+        let license_request = license_receiver.recv().await;
+
+        if let Some(license_request) = license_request {
+            let _ = validate_license_request(license_request).await;
+            break;
         }
     }
 
