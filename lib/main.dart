@@ -46,7 +46,7 @@ import 'screens/settings_theme/settings_theme.dart';
 import 'screens/settings_theme/constants/window_sizes.dart';
 import 'screens/settings_language/settings_language.dart';
 
-import 'messages/generated.dart';
+import 'messages/all.dart';
 
 import 'providers/crash.dart';
 import 'providers/volume.dart';
@@ -65,12 +65,18 @@ import 'theme.dart';
 late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
+
 late bool isPro;
+late bool isStore;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeRust(assignRustSignal);
 
-  isPro = arguments.contains('--pro');
+  final license = (await StoreLicense.rustSignalStream.first).message;
+
+  isStore = license.isStoreMode;
+  isPro = arguments.contains('--pro') || (isStore && !license.isTrial);
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
@@ -80,8 +86,6 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
 
   await FullScreen.ensureInitialized();
-
-  await initializeRust(assignRustSignal);
 
   try {
     final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();

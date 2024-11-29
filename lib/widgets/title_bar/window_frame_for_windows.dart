@@ -25,7 +25,8 @@ class WindowFrameForWindows extends StatefulWidget {
   State<WindowFrameForWindows> createState() => _WindowFrameForWindowsState();
 }
 
-class _WindowFrameForWindowsState extends State<WindowFrameForWindows> with FullScreenListener {
+class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
+    with FullScreenListener {
   @override
   void initState() {
     super.initState();
@@ -71,7 +72,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows> with Full
               return DargMoveWindowArea();
             }
 
-            return Container(color: Colors.red, child: SizedBox(
+            return SizedBox(
               height: 30,
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -186,7 +187,6 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows> with Full
                         : SizedBox(width: 7),
                 ],
               ),
-            ),
             );
           },
         ),
