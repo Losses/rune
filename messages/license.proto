@@ -1,0 +1,9 @@
+syntax = "proto3";
+package license;
+
+// [RUST-SIGNAL]
+message StoreLicense {
+    bool isStoreMode = 1;
+    bool isActive = 2;
+    bool isTrial = 3;
+}

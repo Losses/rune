@@ -9,6 +9,7 @@ import '../config/theme.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
+import 'close_manager.dart';
 import 'l10n.dart';
 
 class TrayManager {
@@ -59,6 +60,9 @@ class TrayManager {
     _cachedPath = path;
     _cachedPlaying = playing;
     _cachedLocale = locale;
+
+    $closeManager.notificationTitle = s.closeNotification;
+    $closeManager.notificationSubtitle = s.closeNotificationSubtitle;
 
     if (status.notReady || path == '/' || path == '/scanning') {
       final menu = Menu(

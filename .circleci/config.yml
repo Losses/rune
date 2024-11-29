@@ -13,7 +13,7 @@ jobs:
         name: Install dependencies
         command: |
           sudo apt-get update
-          sudo apt-get install unzip liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev zip
+          sudo apt-get install unzip liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev zip libnotify-dev
           sudo apt remove --purge protobuf-compiler
     - run:
         name: Setup Flutter Environment Variables

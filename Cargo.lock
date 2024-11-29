@@ -2132,6 +2132,7 @@ dependencies = [
  "tracing-logcat",
  "tracing-subscriber",
  "vergen-git2",
+ "windows 0.58.0",
 ]
 
 [[package]]
