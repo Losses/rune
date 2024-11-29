@@ -860,5 +860,45 @@
     "laboratory": "实验室",
     "@laboratory": {
         "description": "链接标题的标题"
+    },
+    "libraryMode": "媒体库设置",
+    "@libraryMode": {
+        "description": "模态框的标题，用于指导用户选择存储数据库的位置"
+    },
+    "libraryModeSubtitle": "我们需要更多了解您的媒体库。您的媒体文件存储在哪里？",
+    "@libraryModeSubtitle": {
+        "description": "模态框的副标题，引导用户选择数据库的存储位置"
+    },
+    "portableMode": "本地硬盘",
+    "@portableMode": {
+        "description": "用户的一个候选库模式"
+    },
+    "portableModeSubtitle": "我们会将您的媒体索引一并存储在媒体库所在的文件夹中。",
+    "@portableModeSubtitle": {
+        "description": "用户的候选库模式的副标题"
+    },
+    "localMode": "云端",
+    "@localMode": {
+        "description": "用户的一个候选库模式"
+    },
+    "localModeSubtitle": "我们会将您的媒体索引存储在 Rune 的配置目录中。",
+    "@localModeSubtitle": {
+        "description": "用户的候选库模式的副标题"
+    },
+    "rememberWindowSize": "记忆窗口大小",
+    "@rememberWindowSize": {
+        "description": "主题页面中设置选项的标题"
+    },
+    "rememberWindowSizeSubtitle": "在调整窗口大小时保存，下次启动程序时尺寸不变。",
+    "@rememberWindowSizeSubtitle": {
+        "description": "主题页面中设置选项的副标题"
+    },
+    "closeNotification": "Rune 仍在运行",
+    "@closeNotification": {
+        "description": "当用户关闭窗口时，弹出的通知"
+    },
+    "closeNotificationSubtitle": "Rune 正在后台运行。您可以在系统托盘中轻松找到。",
+    "@closeNotificationSubtitle": {
+        "description": ""
     }
 }
