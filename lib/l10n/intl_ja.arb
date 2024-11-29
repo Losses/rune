@@ -884,5 +884,13 @@
   "localModeSubtitle": あなたの資料索引を Rune の設定用配置場所に保存します。",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "窓の形態を記憶する",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "調整した窓の形態を保存し、次回は同じ形態で Rune を起動します。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
   }
 }
