@@ -892,5 +892,13 @@
   "rememberWindowSizeSubtitle": "Save your window size as you adjust it, and launch the program with the same dimensions next time.",
   "@rememberWindowSizeSubtitle": {
     "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune is Still Running",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune is currently running in the background. You can easily locate it in the system tray.",
+  "@closeNotificationSubtitle": {
+    "description": ""
   }
 }

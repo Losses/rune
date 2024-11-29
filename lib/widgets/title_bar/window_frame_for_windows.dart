@@ -170,7 +170,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                   if (!FullScreen.isFullScreen)
                     WindowIconButton(
                       onPressed: () {
-                        appWindow.hide();
+                        appWindow.close();
                       },
                       child: isWindows11
                           ? null
