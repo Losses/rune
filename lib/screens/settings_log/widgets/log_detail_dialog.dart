@@ -46,7 +46,7 @@ class _LogDetailDialogState extends State<LogDetailDialog> {
       constraints: const BoxConstraints(maxHeight: 320, maxWidth: 520),
       content: Column(
         key: ValueKey(currentIndex),
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(log.domain),
           const SizedBox(height: 4),

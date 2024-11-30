@@ -912,5 +912,29 @@
   "registerAction": "Register",
   "@registerAction": {
     "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Failed",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "An error occurred during the verification process.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Complete",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Congratulations! Your software has been successfully registered. Thank you for choosing Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Invalid key",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "The key file you provided is invalid. Please check the file and try again.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
   }
 }

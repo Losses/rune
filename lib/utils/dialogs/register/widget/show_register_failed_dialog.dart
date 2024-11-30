@@ -1,22 +1,23 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/router/navigation.dart';
-import '../../utils/l10n.dart';
+import '../../../l10n.dart';
+import '../../../router/navigation.dart';
 
-Future<void> showFailedToInitializeLibrary(
+Future<void> showRegisterFailedDialog(
   BuildContext context,
   String? errorMessage,
 ) async {
   await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
-      title: Text(S.of(context).unableToOpenLibrary),
+      title: Text(S.of(context).registerFailed),
       constraints: const BoxConstraints(maxHeight: 320, maxWidth: 400),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            S.of(context).unableToOpenLibrarySubtitle,
+            S.of(context).registerFailedSubtitle,
+            style: const TextStyle(height: 1.4),
           ),
           const SizedBox(height: 8),
           Expanded(
@@ -29,12 +30,13 @@ Future<void> showFailedToInitializeLibrary(
         ],
       ),
       actions: [
-        FilledButton(
+        Button(
           child: Text(S.of(context).close),
           onPressed: () => $close(false),
         ),
       ],
     ),
+    barrierDismissible: true,
     dismissWithEsc: true,
   );
 }

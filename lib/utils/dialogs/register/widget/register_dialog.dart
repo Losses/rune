@@ -1,12 +1,21 @@
-import 'package:file_selector/file_selector.dart';
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/svg.dart';
+import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_selector/file_selector.dart';
 
+import '../../../../providers/license.dart';
 import '../../../../widgets/no_shortcuts.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
 
 import '../../../api/register_license.dart';
 import '../../../l10n.dart';
+
+import '../../../settings_manager.dart';
+import '../show_register_dialog.dart';
+
+import 'show_register_failed_dialog.dart';
+import 'show_register_invalid_dialog.dart';
+import 'show_register_success_dialog.dart';
 
 class RegisterDialog extends StatefulWidget {
   final void Function(void) $close;
@@ -110,8 +119,34 @@ class _RegisterDialogState extends State<RegisterDialog> {
 
                       final license = await registerLicense(file.path);
 
-                      print('valid: ${license.valid}, license: ${license.license}');
                       widget.$close(null);
+
+                      if (!context.mounted) return;
+
+                      if (license.success && license.valid) {
+                        SettingsManager().setValue(licenseKey, license.license);
+                        Provider.of<LicenseProvider>(context, listen: false)
+                            .revalidateLicense();
+                        showRegisterSuccessDialog(context);
+                        return;
+                      }
+
+                      if (license.success && !license.valid) {
+                        await showRegisterInvalidDialog(context);
+
+                        if (!context.mounted) return;
+                        showRegisterDialog(context);
+
+                        return;
+                      }
+                      if (!license.success) {
+                        showRegisterFailedDialog(context, license.error);
+
+                        if (!context.mounted) return;
+                        showRegisterDialog(context);
+
+                        return;
+                      }
                     },
               child: Text(S.of(context).register),
             ),
