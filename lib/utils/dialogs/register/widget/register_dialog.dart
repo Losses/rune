@@ -3,14 +3,14 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:file_selector/file_selector.dart';
 
-import '../../../../providers/license.dart';
 import '../../../../widgets/no_shortcuts.dart';
 import '../../../../widgets/responsive_dialog_actions.dart';
+import '../../../../providers/license.dart';
 
-import '../../../api/register_license.dart';
 import '../../../l10n.dart';
-
 import '../../../settings_manager.dart';
+import '../../../api/register_license.dart';
+
 import '../show_register_dialog.dart';
 
 import 'show_register_failed_dialog.dart';
