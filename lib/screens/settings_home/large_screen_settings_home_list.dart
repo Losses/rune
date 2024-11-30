@@ -131,7 +131,7 @@ class LargeScreenSettingsHomeListViewState
                           IconData,
                           bool
                         )>(
-                      groupIndex: 1,
+                      groupIndex: 2,
                       groupTitle: "",
                       items: [
                         (

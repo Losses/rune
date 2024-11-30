@@ -30,6 +30,7 @@ class _NonProMarkState extends State<NonProMark> {
       final remindLaterDate =
           DateTime.fromMicrosecondsSinceEpoch(remindLaterTime);
       final difference = DateTime.now().difference(remindLaterDate).inDays;
+      print('DIFFERENCE: $difference');
       return difference >= 180;
     }
     return true;
@@ -54,6 +55,7 @@ class _NonProMarkState extends State<NonProMark> {
                     title: Text(S.of(context).evaluationMode),
                     content: Column(
                       mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Text(
                           S.of(context).evaluationModeContent1,
