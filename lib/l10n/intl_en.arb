@@ -904,5 +904,13 @@
   "register": "Register",
   "@register": {
     "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "You can purchase a music file as a registration key from the store below. Click \"Register\" to verify your genuine status.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Register",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
   }
 }

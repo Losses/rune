@@ -1,11 +1,12 @@
 import 'dart:async';
 
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
-import 'package:provider/provider.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
+import '../../utils/dialogs/register/show_register_dialog.dart';
 import '../../config/animation.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
@@ -105,7 +106,7 @@ class LargeScreenSettingsHomeListViewState
                       items: [
                         (
                           (context) => S.of(context).register,
-                          () => {},
+                          () => showRegisterDialog(context),
                           Symbols.key,
                           false
                         ),
