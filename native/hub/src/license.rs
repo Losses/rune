@@ -99,6 +99,7 @@ async fn read_file_content<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
 }
 
 pub async fn validate_license_request(
+    _main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<ValidateLicenseRequest>,
 ) -> Result<()> {
     let license = dart_signal.message.license;

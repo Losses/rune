@@ -16,6 +16,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
@@ -52,6 +53,7 @@ import 'messages/all.dart';
 import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
+import 'providers/license.dart';
 import 'providers/playlist.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
@@ -67,11 +69,6 @@ late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
 
-late bool isPro;
-late bool isStore;
-
-const licenseKey = 'license';
-
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeRust(assignRustSignal);
@@ -84,16 +81,11 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
   await MacSecureManager().completed;
 
-  final licenseData = await settingsManager.getValue<String?>(licenseKey);
-  ValidateLicenseRequest(license: licenseData).sendSignalToRust();
-  final license =
-      (await ValidateLibraryResponse.rustSignalStream.first).message;
+  final licenseProvider = LicenseProvider();
+  await licenseProvider.initialized.future;
 
   info$(
-      'Parsed license: isStoreMode: ${license.isStoreMode}, isPro: ${license.isPro}');
-
-  isStore = license.isStoreMode;
-  isPro = license.isPro;
+      'Cached license: isStoreMode: ${licenseProvider.isStoreMode}, isPro: ${licenseProvider.isPro}');
 
   await FullScreen.ensureInitialized();
 
@@ -204,7 +196,7 @@ void main(List<String> arguments) async {
     windowSize = windowSize / firstView.devicePixelRatio;
   }
 
-  mainLoop();
+  mainLoop(licenseProvider);
   appWindow.show();
 
   bool? storedFullScreen =
@@ -221,7 +213,7 @@ void main(List<String> arguments) async {
   });
 }
 
-void mainLoop() {
+void mainLoop(LicenseProvider licenseProvider) {
   runApp(
     MultiProvider(
       providers: [
@@ -256,6 +248,7 @@ void mainLoop() {
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
         ChangeNotifierProvider(create: (_) => $router),
+        ChangeNotifierProvider(create: (_) => licenseProvider),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
@@ -398,6 +391,7 @@ class RuneLifecycle extends StatefulWidget {
 
 class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
   late PlaybackStatusProvider status;
+  late LicenseProvider license;
   Timer? _throttleTimer;
   bool _shouldCallUpdate = false;
 
@@ -412,10 +406,14 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     super.didChangeDependencies();
 
     status = Provider.of<PlaybackStatusProvider>(context, listen: false);
+    license = Provider.of<LicenseProvider>(context, listen: false);
 
+    license.addListener(_updateLicense);
     status.addListener(_throttleUpdateTray);
     $router.addListener(_throttleUpdateTray);
     appTheme.addListener(_throttleUpdateTray);
+
+    _updateLicense();
   }
 
   @override
@@ -423,9 +421,10 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     super.dispose();
 
     trayManager.removeListener(this);
-    appTheme.removeListener(_throttleUpdateTray);
+    license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
     $router.removeListener(_throttleUpdateTray);
+    appTheme.removeListener(_throttleUpdateTray);
     _throttleTimer?.cancel();
   }
 
@@ -445,6 +444,17 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
 
   void _updateTray() {
     $tray.updateTray(context);
+  }
+
+  void _updateLicense() {
+    if (!license.isPro) {
+      print('AAA');
+      final evaluationMode = S.of(context).evaluationMode;
+      appWindow.title = 'Rune [$evaluationMode]';
+    } else {
+      print('BBB');
+      appWindow.title = 'Rune';
+    }
   }
 
   @override

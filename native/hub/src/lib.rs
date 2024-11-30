@@ -199,6 +199,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             SystemInfoRequest => (main_db),
             RegisterLicenseRequest => (main_db),
+            ValidateLicenseRequest => (main_db),
         );
     });
 }
@@ -229,17 +230,6 @@ async fn main() {
         init_logging();
         None
     };
-
-    let license_receiver = ValidateLicenseRequest::get_dart_signal_receiver();
-
-    loop {
-        let license_request = license_receiver.recv().await;
-
-        if let Some(license_request) = license_request {
-            let _ = validate_license_request(license_request).await;
-            break;
-        }
-    }
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(player_loop).await {
