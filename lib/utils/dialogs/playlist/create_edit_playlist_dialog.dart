@@ -11,19 +11,24 @@ import '../../../messages/playlist.pb.dart';
 import '../../../messages/collection.pb.dart';
 import '../../../utils/l10n.dart';
 
+import '../../api/create_m3u8_playlist.dart';
 import '../../api/fetch_collection_group_summary_title.dart';
 
 import '../clean_group_titles.dart';
+import 'show_import_m3u8_failed_dialog.dart';
+import 'show_import_m3u8_success_dialog.dart';
 
 class CreateEditPlaylistDialog extends StatefulWidget {
   final int? playlistId;
   final String? defaultTitle;
+  final String? m3u8Path;
   final void Function(Playlist?) $close;
 
   const CreateEditPlaylistDialog({
     super.key,
     this.playlistId,
     required this.defaultTitle,
+    this.m3u8Path,
     required this.$close,
   });
 
@@ -140,7 +145,36 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                         });
 
                         Playlist? response;
-                        if (widget.playlistId != null) {
+
+                        if (widget.m3u8Path != null) {
+                          final response = await createM3u8Playlist(
+                            titleController.text,
+                            groupController.text,
+                            widget.m3u8Path!,
+                          );
+
+                          if (!context.mounted) return;
+
+                          if (response.success) {
+                            CollectionCache()
+                                .clearType(CollectionType.Playlist);
+                            widget.$close(response.playlist);
+
+                            if (response.notFoundPaths.isNotEmpty) {
+                              showCreateImportM3u8SuccessDialog(
+                                context,
+                                response.notFoundPaths,
+                              );
+                            }
+                          } else {
+                            if (response.notFoundPaths.isNotEmpty) {
+                              showCreateImportM3u8FailedDialog(
+                                context,
+                                response.error,
+                              );
+                            }
+                          }
+                        } else if (widget.playlistId != null) {
                           response = await updatePlaylist(
                             widget.playlistId!,
                             titleController.text,

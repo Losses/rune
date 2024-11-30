@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::{prelude::*, TransactionTrait};
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
+use sea_orm::{prelude::*, TransactionTrait};
 use tokio::fs::read_to_string;
 
 use crate::actions::collection::CollectionQuery;
@@ -305,7 +305,7 @@ where
         // Trim whitespace from the line
         let trimmed = l.trim();
         // If the line is empty after trimming, return None; otherwise, return the trimmed line
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed.starts_with("#") {
             None
         } else {
             Some(trimmed)

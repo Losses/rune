@@ -936,5 +936,25 @@
   "registerInvalidSubtitle": "The key file you provided is invalid. Please check the file and try again.",
   "@registerInvalidSubtitle": {
     "description": "The content of the invalid register key modal"
+  },
+  "importM3u8Success": "Partially Successful",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Your tracks have been imported, but some were not found.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Import Failed",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "An error occurred during the import process.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Import Playlist",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
   }
 }

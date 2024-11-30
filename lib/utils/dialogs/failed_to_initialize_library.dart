@@ -1,40 +1,18 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/router/navigation.dart';
 import '../../utils/l10n.dart';
+
+import 'information/error.dart';
 
 Future<void> showFailedToInitializeLibrary(
   BuildContext context,
   String? errorMessage,
 ) async {
-  await $showModal<bool>(
-    context,
-    (context, $close) => ContentDialog(
-      title: Text(S.of(context).unableToOpenLibrary),
-      constraints: const BoxConstraints(maxHeight: 320, maxWidth: 400),
-      content: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            S.of(context).unableToOpenLibrarySubtitle,
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: SingleChildScrollView(
-              child: SelectableText(
-                errorMessage ?? S.of(context).unknownError,
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        FilledButton(
-          child: Text(S.of(context).close),
-          onPressed: () => $close(false),
-        ),
-      ],
-    ),
-    dismissWithEsc: true,
+  await showErrorDialog(
+    context: context,
+    title: S.of(context).unableToOpenLibrary,
+    subtitle: S.of(context).unableToOpenLibrarySubtitle,
+    errorMessage: errorMessage,
+    useFilledButton: true,
   );
 }
