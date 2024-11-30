@@ -7,7 +7,7 @@ message RegisterLicenseRequest {
 }
 
 // [RUST-SIGNAL]
-message RegisterLibraryResponse {
+message RegisterLicenseResponse {
     bool valid = 1;
     optional string license = 2;
     bool success = 3;
@@ -20,7 +20,7 @@ message ValidateLicenseRequest {
 }
 
 // [RUST-SIGNAL]
-message ValidateLibraryResponse {
+message ValidateLicenseResponse {
     bool isPro = 1;
     bool isStoreMode = 2;
 }

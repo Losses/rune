@@ -55,8 +55,8 @@ class LicenseProvider with ChangeNotifier {
     await _verifyLicense();
   }
 
-  Future<ValidateLibraryResponse?> _fetchLicenseFromApi(String license) async {
+  Future<ValidateLicenseResponse?> _fetchLicenseFromApi(String license) async {
     ValidateLicenseRequest(license: license).sendSignalToRust();
-    return (await ValidateLibraryResponse.rustSignalStream.first).message;
+    return (await ValidateLicenseResponse.rustSignalStream.first).message;
   }
 }
