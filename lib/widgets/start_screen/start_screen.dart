@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
@@ -154,7 +155,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     contextController.showFlyout(
       position: position,
-      builder: (context) {
+      builder: (_) {
         return MenuFlyout(
           items: [
             MenuFlyoutItem(
@@ -194,7 +195,19 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 leading: const Icon(Symbols.download),
                 text: Text(S.of(context).importM3u8),
                 onPressed: () async {
-                  final x = await showCreateImportM3u8PlaylistDialog(context);
+                  const XTypeGroup typeGroup = XTypeGroup(
+                    label: 'playlist',
+                    extensions: <String>['m3u', 'm3u8'],
+                  );
+                  final XFile? file = await openFile(
+                    acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                  );
+
+                  if (file == null) return;
+                  if (!mounted) return;
+
+                  final x =
+                      await showCreateImportM3u8PlaylistDialog(context, file);
 
                   if (x != null) data.reloadData();
                 },

@@ -155,10 +155,10 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
 
                           if (!context.mounted) return;
 
+                          widget.$close(response.playlist);
                           if (response.success) {
                             CollectionCache()
                                 .clearType(CollectionType.Playlist);
-                            widget.$close(response.playlist);
 
                             if (response.notFoundPaths.isNotEmpty) {
                               showCreateImportM3u8SuccessDialog(
@@ -174,6 +174,8 @@ class CreateEditPlaylistDialogState extends State<CreateEditPlaylistDialog> {
                               );
                             }
                           }
+
+                          return;
                         } else if (widget.playlistId != null) {
                           response = await updatePlaylist(
                             widget.playlistId!,

@@ -7,18 +7,9 @@ import '../../../utils/dialogs/playlist/create_edit_playlist_dialog.dart';
 import '../../../messages/playlist.pb.dart';
 
 Future<Playlist?> showCreateImportM3u8PlaylistDialog(
-  BuildContext context) async {
-  const XTypeGroup typeGroup = XTypeGroup(
-    label: 'playlist',
-    extensions: <String>['m3u', 'm3u8'],
-  );
-  final XFile? file = await openFile(
-    acceptedTypeGroups: <XTypeGroup>[typeGroup],
-  );
-
-  if (file == null) return null;
-  if (!context.mounted) return null;
-
+  BuildContext context,
+  XFile file,
+) async {
   return await $showModal<Playlist?>(
     context,
     (context, $close) => CreateEditPlaylistDialog(
