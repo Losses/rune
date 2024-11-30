@@ -10,14 +10,16 @@ import 'utils/get_tile_colors.dart';
 
 class LinkTile extends StatelessWidget {
   final String title;
-  final String path;
+  final String? path;
   final IconData icon;
+  final void Function()? onPressed;
 
   const LinkTile({
     super.key,
     required this.title,
-    required this.path,
+    this.path,
     required this.icon,
+    this.onPressed,
   });
 
   @override
@@ -34,20 +36,24 @@ class LinkTile extends StatelessWidget {
             ? defaultLightRevealConfig
             : defaultDarkRevealConfig,
         child: Tile(
-          onPressed: () {
-            $push(path);
-          },
+          onPressed: onPressed ??
+              () {
+                if (path != null) {
+                  $push(path!);
+                }
+              },
           child: Stack(
             alignment: Alignment.bottomLeft,
             children: [
               Container(
                 color: colors[path.hashCode % colors.length],
                 child: Center(
-                    child: Icon(
-                  icon,
-                  size: 40,
-                  color: Colors.white,
-                )),
+                  child: Icon(
+                    icon,
+                    size: 40,
+                    color: Colors.white,
+                  ),
+                ),
               ),
               Padding(
                 padding: const EdgeInsets.all(6),

@@ -900,5 +900,9 @@
   "closeNotificationSubtitle": "Rune is currently running in the background. You can easily locate it in the system tray.",
   "@closeNotificationSubtitle": {
     "description": ""
+  },
+  "register": "Register",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
   }
 }

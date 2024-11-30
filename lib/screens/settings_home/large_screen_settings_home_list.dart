@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../config/animation.dart';
+import '../../main.dart';
 import '../../utils/settings_manager.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/start_screen/link_tile.dart';
@@ -87,6 +88,41 @@ class LargeScreenSettingsHomeListViewState
                     },
                     direction: Axis.horizontal,
                   ),
+                  if (!isStore && !isPro)
+                    StartGroup<
+                        (
+                          String Function(BuildContext),
+                          void Function(),
+                          IconData,
+                          bool
+                        )>(
+                      groupIndex: 1,
+                      groupTitle: "",
+                      items: [
+                        (
+                          (context) => S.of(context).register,
+                          () => {},
+                          Symbols.key,
+                          false
+                        ),
+                      ],
+                      constraints: constraints,
+                      groupLayoutVariation:
+                          StartGroupGroupLayoutVariation.stacked,
+                      gridLayoutVariation:
+                          StartGroupGridLayoutVariation.initial,
+                      dimensionCalculator:
+                          StartGroupImplementation.startLinkDimensionCalculator,
+                      gapSize: defaultGapSize,
+                      itemBuilder: (context, item) {
+                        return LinkTile(
+                          title: item.$1(context),
+                          onPressed: item.$2,
+                          icon: item.$3,
+                        );
+                      },
+                      direction: Axis.horizontal,
+                    ),
                   if (mysterious == true)
                     StartGroup<
                         (
@@ -96,7 +132,7 @@ class LargeScreenSettingsHomeListViewState
                           bool
                         )>(
                       groupIndex: 1,
-                      groupTitle: S.of(context).mysteriousModalTitle,
+                      groupTitle: "",
                       items: [
                         (
                           (context) => S.of(context).laboratory,
