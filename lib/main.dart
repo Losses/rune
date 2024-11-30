@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'dart:async';
 
-import 'package:local_notifier/local_notifier.dart';
 import 'package:rinf/rinf.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
@@ -9,6 +8,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
+import 'package:local_notifier/local_notifier.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
@@ -70,21 +70,30 @@ late bool isWindows11;
 late bool isPro;
 late bool isStore;
 
+const licenseKey = 'license';
+
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeRust(assignRustSignal);
-
-  final license = (await StoreLicense.rustSignalStream.first).message;
-
-  isStore = license.isStoreMode;
-  isPro = arguments.contains('--pro') || (isStore && !license.isTrial);
 
   String? profile = arguments.contains('--profile')
       ? arguments[arguments.indexOf('--profile') + 1]
       : null;
 
-  await MacSecureManager().completed;
+  final SettingsManager settingsManager = SettingsManager();
   StorageKeyManager.initialize(profile);
+  await MacSecureManager().completed;
+
+  final licenseData = await settingsManager.getValue<String?>(licenseKey);
+  ValidateLicenseRequest(license: licenseData).sendSignalToRust();
+  final license =
+      (await ValidateLibraryResponse.rustSignalStream.first).message;
+
+  info$(
+      'Parsed license: isStoreMode: ${license.isStoreMode}, isPro: ${license.isPro}');
+
+  isStore = license.isStoreMode;
+  isPro = license.isPro;
 
   await FullScreen.ensureInitialized();
 
@@ -100,8 +109,6 @@ void main(List<String> arguments) async {
   } catch (e) {
     info$('Device is not Windows 10, skip the patch');
   }
-
-  final SettingsManager settingsManager = SettingsManager();
 
   final String? colorMode =
       await settingsManager.getValue<String>(colorModeKey);

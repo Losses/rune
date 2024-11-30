@@ -1,9 +1,13 @@
 syntax = "proto3";
 package license;
 
+// [DART-SIGNAL]
+message ValidateLicenseRequest {
+    optional string license = 1;
+}
+
 // [RUST-SIGNAL]
-message StoreLicense {
-    bool isStoreMode = 1;
-    bool isActive = 2;
-    bool isTrial = 3;
+message ValidateLibraryResponse {
+    bool isPro = 1;
+    bool isStoreMode = 2;
 }
