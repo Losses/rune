@@ -28,7 +28,7 @@ class LicenseProvider with ChangeNotifier {
         await _settingsManager.getValue<String?>(licenseValidationKey);
 
     if (cachedResult != null) {
-      final decodedResult = jsonDecode(cachedResult) as Map<String, bool>;
+      final decodedResult = jsonDecode(cachedResult) as Map<String, dynamic>;
       _isPro = decodedResult['isPro'] ?? false;
       _isStoreMode = decodedResult['isStoreMode'] ?? false;
       notifyListeners();
