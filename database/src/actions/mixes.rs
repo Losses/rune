@@ -81,7 +81,6 @@ pub async fn get_mixes_groups(
     Ok(result)
 }
 
-// Then implement CollectionQuery
 #[async_trait]
 impl CollectionQuery for mixes::Model {
     fn collection_type() -> CollectionQueryType {
@@ -748,7 +747,7 @@ pub async fn query_mix_media_files(
     // Filter by playlist_ids if provided
     add_subquery_filter!(
         or_condition,
-        playlist_ids,
+        playlist_ids.clone(),
         media_file_playlists::Entity,
         media_file_playlists::Column::PlaylistId,
         media_file_playlists::Column::MediaFileId
@@ -1019,6 +1018,36 @@ pub async fn query_mix_media_files(
         .unwrap();
 
     let sorted_files = sort_media_files(media_files, &track_ids);
+
+    let no_sorting = sort_track_number_asc.is_none()
+        && sort_last_modified_asc.is_none()
+        && sort_duration_asc.is_none()
+        && sort_playedthrough_asc.is_none()
+        && sort_skipped_asc.is_none();
+
+    let sorted_files = if no_sorting && playlist_ids.len() == 1 {
+        let playlist_id = playlist_ids[0];
+        let positions = media_file_playlists::Entity::find()
+            .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
+            .filter(
+                media_file_playlists::Column::MediaFileId
+                    .is_in(sorted_files.iter().map(|f| f.id).collect::<Vec<_>>()),
+            )
+            .order_by(media_file_playlists::Column::Position, Order::Asc)
+            .all(main_db)
+            .await?;
+
+        let position_map: HashMap<i32, i32> = positions
+            .into_iter()
+            .map(|p| (p.media_file_id, p.position))
+            .collect();
+
+        let mut sorted_files = sorted_files;
+        sorted_files.sort_by_key(|file| position_map.get(&file.id).cloned().unwrap_or(i32::MAX));
+        sorted_files
+    } else {
+        sorted_files
+    };
 
     Ok(sorted_files)
 }
