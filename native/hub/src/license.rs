@@ -10,7 +10,10 @@ use tokio::time::{sleep, Duration};
 #[cfg(target_os = "windows")]
 use windows::Foundation::AsyncStatus;
 
-use crate::{RegisterLibraryResponse, RegisterLicenseRequest, ValidateLibraryResponse, ValidateLicenseRequest};
+use crate::{
+    RegisterLibraryResponse, RegisterLicenseRequest, ValidateLibraryResponse,
+    ValidateLicenseRequest,
+};
 
 #[cfg(target_os = "windows")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
@@ -103,11 +106,14 @@ pub async fn validate_license_request(
     let license = dart_signal.message.license;
 
     let mut is_pro = false;
+    let mut is_store_mode = false;
 
     let args: Vec<String> = std::env::args().collect();
     let pro_via_args = args.contains(&"--pro".to_string());
+    let store_via_args = args.contains(&"--store".to_string());
 
     is_pro = is_pro || pro_via_args;
+    is_store_mode = is_store_mode || store_via_args;
 
     if !is_pro {
         if let Some(license) = license {
@@ -132,12 +138,12 @@ pub async fn validate_license_request(
             },
             _ => ValidateLibraryResponse {
                 is_pro,
-                is_store_mode: false,
+                is_store_mode,
             },
         },
         Err(_) => ValidateLibraryResponse {
             is_pro,
-            is_store_mode: false,
+            is_store_mode,
         },
     };
 
