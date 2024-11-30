@@ -30,7 +30,6 @@ class _NonProMarkState extends State<NonProMark> {
       final remindLaterDate =
           DateTime.fromMicrosecondsSinceEpoch(remindLaterTime);
       final difference = DateTime.now().difference(remindLaterDate).inDays;
-      print('DIFFERENCE: $difference');
       return difference >= 180;
     }
     return true;
