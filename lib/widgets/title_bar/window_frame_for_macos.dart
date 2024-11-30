@@ -71,7 +71,6 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                 activeBreakpoint == DeviceType.dock ||
                 path == '/' ||
                 path == '/scanning') {
-
               return DargMoveWindowArea();
             }
 
@@ -91,8 +90,11 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                 ),
                 SizedBox(
                   height: 40,
-                  child: Expanded(
-                      child: DargMoveWindowArea(isEnabledDoubleTap: false),
+                  child: Row(
+                    children: [
+                      Expanded(
+                          child: DargMoveWindowArea(isEnabledDoubleTap: false)),
+                    ],
                   ),
                 ),
               ],
