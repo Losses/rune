@@ -41,6 +41,7 @@ use crate::cover_art::*;
 use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
+use crate::license::*;
 use crate::logging::*;
 use crate::media_file::*;
 use crate::messages::*;
@@ -197,6 +198,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             RemoveLogRequest => (main_db),
 
             SystemInfoRequest => (main_db),
+            RegisterLicenseRequest => (main_db),
         );
     });
 }
