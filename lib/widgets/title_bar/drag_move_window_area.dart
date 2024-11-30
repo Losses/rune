@@ -3,11 +3,11 @@ import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 
-class DargMoveWindowArea extends StatelessWidget {
+class DragMoveWindowArea extends StatelessWidget {
   final Widget? child;
   final bool isEnabledDoubleTap;
 
-  const DargMoveWindowArea({super.key, this.child, this.isEnabledDoubleTap = true});
+  const DragMoveWindowArea({super.key, this.child, this.isEnabledDoubleTap = true});
 
   @override
   Widget build(BuildContext context) {
