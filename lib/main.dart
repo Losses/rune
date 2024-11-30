@@ -81,10 +81,8 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
   await MacSecureManager().completed;
 
-  print(0);
   final licenseProvider = LicenseProvider();
   await licenseProvider.initialized.future;
-  print(1);
 
   info$(
       'Cached license: isStoreMode: ${licenseProvider.isStoreMode}, isPro: ${licenseProvider.isPro}');

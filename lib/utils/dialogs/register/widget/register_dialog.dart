@@ -1,6 +1,6 @@
-import 'package:flutter_svg/svg.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:file_selector/file_selector.dart';
 
 import '../../../../widgets/no_shortcuts.dart';
