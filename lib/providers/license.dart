@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -23,12 +24,13 @@ class LicenseProvider with ChangeNotifier {
   bool get isPro => _isPro;
 
   Future<void> _loadCachedLicense() async {
-    final cachedResult = await _settingsManager
-        .getValue<Map<String, bool>?>(licenseValidationKey);
+    final cachedResult =
+        await _settingsManager.getValue<String?>(licenseValidationKey);
 
     if (cachedResult != null) {
-      _isPro = cachedResult['isPro'] ?? false;
-      _isStoreMode = cachedResult['isStoreMode'] ?? false;
+      final decodedResult = jsonDecode(cachedResult) as Map<String, bool>;
+      _isPro = decodedResult['isPro'] ?? false;
+      _isStoreMode = decodedResult['isStoreMode'] ?? false;
       notifyListeners();
     }
 
@@ -42,10 +44,11 @@ class LicenseProvider with ChangeNotifier {
       if (newLicenseResult != null) {
         _isPro = newLicenseResult.isPro;
         _isStoreMode = newLicenseResult.isStoreMode;
-        await _settingsManager.setValue(licenseValidationKey, {
+        final encodedResult = jsonEncode({
           'isPro': _isPro,
           'isStoreMode': _isStoreMode,
         });
+        await _settingsManager.setValue(licenseValidationKey, encodedResult);
         notifyListeners();
       }
     }
