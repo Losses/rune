@@ -1,22 +1,20 @@
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 use anyhow::Result;
-use database::connection::MainDbConnection;
 use rinf::DartSignal;
 
-use sha2::{Digest, Sha256};
-#[cfg(target_os = "windows")]
-use tokio::time::{sleep, Duration};
-#[cfg(target_os = "windows")]
-use windows::Foundation::AsyncStatus;
+use database::connection::MainDbConnection;
 
 use crate::{
     RegisterLibraryResponse, RegisterLicenseRequest, ValidateLibraryResponse,
     ValidateLicenseRequest,
 };
+use sha2::{Digest, Sha256};
 
 #[cfg(target_os = "windows")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
+    use tokio::time::{sleep, Duration};
+    use windows::Foundation::AsyncStatus;
     use windows::Services::Store::StoreContext;
 
     let context = StoreContext::GetDefault()?;
