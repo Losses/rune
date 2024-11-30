@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::prelude::*;
+use sea_orm::{prelude::*, TransactionTrait};
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
 use tokio::fs::read_to_string;
@@ -16,7 +16,7 @@ use crate::entities::{media_file_playlists, media_files, playlists};
 use crate::{collection_query, get_by_id};
 
 use super::collection::CollectionQueryType;
-use super::utils::CollectionDefinition;
+use super::utils::{CollectionDefinition, DatabaseExecutor};
 
 impl CollectionDefinition for playlists::Entity {
     fn group_column() -> Self::Column {
@@ -47,11 +47,14 @@ collection_query!(
 ///
 /// # Returns
 /// * `Result<Model>` - The created playlist model or an error.
-pub async fn create_playlist(
-    main_db: &DatabaseConnection,
+pub async fn create_playlist<E>(
+    main_db: &E,
     name: String,
     group: String,
-) -> Result<playlists::Model> {
+) -> Result<playlists::Model>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     use playlists::ActiveModel;
 
     // Create a new playlist active model
@@ -284,10 +287,13 @@ pub struct PlaylistImportResult {
     pub unmatched_paths: Vec<String>,
 }
 
-pub async fn parse_m3u8_playlist(
-    db: &DatabaseConnection,
+pub async fn parse_m3u8_playlist<E>(
+    main_db: &E,
     playlist_path: &Path,
-) -> Result<PlaylistImportResult> {
+) -> Result<PlaylistImportResult>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     // Read the content of the M3U8 file asynchronously into a string
     let content = read_to_string(playlist_path).await?;
     // Initialize vectors to store matched file IDs and unmatched paths
@@ -315,7 +321,7 @@ pub async fn parse_m3u8_playlist(
             // Query the database for files with the same file name
             let matching_files = media_files::Entity::find()
                 .filter(media_files::Column::FileName.eq(file_name.clone()))
-                .all(db)
+                .all(main_db)
                 .await?;
 
             // Handle different cases based on the number of matching files found
@@ -404,4 +410,66 @@ pub async fn parse_m3u8_playlist(
         matched_ids,
         unmatched_paths,
     })
+}
+
+pub async fn import_m3u8_to_playlist<E>(
+    main_db: &E,
+    playlist_id: i32,
+    playlist_path: &Path,
+) -> Result<PlaylistImportResult>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    let import_result = parse_m3u8_playlist(main_db, playlist_path).await?;
+
+    let models: Vec<media_file_playlists::ActiveModel> = import_result
+        .matched_ids
+        .iter()
+        .enumerate()
+        .map(
+            |(index, &media_file_id)| media_file_playlists::ActiveModel {
+                playlist_id: ActiveValue::Set(playlist_id),
+                media_file_id: ActiveValue::Set(media_file_id),
+                position: ActiveValue::Set(index as i32),
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    if !models.is_empty() {
+        media_file_playlists::Entity::insert_many(models)
+            .exec(main_db)
+            .await?;
+    }
+
+    Ok(import_result)
+}
+
+pub async fn create_m3u8_playlist(
+    main_db: &MainDbConnection,
+    name: String,
+    group: String,
+    m3u8_path: &Path,
+) -> Result<(playlists::Model, PlaylistImportResult)> {
+    let txn = main_db.begin().await?;
+
+    // Create the playlist
+    let playlist: playlists::Model = create_playlist(&txn, name.clone(), group.clone()).await?;
+
+    // Import the M3U8 file contents into the playlist
+    let import_result = import_m3u8_to_playlist(&txn, playlist.id, m3u8_path).await;
+
+    // Check if the import was successful
+    match import_result {
+        Ok(result) => {
+            // Commit the transaction if successful
+            txn.commit().await?;
+            Ok((playlist, result))
+        }
+        Err(e) => {
+            // Rollback the transaction if there was an error
+            txn.rollback().await?;
+            Err(e)
+        }
+    }
 }

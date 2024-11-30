@@ -169,6 +169,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             FetchAllPlaylistsRequest => (main_db),
             CreatePlaylistRequest => (main_db),
+            CreateM3u8PlaylistRequest => (main_db),
             UpdatePlaylistRequest => (main_db),
             RemovePlaylistRequest => (main_db),
             AddItemToPlaylistRequest => (main_db),
