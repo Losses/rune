@@ -448,11 +448,9 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
 
   void _updateLicense() {
     if (!license.isPro) {
-      print('AAA');
       final evaluationMode = S.of(context).evaluationMode;
       appWindow.title = 'Rune [$evaluationMode]';
     } else {
-      print('BBB');
       appWindow.title = 'Rune';
     }
   }
