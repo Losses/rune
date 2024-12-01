@@ -1,4 +1,4 @@
-name: Build 
+name: Build
 
 on:
   workflow_dispatch:
@@ -9,22 +9,22 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-    env: 
-        VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
-      
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: "stable"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-      
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -33,7 +33,7 @@ jobs:
 
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
+
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
 
@@ -41,17 +41,17 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message 
+        run: rinf message
 
       - name: Build Windows
         run: flutter build windows --release --verbose
-      
+
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
-    
-      - name: Upload artifact 
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           path: build/windows/x64/runner/Release/
@@ -69,19 +69,19 @@ jobs:
         with:
           pattern: Rune-*-windows
           path: artifacts
-          
+
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
-          
+
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
           filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows-amd64.zip
           directory: artifacts
-      
+
       - name: Release
         uses: ncipollo/release-action@v1
         with:
@@ -105,13 +105,13 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: "stable"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-      
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -120,7 +120,7 @@ jobs:
 
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
+
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
 
@@ -128,7 +128,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message 
+        run: rinf message
 
       - name: Build linux
         run: flutter build linux --release --verbose
@@ -137,8 +137,8 @@ jobs:
         id: short-sha
         with:
           length: 7
-      
-      - name: Upload artifact 
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
@@ -161,17 +161,17 @@ jobs:
           # https://github.com/actions/runner/issues/2033
           chown -R $(id -u):$(id -g) $PWD
           git config --global --add safe.directory '*'
-       
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: "stable"
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
-      
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
@@ -180,7 +180,7 @@ jobs:
 
       - name: Install the Rust dependencies
         run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
-        
+
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
 
@@ -188,7 +188,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message 
+        run: rinf message
 
       - name: Build linux
         run: flutter build linux --release --verbose
@@ -197,14 +197,13 @@ jobs:
         id: short-sha
         with:
           length: 7
-      
+
       - name: Copy Steam Launch Scripts
         run: |
           chmod +x scripts/steam/*
           cp -r scripts/steam/* build/linux/x64/release/bundle/
 
-
-      - name: Upload artifact 
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
@@ -227,14 +226,14 @@ jobs:
         id: short-sha
         with:
           length: 7
-          
+
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
           filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux-amd64.zip
           directory: artifacts
-          
+
       - name: Release
         uses: ncipollo/release-action@v1
         with:
@@ -261,14 +260,14 @@ jobs:
         id: short-sha
         with:
           length: 7
-          
+
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
           filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-steam-sniper-amd64.zip
           directory: artifacts
-          
+
       - name: Release
         uses: ncipollo/release-action@v1
         with:
@@ -277,7 +276,7 @@ jobs:
           replacesArtifacts: false
           omitBodyDuringUpdate: true
           makeLatest: true
-    
+
   build-macos:
     runs-on: macos-latest
     steps:
@@ -285,23 +284,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
-          
+          channel: "stable"
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-        
+
       - uses: Swatinem/rust-cache@v2
-      
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           version: "26.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-        
+
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
@@ -312,13 +311,16 @@ jobs:
           DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_NOTARIZED_PROVISION_PROFILE: ${{ secrets.BUILD_NOTARIZED_PROVISION_PROFILE }}
         run: |
           # create variables
           DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH=$RUNNER_TEMP/build_developerID_application_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_Notarized.provisionprofile
 
           # import certificate and provisioning profile from secrets
           echo -n "$DEVELOPER_ID_APPLICATION_P12_BASE64_MAC" | base64 --decode --output $DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH
+          echo -n "$BUILD_NOTARIZED_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -331,7 +333,10 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
-      - name: All 
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: All
         run: |
           brew install just
           just macos-ci-all
@@ -350,7 +355,7 @@ jobs:
           otool -L Rune.app/Contents/MacOS/Rune | grep lmdb
           install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
         working-directory: build/macos/Build/Products/Release
-          
+
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
@@ -367,6 +372,108 @@ jobs:
           fi
           rm -f .env
 
+  build-and-release-mac-app-store:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Install certificates
+        env:
+          APPLE_DISTRIBUTION_CERTIFICATE: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE }}
+          APPLE_DISTRIBUTION_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_PASSWORD }}
+          APPLE_DISTRIBUTION_SIGNING_IDENTITY: ${{ secrets.APPLE_DISTRIBUTION_SIGNING_IDENTITY }}
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE: ${{ secrets.MAC_DEVELOPER_INSTALLER_CERTIFICATE }}
+          MAC_DEVELOPER_INSTALLER_PASSWORD: ${{ secrets.MAC_DEVELOPER_INSTALLER_PASSWORD }}
+          MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_APP_STORE_PROVISION_PROFILE }}
+        run: |
+          # create variables
+          APPLE_DISTRIBUTION_CERTIFICATE_PATH=$RUNNER_TEMP/build_apple_distribution_certificate.p12
+          MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH=$RUNNER_TEMP/build_mac_developer_installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_App_Store.provisionprofile
+
+          # import certificate and provisioning profile from secrets
+          echo -n "$APPLE_DISTRIBUTION_CERTIFICATE" | base64 --decode --output $APPLE_DISTRIBUTION_CERTIFICATE_PATH
+          echo -n "$MAC_DEVELOPER_INSTALLER_CERTIFICATE" | base64 --decode --output $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH
+          echo -n "$BUILD_APP_STORE_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          # security default-keychain -s $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $APPLE_DISTRIBUTION_CERTIFICATE_PATH -P "$APPLE_DISTRIBUTION_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH -P "$MAC_DEVELOPER_INSTALLER_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import App Store Connect API Key
+          echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode --output $RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
+      - name: All
+        run: |
+          export RUNE_APPSTORE_BUILD_VERSION=$(echo "$REF_NAME" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          brew install just
+          just macos-ci-all-appstore
+        env:
+          APPLE_DISTRIBUTION_SIGNING_IDENTITY: ${{ secrets.APPLE_DISTRIBUTION_SIGNING_IDENTITY }}
+          MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MAC_DEVELOPER_INSTALLER_SIGNING_IDENTITY }}
+          APP_STORE_CONNECT_APP_APPLE_ID: ${{ secrets.APP_STORE_CONNECT_APP_APPLE_ID }}
+          APP_STORE_CONNECT_ISSUER: ${{ secrets.APP_STORE_CONNECT_ISSUER }}
+          APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
+          APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ steps.short-sha.outputs.sha }}
+          RUNE_APPSTORE_BUILD_NUMBER: ${{ github.run_number }}
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          just macos-ci-clean
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
+          rm -f $RUNNER_TEMP/*.p8
+
   release-macos:
     permissions:
       contents: write
@@ -379,7 +486,7 @@ jobs:
         with:
           pattern: Rune-*-macOS
           path: artifacts
-          
+
       - name: Release
         uses: ncipollo/release-action@v1
         with:
