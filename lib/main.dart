@@ -14,6 +14,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
+import 'package:system_tray/system_tray.dart';
 
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
@@ -155,6 +156,20 @@ void main(List<String> arguments) async {
     appName: 'Rune',
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
+
+  await systemTray.initSystemTray(
+    title: 'Rune',
+    iconPath: TrayManager.getTrayIconPath(),
+    isTemplate: true,
+  );
+
+  final Menu menu = Menu();
+  await menu.buildFrom([
+    MenuItemLabel(label: 'Show', onClicked: (menuItem) => appWindow.show()),
+  ]);
+  await systemTray.setContextMenu(menu);
+
+  TrayManager.registerEventHandlers();
 
   final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
