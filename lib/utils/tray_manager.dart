@@ -36,7 +36,6 @@ class TrayManager {
 
   bool? _cachedPlaying;
   String? _cachedLocale;
-  bool _initialized = false;
 
   Future<void> updateTray(BuildContext context) async {
     final path = $router.path;
@@ -52,13 +51,8 @@ class TrayManager {
 
     if (suppressRefresh) return;
 
-    if (_initialized == true && Platform.isWindows) {
-      await systemTray.destroy();
-    }
-
     _cachedPlaying = playing;
     _cachedLocale = locale;
-    _initialized = true;
 
     $closeManager.notificationTitle = s.closeNotification;
     $closeManager.notificationSubtitle = s.closeNotificationSubtitle;

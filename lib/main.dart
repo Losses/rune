@@ -146,6 +146,10 @@ void main(List<String> arguments) async {
     if (Platform.isMacOS || Platform.isWindows) {
       updateTheme();
     }
+
+    if (Platform.isWindows) {
+      
+    }
   };
 
   initialPath = await getInitialPath();
