@@ -8,8 +8,9 @@ cd ..
 # Create backup of project.pbxproj
 cp macos/Runner.xcodeproj/project.pbxproj macos/Runner.xcodeproj/project.pbxproj.backup
 
-# Patch macos/Runner.xcodeproj/project.pbxproj to replace bundle ID
+# Patch macos/Runner.xcodeproj/project.pbxproj and macos/Runner/Release.entitlements to replace bundle ID
 sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune.appstore;/g' macos/Runner.xcodeproj/project.pbxproj
+sed -i '' 's/<string>LG57TUQ726.ci.not.rune<\/string>/<string>LG57TUQ726.ci.not.rune.appstore<\/string>/g' macos/Runner/Release.entitlements
 
 flutter pub get
 rinf message
