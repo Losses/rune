@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -21,12 +20,8 @@ import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/tray_manager.dart';
-import 'utils/api/play_next.dart';
-import 'utils/api/play_play.dart';
 import 'utils/close_manager.dart';
-import 'utils/api/play_pause.dart';
 import 'utils/settings_manager.dart';
-import 'utils/api/play_previous.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
@@ -150,16 +145,10 @@ void main(List<String> arguments) async {
     if (Platform.isMacOS || Platform.isWindows) {
       updateTheme();
     }
-
-    if (Platform.isWindows) {
-      $tray.initialize();
-    }
   };
 
   initialPath = await getInitialPath();
   await findSystemLocale();
-
-  await $tray.initialize();
 
   $closeManager;
   await localNotifier.setup(
@@ -391,7 +380,7 @@ class RuneLifecycle extends StatefulWidget {
   RuneLifecycleState createState() => RuneLifecycleState();
 }
 
-class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
+class RuneLifecycleState extends State<RuneLifecycle> {
   late PlaybackStatusProvider status;
   late LicenseProvider license;
   Timer? _throttleTimer;
@@ -400,7 +389,6 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
   @override
   void initState() {
     super.initState();
-    trayManager.addListener(this);
   }
 
   @override
@@ -414,6 +402,7 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     status.addListener(_throttleUpdateTray);
     $router.addListener(_throttleUpdateTray);
     appTheme.addListener(_throttleUpdateTray);
+    _throttleUpdateTray();
 
     _updateLicense();
   }
@@ -422,7 +411,6 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
   dispose() {
     super.dispose();
 
-    trayManager.removeListener(this);
     license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
     $router.removeListener(_throttleUpdateTray);
@@ -455,37 +443,6 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     } else {
       appWindow.title = 'Rune';
     }
-  }
-
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) async {
-    if (menuItem.key == 'show_window') {
-      appWindow.show();
-    } else if (menuItem.key == 'exit_app') {
-      $closeManager.close();
-    } else if (menuItem.key == 'previous') {
-      playPrevious();
-    } else if (menuItem.key == 'play') {
-      playPlay();
-    } else if (menuItem.key == 'pause') {
-      playPause();
-    } else if (menuItem.key == 'next') {
-      playNext();
-    }
-  }
-
-  @override
-  void onTrayIconMouseDown() {
-    if (Platform.isWindows) {
-      appWindow.show();
-    } else {
-      trayManager.popUpContextMenu();
-    }
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
   }
 
   @override

@@ -3,32 +3,28 @@ import 'dart:io';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:tray_manager/tray_manager.dart';
+import 'package:system_tray/system_tray.dart';
+import 'package:bitsdojo_window/bitsdojo_window.dart';
 
-import '../config/theme.dart';
 import '../providers/status.dart';
 import '../providers/router_path.dart';
 
+import 'api/play_next.dart';
+import 'api/play_pause.dart';
+import 'api/play_play.dart';
+import 'api/play_previous.dart';
 import 'close_manager.dart';
 import 'l10n.dart';
 
 class TrayManager {
-  initialize() async {
-    if (Platform.isMacOS) {
-      await trayManager.setIcon(getTrayIconPath(), isTemplate: true);
-    } else {
-      await trayManager.setIcon(getTrayIconPath());
-    }
-  }
+  final SystemTray systemTray = SystemTray();
 
   static String getTrayIconPath() {
     if (Platform.isWindows) {
-      if (SchedulerBinding.instance.platformDispatcher.platformBrightness ==
-          Brightness.light) {
-        return 'assets/tray_icon_dark.ico';
-      } else {
-        return 'assets/tray_icon_light.ico';
-      }
+      return SchedulerBinding.instance.platformDispatcher.platformBrightness ==
+              Brightness.light
+          ? 'assets/tray_icon_dark.ico'
+          : 'assets/tray_icon_light.ico';
     }
 
     if (Platform.isMacOS) {
@@ -38,83 +34,94 @@ class TrayManager {
     return 'assets/linux-tray.svg';
   }
 
-  String? _cachedPath;
   bool? _cachedPlaying;
-  Locale? _cachedLocale;
+  String? _cachedLocale;
 
-  updateTray(BuildContext context) async {
+  Future<void> updateTray(BuildContext context) async {
     final path = $router.path;
-
-    final s = S.of(context);
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
         !status.notReady && status.playbackStatus.state == "Playing";
 
-    final locale = appTheme.locale;
-    final suppressRefresh = path == _cachedPath &&
-        playing == _cachedPlaying &&
-        locale == _cachedLocale;
+    final s = S.of(context);
+    final locale = s.localeName;
+
+    final suppressRefresh =
+        playing == _cachedPlaying && locale == _cachedLocale;
 
     if (suppressRefresh) return;
 
-    _cachedPath = path;
     _cachedPlaying = playing;
     _cachedLocale = locale;
+
+    await systemTray.destroy();
+    _registerEventHandlers();
+
+    await systemTray.initSystemTray(
+      title: s.rune,
+      iconPath: getTrayIconPath(),
+      isTemplate: true,
+    );
 
     $closeManager.notificationTitle = s.closeNotification;
     $closeManager.notificationSubtitle = s.closeNotificationSubtitle;
 
-    if (status.notReady || path == '/' || path == '/scanning') {
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: 'show_window',
-            label: s.showRune,
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'exit_app',
-            label: s.exit,
-          ),
-        ],
-      );
+    final menuItems = [
+      MenuItemLabel(
+        label: s.showRune,
+        onClicked: (_) => appWindow.show(),
+      ),
+      MenuSeparator(),
+      if (!status.notReady && path != '/' && path != '/scanning') ...[
+        MenuItemLabel(
+          label: s.previous,
+          onClicked: (_) => _handlePrevious(),
+        ),
+        MenuItemLabel(
+          label: playing ? s.pause : s.play,
+          onClicked: (_) => _handlePlayPause(playing),
+        ),
+        MenuItemLabel(
+          label: s.next,
+          onClicked: (_) => _handleNext(),
+        ),
+        MenuSeparator(),
+      ],
+      MenuItemLabel(
+        label: s.exit,
+        onClicked: (_) => $closeManager.close(),
+      ),
+    ];
 
-      await trayManager.setContextMenu(menu);
+    final menu = Menu();
+    await menu.buildFrom(menuItems);
+    await systemTray.setContextMenu(menu);
+  }
+
+  void _registerEventHandlers() {
+    systemTray.registerSystemTrayEventHandler((eventName) {
+      if (eventName == kSystemTrayEventClick) {
+        Platform.isWindows ? appWindow.show() : systemTray.popUpContextMenu();
+      } else if (eventName == kSystemTrayEventRightClick) {
+        Platform.isWindows ? systemTray.popUpContextMenu() : appWindow.show();
+      }
+    });
+  }
+
+  void _handlePrevious() {
+    playPrevious();
+  }
+
+  void _handlePlayPause(bool isPlaying) {
+    if (isPlaying) {
+      playPause();
     } else {
-      final menu = Menu(
-        items: [
-          MenuItem(
-            key: 'show_window',
-            label: s.showRune,
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'previous',
-            label: s.previous,
-          ),
-          playing
-              ? MenuItem(
-                  key: 'pause',
-                  label: s.pause,
-                )
-              : MenuItem(
-                  key: 'play',
-                  label: s.play,
-                ),
-          MenuItem(
-            key: 'next',
-            label: s.next,
-          ),
-          MenuItem.separator(),
-          MenuItem(
-            key: 'exit_app',
-            label: s.exit,
-          ),
-        ],
-      );
-
-      await trayManager.setContextMenu(menu);
+      playPlay();
     }
+  }
+
+  void _handleNext() {
+    playNext();
   }
 }
 
