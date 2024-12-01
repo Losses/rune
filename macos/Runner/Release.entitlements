@@ -4,6 +4,10 @@
 <dict>
 	<key>keychain-access-groups</key>
 	<array/>
+	<key>com.apple.developer.team-identifier</key>
+	<string>LG57TUQ726</string>
+	<key>com.apple.application-identifier</key>
+	<string>LG57TUQ726.ci.not.rune</string>
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<key>com.apple.security.automation.apple-events</key>
