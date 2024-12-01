@@ -148,7 +148,7 @@ void main(List<String> arguments) async {
     }
 
     if (Platform.isWindows) {
-      
+      $tray.updateTrayIcon();
     }
   };
 

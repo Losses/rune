@@ -38,6 +38,11 @@ class TrayManager {
   String? _cachedLocale;
 
   Future<void> updateTray(BuildContext context) async {
+    await updateTrayItem(context);
+    await updateTrayIcon();
+  }
+
+  Future<void> updateTrayItem(BuildContext context) async {
     final path = $router.path;
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
@@ -87,6 +92,11 @@ class TrayManager {
     final menu = Menu();
     await menu.buildFrom(menuItems);
     await systemTray.setContextMenu(menu);
+  }
+
+  Future<void> updateTrayIcon() async {
+    final iconPath = getTrayIconPath();
+    await systemTray.setImage(iconPath);
   }
 
   static void registerEventHandlers() {
