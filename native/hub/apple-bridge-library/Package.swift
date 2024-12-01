@@ -4,15 +4,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "macos-bridge-library",
+    name: "apple-bridge-library",
     products: [
-        .library(name: "macos-bridge-library", type: .static, targets: ["macos-bridge-library"]),
+        .library(name: "apple-bridge-library", type: .static, targets: ["apple-bridge-library"]),
     ],
     dependencies: [
     ],
     targets: [
         .target(
-            name: "macos-bridge-library",
+            name: "apple-bridge-library",
             dependencies: []
         )
     ]

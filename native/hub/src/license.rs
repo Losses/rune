@@ -5,7 +5,7 @@ use rinf::DartSignal;
 
 use database::connection::MainDbConnection;
 
-use crate::macos_bridge::macos_bridge::bundle_id;
+use crate::apple_bridge::apple_bridge::bundle_id;
 use crate::{
     RegisterLicenseRequest, RegisterLicenseResponse, ValidateLicenseRequest,
     ValidateLicenseResponse,

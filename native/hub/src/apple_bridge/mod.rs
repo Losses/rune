@@ -1,5 +1,5 @@
 #[swift_bridge::bridge]
-pub mod macos_bridge {
+pub mod apple_bridge {
     extern "Swift" {
         fn bundle_id() -> String;
     }
@@ -7,7 +7,7 @@ pub mod macos_bridge {
 
 #[cfg(test)]
 mod tests {
-    use crate::macos_bridge::macos_bridge::bundle_id;
+    use crate::apple_bridge::apple_bridge::bundle_id;
     #[test]
     #[cfg(target_os = "macos")]
     fn test_bundle_id() {

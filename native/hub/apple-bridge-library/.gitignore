@@ -7,4 +7,5 @@ DerivedData/
 .swiftpm/config/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
-Sources/macos-bridge-library/generated
+Sources/apple-bridge-library/generated
+lib/
