@@ -1309,6 +1309,7 @@ dependencies = [
  "paste",
  "rand",
  "rayon",
+ "regex",
  "rust_decimal",
  "rust_decimal_macros",
  "sea-orm",

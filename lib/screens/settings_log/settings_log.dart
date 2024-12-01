@@ -230,7 +230,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
                     padding: getScrollContainerPadding(context),
                     child: Center(
                       child: NoItems(
-                        title: 'No logs available',
+                        title: S.of(context).noLogsAvailable,
                         hasRecommendation: false,
                         reloadData: _refresh,
                         showDetail: false,

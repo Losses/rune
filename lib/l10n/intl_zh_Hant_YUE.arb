@@ -691,8 +691,270 @@
   "@followSystemLanguage": {
     "description": "設定頁面入面嘅動作按鈕文字，表示 Rune 嘅語言會跟隨操作系統設定。"
   },
-  "followSystemLanguageSubtitle": "跟隨系統語言設定，唔使特別設定。",
-  "@followSystemLanguageSubtitle": {
+  "followSystemLanguageSubtitle": "跟隨系統語言，唔使特別設定。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "視窗大細",
+  "@windowSize": {
+    "description": "主題頁面中設定視窗大細嘅提示文字。"
+  },
+  "windowSizeSubtitle": "揀選應用程式嘅建議視窗大細。",
+  "@windowSizeSubtitle": {
+    "description": "解釋視窗大細選項嘅副標題。"
+  },
+  "normalWindowSize": "普通",
+  "@normalWindowSize": {
+    "description": "標準視窗大細嘅選項。"
+  },
+  "slimWindowSize": "窄",
+  "@slimWindowSize": {
+    "description": "較窄視窗大細嘅選項。"
+  },
+  "stockyWindowSize": "闊",
+  "@stockyWindowSize": {
+    "description": "較闊視窗大細嘅選項。"
+  },
+  "log": "日誌",
+  "@log": {
+    "description": "設定部分中嘅日誌頁面標題，呢版包含程式運行時發生嘅錯誤同警告。"
+  },
+  "viewLogDetail": "睇日誌詳情",
+  "@viewLogDetail": {
+    "description": "上下文選單入面嘅一個選項。撳呢個選項會顯示日誌詳情模態框。"
+  },
+  "removeLogTitle": "刪除日誌",
+  "@removeLogTitle": {
+    "description": "通知用戶佢哋將會刪除一條日誌嘅模態框標題。"
+  },
+  "removeLogSubtitle": "如果刪除呢條日誌，你就冇得恢復㗎喇。你確定要刪除？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "清除所有日誌",
+  "@clearLogTitle": {
+    "description": "通知用戶佢哋將會刪除所有日誌嘅模態框標題。"
+  },
+  "clearLogSubtitle": "如果刪除所有日誌，你就冇得恢復㗎喇。你確定要刪除？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部刪除",
+  "@deleteAll": {
+    "description": "上下文選單入面嘅一個選項。撳呢個選項將會刪除所有可用項目。"
+  },
+  "noLogsAvailable": "冇可用日誌",
+  "@noLogsAvailable": {
+    "description": "日誌設定頁面嘅空白狀態圖示標題。"
+  },
+  "home": "主頁",
+  "@home": {
+    "description": "主頁設定頁面嘅標題。"
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "媒體庫主頁設定下拉清單入面嘅選項。"
+  },
+  "oldest": "最舊",
+  "@oldest": {
+    "description": "媒體庫主頁設定下拉清單入面嘅選項。"
+  },
+  "random": "隨機",
+  "@random": {
+    "description": "媒體庫主頁設定下拉清單入面嘅選項。"
+  },
+  "mostPlayed": "最常播放",
+  "@mostPlayed": {
+    "description": "媒體庫主頁入面嘅標題。"
+  },
+  "personalize": "個人化",
+  "@personalize": {
+    "description": "媒體庫主頁嘅上下文選單入面嘅選項。"
+  },
+  "artistsLibraryHomeSubtitle": "發掘同探索你最鍾意嘅歌手嘅世界",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面歌手部分嘅描述。"
+  },
+  "albumsLibraryHomeSubtitle": "沉醉喺由才華橫溢嘅歌手創作嘅專輯入面",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面專輯部分嘅描述。"
+  },
+  "playlistsLibraryHomeSubtitle": "策劃你自己嘅個人化音樂之旅",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面播放清單部分嘅描述。"
+  },
+  "tracksLibraryHomeSubtitle": "深入研究你熟悉同鍾意嘅歌曲",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面歌曲部分嘅描述。"
+  },
+  "likedLibraryHomeSubtitle": "重溫你最珍惜嘅歌曲",
+  "@likedLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面收藏部分嘅描述。"
+  },
+  "mostLibraryHomeSubtitle": "再次聆聽一次又一次吸引你嘅旋律",
+  "@mostLibraryHomeSubtitle": {
+    "description": "媒體庫主頁入面最多播放部分嘅描述。"
+  },
+  "showRune": "顯示 Rune",
+  "@showRune": {
+    "description": "托盤選單入面嘅選項。"
+  },
+  "exit": "退出",
+  "@exit": {
+    "description": "托盤選單入面嘅選項。"
+  },
+  "back": "返回",
+  "@back": {
+    "description": "Windows 標題欄左上角圖示嘅工具提示。"
+  },
+  "exportTracks": "導出做",
+  "@exportTracks": {
+    "description": "上下文選單入面容許用戶導出集合嘅選項"
+  },
+  "exportM3u8": "播放清單檔案",
+  "@exportM3u8": {
+    "description": "上下文選單入面嘅一個選項，容許用戶用 M3U8 格式導出集合"
+  },
+  "exportCoverWall": "封面牆",
+  "@exportCoverWall": {
+    "description": "上下文選單入面嘅一個選項，容許用戶導出封面牆"
+  },
+  "ratio": "比例",
+  "@ratio": {
+    "description": "封面牆模態嘅輸入欄位標題"
+  },
+  "frame": "邊框",
+  "@frame": {
+    "description": "封面牆模態嘅輸入欄位標題"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "封面牆模態嘅輸入欄位標題"
+  },
+  "evaluationMode": "試用模式",
+  "@evaluationMode": {
+    "description": "試用模式模態框嘅標題"
+  },
+  "evaluationModeContent1": "Rune 唔係免費軟件。我哋建議你喺應用商店買正版授權。",
+  "@evaluationModeContent1": {
+    "description": "試用模式模態框嘅內容"
+  },
+  "evaluationModeContent2": "授權用戶可以享受應用商店提供嘅自動更新，仲可以直接同開發人員提出新功能。",
+  "@evaluationModeContent2": {
+    "description": "試用模式模態框嘅內容"
+  },
+  "evaluationModeContent3": "你可以揀喺 180 日內關閉呢個提醒，我哋遲啲會再提醒你。",
+  "@evaluationModeContent3": {
+    "description": "試用模式模態框嘅內容"
+  },
+  "remindMeLater": "遲啲提醒",
+  "@remindMeLater": {
+    "description": "試用模式模態框嘅動作按鈕"
+  },
+  "mysteriousButton": "神秘按鈕",
+  "@mysteriousButton": {
+    "description": "上下文選單入面嘅項目"
+  },
+  "mysteriousModalTitle": "嘎吱",
+  "@mysteriousModalTitle": {
+    "description": "模態框嘅標題"
+  },
+  "mysteriousModalContent": "你好似觸發咗個神秘嘅機關。空間嘅結構好似發生咗變化，露出咗新嘅探索區域。",
+  "@mysteriousModalContent": {
+    "description": "模態框嘅內容"
+  },
+  "laboratory": "實驗室",
+  "@laboratory": {
+    "description": "連結標題嘅標題"
+  },
+  "libraryMode": "媒體庫設定",
+  "@libraryMode": {
+    "description": "模態框嘅標題，用嚟指導用戶揀選儲存資料庫嘅位置"
+  },
+  "libraryModeSubtitle": "我哋需要更多了解你嘅媒體庫。你嘅媒體檔案儲存喺邊度？",
+  "@libraryModeSubtitle": {
+    "description": "模態框嘅副標題，指導用戶揀選資料庫嘅儲存位置"
+  },
+  "portableMode": "本地硬碟",
+  "@portableMode": {
+    "description": "用戶嘅一個候選庫模式"
+  },
+  "portableModeSubtitle": "我哋會將你嘅媒體索引一併儲存喺媒體庫所在嘅資料夾度。",
+  "@portableModeSubtitle": {
+    "description": "用戶嘅候選庫模式嘅副標題"
+  },
+  "localMode": "雲端",
+  "@localMode": {
+    "description": "用戶嘅一個候選庫模式"
+  },
+  "localModeSubtitle": "我哋會將你嘅媒體索引儲存喺 Rune 嘅設定目錄度。",
+  "@localModeSubtitle": {
+    "description": "用戶嘅候選庫模式嘅副標題"
+  },
+  "rememberWindowSize": "記住視窗大細",
+  "@rememberWindowSize": {
+    "description": "主題頁面入面設定選項嘅標題"
+  },
+  "rememberWindowSizeSubtitle": "喺調整視窗大細嗰陣儲存，下次啟動程式時尺寸唔變。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "主題頁面入面設定選項嘅副標題"
+  },
+  "closeNotification": "Rune 仲喺度運行緊",
+  "@closeNotification": {
+    "description": "當用戶關閉視窗時，彈出嘅通知"
+  },
+  "closeNotificationSubtitle": "Rune 喺後台運行緊。你可以喺系統托盤度好容易搵到。",
+  "@closeNotificationSubtitle": {
     "description": ""
+  },
+  "register": "註冊",
+  "@register": {
+    "description": "設定頁面入面註冊磚塊嘅標題。"
+  },
+  "evaluationModeContent4": "你可以喺下面嘅商店買音樂檔案作為註冊碼。撳「註冊」去驗證你嘅正版狀態。",
+  "@evaluationModeContent4": {
+    "description": "試用模式模態嘅內容。"
+  },
+  "registerAction": "註冊",
+  "@registerAction": {
+    "description": "模態入面註冊掣嘅標籤。"
+  },
+  "registerFailed": "註冊失敗",
+  "@registerFailed": {
+    "description": "註冊失敗模態嘅標題。"
+  },
+  "registerFailedSubtitle": "驗證過程中發生錯誤。",
+  "@registerFailedSubtitle": {
+    "description": "註冊失敗模態嘅內容。"
+  },
+  "registerSuccess": "註冊成功",
+  "@registerSuccess": {
+    "description": "註冊成功模態嘅標題。"
+  },
+  "registerSuccessSubtitle": "恭喜！你嘅軟件已經成功註冊，多謝你揀選 Rune。",
+  "@registerSuccessSubtitle": {
+    "description": "註冊成功模態嘅內容。"
+  },
+  "registerInvalid": "密鑰無效",
+  "@registerInvalid": {
+    "description": "無效註冊密鑰模態嘅標題。"
+  },
+  "registerInvalidSubtitle": "你提供嘅密鑰檔案無效。請檢查檔案再試過。",
+  "@registerInvalidSubtitle": {
+    "description": "無效註冊密鑰模態嘅內容。"
+  },
+  "importM3u8Success": "導入成功",
+  "@importM3u8Success": {
+    "description": "部分導入成功模態嘅標題。"
+  },
+  "importM3u8SuccessSubtitle": "你嘅歌曲已經導入咗，但有啲歌曲喺資料庫度搵唔到。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分導入成功模態嘅內容。"
+  },
+  "importM3u8Failed": "導入失敗",
+  "@importM3u8Failed": {
+    "description": "導入失敗模態嘅標題。"
+  },
+  "importM3u8FailedSubtitle": "導入過程中發生錯誤。",
+  "@importM3u8FailedSubtitle": {
+    "description": "導入失敗模態嘅內容。"
+  },
+  "importM3u8": "導入播放清單",
+  "@importM3u8": {
+    "description": "上下文選單項，指導用戶導入新播放清單。"
   }
 }

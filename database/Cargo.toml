@@ -10,13 +10,13 @@ path = "src/lib.rs"
 
 [dependencies]
 log = { version = "0.4.22" }
-sea-orm = { version="1.1.0", features = [ "sqlx-sqlite", "runtime-async-std-native-tls", "macros", "debug-print" ] }
+sea-orm = { version = "1.1.0", features = [ "sqlx-sqlite", "runtime-async-std-native-tls", "macros", "debug-print" ] }
 sea-orm-migration = "1.1.0"
 migration = { path = "../migration" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
 futures = "0.3.30"
-tokio = "1.40.0"
+tokio = { version = "1.40.0", features = ["fs"] }
 arroy = "0.4.0"
 heed = "0.20.3"
 rand = "0.8.5"
@@ -36,3 +36,4 @@ windows = { version="0.58.0", features = ["Win32_Storage", "Win32_Storage_FileSy
 async-trait = "0.1.83"
 thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
+regex = "1.11.1"

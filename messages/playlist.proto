@@ -94,3 +94,19 @@ message PlaylistSummary {
   int32 id = 1;
   string name = 2;
 }
+
+// [DART-SIGNAL]
+message CreateM3u8PlaylistRequest {
+  string name = 1;
+  string group = 2;
+  string path = 3;
+}
+
+// [RUST-SIGNAL]
+message CreateM3u8PlaylistResponse {
+  optional Playlist playlist = 1;
+  optional int32 importedCount = 2;
+  repeated string notFoundPaths = 3;
+  bool success = 4;
+  string error = 5;
+}

@@ -1,20 +1,22 @@
 use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::prelude::*;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
+use sea_orm::{prelude::*, TransactionTrait};
+use tokio::fs::read_to_string;
 
 use crate::actions::collection::CollectionQuery;
 use crate::actions::search::{add_term, remove_term};
 use crate::connection::MainDbConnection;
-use crate::entities::{media_file_playlists, playlists};
+use crate::entities::{media_file_playlists, media_files, playlists};
 use crate::{collection_query, get_by_id};
 
 use super::collection::CollectionQueryType;
-use super::utils::CollectionDefinition;
+use super::utils::{CollectionDefinition, DatabaseExecutor};
 
 impl CollectionDefinition for playlists::Entity {
     fn group_column() -> Self::Column {
@@ -45,11 +47,14 @@ collection_query!(
 ///
 /// # Returns
 /// * `Result<Model>` - The created playlist model or an error.
-pub async fn create_playlist(
-    main_db: &DatabaseConnection,
+pub async fn create_playlist<E>(
+    main_db: &E,
     name: String,
     group: String,
-) -> Result<playlists::Model> {
+) -> Result<playlists::Model>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
     use playlists::ActiveModel;
 
     // Create a new playlist active model
@@ -273,5 +278,198 @@ pub async fn reorder_playlist_item_position(
         Ok(())
     } else {
         bail!("Media file not found in playlist")
+    }
+}
+
+#[derive(Debug)]
+pub struct PlaylistImportResult {
+    pub matched_ids: Vec<i32>,
+    pub unmatched_paths: Vec<String>,
+}
+
+pub async fn parse_m3u8_playlist<E>(
+    main_db: &E,
+    playlist_path: &Path,
+) -> Result<PlaylistImportResult>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    // Read the content of the M3U8 file asynchronously into a string
+    let content = read_to_string(playlist_path).await?;
+    // Initialize vectors to store matched file IDs and unmatched paths
+    let mut matched_ids = Vec::new();
+    let mut unmatched_paths = Vec::new();
+
+    // Iterate over each line in the content, filtering out empty lines
+    for line in content.lines().filter_map(|l| {
+        // Trim whitespace from the line
+        let trimmed = l.trim();
+        // If the line is empty after trimming, return None; otherwise, return the trimmed line
+        if trimmed.is_empty() || trimmed.starts_with("#") {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }) {
+        // Convert the line into a PathBuf object
+        let path = PathBuf::from(line);
+        // Extract the file name from the path, if possible
+        let file_name = path.file_name().and_then(|n| n.to_str()).map(String::from);
+
+        // If a file name was successfully extracted
+        if let Some(file_name) = file_name {
+            // Query the database for files with the same file name
+            let matching_files = media_files::Entity::find()
+                .filter(media_files::Column::FileName.eq(file_name.clone()))
+                .all(main_db)
+                .await?;
+
+            // Handle different cases based on the number of matching files found
+            match matching_files.len() {
+                0 => {
+                    // No matching files found, add the path to unmatched_paths
+                    unmatched_paths.push(line.to_string());
+                }
+                1 => {
+                    // Exactly one matching file found, add its ID to matched_ids
+                    matched_ids.push(matching_files[0].id);
+                }
+                _ => {
+                    // More than one matching file found, need to disambiguate using directory paths
+                    let mut path_components: Vec<String> = path
+                        .parent()
+                        .map(|p| {
+                            // Split the path into components and reverse them for comparison
+                            p.components()
+                                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    path_components.reverse();
+
+                    // Prepare a vector of tuples containing each file and its directory components
+                    let mut matches_with_paths: Vec<_> = matching_files
+                        .into_iter()
+                        .map(|file| {
+                            let file_path = PathBuf::from(&file.directory);
+                            let mut components: Vec<String> = file_path
+                                .components()
+                                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                                .collect();
+                            components.reverse();
+                            (file, components)
+                        })
+                        .collect();
+
+                    let mut matched = false;
+                    // Iterate over the components of the path to find the best match
+                    for (i, component) in path_components.iter().enumerate() {
+                        // Retain only the files whose directory components match the current component
+                        matches_with_paths.retain(|(_, file_components)| {
+                            file_components
+                                .get(i)
+                                .map(|c| c == component)
+                                .unwrap_or(false)
+                        });
+
+                        // If no matches are left, add the path to unmatched_paths and break
+                        if matches_with_paths.is_empty() {
+                            unmatched_paths.push(line.to_string());
+                            matched = true;
+                            break;
+                        }
+
+                        // If only one match is left, add its ID to matched_ids and break
+                        if matches_with_paths.len() == 1 {
+                            matched_ids.push(matches_with_paths[0].0.id);
+                            matched = true;
+                            break;
+                        }
+                    }
+
+                    // If still multiple matches exist, select the one with the highest ID
+                    if !matched {
+                        if let Some((file, _)) =
+                            matches_with_paths.into_iter().max_by_key(|(f, _)| f.id)
+                        {
+                            matched_ids.push(file.id);
+                        } else {
+                            unmatched_paths.push(line.to_string());
+                        }
+                    }
+                }
+            }
+        } else {
+            // If no file name could be extracted, add the path to unmatched_paths
+            unmatched_paths.push(line.to_string());
+        }
+    }
+
+    // Return the result containing matched file IDs and unmatched paths
+    Ok(PlaylistImportResult {
+        matched_ids,
+        unmatched_paths,
+    })
+}
+
+pub async fn import_m3u8_to_playlist<E>(
+    main_db: &E,
+    playlist_id: i32,
+    playlist_path: &Path,
+) -> Result<PlaylistImportResult>
+where
+    E: DatabaseExecutor + sea_orm::ConnectionTrait,
+{
+    let import_result = parse_m3u8_playlist(main_db, playlist_path).await?;
+
+    let models: Vec<media_file_playlists::ActiveModel> = import_result
+        .matched_ids
+        .iter()
+        .enumerate()
+        .map(
+            |(index, &media_file_id)| media_file_playlists::ActiveModel {
+                playlist_id: ActiveValue::Set(playlist_id),
+                media_file_id: ActiveValue::Set(media_file_id),
+                position: ActiveValue::Set(index as i32),
+                ..Default::default()
+            },
+        )
+        .collect();
+
+    if !models.is_empty() {
+        media_file_playlists::Entity::insert_many(models)
+            .exec(main_db)
+            .await?;
+    }
+
+    Ok(import_result)
+}
+
+pub async fn create_m3u8_playlist(
+    main_db: &MainDbConnection,
+    name: String,
+    group: String,
+    m3u8_path: &Path,
+) -> Result<(playlists::Model, PlaylistImportResult)> {
+    let txn = main_db.begin().await?;
+
+    // Create the playlist
+    let playlist: playlists::Model = create_playlist(&txn, name.clone(), group.clone()).await?;
+
+    // Import the M3U8 file contents into the playlist
+    let import_result = import_m3u8_to_playlist(&txn, playlist.id, m3u8_path).await;
+
+    // Check if the import was successful
+    match import_result {
+        Ok(result) => {
+            // Commit the transaction if successful
+            txn.commit().await?;
+            Ok((playlist, result))
+        }
+        Err(e) => {
+            // Rollback the transaction if there was an error
+            txn.rollback().await?;
+            Err(e)
+        }
     }
 }

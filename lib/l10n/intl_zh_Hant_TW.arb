@@ -424,8 +424,270 @@
   "@followSystemLanguage": {
     "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
   },
-  "followSystemLanguageSubtitle": "跟隨系統語言設定，無需特別設置。",
-  "@followSystemLanguageSubtitle": {
+  "followSystemLanguageSubtitle": "依照系統語言，無需特殊設定。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "視窗大小",
+  "@windowSize": {
+    "description": "主題頁面中設定視窗大小的提示文字。"
+  },
+  "windowSizeSubtitle": "選擇應用程式的偏好視窗大小。",
+  "@windowSizeSubtitle": {
+    "description": "解釋視窗大小選項的副標題。"
+  },
+  "normalWindowSize": "標準",
+  "@normalWindowSize": {
+    "description": "標準視窗大小的選項。"
+  },
+  "slimWindowSize": "窄",
+  "@slimWindowSize": {
+    "description": "較窄視窗大小的選項。"
+  },
+  "stockyWindowSize": "寬",
+  "@stockyWindowSize": {
+    "description": "較寬視窗大小的選項。"
+  },
+  "log": "紀錄",
+  "@log": {
+    "description": "設定部分中的紀錄頁面的標題，此頁面包含程式執行時發生的錯誤和警告。"
+  },
+  "viewLogDetail": "檢視紀錄詳情",
+  "@viewLogDetail": {
+    "description": "上下文選單中的一個項目。按下此項目將顯示紀錄詳情視窗。"
+  },
+  "removeLogTitle": "刪除紀錄",
+  "@removeLogTitle": {
+    "description": "告知使用者他們即將刪除一筆紀錄的視窗標題。"
+  },
+  "removeLogSubtitle": "如果刪除此紀錄，您將無法復原。您確定要刪除嗎？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "移除所有紀錄",
+  "@clearLogTitle": {
+    "description": "告知使用者他們即將刪除所有紀錄的視窗標題。"
+  },
+  "clearLogSubtitle": "如果刪除所有紀錄，您將無法復原。您確定要刪除嗎？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部刪除",
+  "@deleteAll": {
+    "description": "上下文選單中的一個項目。按下此項目將刪除所有可用項目。"
+  },
+  "noLogsAvailable": "無可用紀錄",
+  "@noLogsAvailable": {
+    "description": "紀錄設定頁面的空狀態圖示的標題。"
+  },
+  "home": "首頁",
+  "@home": {
+    "description": "首頁設定頁面的標題。"
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "oldest": "最舊",
+  "@oldest": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "random": "隨機",
+  "@random": {
+    "description": "媒體庫首頁設定下拉式清單中的項目。"
+  },
+  "mostPlayed": "最常播放",
+  "@mostPlayed": {
+    "description": "媒體庫首頁中的標題。"
+  },
+  "personalize": "個人化",
+  "@personalize": {
+    "description": "媒體庫首頁的上下文選單中的項目。"
+  },
+  "artistsLibraryHomeSubtitle": "探索與發現您最喜愛的藝術家的世界",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中藝術家部分的描述。"
+  },
+  "albumsLibraryHomeSubtitle": "沉浸在才華洋溢的藝術家創作的專輯中",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中專輯部分的描述。"
+  },
+  "playlistsLibraryHomeSubtitle": "策劃您專屬的個人聆聽之旅",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中播放清單部分的描述。"
+  },
+  "tracksLibraryHomeSubtitle": "深入研究您熟悉且喜愛的音軌",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中音軌部分的描述。"
+  },
+  "likedLibraryHomeSubtitle": "重溫您最珍視的音軌",
+  "@likedLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中收藏部分的描述。"
+  },
+  "mostLibraryHomeSubtitle": "再次聆聽那些反覆吸引您的旋律",
+  "@mostLibraryHomeSubtitle": {
+    "description": "媒體庫首頁中最多播放部分的描述。"
+  },
+  "showRune": "顯示 Rune",
+  "@showRune": {
+    "description": "系統列選單中的項目。"
+  },
+  "exit": "結束",
+  "@exit": {
+    "description": "系統列選單中的項目。"
+  },
+  "back": "返回",
+  "@back": {
+    "description": "Windows 標題列左上角圖示的工具提示。"
+  },
+  "exportTracks": "匯出為",
+  "@exportTracks": {
+    "description": "上下文選單中允許使用者匯出集合的項目"
+  },
+  "exportM3u8": "播放清單檔案",
+  "@exportM3u8": {
+    "description": "上下文選單中的一個項目，允許使用者以 M3U8 格式匯出集合"
+  },
+  "exportCoverWall": "封面牆",
+  "@exportCoverWall": {
+    "description": "上下文選單中的一個項目，允許使用者匯出封面牆"
+  },
+  "ratio": "比例",
+  "@ratio": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "frame": "邊框",
+  "@frame": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "封面牆視窗的輸入欄位標題"
+  },
+  "evaluationMode": "評估模式",
+  "@evaluationMode": {
+    "description": "評估模式視窗的標題"
+  },
+  "evaluationModeContent1": "Rune 不是免費軟體。我們鼓勵您從應用程式商店購買正版授權。",
+  "@evaluationModeContent1": {
+    "description": "評估模式視窗的內容"
+  },
+  "evaluationModeContent2": "授權使用者可享有應用程式商店提供的自動更新，並有權直接向開發人員提出新功能。",
+  "@evaluationModeContent2": {
+    "description": "評估模式視窗的內容"
+  },
+  "evaluationModeContent3": "您可以選擇在 180 天內關閉此提醒，我們稍後會再次提醒您。",
+  "@evaluationModeContent3": {
+    "description": "評估模式視窗的內容"
+  },
+  "remindMeLater": "稍後提醒",
+  "@remindMeLater": {
+    "description": "評估模式視窗的動作按鈕"
+  },
+  "mysteriousButton": "神秘按鈕",
+  "@mysteriousButton": {
+    "description": "上下文選單中的項目"
+  },
+  "mysteriousModalTitle": "嘎吱",
+  "@mysteriousModalTitle": {
+    "description": "視窗的標題"
+  },
+  "mysteriousModalContent": "你似乎觸發了一個神祕的機關。空間的結構好像發生了變化，露出了新的探索區域。",
+  "@mysteriousModalContent": {
+    "description": "視窗的內容"
+  },
+  "laboratory": "實驗室",
+  "@laboratory": {
+    "description": "連結標題的標題"
+  },
+  "libraryMode": "媒體庫設定",
+  "@libraryMode": {
+    "description": "視窗的標題，用於指導使用者選擇儲存資料庫的位置"
+  },
+  "libraryModeSubtitle": "我們需要更多了解您的媒體庫。您的媒體檔案儲存在哪裡？",
+  "@libraryModeSubtitle": {
+    "description": "視窗的副標題，引導使用者選擇資料庫的儲存位置"
+  },
+  "portableMode": "本機硬碟",
+  "@portableMode": {
+    "description": "使用者的一個候選庫模式"
+  },
+  "portableModeSubtitle": "我們會將您的媒體索引一併儲存在媒體庫所在的資料夾中。",
+  "@portableModeSubtitle": {
+    "description": "使用者的候選庫模式的副標題"
+  },
+  "localMode": "雲端",
+  "@localMode": {
+    "description": "使用者的一個候選庫模式"
+  },
+  "localModeSubtitle": "我們會將您的媒體索引儲存在 Rune 的設定目錄中。",
+  "@localModeSubtitle": {
+    "description": "使用者的候選庫模式的副標題"
+  },
+  "rememberWindowSize": "記憶視窗大小",
+  "@rememberWindowSize": {
+    "description": "主題頁面中設定選項的標題"
+  },
+  "rememberWindowSizeSubtitle": "在調整視窗大小時儲存，下次啟動程式時尺寸不變。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "主題頁面中設定選項的副標題"
+  },
+  "closeNotification": "Rune 仍在執行",
+  "@closeNotification": {
+    "description": "當使用者關閉視窗時，彈出的通知"
+  },
+  "closeNotificationSubtitle": "Rune 正在背景執行。您可以在系統列中輕鬆找到。",
+  "@closeNotificationSubtitle": {
     "description": ""
+  },
+  "register": "註冊",
+  "@register": {
+    "description": "設定頁面中註冊磚的標題。"
+  },
+  "evaluationModeContent4": "您可以從下方的商店購買音樂檔案作為註冊碼。點擊「註冊」以驗證您的正版狀態。",
+  "@evaluationModeContent4": {
+    "description": "評估模式視窗的內容。"
+  },
+  "registerAction": "註冊",
+  "@registerAction": {
+    "description": "視窗中註冊按鈕的標籤。"
+  },
+  "registerFailed": "註冊失敗",
+  "@registerFailed": {
+    "description": "註冊失敗視窗的標題。"
+  },
+  "registerFailedSubtitle": "驗證過程中發生錯誤。",
+  "@registerFailedSubtitle": {
+    "description": "註冊失敗視窗的內容。"
+  },
+  "registerSuccess": "註冊成功",
+  "@registerSuccess": {
+    "description": "註冊成功視窗的標題。"
+  },
+  "registerSuccessSubtitle": "恭喜！您的軟體已成功註冊，感謝您選擇 Rune。",
+  "@registerSuccessSubtitle": {
+    "description": "註冊成功視窗的內容。"
+  },
+  "registerInvalid": "金鑰無效",
+  "@registerInvalid": {
+    "description": "無效註冊金鑰視窗的標題。"
+  },
+  "registerInvalidSubtitle": "您提供的金鑰檔案無效。請檢查檔案並重試。",
+  "@registerInvalidSubtitle": {
+    "description": "無效註冊金鑰視窗的內容。"
+  },
+  "importM3u8Success": "匯入成功",
+  "@importM3u8Success": {
+    "description": "部分匯入成功視窗的標題。"
+  },
+  "importM3u8SuccessSubtitle": "您的音軌已匯入，但有些音軌並未在資料庫中檢索到。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分匯入成功視窗的內容。"
+  },
+  "importM3u8Failed": "匯入失敗",
+  "@importM3u8Failed": {
+    "description": "匯入失敗視窗的標題。"
+  },
+  "importM3u8FailedSubtitle": "匯入過程中發生錯誤。",
+  "@importM3u8FailedSubtitle": {
+    "description": "匯入失敗視窗的內容。"
+  },
+  "importM3u8": "匯入播放清單",
+  "@importM3u8": {
+    "description": "上下文選單項目，指導使用者匯入新播放清單。"
   }
 }

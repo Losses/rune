@@ -41,6 +41,7 @@ use crate::cover_art::*;
 use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
+use crate::license::*;
 use crate::logging::*;
 use crate::media_file::*;
 use crate::messages::*;
@@ -168,6 +169,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             FetchAllPlaylistsRequest => (main_db),
             CreatePlaylistRequest => (main_db),
+            CreateM3u8PlaylistRequest => (main_db),
             UpdatePlaylistRequest => (main_db),
             RemovePlaylistRequest => (main_db),
             AddItemToPlaylistRequest => (main_db),
@@ -197,6 +199,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             RemoveLogRequest => (main_db),
 
             SystemInfoRequest => (main_db),
+            RegisterLicenseRequest => (main_db),
+            ValidateLicenseRequest => (main_db),
         );
     });
 }
@@ -227,17 +231,6 @@ async fn main() {
         init_logging();
         None
     };
-
-    let license_receiver = ValidateLicenseRequest::get_dart_signal_receiver();
-
-    loop {
-        let license_request = license_receiver.recv().await;
-
-        if let Some(license_request) = license_request {
-            let _ = validate_license_request(license_request).await;
-            break;
-        }
-    }
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(player_loop).await {

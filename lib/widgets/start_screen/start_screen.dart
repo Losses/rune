@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
+import '../../utils/dialogs/playlist/import_m3u8_playlist.dart';
 import '../../utils/l10n.dart';
 import '../../utils/dialogs/mix/mix_studio.dart';
 import '../../utils/dialogs/show_group_list_dialog.dart';
@@ -153,7 +155,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     contextController.showFlyout(
       position: position,
-      builder: (context) {
+      builder: (_) {
         return MenuFlyout(
           items: [
             MenuFlyoutItem(
@@ -184,6 +186,28 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
                 text: Text(S.of(context).newPlaylist),
                 onPressed: () async {
                   final x = await showCreateEditPlaylistDialog(context, "");
+
+                  if (x != null) data.reloadData();
+                },
+              ),
+            if (data.collectionType == CollectionType.Playlist)
+              MenuFlyoutItem(
+                leading: const Icon(Symbols.download),
+                text: Text(S.of(context).importM3u8),
+                onPressed: () async {
+                  const XTypeGroup typeGroup = XTypeGroup(
+                    label: 'playlist',
+                    extensions: <String>['m3u', 'm3u8'],
+                  );
+                  final XFile? file = await openFile(
+                    acceptedTypeGroups: <XTypeGroup>[typeGroup],
+                  );
+
+                  if (file == null) return;
+                  if (!mounted) return;
+
+                  final x =
+                      await showCreateImportM3u8PlaylistDialog(context, file);
 
                   if (x != null) data.reloadData();
                 },

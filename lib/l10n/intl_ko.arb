@@ -694,5 +694,269 @@
   "followSystemLanguageSubtitle": "특별한 설정 없이 시스템 언어 설정을 따릅니다.",
   "@followSystemLanguageSubtitle": {
     "description": ""
+  },
+  "windowSize": "창 크기",
+  "@windowSize": {
+    "description": "테마 페이지에서 창 크기를 설정하는 프롬프트 텍스트입니다."
+  },
+  "windowSizeSubtitle": "애플리케이션에 선호하는 창 크기를 선택하세요.",
+  "@windowSizeSubtitle": {
+    "description": "창 크기 옵션을 설명하는 부제목입니다."
+  },
+  "normalWindowSize": "보통",
+  "@normalWindowSize": {
+    "description": "표준 창 크기 옵션입니다."
+  },
+  "slimWindowSize": "슬림",
+  "@slimWindowSize": {
+    "description": "좁은 창 크기 옵션입니다."
+  },
+  "stockyWindowSize": "넓음",
+  "@stockyWindowSize": {
+    "description": "넓은 창 크기 옵션입니다."
+  },
+  "log": "로그",
+  "@log": {
+    "description": "설정 섹션의 로깅 페이지 제목입니다. 이 페이지에는 프로그램 실행 중 발생한 오류 및 경고가 포함됩니다."
+  },
+  "viewLogDetail": "로그 세부정보",
+  "@viewLogDetail": {
+    "description": "컨텍스트 메뉴 항목입니다. 이 항목을 누르면 로그 세부정보 모달이 표시됩니다."
+  },
+  "removeLogTitle": "로그 삭제",
+  "@removeLogTitle": {
+    "description": "사용자가 로그를 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "removeLogSubtitle": "이 로그를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "모든 로그 삭제",
+  "@clearLogTitle": {
+    "description": "사용자가 모든 로그를 삭제하려고 한다는 것을 알리는 모달 제목입니다."
+  },
+  "clearLogSubtitle": "모든 로그를 삭제하면 복구할 수 없습니다. 삭제하시겠습니까?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "모두 삭제",
+  "@deleteAll": {
+    "description": "컨텍스트 메뉴 항목입니다. 이 항목을 누르면 사용 가능한 모든 항목이 제거됩니다."
+  },
+  "noLogsAvailable": "사용 가능한 로그가 없습니다",
+  "@noLogsAvailable": {
+    "description": "로그 설정 페이지의 빈 상태 아이콘 제목입니다."
+  },
+  "home": "홈",
+  "@home": {
+    "description": "홈 설정 페이지의 제목입니다."
+  },
+  "newest": "최신",
+  "@newest": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "oldest": "오래된",
+  "@oldest": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "random": "무작위",
+  "@random": {
+    "description": "라이브러리 홈 설정 드롭다운의 항목입니다."
+  },
+  "mostPlayed": "가장 많이 재생됨",
+  "@mostPlayed": {
+    "description": "라이브러리 홈 그룹의 제목입니다."
+  },
+  "personalize": "개인화",
+  "@personalize": {
+    "description": "라이브러리 홈 페이지의 컨텍스트 메뉴 항목입니다."
+  },
+  "artistsLibraryHomeSubtitle": "좋아하는 아티스트의 세계를 발견하고 탐험하세요",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 아티스트 섹션에 대한 부제목입니다."
+  },
+  "albumsLibraryHomeSubtitle": "재능 있는 아티스트가 제작한 앨범에 몰입하세요",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 앨범 섹션에 대한 부제목입니다."
+  },
+  "playlistsLibraryHomeSubtitle": "개인화된 청취 여정을 큐레이션하세요",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 재생목록 섹션에 대한 부제목입니다."
+  },
+  "tracksLibraryHomeSubtitle": "알고 사랑하는 트랙을 탐구하세요",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 트랙 섹션에 대한 부제목입니다."
+  },
+  "likedLibraryHomeSubtitle": "가장 소중히 여기는 트랙을 다시 경험하세요",
+  "@likedLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 좋아요 섹션에 대한 부제목입니다."
+  },
+  "mostLibraryHomeSubtitle": "다시 한번 당신을 사로잡는 멜로디를 재방문하세요",
+  "@mostLibraryHomeSubtitle": {
+    "description": "라이브러리 홈의 가장 많이 재생된 섹션에 대한 부제목입니다."
+  },
+  "showRune": "Rune 보기",
+  "@showRune": {
+    "description": "트레이 메뉴의 항목입니다."
+  },
+  "exit": "종료",
+  "@exit": {
+    "description": "트레이 메뉴의 항목입니다."
+  },
+  "back": "뒤로",
+  "@back": {
+    "description": "윈도우 제목 표시줄의 왼쪽 상단 아이콘의 툴팁입니다."
+  },
+  "exportTracks": "내보내기",
+  "@exportTracks": {
+    "description": "컬렉션을 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "exportM3u8": "재생목록 파일",
+  "@exportM3u8": {
+    "description": "컬렉션을 M3U8 형식으로 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "exportCoverWall": "커버 아트 월",
+  "@exportCoverWall": {
+    "description": "커버 아트 월을 내보낼 수 있는 컨텍스트 메뉴 항목입니다."
+  },
+  "ratio": "비율",
+  "@ratio": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "frame": "프레임",
+  "@frame": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "background": "배경",
+  "@background": {
+    "description": "커버 아트 월 모달의 입력 필드 제목입니다."
+  },
+  "evaluationMode": "평가 모드",
+  "@evaluationMode": {
+    "description": "평가 모드 모달의 제목입니다."
+  },
+  "evaluationModeContent1": "Rune은 공짜 맥주가 아닙니다. 앱 스토어에서 정품 라이센스를 구매하시길 권장합니다.",
+  "@evaluationModeContent1": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "evaluationModeContent2": "라이센스 사용자는 앱 스토어에서 제공하는 자동 업데이트를 받고 개발자에게 직접 새로운 기능을 제안할 수 있습니다.",
+  "@evaluationModeContent2": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "evaluationModeContent3": "이 알림을 180일 동안 해제할 수 있으며, 나중에 다시 알림을 받게 됩니다.",
+  "@evaluationModeContent3": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "remindMeLater": "나중에 알림",
+  "@remindMeLater": {
+    "description": "평가 모드 모달의 액션 버튼입니다."
+  },
+  "mysteriousButton": "신비한 버튼",
+  "@mysteriousButton": {
+    "description": "컨텍스트 메뉴 항목입니다."
+  },
+  "mysteriousModalTitle": "삐걱",
+  "@mysteriousModalTitle": {
+    "description": "모달의 제목입니다."
+  },
+  "mysteriousModalContent": "신비한 메커니즘을 작동시킨 것 같습니다. 방의 구조가 바뀌어 새로운 탐험 구역이 나타났습니다.",
+  "@mysteriousModalContent": {
+    "description": "모달의 내용입니다."
+  },
+  "laboratory": "실험실",
+  "@laboratory": {
+    "description": "링크 제목의 제목입니다."
+  },
+  "libraryMode": "라이브러리 설정",
+  "@libraryMode": {
+    "description": "데이터베이스를 저장할 위치를 선택하도록 사용자를 안내하는 모달의 제목입니다."
+  },
+  "libraryModeSubtitle": "라이브러리에 대해 조금 더 알고 싶습니다. 미디어 파일이 어디에 저장되어 있습니까?",
+  "@libraryModeSubtitle": {
+    "description": "데이터베이스를 저장할 위치를 선택하도록 사용자를 안내하는 모달의 부제목입니다."
+  },
+  "portableMode": "로컬 하드 드라이브",
+  "@portableMode": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보입니다."
+  },
+  "portableModeSubtitle": "미디어 인덱스를 라이브러리 폴더에 함께 저장합니다.",
+  "@portableModeSubtitle": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보의 부제목입니다."
+  },
+  "localMode": "클라우드에",
+  "@localMode": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보입니다."
+  },
+  "localModeSubtitle": "미디어 인덱스를 Rune의 구성 디렉토리에 저장합니다.",
+  "@localModeSubtitle": {
+    "description": "사용자에게 제공되는 라이브러리 모드 후보의 부제목입니다."
+  },
+  "rememberWindowSize": "창 크기 기억",
+  "@rememberWindowSize": {
+    "description": "테마 페이지의 설정 옵션 제목입니다."
+  },
+  "rememberWindowSizeSubtitle": "창 크기를 조정할 때 저장하고, 다음 실행 시 동일한 크기로 시작합니다.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "테마 페이지의 설정 옵션 부제목입니다."
+  },
+  "closeNotification": "Rune이 여전히 실행 중입니다",
+  "@closeNotification": {
+    "description": "사용자가 창을 닫을 때 나타나는 알림입니다."
+  },
+  "closeNotificationSubtitle": "Rune이 현재 백그라운드에서 실행 중입니다. 시스템 트레이에서 쉽게 찾을 수 있습니다.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "등록",
+  "@register": {
+    "description": "설정 페이지의 등록 타일 제목입니다."
+  },
+  "evaluationModeContent4": "아래 스토어에서 음악 파일을 등록 키로 구매할 수 있습니다. \"등록\"을 클릭하여 정품 상태를 확인하세요.",
+  "@evaluationModeContent4": {
+    "description": "평가 모드 모달의 내용입니다."
+  },
+  "registerAction": "등록",
+  "@registerAction": {
+    "description": "모달의 등록 버튼 레이블입니다."
+  },
+  "registerFailed": "실패",
+  "@registerFailed": {
+    "description": "등록 실패 모달의 제목입니다."
+  },
+  "registerFailedSubtitle": "인증 과정에서 오류가 발생했습니다.",
+  "@registerFailedSubtitle": {
+    "description": "등록 실패 모달의 내용입니다."
+  },
+  "registerSuccess": "완료",
+  "@registerSuccess": {
+    "description": "등록 성공 모달의 제목입니다."
+  },
+  "registerSuccessSubtitle": "축하합니다! 소프트웨어가 성공적으로 등록되었습니다. Rune을 선택해 주셔서 감사합니다.",
+  "@registerSuccessSubtitle": {
+    "description": "등록 성공 모달의 내용입니다."
+  },
+  "registerInvalid": "잘못된 키",
+  "@registerInvalid": {
+    "description": "잘못된 등록 키 모달의 제목입니다."
+  },
+  "registerInvalidSubtitle": "제공한 키 파일이 잘못되었습니다. 파일을 확인하고 다시 시도하세요.",
+  "@registerInvalidSubtitle": {
+    "description": "잘못된 등록 키 모달의 내용입니다."
+  },
+  "importM3u8Success": "부분적으로 성공",
+  "@importM3u8Success": {
+    "description": "부분적으로 가져오기 성공 모달의 제목입니다."
+  },
+  "importM3u8SuccessSubtitle": "트랙이 가져와졌지만 일부는 찾을 수 없습니다.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "부분적으로 가져오기 성공 모달의 내용입니다."
+  },
+  "importM3u8Failed": "가져오기 실패",
+  "@importM3u8Failed": {
+    "description": "가져오기 실패 모달의 제목입니다."
+  },
+  "importM3u8FailedSubtitle": "가져오기 과정에서 오류가 발생했습니다.",
+  "@importM3u8FailedSubtitle": {
+    "description": "가져오기 실패 모달의 내용입니다."
+  },
+  "importM3u8": "재생목록 가져오기",
+  "@importM3u8": {
+    "description": "새 재생목록을 가져오도록 안내하는 컨텍스트 메뉴 항목입니다."
   }
 }

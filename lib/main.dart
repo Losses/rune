@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:intl/intl_standalone.dart';
-import 'package:tray_manager/tray_manager.dart';
 import 'package:system_theme/system_theme.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
@@ -16,16 +15,13 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
+import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
 import 'utils/rune_log.dart';
 import 'utils/tray_manager.dart';
-import 'utils/api/play_next.dart';
-import 'utils/api/play_play.dart';
 import 'utils/close_manager.dart';
-import 'utils/api/play_pause.dart';
 import 'utils/settings_manager.dart';
-import 'utils/api/play_previous.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
@@ -52,6 +48,7 @@ import 'messages/all.dart';
 import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
+import 'providers/license.dart';
 import 'providers/playlist.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
@@ -67,11 +64,6 @@ late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
 
-late bool isPro;
-late bool isStore;
-
-const licenseKey = 'license';
-
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeRust(assignRustSignal);
@@ -84,16 +76,11 @@ void main(List<String> arguments) async {
   StorageKeyManager.initialize(profile);
   await MacSecureManager().completed;
 
-  final licenseData = await settingsManager.getValue<String?>(licenseKey);
-  ValidateLicenseRequest(license: licenseData).sendSignalToRust();
-  final license =
-      (await ValidateLibraryResponse.rustSignalStream.first).message;
+  final licenseProvider = LicenseProvider();
+  await licenseProvider.initialized.future;
 
   info$(
-      'Parsed license: isStoreMode: ${license.isStoreMode}, isPro: ${license.isPro}');
-
-  isStore = license.isStoreMode;
-  isPro = license.isPro;
+      'Cached license: isStoreMode: ${licenseProvider.isStoreMode}, isPro: ${licenseProvider.isPro}');
 
   await FullScreen.ensureInitialized();
 
@@ -158,26 +145,16 @@ void main(List<String> arguments) async {
     if (Platform.isMacOS || Platform.isWindows) {
       updateTheme();
     }
-
-    if (Platform.isWindows) {
-      $tray.initialize();
-    }
   };
 
   initialPath = await getInitialPath();
   await findSystemLocale();
-
-  await $tray.initialize();
 
   $closeManager;
   await localNotifier.setup(
     appName: 'Rune',
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
-
-  if (Platform.isMacOS) {
-    MacOSWindowControlButtonManager.setVertical();
-  }
 
   final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
@@ -204,13 +181,19 @@ void main(List<String> arguments) async {
     windowSize = windowSize / firstView.devicePixelRatio;
   }
 
-  mainLoop();
-  appWindow.show();
+  mainLoop(licenseProvider);
+  if (!Platform.isMacOS) {
+    appWindow.show();
+  }
 
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');
 
   doWhenWindowReady(() {
+    if (Platform.isMacOS) {
+      MacOSWindowControlButtonManager.setVertical();
+    }
+
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
@@ -221,7 +204,7 @@ void main(List<String> arguments) async {
   });
 }
 
-void mainLoop() {
+void mainLoop(LicenseProvider licenseProvider) {
   runApp(
     MultiProvider(
       providers: [
@@ -256,6 +239,7 @@ void mainLoop() {
               previous ?? ResponsiveProvider(screenSizeProvider),
         ),
         ChangeNotifierProvider(create: (_) => $router),
+        ChangeNotifierProvider(create: (_) => licenseProvider),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
@@ -396,15 +380,15 @@ class RuneLifecycle extends StatefulWidget {
   RuneLifecycleState createState() => RuneLifecycleState();
 }
 
-class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
+class RuneLifecycleState extends State<RuneLifecycle> {
   late PlaybackStatusProvider status;
+  late LicenseProvider license;
   Timer? _throttleTimer;
   bool _shouldCallUpdate = false;
 
   @override
   void initState() {
     super.initState();
-    trayManager.addListener(this);
   }
 
   @override
@@ -412,20 +396,25 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     super.didChangeDependencies();
 
     status = Provider.of<PlaybackStatusProvider>(context, listen: false);
+    license = Provider.of<LicenseProvider>(context, listen: false);
 
+    license.addListener(_updateLicense);
     status.addListener(_throttleUpdateTray);
     $router.addListener(_throttleUpdateTray);
     appTheme.addListener(_throttleUpdateTray);
+    _throttleUpdateTray();
+
+    _updateLicense();
   }
 
   @override
   dispose() {
     super.dispose();
 
-    trayManager.removeListener(this);
-    appTheme.removeListener(_throttleUpdateTray);
+    license.removeListener(_updateLicense);
     status.removeListener(_throttleUpdateTray);
     $router.removeListener(_throttleUpdateTray);
+    appTheme.removeListener(_throttleUpdateTray);
     _throttleTimer?.cancel();
   }
 
@@ -447,35 +436,13 @@ class RuneLifecycleState extends State<RuneLifecycle> with TrayListener {
     $tray.updateTray(context);
   }
 
-  @override
-  void onTrayMenuItemClick(MenuItem menuItem) async {
-    if (menuItem.key == 'show_window') {
-      appWindow.show();
-    } else if (menuItem.key == 'exit_app') {
-      $closeManager.close();
-    } else if (menuItem.key == 'previous') {
-      playPrevious();
-    } else if (menuItem.key == 'play') {
-      playPlay();
-    } else if (menuItem.key == 'pause') {
-      playPause();
-    } else if (menuItem.key == 'next') {
-      playNext();
-    }
-  }
-
-  @override
-  void onTrayIconMouseDown() {
-    if (Platform.isWindows) {
-      appWindow.show();
+  void _updateLicense() {
+    if (!license.isPro) {
+      final evaluationMode = S.of(context).evaluationMode;
+      appWindow.title = 'Rune [$evaluationMode]';
     } else {
-      trayManager.popUpContextMenu();
+      appWindow.title = 'Rune';
     }
-  }
-
-  @override
-  void onTrayIconRightMouseDown() {
-    trayManager.popUpContextMenu();
   }
 
   @override

@@ -1,6 +1,8 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use database::actions::playlists::create_m3u8_playlist;
 use rinf::DartSignal;
 
 use database::actions::playlists::add_item_to_playlist;
@@ -11,7 +13,10 @@ use database::actions::playlists::remove_playlist;
 use database::actions::playlists::reorder_playlist_item_position;
 use database::actions::playlists::update_playlist;
 use database::connection::MainDbConnection;
+use sea_orm::TransactionTrait;
 
+use crate::CreateM3u8PlaylistRequest;
+use crate::CreateM3u8PlaylistResponse;
 use crate::RemovePlaylistRequest;
 use crate::RemovePlaylistResponse;
 use crate::{
@@ -53,9 +58,11 @@ pub async fn create_playlist_request(
     let name = request.name;
     let group = request.group;
 
-    let playlist = create_playlist(&main_db, name.clone(), group.clone())
+    let txn = main_db.begin().await?;
+    let playlist = create_playlist(&txn, name.clone(), group.clone())
         .await
         .with_context(|| format!("Failed to create playlist: name={}, group={}", name, group))?;
+    txn.commit().await?;
 
     CreatePlaylistResponse {
         playlist: Some(Playlist {
@@ -195,6 +202,48 @@ pub async fn get_playlist_by_id_request(
         }),
     }
     .send_signal_to_dart();
+
+    Ok(())
+}
+
+pub async fn create_m3u8_playlist_request(
+    main_db: Arc<MainDbConnection>,
+    dart_signal: DartSignal<CreateM3u8PlaylistRequest>,
+) -> Result<()> {
+    let request = dart_signal.message;
+
+    let name = request.name;
+    let group = request.group;
+    let path = request.path;
+
+    match create_m3u8_playlist(&main_db, name.clone(), group.clone(), Path::new(&path)).await {
+        Ok((playlist, import_result)) => {
+            // On success, construct the response with playlist details and import results
+            CreateM3u8PlaylistResponse {
+                playlist: Some(Playlist {
+                    id: playlist.id,
+                    name: playlist.name,
+                    group: playlist.group,
+                }),
+                imported_count: Some(import_result.matched_ids.len() as i32),
+                not_found_paths: import_result.unmatched_paths,
+                success: true,
+                error: String::new(), // No error on success
+            }
+            .send_signal_to_dart();
+        }
+        Err(e) => {
+            // On error, construct the response with the error message
+            CreateM3u8PlaylistResponse {
+                playlist: None,
+                imported_count: Some(0),
+                not_found_paths: vec![],
+                success: false,
+                error: e.to_string(), // Capture the error message
+            }
+            .send_signal_to_dart();
+        }
+    }
 
     Ok(())
 }

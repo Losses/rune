@@ -9,7 +9,7 @@ Future<Mix> createMix(
 ) async {
   final createRequest = CreateMixRequest(
     name: name,
-    group: group,
+    group: group.isEmpty ? 'Favorite' : group,
     scriptletMode: scriptletMode,
     mode: mode,
     queries: queries.map((x) => MixQuery(operator: x.$1, parameter: x.$2)),

@@ -9,7 +9,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import '../../main.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
-import '../../widgets/title_bar/darg_move_window_area.dart';
+import 'drag_move_window_area.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -27,6 +27,8 @@ class WindowFrameForWindows extends StatefulWidget {
 
 class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
     with FullScreenListener {
+  bool isFullScreen = FullScreen.isFullScreen;
+
   @override
   void initState() {
     super.initState();
@@ -41,7 +43,9 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
 
   @override
   void onFullScreenChanged(bool enabled, SystemUiMode? systemUiMode) {
-    setState(() => {});
+    setState(() {
+      isFullScreen = enabled;
+    });
   }
 
   @override
@@ -69,7 +73,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.band ||
                 activeBreakpoint == DeviceType.dock) {
-              return DargMoveWindowArea();
+              return DragMoveWindowArea();
             }
 
             return SizedBox(
@@ -78,9 +82,9 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Expanded(
-                    child: DargMoveWindowArea(),
+                    child: DragMoveWindowArea(),
                   ),
-                  if (FullScreen.isFullScreen)
+                  if (isFullScreen)
                     WindowIconButton(
                       onPressed: () {
                         if (isSearch) {
@@ -96,7 +100,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                         ),
                       ),
                     ),
-                  if (FullScreen.isFullScreen)
+                  if (isFullScreen)
                     WindowIconButton(
                       onPressed: () {
                         FullScreen.setFullScreen(false);
@@ -108,7 +112,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                         ),
                       ),
                     ),
-                  if (!FullScreen.isFullScreen)
+                  if (!isFullScreen)
                     activeBreakpoint == DeviceType.zune ||
                             activeBreakpoint == DeviceType.belt
                         ? Container()
@@ -127,7 +131,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                               ),
                             ),
                           ),
-                  if (!FullScreen.isFullScreen)
+                  if (!isFullScreen)
                     WindowIconButton(
                       onPressed: () async {
                         appWindow.minimize();
@@ -141,7 +145,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                               ),
                             ),
                     ),
-                  if (!FullScreen.isFullScreen)
+                  if (!isFullScreen)
                     MouseRegion(
                       onEnter: (event) async {
                         // await platform.invokeMethod('maximumButtonEnter');
@@ -167,7 +171,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                               ),
                       ),
                     ),
-                  if (!FullScreen.isFullScreen)
+                  if (!isFullScreen)
                     WindowIconButton(
                       onPressed: () {
                         appWindow.close();
@@ -181,7 +185,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                               ),
                             ),
                     ),
-                  if (!FullScreen.isFullScreen)
+                  if (!isFullScreen)
                     appWindow.isMaximized
                         ? SizedBox(width: 2)
                         : SizedBox(width: 7),

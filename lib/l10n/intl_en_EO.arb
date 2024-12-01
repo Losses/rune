@@ -694,5 +694,269 @@
   "followSystemLanguageSubtitle": "Sekvu la agordojn de via sistemo lingvo, sen specialaj agordoj.",
   "@followSystemLanguageSubtitle": {
     "description": ""
+  },
+  "windowSize": "Fenestra Grandeco",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Elektu la preferatan fenestran grandecon por la aplikaĵo.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normala",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Maldika",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Larĝa",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Protokolo",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Protokola Detalo",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Forigi Protokolon",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "Se vi forigos ĉi tiun protokolon, vi ne povos retrovi ĝin. Ĉu vi volas forigi ĝin?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Forigi Ĉiujn Protokolojn",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "Se vi forigos ĉiujn protokolojn, vi ne povos retrovi ilin. Ĉu vi volas forigi ilin?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Forigi Ĉion",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "Neniuj protokoloj disponeblaj",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Hejmo",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Plej Nova",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Plej Malnova",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Hazarda",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Plej Luditaj",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "Personigi",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "Malkovru kaj esploru la mondon de viaj plej ŝatataj artistoj",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "Plonĝu en albumojn kreitajn de talentaj artistoj",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "Kreu vian propran personigitan aŭskultan vojaĝon",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "Profundiĝu en la kantojn, kiujn vi konas kaj amas",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "Revivu la kantojn, kiujn vi plej trezoras",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "Revizitu la melodiojn, kiuj kaptas vin denove kaj denove",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Montri Rune",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Eliri",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Reen",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Eksporti Kiel",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Ludlista Dosiero",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Kovrila Muro",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "Proporcio",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Kadro",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Fono",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Prova Reĝimo",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune ne estas senpaga biero. Ni kuraĝigas vin aĉeti legitiman licencon de la aplikaĵa vendejo.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Licencitaj uzantoj profitas de aŭtomataj ĝisdatigoj provizitaj de la aplikaĵa vendejo kaj rajtas proponi novajn funkciojn rekte al la programistoj.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "Vi povas elekti forbati ĉi tiun memorigilon dum 180 tagoj, kaj ni memorigos vin poste.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Memorigu min poste",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Mistera Butono",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Knaro",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "Ŝajnas ke vi ekfunkciigis misteran mekanismon. La ĉambra strukturo ŝajne ŝanĝiĝis, malkaŝante novajn areojn por esplori.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Laboratorio",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "Biblioteka Agordo",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "Ni bezonas scii iom pli pri via biblioteko. Kie estas viaj mediadosieroj konservitaj?",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "Loka diskilo",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "Ni konservos vian mediindekson kune en la biblioteka dosierujo.",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "En la nubo",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "Ni konservos vian mediindekson en la agorda dosierujo de Rune.",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Memori Fenestran Grandecon",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Konservu vian fenestran grandecon dum vi ĝustigas ĝin, kaj lanĉu la programon kun la samaj dimensioj venontfoje.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune Ankoraŭ Funkcias",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune nun funkcias fone. Vi povas facile trovi ĝin en la sistema taskopleto.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Registri",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "Vi povas aĉeti muzikdosieron kiel registran ŝlosilon de la suba vendejo. Klaku \"Registri\" por kontroli vian legitiman staton.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Registri",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Malsukcesis",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "Eraro okazis dum la kontrola procezo.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Kompleta",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Gratulojn! Via programaro estis sukcese registrita. Dankon pro elekti Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Nevalida ŝlosilo",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "La ŝlosildosiero, kiun vi provizis, estas nevalida. Bonvolu kontroli la dosieron kaj provi denove.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8Success": "Parte Sukcesa",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Viaj kantoj estas importitaj, sed kelkaj ne estis trovitaj.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Importo Malsukcesis",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "Eraro okazis dum la importa procezo.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Importi Ludliston",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
   }
 }

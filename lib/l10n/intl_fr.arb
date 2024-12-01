@@ -694,5 +694,269 @@
   "followSystemLanguageSubtitle": "Suivez les paramètres de langue de votre système, sans réglages spéciaux.",
   "@followSystemLanguageSubtitle": {
     "description": ""
+  },
+  "windowSize": "Taille de la fenêtre",
+  "@windowSize": {
+    "description": "Texte d'invite pour définir la taille de la fenêtre sur la page de thème."
+  },
+  "windowSizeSubtitle": "Choisissez la taille de fenêtre préférée pour l'application.",
+  "@windowSizeSubtitle": {
+    "description": "Sous-titre expliquant les options de taille de fenêtre."
+  },
+  "normalWindowSize": "Normale",
+  "@normalWindowSize": {
+    "description": "Option pour une taille de fenêtre standard."
+  },
+  "slimWindowSize": "Étroite",
+  "@slimWindowSize": {
+    "description": "Option pour une taille de fenêtre plus étroite."
+  },
+  "stockyWindowSize": "Large",
+  "@stockyWindowSize": {
+    "description": "Option pour une taille de fenêtre plus large."
+  },
+  "log": "Journal",
+  "@log": {
+    "description": "Titre de la page de journalisation dans la section des paramètres, cette page contient les erreurs et avertissements survenus pendant l'exécution du programme."
+  },
+  "viewLogDetail": "Détail du journal",
+  "@viewLogDetail": {
+    "description": "Une entrée dans le menu contextuel. Appuyer sur cette entrée affichera le détail du journal dans une fenêtre modale."
+  },
+  "removeLogTitle": "Supprimer le journal",
+  "@removeLogTitle": {
+    "description": "Titre de la fenêtre modale informant les utilisateurs qu'ils sont sur le point de supprimer un journal."
+  },
+  "removeLogSubtitle": "Si vous supprimez ce journal, vous ne pourrez pas le récupérer. Voulez-vous le supprimer ?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Supprimer tous les journaux",
+  "@clearLogTitle": {
+    "description": "Titre de la fenêtre modale informant les utilisateurs qu'ils sont sur le point de supprimer tous les journaux."
+  },
+  "clearLogSubtitle": "Si vous supprimez tous les journaux, vous ne pourrez pas les récupérer. Voulez-vous les supprimer ?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Tout supprimer",
+  "@deleteAll": {
+    "description": "Une entrée dans le menu contextuel. Appuyer sur cette entrée supprimera tous les éléments disponibles."
+  },
+  "noLogsAvailable": "Aucun journal disponible",
+  "@noLogsAvailable": {
+    "description": "Le titre de l'icône d'état vide dans la page des paramètres des journaux."
+  },
+  "home": "Accueil",
+  "@home": {
+    "description": "Titre de la page des paramètres d'accueil."
+  },
+  "newest": "Le plus récent",
+  "@newest": {
+    "description": "Une entrée dans le menu déroulant des paramètres d'accueil de la bibliothèque."
+  },
+  "oldest": "Le plus ancien",
+  "@oldest": {
+    "description": "Une entrée dans le menu déroulant des paramètres d'accueil de la bibliothèque."
+  },
+  "random": "Aléatoire",
+  "@random": {
+    "description": "Une entrée dans le menu déroulant des paramètres d'accueil de la bibliothèque."
+  },
+  "mostPlayed": "Le plus joué",
+  "@mostPlayed": {
+    "description": "Titre d'un groupe d'accueil de la bibliothèque."
+  },
+  "personalize": "Personnaliser",
+  "@personalize": {
+    "description": "Entrée dans le menu contextuel de la page d'accueil de la bibliothèque."
+  },
+  "artistsLibraryHomeSubtitle": "Découvrez et explorez le monde de vos artistes préférés",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des artistes dans la bibliothèque d'accueil."
+  },
+  "albumsLibraryHomeSubtitle": "Plongez dans les albums créés par des artistes talentueux",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des albums dans la bibliothèque d'accueil."
+  },
+  "playlistsLibraryHomeSubtitle": "Créez votre propre parcours d'écoute personnalisé",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des playlists dans la bibliothèque d'accueil."
+  },
+  "tracksLibraryHomeSubtitle": "Plongez dans les morceaux que vous connaissez et aimez",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des morceaux dans la bibliothèque d'accueil."
+  },
+  "likedLibraryHomeSubtitle": "Revivez les morceaux que vous chérissez le plus",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des morceaux aimés dans la bibliothèque d'accueil."
+  },
+  "mostLibraryHomeSubtitle": "Revisitez les mélodies qui vous captivent encore et encore",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Sous-titre pour la section des morceaux les plus joués dans la bibliothèque d'accueil."
+  },
+  "showRune": "Afficher Rune",
+  "@showRune": {
+    "description": "Entrée dans le menu du plateau."
+  },
+  "exit": "Quitter",
+  "@exit": {
+    "description": "Entrée dans le menu du plateau."
+  },
+  "back": "Retour",
+  "@back": {
+    "description": "Info-bulle pour l'icône en haut à gauche de la barre de titre de Windows."
+  },
+  "exportTracks": "Exporter sous",
+  "@exportTracks": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs d'exporter une collection"
+  },
+  "exportM3u8": "Fichier de playlist",
+  "@exportM3u8": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs d'exporter une collection au format M3U8"
+  },
+  "exportCoverWall": "Mur d'art de couverture",
+  "@exportCoverWall": {
+    "description": "Une entrée dans le menu contextuel qui permet aux utilisateurs d'exporter un mur d'art de couverture"
+  },
+  "ratio": "Ratio",
+  "@ratio": {
+    "description": "Titre du champ de saisie de la fenêtre modale du mur d'art de couverture"
+  },
+  "frame": "Cadre",
+  "@frame": {
+    "description": "Titre du champ de saisie de la fenêtre modale du mur d'art de couverture"
+  },
+  "background": "Arrière-plan",
+  "@background": {
+    "description": "Titre du champ de saisie de la fenêtre modale du mur d'art de couverture"
+  },
+  "evaluationMode": "Mode d'évaluation",
+  "@evaluationMode": {
+    "description": "Titre de la fenêtre modale du mode d'évaluation"
+  },
+  "evaluationModeContent1": "Rune n'est pas une pinte de bière gratuite. Nous vous encourageons à acheter une licence authentique depuis le magasin d'applications.",
+  "@evaluationModeContent1": {
+    "description": "Contenu de la fenêtre modale du mode d'évaluation"
+  },
+  "evaluationModeContent2": "Les utilisateurs sous licence bénéficient de mises à jour automatiques fournies par le magasin d'applications et ont le privilège de proposer de nouvelles fonctionnalités directement aux développeurs.",
+  "@evaluationModeContent2": {
+    "description": "Contenu de la fenêtre modale du mode d'évaluation"
+  },
+  "evaluationModeContent3": "Vous pouvez choisir de rejeter ce rappel pendant 180 jours, et nous vous rappellerons plus tard.",
+  "@evaluationModeContent3": {
+    "description": "Contenu de la fenêtre modale du mode d'évaluation"
+  },
+  "remindMeLater": "Me rappeler plus tard",
+  "@remindMeLater": {
+    "description": "Bouton d'action de la fenêtre modale du mode d'évaluation"
+  },
+  "mysteriousButton": "Bouton mystérieux",
+  "@mysteriousButton": {
+    "description": "Un élément de menu contextuel"
+  },
+  "mysteriousModalTitle": "Grincement",
+  "@mysteriousModalTitle": {
+    "description": "Le titre d'une fenêtre modale"
+  },
+  "mysteriousModalContent": "Il semble que vous ayez déclenché un mécanisme mystérieux. La structure de la pièce semble avoir changé, révélant de nouvelles zones à explorer.",
+  "@mysteriousModalContent": {
+    "description": "Le contenu d'une fenêtre modale"
+  },
+  "laboratory": "Laboratoire",
+  "@laboratory": {
+    "description": "Le titre d'un lien"
+  },
+  "libraryMode": "Configuration de la bibliothèque",
+  "@libraryMode": {
+    "description": "Le titre d'une fenêtre modale, qui guide l'utilisateur pour sélectionner où stocker la base de données"
+  },
+  "libraryModeSubtitle": "Nous devons en savoir un peu plus sur votre bibliothèque. Où sont stockés vos fichiers multimédias ?",
+  "@libraryModeSubtitle": {
+    "description": "Le sous-titre d'une fenêtre modale, qui guide l'utilisateur pour sélectionner où stocker la base de données"
+  },
+  "portableMode": "Disque dur local",
+  "@portableMode": {
+    "description": "Un mode de bibliothèque candidat pour les utilisateurs"
+  },
+  "portableModeSubtitle": "Nous stockerons votre index multimédia dans le dossier de la bibliothèque.",
+  "@portableModeSubtitle": {
+    "description": "Le sous-titre du mode de bibliothèque candidat pour les utilisateurs"
+  },
+  "localMode": "Dans le cloud",
+  "@localMode": {
+    "description": "Un mode de bibliothèque candidat pour les utilisateurs"
+  },
+  "localModeSubtitle": "Nous stockerons votre index multimédia dans le répertoire de configuration de Rune.",
+  "@localModeSubtitle": {
+    "description": "Le sous-titre du mode de bibliothèque candidat pour les utilisateurs"
+  },
+  "rememberWindowSize": "Se souvenir de la taille de la fenêtre",
+  "@rememberWindowSize": {
+    "description": "Titre d'une option de paramètre sur la page de thème"
+  },
+  "rememberWindowSizeSubtitle": "Enregistrez votre taille de fenêtre au fur et à mesure que vous l'ajustez, et lancez le programme avec les mêmes dimensions la prochaine fois.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "Le sous-titre d'une option de paramètre sur la page de thème"
+  },
+  "closeNotification": "Rune est toujours en cours d'exécution",
+  "@closeNotification": {
+    "description": "La notification est affichée lorsque l'utilisateur ferme la fenêtre"
+  },
+  "closeNotificationSubtitle": "Rune fonctionne actuellement en arrière-plan. Vous pouvez facilement le localiser dans la barre d'état système.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Enregistrer",
+  "@register": {
+    "description": "Titre de la tuile d'enregistrement dans la page des paramètres"
+  },
+  "evaluationModeContent4": "Vous pouvez acheter un fichier musical comme clé d'enregistrement dans le magasin ci-dessous. Cliquez sur \"Enregistrer\" pour vérifier votre statut authentique.",
+  "@evaluationModeContent4": {
+    "description": "Contenu de la fenêtre modale du mode d'évaluation"
+  },
+  "registerAction": "Enregistrer",
+  "@registerAction": {
+    "description": "Le label du bouton d'enregistrement dans une fenêtre modale"
+  },
+  "registerFailed": "Échec",
+  "@registerFailed": {
+    "description": "Le titre de la fenêtre modale d'échec de l'enregistrement"
+  },
+  "registerFailedSubtitle": "Une erreur est survenue lors du processus de vérification.",
+  "@registerFailedSubtitle": {
+    "description": "Le contenu de la fenêtre modale d'échec de l'enregistrement"
+  },
+  "registerSuccess": "Complète",
+  "@registerSuccess": {
+    "description": "Le titre de la fenêtre modale de succès de l'enregistrement"
+  },
+  "registerSuccessSubtitle": "Félicitations ! Votre logiciel a été enregistré avec succès. Merci d'avoir choisi Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "Le contenu de la fenêtre modale de succès de l'enregistrement"
+  },
+  "registerInvalid": "Clé invalide",
+  "@registerInvalid": {
+    "description": "Le titre de la fenêtre modale de clé d'enregistrement invalide"
+  },
+  "registerInvalidSubtitle": "Le fichier de clé que vous avez fourni est invalide. Veuillez vérifier le fichier et réessayer.",
+  "@registerInvalidSubtitle": {
+    "description": "Le contenu de la fenêtre modale de clé d'enregistrement invalide"
+  },
+  "importM3u8Success": "Partiellement réussi",
+  "@importM3u8Success": {
+    "description": "Le titre de la fenêtre modale de succès partiel de l'importation"
+  },
+  "importM3u8SuccessSubtitle": "Vos morceaux ont été importés, mais certains n'ont pas été trouvés.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "Le contenu de la fenêtre modale de succès partiel de l'importation"
+  },
+  "importM3u8Failed": "Échec de l'importation",
+  "@importM3u8Failed": {
+    "description": "Le titre de la fenêtre modale d'échec de l'importation"
+  },
+  "importM3u8FailedSubtitle": "Une erreur est survenue lors du processus d'importation.",
+  "@importM3u8FailedSubtitle": {
+    "description": "Le contenu de la fenêtre modale d'échec de l'importation"
+  },
+  "importM3u8": "Importer une playlist",
+  "@importM3u8": {
+    "description": "Élément de menu contextuel guidant les utilisateurs pour importer une nouvelle playlist."
   }
 }
