@@ -71,7 +71,7 @@ pub mod apple_bridge {
             "cargo:rustc-link-search={}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx/",
             &xcode_path
         );
-        println!("cargo:rustc-link-search={}", "/usr/lib/swift");
+        println!("cargo:rustc-link-search=/usr/lib/swift");
     }
 
     fn compile_swift() {
