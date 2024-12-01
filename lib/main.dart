@@ -167,10 +167,6 @@ void main(List<String> arguments) async {
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
 
-  if (Platform.isMacOS) {
-    MacOSWindowControlButtonManager.setVertical();
-  }
-
   final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
   final bool? rememberWindowSize =
@@ -197,12 +193,18 @@ void main(List<String> arguments) async {
   }
 
   mainLoop(licenseProvider);
-  appWindow.show();
+  if (!Platform.isMacOS) {
+    appWindow.show();
+  }
 
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');
 
   doWhenWindowReady(() {
+    if (Platform.isMacOS) {
+      MacOSWindowControlButtonManager.setVertical();
+    }
+
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
