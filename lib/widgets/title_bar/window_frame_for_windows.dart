@@ -9,7 +9,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import '../../main.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
-import '../../widgets/title_bar/darg_move_window_area.dart';
+import 'drag_move_window_area.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -73,7 +73,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.band ||
                 activeBreakpoint == DeviceType.dock) {
-              return DargMoveWindowArea();
+              return DragMoveWindowArea();
             }
 
             return SizedBox(
@@ -82,7 +82,7 @@ class _WindowFrameForWindowsState extends State<WindowFrameForWindows>
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   Expanded(
-                    child: DargMoveWindowArea(),
+                    child: DragMoveWindowArea(),
                   ),
                   if (isFullScreen)
                     WindowIconButton(

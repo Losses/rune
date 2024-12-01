@@ -11,7 +11,7 @@ import '../../providers/responsive_providers.dart';
 
 import '../router/rune_stack.dart';
 
-import 'darg_move_window_area.dart';
+import 'drag_move_window_area.dart';
 
 class WindowFrameForMacOS extends StatefulWidget {
   final Widget child;
@@ -71,8 +71,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                 activeBreakpoint == DeviceType.dock ||
                 path == '/' ||
                 path == '/scanning') {
-
-              return DargMoveWindowArea();
+              return DragMoveWindowArea();
             }
 
             return Column(
@@ -83,16 +82,19 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
                     children: [
                       SizedBox(
                         width: 320,
-                        child: DargMoveWindowArea(isEnabledDoubleTap: false),
+                        child: DragMoveWindowArea(isEnabledDoubleTap: false),
                       ),
-                      Expanded(child: DargMoveWindowArea())
+                      Expanded(child: DragMoveWindowArea())
                     ],
                   ),
                 ),
                 SizedBox(
                   height: 40,
-                  child: Expanded(
-                      child: DargMoveWindowArea(isEnabledDoubleTap: false),
+                  child: Row(
+                    children: [
+                      Expanded(
+                          child: DragMoveWindowArea(isEnabledDoubleTap: false)),
+                    ],
                   ),
                 ),
               ],
