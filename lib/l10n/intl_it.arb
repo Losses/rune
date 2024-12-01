@@ -694,5 +694,269 @@
   "followSystemLanguageSubtitle": "Segui le impostazioni della lingua del tuo sistema, senza impostazioni speciali.",
   "@followSystemLanguageSubtitle": {
     "description": ""
+  },
+  "windowSize": "Dimensione Finestra",
+  "@windowSize": {
+    "description": "Testo del prompt per impostare la dimensione della finestra nella pagina del tema."
+  },
+  "windowSizeSubtitle": "Scegli la dimensione della finestra preferita per l'applicazione.",
+  "@windowSizeSubtitle": {
+    "description": "Sottotitolo che spiega le opzioni di dimensione della finestra."
+  },
+  "normalWindowSize": "Normale",
+  "@normalWindowSize": {
+    "description": "Opzione per una dimensione standard della finestra."
+  },
+  "slimWindowSize": "Stretta",
+  "@slimWindowSize": {
+    "description": "Opzione per una dimensione più stretta della finestra."
+  },
+  "stockyWindowSize": "Ampia",
+  "@stockyWindowSize": {
+    "description": "Opzione per una dimensione più ampia della finestra."
+  },
+  "log": "Registro",
+  "@log": {
+    "description": "Titolo della pagina di registrazione nei settaggi, questa pagina contiene errori e avvisi accaduti durante l'esecuzione del programma."
+  },
+  "viewLogDetail": "Dettaglio Registro",
+  "@viewLogDetail": {
+    "description": "Un'opzione nel menu contestuale. Premendo questa voce si mostrerà il dettaglio del registro."
+  },
+  "removeLogTitle": "Rimuovi Registro",
+  "@removeLogTitle": {
+    "description": "Titolo del modal che informa gli utenti che stanno per eliminare un registro."
+  },
+  "removeLogSubtitle": "Se elimini questo registro, non potrai recuperarlo. Vuoi eliminarlo?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Rimuovi Tutti i Registri",
+  "@clearLogTitle": {
+    "description": "Titolo del modal che informa gli utenti che stanno per eliminare tutti i registri."
+  },
+  "clearLogSubtitle": "Se elimini tutti i registri, non potrai recuperarli. Vuoi eliminarli?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Elimina Tutto",
+  "@deleteAll": {
+    "description": "Un'opzione nel menu contestuale. Premendo questa voce si rimuoveranno tutti gli elementi disponibili."
+  },
+  "noLogsAvailable": "Nessun registro disponibile",
+  "@noLogsAvailable": {
+    "description": "Il titolo dell'icona di stato vuoto nella pagina dei settaggi dei registri."
+  },
+  "home": "Home",
+  "@home": {
+    "description": "Titolo della pagina delle impostazioni home."
+  },
+  "newest": "Più recente",
+  "@newest": {
+    "description": "Un'opzione nel menu a tendina delle impostazioni home della libreria."
+  },
+  "oldest": "Più vecchio",
+  "@oldest": {
+    "description": "Un'opzione nel menu a tendina delle impostazioni home della libreria."
+  },
+  "random": "Casuale",
+  "@random": {
+    "description": "Un'opzione nel menu a tendina delle impostazioni home della libreria."
+  },
+  "mostPlayed": "Più Ascoltati",
+  "@mostPlayed": {
+    "description": "Titolo di un gruppo home della libreria."
+  },
+  "personalize": "Personalizza",
+  "@personalize": {
+    "description": "Voce nel menu contestuale della pagina home della libreria."
+  },
+  "artistsLibraryHomeSubtitle": "Scopri ed esplora il mondo dei tuoi artisti preferiti",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione artisti nella home della libreria."
+  },
+  "albumsLibraryHomeSubtitle": "Immergiti negli album creati da artisti talentuosi",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione album nella home della libreria."
+  },
+  "playlistsLibraryHomeSubtitle": "Crea il tuo viaggio d'ascolto personalizzato",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione playlist nella home della libreria."
+  },
+  "tracksLibraryHomeSubtitle": "Immergiti nei brani che conosci e ami",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione brani nella home della libreria."
+  },
+  "likedLibraryHomeSubtitle": "Rivivi i brani che ami di più",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione preferiti nella home della libreria."
+  },
+  "mostLibraryHomeSubtitle": "Rivisita le melodie che ti affascinano sempre",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Sottotitolo per la sezione più ascoltati nella home della libreria."
+  },
+  "showRune": "Mostra Rune",
+  "@showRune": {
+    "description": "Voce nel menu del vassoio."
+  },
+  "exit": "Esci",
+  "@exit": {
+    "description": "Voce nel menu del vassoio."
+  },
+  "back": "Indietro",
+  "@back": {
+    "description": "Suggerimento per l'icona in alto a sinistra della barra del titolo di Windows."
+  },
+  "exportTracks": "Esporta Come",
+  "@exportTracks": {
+    "description": "Un'opzione nel menu contestuale che consente agli utenti di esportare una Collezione"
+  },
+  "exportM3u8": "File Playlist",
+  "@exportM3u8": {
+    "description": "Un'opzione nel menu contestuale che consente agli utenti di esportare una collezione nel formato M3U8"
+  },
+  "exportCoverWall": "Parete di Copertine",
+  "@exportCoverWall": {
+    "description": "Un'opzione nel menu contestuale che consente agli utenti di esportare una parete di copertine"
+  },
+  "ratio": "Proporzione",
+  "@ratio": {
+    "description": "Titolo del campo di input del modal della parete di copertine"
+  },
+  "frame": "Cornice",
+  "@frame": {
+    "description": "Titolo del campo di input del modal della parete di copertine"
+  },
+  "background": "Sfondo",
+  "@background": {
+    "description": "Titolo del campo di input del modal della parete di copertine"
+  },
+  "evaluationMode": "Modalità di Valutazione",
+  "@evaluationMode": {
+    "description": "Titolo del modal della modalità di valutazione"
+  },
+  "evaluationModeContent1": "Rune non è una birra gratis. Ti invitiamo ad acquistare una licenza autentica dall'app store.",
+  "@evaluationModeContent1": {
+    "description": "Contenuto del modal della modalità di valutazione"
+  },
+  "evaluationModeContent2": "Gli utenti con licenza beneficiano di aggiornamenti automatici forniti dall'app store e hanno il privilegio di proporre nuove funzionalità direttamente agli sviluppatori.",
+  "@evaluationModeContent2": {
+    "description": "Contenuto del modal della modalità di valutazione"
+  },
+  "evaluationModeContent3": "Puoi scegliere di ignorare questo promemoria per 180 giorni, e ti ricorderemo più tardi.",
+  "@evaluationModeContent3": {
+    "description": "Contenuto del modal della modalità di valutazione"
+  },
+  "remindMeLater": "Ricordamelo più tardi",
+  "@remindMeLater": {
+    "description": "Pulsante di azione del modal della modalità di valutazione"
+  },
+  "mysteriousButton": "Pulsante Misterioso",
+  "@mysteriousButton": {
+    "description": "Un elemento del menu contestuale"
+  },
+  "mysteriousModalTitle": "Creak",
+  "@mysteriousModalTitle": {
+    "description": "Il titolo di un modal"
+  },
+  "mysteriousModalContent": "Sembra che tu abbia attivato un meccanismo misterioso. La struttura della stanza sembra essere cambiata, rivelando nuove aree da esplorare.",
+  "@mysteriousModalContent": {
+    "description": "Il contenuto di un modal"
+  },
+  "laboratory": "Laboratorio",
+  "@laboratory": {
+    "description": "Il titolo di un collegamento"
+  },
+  "libraryMode": "Configurazione Libreria",
+  "@libraryMode": {
+    "description": "Il titolo di un modal che guida l'utente a selezionare dove memorizzare il database"
+  },
+  "libraryModeSubtitle": "Abbiamo bisogno di sapere qualcosa in più sulla tua libreria. Dove sono memorizzati i tuoi file multimediali?",
+  "@libraryModeSubtitle": {
+    "description": "Il sottotitolo di un modal che guida l'utente a selezionare dove memorizzare il database"
+  },
+  "portableMode": "Disco rigido locale",
+  "@portableMode": {
+    "description": "Una modalità libreria candidata per gli utenti"
+  },
+  "portableModeSubtitle": "Memorizzeremo il tuo indice multimediale insieme nella cartella della libreria.",
+  "@portableModeSubtitle": {
+    "description": "Il sottotitolo della modalità libreria candidata per gli utenti"
+  },
+  "localMode": "Nel cloud",
+  "@localMode": {
+    "description": "Una modalità libreria candidata per gli utenti"
+  },
+  "localModeSubtitle": "Memorizzeremo il tuo indice multimediale nella directory di configurazione di Rune.",
+  "@localModeSubtitle": {
+    "description": "Il sottotitolo della modalità libreria candidata per gli utenti"
+  },
+  "rememberWindowSize": "Ricorda Dimensione Finestra",
+  "@rememberWindowSize": {
+    "description": "Titolo di un'opzione di impostazione nella pagina del tema"
+  },
+  "rememberWindowSizeSubtitle": "Salva la dimensione della finestra mentre la regoli e avvia il programma con le stesse dimensioni la prossima volta.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "Il sottotitolo di un'opzione di impostazione nella pagina del tema"
+  },
+  "closeNotification": "Rune è ancora in esecuzione",
+  "@closeNotification": {
+    "description": "La notifica viene visualizzata mentre l'utente ha chiuso la finestra"
+  },
+  "closeNotificationSubtitle": "Rune è attualmente in esecuzione in background. Puoi trovarlo facilmente nel vassoio di sistema.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Registrati",
+  "@register": {
+    "description": "Titolo del riquadro di registrazione nella pagina delle impostazioni"
+  },
+  "evaluationModeContent4": "Puoi acquistare un file musicale come chiave di registrazione dal negozio qui sotto. Clicca \"Registrati\" per verificare il tuo stato autentico.",
+  "@evaluationModeContent4": {
+    "description": "Contenuto del modal della modalità di valutazione"
+  },
+  "registerAction": "Registrati",
+  "@registerAction": {
+    "description": "L'etichetta del pulsante di registrazione in un modal"
+  },
+  "registerFailed": "Fallito",
+  "@registerFailed": {
+    "description": "Il titolo del modal di registrazione fallita"
+  },
+  "registerFailedSubtitle": "Si è verificato un errore durante il processo di verifica.",
+  "@registerFailedSubtitle": {
+    "description": "Il contenuto del modal di registrazione fallita"
+  },
+  "registerSuccess": "Completato",
+  "@registerSuccess": {
+    "description": "Il titolo del modal di registrazione riuscita"
+  },
+  "registerSuccessSubtitle": "Congratulazioni! Il tuo software è stato registrato con successo. Grazie per aver scelto Rune.",
+  "@registerSuccessSubtitle": {
+    "description": "Il contenuto del modal di registrazione riuscita"
+  },
+  "registerInvalid": "Chiave non valida",
+  "@registerInvalid": {
+    "description": "Il titolo del modal di chiave di registrazione non valida"
+  },
+  "registerInvalidSubtitle": "Il file chiave che hai fornito non è valido. Controlla il file e riprova.",
+  "@registerInvalidSubtitle": {
+    "description": "Il contenuto del modal di chiave di registrazione non valida"
+  },
+  "importM3u8Success": "Parzialmente Riuscito",
+  "@importM3u8Success": {
+    "description": "Il titolo del modal di importazione parzialmente riuscita"
+  },
+  "importM3u8SuccessSubtitle": "I tuoi brani sono stati importati, ma alcuni non sono stati trovati.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "Il contenuto del modal di importazione parzialmente riuscita"
+  },
+  "importM3u8Failed": "Importazione Fallita",
+  "@importM3u8Failed": {
+    "description": "Il titolo del modal di importazione fallita"
+  },
+  "importM3u8FailedSubtitle": "Si è verificato un errore durante il processo di importazione.",
+  "@importM3u8FailedSubtitle": {
+    "description": "Il contenuto del modal di importazione fallita"
+  },
+  "importM3u8": "Importa Playlist",
+  "@importM3u8": {
+    "description": "Voce del menu contestuale che guida gli utenti a importare una nuova playlist."
   }
 }

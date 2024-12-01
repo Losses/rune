@@ -1,904 +1,960 @@
 {
-    "@@locale": "zh_Hans",
-    "rune": "Rune",
-    "@rune": {
-        "description": "软件的品牌名称，不应翻译。"
-    },
-    "runePlayer": "Rune 播放器",
-    "@runePlayer": {
-        "description": "软件的全称。"
-    },
-    "copyright": "版权",
-    "@copyright": {
-        "description": "这是设置界面版权部分中的一个条目标题。"
-    },
-    "copyrightAnnouncement": "版权所有 © 2024 Rune 播放器开发团队。",
-    "@copyrightAnnouncement": {
-        "description": "完整的版权声明。"
-    },
-    "licenseAnnouncement": "本产品根据 MPL 许可证授权许可。",
-    "@licenseAnnouncement": {
-        "description": "完整的软件许可声明。"
-    },
-    "factoryReset": "恢复出厂设置",
-    "@factoryReset": {
-        "description": "设置页面中触发“重置媒体库历史记录”操作的按钮的标题。"
-    },
-    "factoryResetSubtitle": "从媒体库列表中删除所有项目。",
-    "@factoryResetSubtitle": {
-        "description": "设置界面中“恢复出厂设置”按钮的说明文字。"
-    },
-    "bsodBody": "您的播放器遇到问题，需要重新启动。我们尊重您的隐私，不会收集任何数据。",
-    "@bsodBody": {
-        "description": "在蓝屏界面，这向用户解释软件遇到了致命错误。并信达雅提示用户隐私保护。"
-    },
-    "artists": "艺术家",
-    "@artists": {},
-    "albums": "专辑",
-    "@albums": {},
-    "playlists": "播放列表",
-    "@playlists": {},
-    "unknownAlbum": "未知专辑",
-    "@unknownAlbum": {},
-    "unknownTrack": "未知曲目",
-    "@unknownTrack": {},
-    "unknownArtist": "未知艺术家",
-    "@unknownArtist": {},
-    "selectDirectory": "选择目录",
-    "@selectDirectory": {},
-    "noDataAvailable": "没有可用数据",
-    "@noDataAvailable": {},
-    "start": "开始",
-    "@start": {
-        "description": "“媒体库主页”功能列表旁边的装饰文字。"
-    },
-    "search": "搜索",
-    "@search": {},
-    "tracks": "曲目",
-    "@tracks": {},
-    "system": "系统",
-    "@system": {},
-    "operatingSystem": "操作系统",
-    "@operatingSystem": {
-        "description": "“关于”页面上软件信息条目的标题之一。"
-    },
-    "systemVersion": "系统版本",
-    "@systemVersion": {
-        "description": "“关于”页面上软件信息条目的标题之一。"
-    },
-    "kernelVersion": "内核版本",
-    "@kernelVersion": {
-        "description": "“关于”页面上的一个条目，通常表示操作系统内核的版本，用于诊断。"
-    },
-    "hostName": "主机名",
-    "@hostName": {
-        "description": "“关于”页面上的一个条目，通常表示计算机的名称。"
-    },
-    "player": "播放器",
-    "@player": {
-        "description": "“关于”页面上软件元数据的一个部分标题，提供软件的版本信息概览。"
-    },
-    "buildHash": "构建哈希",
-    "@buildHash": {},
-    "buildDate": "构建日期",
-    "@buildDate": {},
-    "commitDate": "提交日期",
-    "@commitDate": {},
-    "rustcVersion": "Rust 编译器版本",
-    "@rustcVersion": {},
-    "activation": "激活状态",
-    "@activation": {},
-    "runeIsActivated": "Rune 已激活",
-    "@runeIsActivated": {
-        "description": "告知用户该软件目前已激活。实际上，该软件在任何情况下都是激活的。"
-    },
-    "productId": "产品 ID",
-    "@productId": {},
-    "youMayBeAVictimOfGenuineSoftware": "你可能是正版软件的受害者。",
-    "@youMayBeAVictimOfGenuineSoftware": {
-        "description": "这句话是一个彩蛋，讽刺反盗版措施往往使合法用户的体验比使用盗版的人更糟。请随意保持幽默感。"
-    },
-    "axiomDesign": "Axiom Design",
-    "@axiomDesign": {
-        "description": "支持本项目的设计研究机构。您应保留原名，不作翻译。"
-    },
-    "computingDevice": "计算设备",
-    "@computingDevice": {
-        "description": "一个设置条目标题，允许用户选择负责执行音频分析任务的硬件设备。"
-    },
-    "computingDeviceSubtitle": "选择 GPU 或 CPU 以获得更快或更高效的处理。",
-    "@computingDeviceSubtitle": {},
-    "gpu": "GPU",
-    "@gpu": {},
-    "cpu": "CPU",
-    "@cpu": {},
-    "performanceLevel": "性能水平",
-    "@performanceLevel": {},
-    "performanceLevelSubtitle": "选择要同时运行的任务量。",
-    "@performanceLevelSubtitle": {},
-    "performance": "性能",
-    "@performance": {
-        "description": "高性能模式，利用可用的硬件资源尽快完成计算任务。"
-    },
-    "balance": "平衡",
-    "@balance": {
-        "description": "平衡模式，均匀分配资源，防止计算任务使系统过载导致卡顿。"
-    },
-    "batterySaving": "节能",
-    "@batterySaving": {
-        "description": "省电模式，最小化资源使用以防止过热，适合性能较弱的设备。"
-    },
-    "switchTo": "切换",
-    "@switchTo": {
-        "description": "切换媒体库的按钮提示文字。按下此按钮将关闭当前媒体库并打开一个新的。"
-    },
-    "removeLibrary": "移除",
-    "@removeLibrary": {
-        "description": "移除媒体库的按钮提示文字。按下此按钮将从历史记录中删除媒体库条目。"
-    },
-    "addLibrary": "添加媒体库",
-    "@addLibrary": {
-        "description": "设置界面中创建新媒体库的按钮提示文字。按下此按钮将引导用户选择一个目录并创建媒体库。"
-    },
-    "addLibrarySubtitle": "添加媒体库并扫描已有文件。",
-    "@addLibrarySubtitle": {},
-    "actionMenu": "操作菜单",
-    "@actionMenu": {
-        "description": "设置界面元素列表中的一个分隔符。此分隔符下方的所有项目将隐藏在一个弹出按钮中，而不是直接显示在屏幕上。"
-    },
-    "addToQueue": "添加到队列",
-    "@addToQueue": {
-        "description": "上下文菜单中的一个条目。按下此条目将把相应的歌曲或专辑添加到播放队列中。"
-    },
-    "addToQueueSubtitle": "新项目添加至播放队列的方式",
-    "@addToQueueSubtitle": {},
-    "playNext": "下一首",
-    "@playNext": {
-        "description": "一个操作，将一首歌曲或一张专辑排队作为播放列表中的下一首播放。"
-    },
-    "addToEnd": "添加到队尾",
-    "@addToEnd": {
-        "description": "一个操作，将一首歌曲或一张专辑添加到播放列表的末尾。"
-    },
-    "middleClickAction": "中键操作",
-    "@middleClickAction": {
-        "description": "设置界面中的一个标题，控制用户用鼠标中键点击一首歌曲或专辑时的行为。"
-    },
-    "middleClickActionSubtitle": "用鼠标中键点击歌曲或合集时执行的操作。",
-    "@middleClickActionSubtitle": {},
-    "startPlaying": "开始播放",
-    "@startPlaying": {
-        "description": "用户可以触发的开始播放音乐的操作。"
-    },
-    "startRoaming": "开始漫游",
-    "@startRoaming": {
-        "description": "用户可以触发的开始播放与当前歌曲或专辑相似的音乐的操作。"
-    },
-    "playbackMode": "播放模式",
-    "@playbackMode": {
-        "description": "设置界面中的一个标题，帮助用户选择所需的播放模式，如随机播放或顺序播放。"
-    },
-    "playbackModeSubtitle": "选择您喜欢的播放方式",
-    "@playbackModeSubtitle": {},
-    "colorMode": "色彩模式",
-    "@colorMode": {
-        "description": "一个设置条目，帮助用户选择界面的色彩模式，包括浅色和深色模式。"
-    },
-    "colorModeSubtitle": "更改 Rune 中的色彩模式显示。",
-    "@colorModeSubtitle": {},
-    "systemColorMode": "系统默认",
-    "@systemColorMode": {
-        "description": "一个色彩设置条目，启用后，软件的浅色或深色模式将与系统设置保持一致。"
-    },
-    "dark": "深色",
-    "@dark": {
-        "description": "一个色彩设置条目，选中后启用深色模式。"
-    },
-    "light": "浅色",
-    "@light": {
-        "description": "一个色彩设置条目，选中后启用浅色模式。"
-    },
-    "themeColor": "主题颜色",
-    "@themeColor": {
-        "description": "一个设置条目，允许用户选择自己喜欢的主题色。"
-    },
-    "themeColorSubtitle": "选择一个颜色，让您的 Rune 焕然一新。",
-    "@themeColorSubtitle": {},
-    "followSystemTheme": "跟随系统主题色",
-    "@followSystemTheme": {
-        "description": "主题色设置中的一个条目。启用后，软件的主题色将跟随系统设置。"
-    },
-    "dynamicColors": "动态颜色",
-    "@dynamicColors": {
-        "description": "一个色彩设置条目。启用后，软件的主题色会根据当前播放的歌曲的封面而变化。"
-    },
-    "dynamicColorsSubtitle": "根据正在播放歌曲的封面调整 Rune 的主题色。",
-    "@dynamicColorsSubtitle": {},
-    "brandingAnimation": "品牌动画",
-    "@brandingAnimation": {
-        "description": "一个设置条目，允许用户控制软件启动时是否播放欢迎动画。"
-    },
-    "brandingAnimationSubtitle": "在 Rune 启动时播放品牌动画。",
-    "@brandingAnimationSubtitle": {},
-    "thisMightTakeAFewMinutes": "这可能需要几分钟。",
-    "@thisMightTakeAFewMinutes": {
-        "description": "扫描等待界面上的标题，提醒用户要有耐心。"
-    },
-    "tracksFound": " 首曲目已找到",
-    "@tracksFound": {
-        "description": "扫描等待界面上的提示文字，告知用户已扫描到多少首歌曲。"
-    },
-    "albumCoversCollected": " 张专辑封面已收集",
-    "@albumCoversCollected": {
-        "description": "扫描等待界面上的提示文字，告知用户已扫描到多少张专辑封面。"
-    },
-    "editPlaylist": "编辑播放列表",
-    "@editPlaylist": {
-        "description": "上下文菜单中的一个条目，允许用户编辑播放列表的元数据。"
-    },
-    "editMix": "编辑 Mix",
-    "@editMix": {
-        "description": "上下文菜单中的一个条目，允许用户编辑 Mix 的元数据。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
-    },
-    "edit": "编辑",
-    "@edit": {
-        "description": "上下文菜单中作为备用文本的动词，在软件无法识别应该编辑什么内容时，引导用户进行编辑。"
-    },
-    "remove": "移除",
-    "@remove": {
-        "description": "上下文菜单中作为备用文本的动词，在软件无法识别应该移除什么内容时，引导用户进行移除。"
-    },
-    "removePlaylist": "移除播放列表",
-    "@removePlaylist": {
-        "description": "上下文菜单中的一个条目，允许用户删除播放列表。"
-    },
-    "removeMix": "移除 Mix",
-    "@removeMix": {
-        "description": "上下文菜单中的一个条目，允许用户删除 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
-    },
-    "addToMix": "添加到 Mix",
-    "@addToMix": {
-        "description": "上下文菜单中的一个条目，允许用户将一首歌曲或一张专辑添加到 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
-    },
-    "newMix": "新建 Mix",
-    "@newMix": {
-        "description": "上下文菜单中的一个条目，允许用户创建一个新的 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
-    },
-    "selectAGroup": "选择一个分组",
-    "@selectAGroup": {
-        "description": "位于编辑 Mix 或播放列表模态框中的输入字段的占位符文本，引导用户选择一个内容分组。"
-    },
-    "likedOnly": "仅收藏",
-    "@likedOnly": {
-        "description": "Mix 编辑界面中的一个条目，一个复选框选项，用于过滤并仅保留用户“喜欢”的歌曲。"
-    },
-    "allTracks": "所有曲目",
-    "@allTracks": {
-        "description": "Mix 编辑界面中的一个条目，一个复选框选项，用于过滤并保留所有歌曲，而不仅仅是用户“喜欢”的歌曲。"
-    },
-    "defaultMode": "默认",
-    "@defaultMode": {
-        "description": "播放列表中歌曲被遍历的一种方式，保持当前系统行为而不指定模式。"
-    },
-    "sequential": "顺序播放",
-    "@sequential": {
-        "description": "播放列表中歌曲被遍历的一种方式，从头到尾按顺序播放。"
-    },
-    "repeatAll": "列表循环",
-    "@repeatAll": {
-        "description": "播放列表中歌曲被遍历的一种方式，播放完毕后从头开始重复。"
-    },
-    "repeatOne": "单曲循环",
-    "@repeatOne": {
-        "description": "播放列表中歌曲被遍历的一种方式，不断重复一首歌曲。"
-    },
-    "shuffle": "随机播放",
-    "@shuffle": {
-        "description": "播放列表中歌曲被遍历的一种方式，按随机顺序播放。"
-    },
-    "title": "标题",
-    "@title": {
-        "description": "播放列表或 Mix 编辑模态框中的一个条目，引导用户编辑其标题。"
-    },
-    "group": "分组",
-    "@group": {
-        "description": "播放列表或 Mix 编辑模态框中的一个条目，引导用户编辑其分组。"
-    },
-    "save": "保存",
-    "@save": {
-        "description": "模态框中的一个操作按钮，按下时保存更改。"
-    },
-    "create": "创建",
-    "@create": {
-        "description": "模态框中的一个操作按钮，按下时创建一个新条目。"
-    },
-    "cancel": "取消",
-    "@cancel": {
-        "description": "模态框中的一个操作按钮，不进行任何更改就关闭模态框。"
-    },
-    "noRecommendation": "不推荐",
-    "@noRecommendation": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项表示用户不打算基于查询结果进行推荐。"
-    },
-    "basedOnAll": "基于全部",
-    "@basedOnAll": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项会根据整个查询结果集推荐相似的歌曲。"
-    },
-    "group1": "第一组",
-    "@group1": {},
-    "group2": "第二组",
-    "@group2": {},
-    "group3": "第三组",
-    "@group3": {},
-    "group4": "第四组",
-    "@group4": {},
-    "group5": "第五组",
-    "@group5": {},
-    "group6": "第六组",
-    "@group6": {},
-    "group7": "第七组",
-    "@group7": {},
-    "group8": "第八组",
-    "@group8": {},
-    "group9": "第九组",
-    "@group9": {},
-    "ascending": "升序",
-    "@ascending": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项将按升序对查询结果进行排序。"
-    },
-    "descending": "降序",
-    "@descending": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项将按降序对查询结果进行排序。"
-    },
-    "lastModified": "最后修改时间",
-    "@lastModified": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按文件元数据的最后修改时间进行排序。"
-    },
-    "duration": "时长",
-    "@duration": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频长度进行排序。"
-    },
-    "timesPlayedThrough": "完整播放次数",
-    "@timesPlayedThrough": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频被完整播放的次数进行排序。"
-    },
-    "timesSkipped": "跳过次数",
-    "@timesSkipped": {
-        "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频被跳过的次数进行排序。"
-    },
-    "pickDirectory": "选择目录",
-    "@pickDirectory": {
-        "description": "Mix 编辑模态框中的按钮提示文字。按下此按钮会打开一个模态框，引导用户选择目录。"
-    },
-    "oneDirectory": "一个目录",
-    "@oneDirectory": {
-        "description": "表示已选择一个目录的状态文本。"
-    },
-    "manyDirectories": "{count} 个目录",
-    "@manyDirectories": {
-        "description": "表示已选择多个目录的状态文本。",
-        "placeholders": {
-            "count": {}
-        }
-    },
-    "confirm": "确认",
-    "@confirm": {
-        "description": "模态框中的操作按钮文本，表示用户确认一个操作。"
-    },
-    "directories": "目录",
-    "@directories": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项是用于按文件夹过滤歌曲。"
-    },
-    "allDirectories": "所有目录",
-    "@allDirectories": {
-        "description": "表示已选择所有目录的提示。"
-    },
-    "randomTracks": "随机曲目",
-    "@randomTracks": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项是用于选择若干随机歌曲。"
-    },
-    "amount": "数量",
-    "@amount": {
-        "description": "模态框中的提示文本，表示通过滑块或输入框选择的歌曲数量。"
-    },
-    "mode": "模式",
-    "@mode": {
-        "description": "歌曲的播放模式。"
-    },
-    "recommendation": "推荐",
-    "@recommendation": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制播放器的推荐行为。"
-    },
-    "sortBy": "排序方式",
-    "@sortBy": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制歌曲的排序方式。"
-    },
-    "sortOrder": "排序顺序",
-    "@sortOrder": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制歌曲的排序方向。"
-    },
-    "liked": "收藏",
-    "@liked": {
-        "description": "模态设置选项中一个条目的标题，告知用户接下来的选项过滤用户标记为“喜欢”的歌曲。"
-    },
-    "noRoamingCollection": "无法开始漫游。尚未分析合集中的歌曲。",
-    "@noRoamingCollection": {},
-    "noRoamingTrack": "无法开始漫游。尚未分析该曲目。",
-    "@noRoamingTrack": {},
-    "noAnalysisScanning": "{baseMessage} 正在扫描媒体库，无法分析。",
-    "@noAnalysisScanning": {
-        "placeholders": {
-            "baseMessage": {}
-        }
-    },
-    "noAnalysisAnalyzing": "{baseMessage} 正在分析媒体库，请稍后。",
-    "@noAnalysisAnalyzing": {
-        "placeholders": {
-            "baseMessage": {}
-        }
-    },
-    "noAnalysisDefault": "{baseMessage} 请分析媒体库以获得最佳体验。",
-    "@noAnalysisDefault": {
-        "placeholders": {
-            "baseMessage": {}
-        }
-    },
-    "notReady": "尚未完成",
-    "@notReady": {
-        "description": "模态框标题，表示歌曲尚未建立索引，无法推荐。"
-    },
-    "createPlaylist": "创建播放列表",
-    "@createPlaylist": {
-        "description": "创建播放列表的模态框标题。"
-    },
-    "scanLibrary": "扫描媒体库",
-    "@scanLibrary": {
-        "description": "模态框中的操作按钮文本，按下时启动媒体库扫描。"
-    },
-    "analyzeTracks": "分析曲目",
-    "@analyzeTracks": {
-        "description": "模态框中的操作按钮文本，按下时启动对媒体库中所有歌曲的分析。"
-    },
-    "scan": "扫描",
-    "@scan": {
-        "description": "设置界面中的按钮提示文字，按下时启动媒体库扫描。"
-    },
-    "scanning": "正在扫描",
-    "@scanning": {
-        "description": "设置界面中的按钮提示文字，表示当前正在扫描媒体库。"
-    },
-    "analyze": "分析",
-    "@analyze": {
-        "description": "设置界面中的按钮提示文字，按下时启动对媒体库中所有歌曲的分析。"
-    },
-    "analyzing": "正在分析",
-    "@analyzing": {
-        "description": "设置界面中的按钮提示文字，表示当前正在分析媒体库。"
-    },
-    "tryCreatingYourOwnCollection": "尝试创建您自己的合集",
-    "@tryCreatingYourOwnCollection": {
-        "description": "在“合集”视图的空白页面上显示的文字，建议用户创建一个新的合集。"
-    },
-    "theseActionsMayHelp": "这些操作可能有所帮助",
-    "@theseActionsMayHelp": {},
-    "tryScanningNewFiles": "尝试扫描新文件",
-    "@tryScanningNewFiles": {},
-    "noCollectionFound": "未找到合集",
-    "@noCollectionFound": {},
-    "noItemsInPlaylist": "播放列表中没有项目",
-    "@noItemsInPlaylist": {},
-    "previous": "上一首",
-    "@previous": {
-        "description": "控制播放的按钮提示文字，用于跳到上一首歌曲。"
-    },
-    "previousSubtitle": "转到上一首曲目",
-    "@previousSubtitle": {},
-    "playPause": "播放/暂停",
-    "@playPause": {
-        "description": "控制播放的按钮提示文字，用于在播放和暂停状态之间切换。"
-    },
-    "playPauseSubtitle": "切换播放和暂停",
-    "@playPauseSubtitle": {},
-    "next": "下一首",
-    "@next": {
-        "description": "控制播放的按钮提示文字，用于跳到下一首歌曲。"
-    },
-    "nextSubtitle": "转到下一首曲目",
-    "@nextSubtitle": {},
-    "volume": "音量",
-    "@volume": {
-        "description": "控制播放的按钮提示文字，用于调整音量。"
-    },
-    "volumeSubtitle": "调整音量",
-    "@volumeSubtitle": {},
-    "playlist": "播放队列",
-    "@playlist": {
-        "description": "控制播放的按钮提示文字，用于显示播放列表。"
-    },
-    "playlistSubtitle": "查看播放队列",
-    "@playlistSubtitle": {},
-    "hidden": "隐藏",
-    "@hidden": {
-        "description": "表示一个隐藏按钮的按钮提示文字；通常不使用此文本。"
-    },
-    "hiddenSubtitle": "下列的内容将隐藏在其他列表中",
-    "@hiddenSubtitle": {},
-    "coverWall": "封面墙",
-    "@coverWall": {
-        "description": "控制播放的按钮提示文字，用于切换到封面墙页面，这是一个由专辑封面组成的装饰性页面。"
-    },
-    "coverWallSubtitle": "展示封面，营造独特氛围",
-    "@coverWallSubtitle": {},
-    "fullscreen": "全屏",
-    "@fullscreen": {
-        "description": "控制播放的按钮提示文字，用于切换全屏模式。"
-    },
-    "fullscreenSubtitle": "进出全屏模式",
-    "@fullscreenSubtitle": {},
-    "pause": "暂停",
-    "@pause": {
-        "description": "控制播放的按钮提示文字，用于暂停当前正在播放的歌曲。"
-    },
-    "play": "播放",
-    "@play": {
-        "description": "控制播放的按钮提示文字，用于从暂停状态恢复播放。"
-    },
-    "enable": "启用",
-    "@enable": {
-        "description": "设置界面中的单选按钮提示文字，表示一个功能已启用。"
-    },
-    "disable": "禁用",
-    "@disable": {
-        "description": "设置界面中的单选按钮提示文字，表示一个功能未启用。"
-    },
-    "noTracksFound": "未找到曲目",
-    "@noTracksFound": {},
-    "library": "媒体库",
-    "@library": {
-        "description": "媒体库设置界面的标题。"
-    },
-    "artistQuery": "查询艺术家",
-    "@artistQuery": {},
-    "playlistQuery": "查询播放列表",
-    "@playlistQuery": {},
-    "mixes": "Mix",
-    "@mixes": {
-        "description": "Mix 界面的标题，指一种智能播放列表。"
-    },
-    "mixQuery": "查询 Mix",
-    "@mixQuery": {},
-    "settings": "设置",
-    "@settings": {
-        "description": "设置界面的标题。"
-    },
-    "analysis": "分析",
-    "@analysis": {
-        "description": "分析设置界面的标题。"
-    },
-    "playback": "播放",
-    "@playback": {
-        "description": "播放设置界面的标题。"
-    },
-    "theme": "主题",
-    "@theme": {
-        "description": "主题设置界面的标题。"
-    },
-    "controller": "控制",
-    "@controller": {
-        "description": "播放控制按钮设置界面的标题。"
-    },
-    "about": "关于",
-    "@about": {
-        "description": "关于界面的标题。"
-    },
-    "selectLibraryDirectorySubtitle": "选择您的音频库目录，我们将扫描并分析其中的所有曲目。",
-    "@selectLibraryDirectorySubtitle": {},
-    "resetLibrary": "重置媒体库",
-    "@resetLibrary": {
-        "description": "模态框中的操作按钮文本，表示用户想要重置媒体库。"
-    },
-    "resetLibraryQuestion": "确认重置媒体库？",
-    "@resetLibraryQuestion": {
-        "description": "询问用户是否要重置媒体库的模态框标题。"
-    },
-    "resetLibrarySubtitle": "重置媒体库将清除您的文件开启记录。不会改动您现有的媒体库。您想要继续吗？",
-    "@resetLibrarySubtitle": {},
-    "unavailable": "不可用",
-    "@unavailable": {
-        "description": "仅在出现错误时出现的不可用的上下文菜单元素。"
-    },
-    "goToArtist": "前往艺术家",
-    "@goToArtist": {
-        "description": "引导用户前往艺术家页面的上下文菜单项。"
-    },
-    "goToAlbum": "前往专辑",
-    "@goToAlbum": {
-        "description": "引导用户前往专辑页面的上下文菜单项。"
-    },
-    "addToPlaylist": "添加到播放列表",
-    "@addToPlaylist": {
-        "description": "引导用户将一首歌曲或一张专辑添加到播放列表的上下文菜单项。"
-    },
-    "newPlaylist": "新建播放列表",
-    "@newPlaylist": {
-        "description": "引导用户创建新播放列表的上下文菜单项。"
-    },
-    "unableToOpenLibrary": "无法打开媒体库",
-    "@unableToOpenLibrary": {
-        "description": "告知用户无法打开媒体库的模态框标题。"
-    },
-    "unableToOpenLibrarySubtitle": "由于以下错误，无法打开媒体库：",
-    "@unableToOpenLibrarySubtitle": {},
-    "unknownError": "未知错误",
-    "@unknownError": {
-        "description": "表示出现未知错误的模态框错误内容。"
-    },
-    "close": "关闭",
-    "@close": {
-        "description": "模态框中引导用户关闭它的操作按钮。"
-    },
-    "queue": "队列",
-    "@queue": {
-        "description": "播放列表模态框的标题。"
-    },
-    "createMix": "创建 Mix",
-    "@createMix": {
-        "description": "引导用户创建新Mix的上下文菜单项。Mix 是一种智能播放列表。"
-    },
-    "removeMixTitle": "删除 Mix",
-    "@removeMixTitle": {
-        "description": "告知用户他们即将删除Mix的模态框标题。Mix 是一种智能播放列表。"
-    },
-    "removeMixSubtitle": "如果删除此 Mix ，您将无法恢复。您确定要删除吗？",
-    "@removeMixSubtitle": {},
-    "delete": "删除",
-    "@delete": {
-        "description": "模态框中的操作按钮文本，表示按下它将删除信息。"
-    },
-    "removePlaylistTitle": "移除播放列表",
-    "@removePlaylistTitle": {
-        "description": "告知用户他们即将删除播放列表的模态框标题。"
-    },
-    "removePlaylistSubtitle": "如果删除此播放列表，您将无法恢复。您确定要删除吗？",
-    "@removePlaylistSubtitle": {},
-    "cancelTaskTitle": "取消任务",
-    "@cancelTaskTitle": {
-        "description": "告知用户他们即将取消一个任务的模态框标题。"
-    },
-    "cancelTaskSubtitle": "如果取消此任务，它将停止在当前进度。您确定要取消吗？",
-    "@cancelTaskSubtitle": {},
-    "cancelTask": "取消任务",
-    "@cancelTask": {
-        "description": "模态框中的操作按钮文本，表示按下它将取消任务。"
-    },
-    "continueTask": "继续",
-    "@continueTask": {
-        "description": "模态框中的操作按钮文本，表示按下它将继续任务。"
-    },
-    "refresh": "刷新",
-    "@refresh": {
-        "description": "引导用户刷新当前页面信息的上下文菜单项。"
-    },
-    "explore": "探索",
-    "@explore": {
-        "description": "一个功能区域的标题。"
-    },
-    "language": "语言",
-    "@language": {
-        "description": "语言设置页面的标题。"
-    },
-    "followSystemLanguage": "跟随系统语言",
-    "@followSystemLanguage": {
-        "description": "设置中的操作按钮文本，表示 Rune 的语言应跟随操作系统。"
-    },
-    "followSystemLanguageSubtitle": "遵循系统语言，无需特殊设置。",
-    "@followSystemLanguageSubtitle": {},
-    "windowSize": "窗口大小",
-    "@windowSize": {
-        "description": "主题页面中设置窗口大小的提示文本。"
-    },
-    "windowSizeSubtitle": "选择应用程序的首选窗口大小。",
-    "@windowSizeSubtitle": {
-        "description": "解释窗口大小选项的副标题。"
-    },
-    "normalWindowSize": "普通",
-    "@normalWindowSize": {
-        "description": "标准窗口大小的选项。"
-    },
-    "slimWindowSize": "窄",
-    "@slimWindowSize": {
-        "description": "较窄窗口大小的选项。"
-    },
-    "stockyWindowSize": "长",
-    "@stockyWindowSize": {
-        "description": "较宽窗口大小的选项。"
-    },
-    "log": "日志",
-    "@log": {
-        "description": "设置部分中的日志页面的标题，此页面包含程序运行时发生的错误和警告。"
-    },
-    "viewLogDetail": "查看日志详情",
-    "@viewLogDetail": {
-        "description": "上下文菜单中的一个条目。按下此条目将显示日志详情模态框。"
-    },
-    "removeLogTitle": "删除日志",
-    "@removeLogTitle": {
-        "description": "告知用户他们即将删除一条日志的模态框标题。"
-    },
-    "removeLogSubtitle": "如果删除此日志，您将无法恢复它。您确定要删除吗？",
-    "@removeLogSubtitle": {},
-    "clearLogTitle": "移除所有日志",
-    "@clearLogTitle": {
-        "description": "告知用户他们即将删除所有日志的模态框标题。"
-    },
-    "clearLogSubtitle": "如果删除所有日志，您将无法恢复。您确定要删除吗？",
-    "@clearLogSubtitle": {},
-    "deleteAll": "全部删除",
-    "@deleteAll": {
-        "description": "上下文菜单中的一个条目。按下此条目将删除所有可用项目。"
-    },
-    "noLogsAvailable": "无可用日志",
-    "@noLogsAvailable": {
-        "description": "日志设置页面的空状态图标的标题。"
-    },
-    "home": "主页",
-    "@home": {
-        "description": "主页设置页面的标题。"
-    },
-    "newest": "最新",
-    "@newest": {
-        "description": "媒体库主页设置下拉列表中的条目。"
-    },
-    "oldest": "最旧",
-    "@oldest": {
-        "description": "媒体库主页设置下拉列表中的条目。"
-    },
-    "random": "随机",
-    "@random": {
-        "description": "媒体库主页设置下拉列表中的条目。"
-    },
-    "mostPlayed": "最常播放",
-    "@mostPlayed": {
-        "description": "媒体库主页中的标题。"
-    },
-    "personalize": "个性化",
-    "@personalize": {
-        "description": "媒体库主页的上下文菜单中的条目。"
-    },
-    "artistsLibraryHomeSubtitle": "发现和探索您最喜爱的艺术家的世界",
-    "@artistsLibraryHomeSubtitle": {
-        "description": "媒体库主页中艺术家部分的描述。"
-    },
-    "albumsLibraryHomeSubtitle": "沉浸在由才华横溢的艺术家创作的专辑中",
-    "@albumsLibraryHomeSubtitle": {
-        "description": "媒体库主页中专辑部分的描述。"
-    },
-    "playlistsLibraryHomeSubtitle": "策划您自己的个性化聆听之旅",
-    "@playlistsLibraryHomeSubtitle": {
-        "description": "媒体库主页中播放列表部分的描述。"
-    },
-    "tracksLibraryHomeSubtitle": "深入研究您熟悉和喜爱的曲目",
-    "@tracksLibraryHomeSubtitle": {
-        "description": "媒体库主页中曲目部分的描述。"
-    },
-    "likedLibraryHomeSubtitle": "重温您最珍视的曲目",
-    "@likedLibraryHomeSubtitle": {
-        "description": "媒体库主页中收藏部分的描述。"
-    },
-    "mostLibraryHomeSubtitle": "再次聆听一次又一次吸引您的旋律",
-    "@mostLibraryHomeSubtitle": {
-        "description": "媒体库主页中最多播放部分的描述。"
-    },
-    "showRune": "显示 Rune",
-    "@showRune": {
-        "description": "托盘菜单中的条目。"
-    },
-    "exit": "退出",
-    "@exit": {
-        "description": "托盘菜单中的条目。"
-    },
-    "back": "返回",
-    "@back": {
-        "description": "Windows 标题栏左上角图标的工具提示。"
-    },
-    "exportTracks": "导出为",
-    "@exportTracks": {
-        "description": "上下文菜单中允许用户导出集合的条目"
-    },
-    "exportM3u8": "播放列表文件",
-    "@exportM3u8": {
-        "description": "上下文菜单中的一个条目，允许用户以 M3U8 格式导出集合"
-    },
-    "exportCoverWall": "封面墙",
-    "@exportCoverWall": {
-        "description": "上下文菜单中的一个条目，允许用户导出封面墙"
-    },
-    "ratio": "比例",
-    "@ratio": {
-        "description": "封面墙模态的输入字段标题"
-    },
-    "frame": "边框",
-    "@frame": {
-        "description": "封面墙模态的输入字段标题"
-    },
-    "background": "背景",
-    "@background": {
-        "description": "封面墙模态的输入字段标题"
-    },
-    "evaluationMode": "评估模式",
-    "@evaluationMode": {
-        "description": "评估模式模态框的标题"
-    },
-    "evaluationModeContent1": "Rune 不是免费软件。我们鼓励您从应用商店购买正版许可证。",
-    "@evaluationModeContent1": {
-        "description": "评估模式模态框的内容"
-    },
-    "evaluationModeContent2": "许可用户可享受由应用商店提供的自动更新，并有权直接向开发人员提出新功能。",
-    "@evaluationModeContent2": {
-        "description": "评估模式模态框的内容"
-    },
-    "evaluationModeContent3": "您可以选择在 180 天内关闭此提醒，我们稍后会再次提醒您。",
-    "@evaluationModeContent3": {
-        "description": "评估模式模态框的内容"
-    },
-    "remindMeLater": "稍后提醒",
-    "@remindMeLater": {
-        "description": "评估模式模态框的动作按钮"
-    },
-    "mysteriousButton": "神秘按钮",
-    "@mysteriousButton": {
-        "description": "上下文菜单中的项目"
-    },
-    "mysteriousModalTitle": "嘎吱",
-    "@mysteriousModalTitle": {
-        "description": "模态框的标题"
-    },
-    "mysteriousModalContent": "你似乎触发了一个神秘的机关。空间的结构好像发生了变化，露出了新的探索区域。",
-    "@mysteriousModalContent": {
-        "description": "模态框的内容"
-    },
-    "laboratory": "实验室",
-    "@laboratory": {
-        "description": "链接标题的标题"
-    },
-    "libraryMode": "媒体库设置",
-    "@libraryMode": {
-        "description": "模态框的标题，用于指导用户选择存储数据库的位置"
-    },
-    "libraryModeSubtitle": "我们需要更多了解您的媒体库。您的媒体文件存储在哪里？",
-    "@libraryModeSubtitle": {
-        "description": "模态框的副标题，引导用户选择数据库的存储位置"
-    },
-    "portableMode": "本地硬盘",
-    "@portableMode": {
-        "description": "用户的一个候选库模式"
-    },
-    "portableModeSubtitle": "我们会将您的媒体索引一并存储在媒体库所在的文件夹中。",
-    "@portableModeSubtitle": {
-        "description": "用户的候选库模式的副标题"
-    },
-    "localMode": "云端",
-    "@localMode": {
-        "description": "用户的一个候选库模式"
-    },
-    "localModeSubtitle": "我们会将您的媒体索引存储在 Rune 的配置目录中。",
-    "@localModeSubtitle": {
-        "description": "用户的候选库模式的副标题"
-    },
-    "rememberWindowSize": "记忆窗口大小",
-    "@rememberWindowSize": {
-        "description": "主题页面中设置选项的标题"
-    },
-    "rememberWindowSizeSubtitle": "在调整窗口大小时保存，下次启动程序时尺寸不变。",
-    "@rememberWindowSizeSubtitle": {
-        "description": "主题页面中设置选项的副标题"
-    },
-    "closeNotification": "Rune 仍在运行",
-    "@closeNotification": {
-        "description": "当用户关闭窗口时，弹出的通知"
-    },
-    "closeNotificationSubtitle": "Rune 正在后台运行。您可以在系统托盘中轻松找到。",
-    "@closeNotificationSubtitle": {
-        "description": ""
+  "@@locale": "zh_Hans",
+  "rune": "Rune",
+  "@rune": {
+    "description": "软件的品牌名称，不应翻译。"
+  },
+  "runePlayer": "Rune 播放器",
+  "@runePlayer": {
+    "description": "软件的全称。"
+  },
+  "copyright": "版权",
+  "@copyright": {
+    "description": "这是设置界面版权部分中的一个条目标题。"
+  },
+  "copyrightAnnouncement": "版权所有 © 2024 Rune 播放器开发团队。",
+  "@copyrightAnnouncement": {
+    "description": "完整的版权声明。"
+  },
+  "licenseAnnouncement": "本产品根据 MPL 许可证授权许可。",
+  "@licenseAnnouncement": {
+    "description": "完整的软件许可声明。"
+  },
+  "factoryReset": "恢复出厂设置",
+  "@factoryReset": {
+    "description": "设置页面中触发“重置媒体库历史记录”操作的按钮的标题。"
+  },
+  "factoryResetSubtitle": "从媒体库列表中删除所有项目。",
+  "@factoryResetSubtitle": {
+    "description": "设置界面中“恢复出厂设置”按钮的说明文字。"
+  },
+  "bsodBody": "您的播放器遇到问题，需要重新启动。我们尊重您的隐私，不会收集任何数据。",
+  "@bsodBody": {
+    "description": "在蓝屏界面，这向用户解释软件遇到了致命错误。并信达雅提示用户隐私保护。"
+  },
+  "artists": "艺术家",
+  "@artists": {},
+  "albums": "专辑",
+  "@albums": {},
+  "playlists": "播放列表",
+  "@playlists": {},
+  "unknownAlbum": "未知专辑",
+  "@unknownAlbum": {},
+  "unknownTrack": "未知曲目",
+  "@unknownTrack": {},
+  "unknownArtist": "未知艺术家",
+  "@unknownArtist": {},
+  "selectDirectory": "选择目录",
+  "@selectDirectory": {},
+  "noDataAvailable": "没有可用数据",
+  "@noDataAvailable": {},
+  "start": "开始",
+  "@start": {
+    "description": "“媒体库主页”功能列表旁边的装饰文字。"
+  },
+  "search": "搜索",
+  "@search": {},
+  "tracks": "曲目",
+  "@tracks": {},
+  "system": "系统",
+  "@system": {},
+  "operatingSystem": "操作系统",
+  "@operatingSystem": {
+    "description": "“关于”页面上软件信息条目的标题之一。"
+  },
+  "systemVersion": "系统版本",
+  "@systemVersion": {
+    "description": "“关于”页面上软件信息条目的标题之一。"
+  },
+  "kernelVersion": "内核版本",
+  "@kernelVersion": {
+    "description": "“关于”页面上的一个条目，通常表示操作系统内核的版本，用于诊断。"
+  },
+  "hostName": "主机名",
+  "@hostName": {
+    "description": "“关于”页面上的一个条目，通常表示计算机的名称。"
+  },
+  "player": "播放器",
+  "@player": {
+    "description": "“关于”页面上软件元数据的一个部分标题，提供软件的版本信息概览。"
+  },
+  "buildHash": "构建哈希",
+  "@buildHash": {},
+  "buildDate": "构建日期",
+  "@buildDate": {},
+  "commitDate": "提交日期",
+  "@commitDate": {},
+  "rustcVersion": "Rust 编译器版本",
+  "@rustcVersion": {},
+  "activation": "激活状态",
+  "@activation": {},
+  "runeIsActivated": "Rune 已激活",
+  "@runeIsActivated": {
+    "description": "告知用户该软件目前已激活。实际上，该软件在任何情况下都是激活的。"
+  },
+  "productId": "产品 ID",
+  "@productId": {},
+  "youMayBeAVictimOfGenuineSoftware": "你可能是正版软件的受害者。",
+  "@youMayBeAVictimOfGenuineSoftware": {
+    "description": "这句话是一个彩蛋，讽刺反盗版措施往往使合法用户的体验比使用盗版的人更糟。请随意保持幽默感。"
+  },
+  "axiomDesign": "Axiom Design",
+  "@axiomDesign": {
+    "description": "支持本项目的设计研究机构。您应保留原名，不作翻译。"
+  },
+  "computingDevice": "计算设备",
+  "@computingDevice": {
+    "description": "一个设置条目标题，允许用户选择负责执行音频分析任务的硬件设备。"
+  },
+  "computingDeviceSubtitle": "选择 GPU 或 CPU 以获得更快或更高效的处理。",
+  "@computingDeviceSubtitle": {},
+  "gpu": "GPU",
+  "@gpu": {},
+  "cpu": "CPU",
+  "@cpu": {},
+  "performanceLevel": "性能水平",
+  "@performanceLevel": {},
+  "performanceLevelSubtitle": "选择要同时运行的任务量。",
+  "@performanceLevelSubtitle": {},
+  "performance": "性能",
+  "@performance": {
+    "description": "高性能模式，利用可用的硬件资源尽快完成计算任务。"
+  },
+  "balance": "平衡",
+  "@balance": {
+    "description": "平衡模式，均匀分配资源，防止计算任务使系统过载导致卡顿。"
+  },
+  "batterySaving": "节能",
+  "@batterySaving": {
+    "description": "省电模式，最小化资源使用以防止过热，适合性能较弱的设备。"
+  },
+  "switchTo": "切换",
+  "@switchTo": {
+    "description": "切换媒体库的按钮提示文字。按下此按钮将关闭当前媒体库并打开一个新的。"
+  },
+  "removeLibrary": "移除",
+  "@removeLibrary": {
+    "description": "移除媒体库的按钮提示文字。按下此按钮将从历史记录中删除媒体库条目。"
+  },
+  "addLibrary": "添加媒体库",
+  "@addLibrary": {
+    "description": "设置界面中创建新媒体库的按钮提示文字。按下此按钮将引导用户选择一个目录并创建媒体库。"
+  },
+  "addLibrarySubtitle": "添加媒体库并扫描已有文件。",
+  "@addLibrarySubtitle": {},
+  "actionMenu": "操作菜单",
+  "@actionMenu": {
+    "description": "设置界面元素列表中的一个分隔符。此分隔符下方的所有项目将隐藏在一个弹出按钮中，而不是直接显示在屏幕上。"
+  },
+  "addToQueue": "添加到队列",
+  "@addToQueue": {
+    "description": "上下文菜单中的一个条目。按下此条目将把相应的歌曲或专辑添加到播放队列中。"
+  },
+  "addToQueueSubtitle": "新项目添加至播放队列的方式",
+  "@addToQueueSubtitle": {},
+  "playNext": "下一首",
+  "@playNext": {
+    "description": "一个操作，将一首歌曲或一张专辑排队作为播放列表中的下一首播放。"
+  },
+  "addToEnd": "添加到队尾",
+  "@addToEnd": {
+    "description": "一个操作，将一首歌曲或一张专辑添加到播放列表的末尾。"
+  },
+  "middleClickAction": "中键操作",
+  "@middleClickAction": {
+    "description": "设置界面中的一个标题，控制用户用鼠标中键点击一首歌曲或专辑时的行为。"
+  },
+  "middleClickActionSubtitle": "用鼠标中键点击歌曲或合集时执行的操作。",
+  "@middleClickActionSubtitle": {},
+  "startPlaying": "开始播放",
+  "@startPlaying": {
+    "description": "用户可以触发的开始播放音乐的操作。"
+  },
+  "startRoaming": "开始漫游",
+  "@startRoaming": {
+    "description": "用户可以触发的开始播放与当前歌曲或专辑相似的音乐的操作。"
+  },
+  "playbackMode": "播放模式",
+  "@playbackMode": {
+    "description": "设置界面中的一个标题，帮助用户选择所需的播放模式，如随机播放或顺序播放。"
+  },
+  "playbackModeSubtitle": "选择您喜欢的播放方式",
+  "@playbackModeSubtitle": {},
+  "colorMode": "色彩模式",
+  "@colorMode": {
+    "description": "一个设置条目，帮助用户选择界面的色彩模式，包括浅色和深色模式。"
+  },
+  "colorModeSubtitle": "更改 Rune 中的色彩模式显示。",
+  "@colorModeSubtitle": {},
+  "systemColorMode": "系统默认",
+  "@systemColorMode": {
+    "description": "一个色彩设置条目，启用后，软件的浅色或深色模式将与系统设置保持一致。"
+  },
+  "dark": "深色",
+  "@dark": {
+    "description": "一个色彩设置条目，选中后启用深色模式。"
+  },
+  "light": "浅色",
+  "@light": {
+    "description": "一个色彩设置条目，选中后启用浅色模式。"
+  },
+  "themeColor": "主题颜色",
+  "@themeColor": {
+    "description": "一个设置条目，允许用户选择自己喜欢的主题色。"
+  },
+  "themeColorSubtitle": "选择一个颜色，让您的 Rune 焕然一新。",
+  "@themeColorSubtitle": {},
+  "followSystemTheme": "跟随系统主题色",
+  "@followSystemTheme": {
+    "description": "主题色设置中的一个条目。启用后，软件的主题色将跟随系统设置。"
+  },
+  "dynamicColors": "动态颜色",
+  "@dynamicColors": {
+    "description": "一个色彩设置条目。启用后，软件的主题色会根据当前播放的歌曲的封面而变化。"
+  },
+  "dynamicColorsSubtitle": "根据正在播放歌曲的封面调整 Rune 的主题色。",
+  "@dynamicColorsSubtitle": {},
+  "brandingAnimation": "品牌动画",
+  "@brandingAnimation": {
+    "description": "一个设置条目，允许用户控制软件启动时是否播放欢迎动画。"
+  },
+  "brandingAnimationSubtitle": "在 Rune 启动时播放品牌动画。",
+  "@brandingAnimationSubtitle": {},
+  "thisMightTakeAFewMinutes": "这可能需要几分钟。",
+  "@thisMightTakeAFewMinutes": {
+    "description": "扫描等待界面上的标题，提醒用户要有耐心。"
+  },
+  "tracksFound": " 首曲目已找到",
+  "@tracksFound": {
+    "description": "扫描等待界面上的提示文字，告知用户已扫描到多少首歌曲。"
+  },
+  "albumCoversCollected": " 张专辑封面已收集",
+  "@albumCoversCollected": {
+    "description": "扫描等待界面上的提示文字，告知用户已扫描到多少张专辑封面。"
+  },
+  "editPlaylist": "编辑播放列表",
+  "@editPlaylist": {
+    "description": "上下文菜单中的一个条目，允许用户编辑播放列表的元数据。"
+  },
+  "editMix": "编辑 Mix",
+  "@editMix": {
+    "description": "上下文菜单中的一个条目，允许用户编辑 Mix 的元数据。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
+  },
+  "edit": "编辑",
+  "@edit": {
+    "description": "上下文菜单中作为备用文本的动词，在软件无法识别应该编辑什么内容时，引导用户进行编辑。"
+  },
+  "remove": "移除",
+  "@remove": {
+    "description": "上下文菜单中作为备用文本的动词，在软件无法识别应该移除什么内容时，引导用户进行移除。"
+  },
+  "removePlaylist": "移除播放列表",
+  "@removePlaylist": {
+    "description": "上下文菜单中的一个条目，允许用户删除播放列表。"
+  },
+  "removeMix": "移除 Mix",
+  "@removeMix": {
+    "description": "上下文菜单中的一个条目，允许用户删除 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
+  },
+  "addToMix": "添加到 Mix",
+  "@addToMix": {
+    "description": "上下文菜单中的一个条目，允许用户将一首歌曲或一张专辑添加到 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
+  },
+  "newMix": "新建 Mix",
+  "@newMix": {
+    "description": "上下文菜单中的一个条目，允许用户创建一个新的 Mix。Mix 是一种智能播放列表。注意：不要与“混音(remix)”的概念混淆。"
+  },
+  "selectAGroup": "选择一个分组",
+  "@selectAGroup": {
+    "description": "位于编辑 Mix 或播放列表模态框中的输入字段的占位符文本，引导用户选择一个内容分组。"
+  },
+  "likedOnly": "仅收藏",
+  "@likedOnly": {
+    "description": "Mix 编辑界面中的一个条目，一个复选框选项，用于过滤并仅保留用户“喜欢”的歌曲。"
+  },
+  "allTracks": "所有曲目",
+  "@allTracks": {
+    "description": "Mix 编辑界面中的一个条目，一个复选框选项，用于过滤并保留所有歌曲，而不仅仅是用户“喜欢”的歌曲。"
+  },
+  "defaultMode": "默认",
+  "@defaultMode": {
+    "description": "播放列表中歌曲被遍历的一种方式，保持当前系统行为而不指定模式。"
+  },
+  "sequential": "顺序播放",
+  "@sequential": {
+    "description": "播放列表中歌曲被遍历的一种方式，从头到尾按顺序播放。"
+  },
+  "repeatAll": "列表循环",
+  "@repeatAll": {
+    "description": "播放列表中歌曲被遍历的一种方式，播放完毕后从头开始重复。"
+  },
+  "repeatOne": "单曲循环",
+  "@repeatOne": {
+    "description": "播放列表中歌曲被遍历的一种方式，不断重复一首歌曲。"
+  },
+  "shuffle": "随机播放",
+  "@shuffle": {
+    "description": "播放列表中歌曲被遍历的一种方式，按随机顺序播放。"
+  },
+  "title": "标题",
+  "@title": {
+    "description": "播放列表或 Mix 编辑模态框中的一个条目，引导用户编辑其标题。"
+  },
+  "group": "分组",
+  "@group": {
+    "description": "播放列表或 Mix 编辑模态框中的一个条目，引导用户编辑其分组。"
+  },
+  "save": "保存",
+  "@save": {
+    "description": "模态框中的一个操作按钮，按下时保存更改。"
+  },
+  "create": "创建",
+  "@create": {
+    "description": "模态框中的一个操作按钮，按下时创建一个新条目。"
+  },
+  "cancel": "取消",
+  "@cancel": {
+    "description": "模态框中的一个操作按钮，不进行任何更改就关闭模态框。"
+  },
+  "noRecommendation": "不推荐",
+  "@noRecommendation": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项表示用户不打算基于查询结果进行推荐。"
+  },
+  "basedOnAll": "基于全部",
+  "@basedOnAll": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项会根据整个查询结果集推荐相似的歌曲。"
+  },
+  "group1": "第一组",
+  "@group1": {},
+  "group2": "第二组",
+  "@group2": {},
+  "group3": "第三组",
+  "@group3": {},
+  "group4": "第四组",
+  "@group4": {},
+  "group5": "第五组",
+  "@group5": {},
+  "group6": "第六组",
+  "@group6": {},
+  "group7": "第七组",
+  "@group7": {},
+  "group8": "第八组",
+  "@group8": {},
+  "group9": "第九组",
+  "@group9": {},
+  "ascending": "升序",
+  "@ascending": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项将按升序对查询结果进行排序。"
+  },
+  "descending": "降序",
+  "@descending": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。选择此选项将按降序对查询结果进行排序。"
+  },
+  "lastModified": "最后修改时间",
+  "@lastModified": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按文件元数据的最后修改时间进行排序。"
+  },
+  "duration": "时长",
+  "@duration": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频长度进行排序。"
+  },
+  "timesPlayedThrough": "完整播放次数",
+  "@timesPlayedThrough": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频被完整播放的次数进行排序。"
+  },
+  "timesSkipped": "跳过次数",
+  "@timesSkipped": {
+    "description": "Mix 编辑模态框下拉菜单中的一个条目。此选项允许用户按音频被跳过的次数进行排序。"
+  },
+  "pickDirectory": "选择目录",
+  "@pickDirectory": {
+    "description": "Mix 编辑模态框中的按钮提示文字。按下此按钮会打开一个模态框，引导用户选择目录。"
+  },
+  "oneDirectory": "一个目录",
+  "@oneDirectory": {
+    "description": "表示已选择一个目录的状态文本。"
+  },
+  "manyDirectories": "{count} 个目录",
+  "@manyDirectories": {
+    "description": "表示已选择多个目录的状态文本。",
+    "placeholders": {
+      "count": {}
     }
+  },
+  "confirm": "确认",
+  "@confirm": {
+    "description": "模态框中的操作按钮文本，表示用户确认一个操作。"
+  },
+  "directories": "目录",
+  "@directories": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项是用于按文件夹过滤歌曲。"
+  },
+  "allDirectories": "所有目录",
+  "@allDirectories": {
+    "description": "表示已选择所有目录的提示。"
+  },
+  "randomTracks": "随机曲目",
+  "@randomTracks": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项是用于选择若干随机歌曲。"
+  },
+  "amount": "数量",
+  "@amount": {
+    "description": "模态框中的提示文本，表示通过滑块或输入框选择的歌曲数量。"
+  },
+  "mode": "模式",
+  "@mode": {
+    "description": "歌曲的播放模式。"
+  },
+  "recommendation": "推荐",
+  "@recommendation": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制播放器的推荐行为。"
+  },
+  "sortBy": "排序方式",
+  "@sortBy": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制歌曲的排序方式。"
+  },
+  "sortOrder": "排序顺序",
+  "@sortOrder": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项控制歌曲的排序方向。"
+  },
+  "liked": "收藏",
+  "@liked": {
+    "description": "模态设置选项中一个条目的标题，告知用户接下来的选项过滤用户标记为“喜欢”的歌曲。"
+  },
+  "noRoamingCollection": "无法开始漫游。尚未分析合集中的歌曲。",
+  "@noRoamingCollection": {},
+  "noRoamingTrack": "无法开始漫游。尚未分析该曲目。",
+  "@noRoamingTrack": {},
+  "noAnalysisScanning": "{baseMessage} 正在扫描媒体库，无法分析。",
+  "@noAnalysisScanning": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisAnalyzing": "{baseMessage} 正在分析媒体库，请稍后。",
+  "@noAnalysisAnalyzing": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "noAnalysisDefault": "{baseMessage} 请分析媒体库以获得最佳体验。",
+  "@noAnalysisDefault": {
+    "placeholders": {
+      "baseMessage": {}
+    }
+  },
+  "notReady": "尚未完成",
+  "@notReady": {
+    "description": "模态框标题，表示歌曲尚未建立索引，无法推荐。"
+  },
+  "createPlaylist": "创建播放列表",
+  "@createPlaylist": {
+    "description": "创建播放列表的模态框标题。"
+  },
+  "scanLibrary": "扫描媒体库",
+  "@scanLibrary": {
+    "description": "模态框中的操作按钮文本，按下时启动媒体库扫描。"
+  },
+  "analyzeTracks": "分析曲目",
+  "@analyzeTracks": {
+    "description": "模态框中的操作按钮文本，按下时启动对媒体库中所有歌曲的分析。"
+  },
+  "scan": "扫描",
+  "@scan": {
+    "description": "设置界面中的按钮提示文字，按下时启动媒体库扫描。"
+  },
+  "scanning": "正在扫描",
+  "@scanning": {
+    "description": "设置界面中的按钮提示文字，表示当前正在扫描媒体库。"
+  },
+  "analyze": "分析",
+  "@analyze": {
+    "description": "设置界面中的按钮提示文字，按下时启动对媒体库中所有歌曲的分析。"
+  },
+  "analyzing": "正在分析",
+  "@analyzing": {
+    "description": "设置界面中的按钮提示文字，表示当前正在分析媒体库。"
+  },
+  "tryCreatingYourOwnCollection": "尝试创建您自己的合集",
+  "@tryCreatingYourOwnCollection": {
+    "description": "在“合集”视图的空白页面上显示的文字，建议用户创建一个新的合集。"
+  },
+  "theseActionsMayHelp": "这些操作可能有所帮助",
+  "@theseActionsMayHelp": {},
+  "tryScanningNewFiles": "尝试扫描新文件",
+  "@tryScanningNewFiles": {},
+  "noCollectionFound": "未找到合集",
+  "@noCollectionFound": {},
+  "noItemsInPlaylist": "播放列表中没有项目",
+  "@noItemsInPlaylist": {},
+  "previous": "上一首",
+  "@previous": {
+    "description": "控制播放的按钮提示文字，用于跳到上一首歌曲。"
+  },
+  "previousSubtitle": "转到上一首曲目",
+  "@previousSubtitle": {},
+  "playPause": "播放/暂停",
+  "@playPause": {
+    "description": "控制播放的按钮提示文字，用于在播放和暂停状态之间切换。"
+  },
+  "playPauseSubtitle": "切换播放和暂停",
+  "@playPauseSubtitle": {},
+  "next": "下一首",
+  "@next": {
+    "description": "控制播放的按钮提示文字，用于跳到下一首歌曲。"
+  },
+  "nextSubtitle": "转到下一首曲目",
+  "@nextSubtitle": {},
+  "volume": "音量",
+  "@volume": {
+    "description": "控制播放的按钮提示文字，用于调整音量。"
+  },
+  "volumeSubtitle": "调整音量",
+  "@volumeSubtitle": {},
+  "playlist": "播放队列",
+  "@playlist": {
+    "description": "控制播放的按钮提示文字，用于显示播放列表。"
+  },
+  "playlistSubtitle": "查看播放队列",
+  "@playlistSubtitle": {},
+  "hidden": "隐藏",
+  "@hidden": {
+    "description": "表示一个隐藏按钮的按钮提示文字；通常不使用此文本。"
+  },
+  "hiddenSubtitle": "下列的内容将隐藏在其他列表中",
+  "@hiddenSubtitle": {},
+  "coverWall": "封面墙",
+  "@coverWall": {
+    "description": "控制播放的按钮提示文字，用于切换到封面墙页面，这是一个由专辑封面组成的装饰性页面。"
+  },
+  "coverWallSubtitle": "展示封面，营造独特氛围",
+  "@coverWallSubtitle": {},
+  "fullscreen": "全屏",
+  "@fullscreen": {
+    "description": "控制播放的按钮提示文字，用于切换全屏模式。"
+  },
+  "fullscreenSubtitle": "进出全屏模式",
+  "@fullscreenSubtitle": {},
+  "pause": "暂停",
+  "@pause": {
+    "description": "控制播放的按钮提示文字，用于暂停当前正在播放的歌曲。"
+  },
+  "play": "播放",
+  "@play": {
+    "description": "控制播放的按钮提示文字，用于从暂停状态恢复播放。"
+  },
+  "enable": "启用",
+  "@enable": {
+    "description": "设置界面中的单选按钮提示文字，表示一个功能已启用。"
+  },
+  "disable": "禁用",
+  "@disable": {
+    "description": "设置界面中的单选按钮提示文字，表示一个功能未启用。"
+  },
+  "noTracksFound": "未找到曲目",
+  "@noTracksFound": {},
+  "library": "媒体库",
+  "@library": {
+    "description": "媒体库设置界面的标题。"
+  },
+  "artistQuery": "查询艺术家",
+  "@artistQuery": {},
+  "playlistQuery": "查询播放列表",
+  "@playlistQuery": {},
+  "mixes": "Mix",
+  "@mixes": {
+    "description": "Mix 界面的标题，指一种智能播放列表。"
+  },
+  "mixQuery": "查询 Mix",
+  "@mixQuery": {},
+  "settings": "设置",
+  "@settings": {
+    "description": "设置界面的标题。"
+  },
+  "analysis": "分析",
+  "@analysis": {
+    "description": "分析设置界面的标题。"
+  },
+  "playback": "播放",
+  "@playback": {
+    "description": "播放设置界面的标题。"
+  },
+  "theme": "主题",
+  "@theme": {
+    "description": "主题设置界面的标题。"
+  },
+  "controller": "控制",
+  "@controller": {
+    "description": "播放控制按钮设置界面的标题。"
+  },
+  "about": "关于",
+  "@about": {
+    "description": "关于界面的标题。"
+  },
+  "selectLibraryDirectorySubtitle": "选择您的音频库目录，我们将扫描并分析其中的所有曲目。",
+  "@selectLibraryDirectorySubtitle": {},
+  "resetLibrary": "重置媒体库",
+  "@resetLibrary": {
+    "description": "模态框中的操作按钮文本，表示用户想要重置媒体库。"
+  },
+  "resetLibraryQuestion": "确认重置媒体库？",
+  "@resetLibraryQuestion": {
+    "description": "询问用户是否要重置媒体库的模态框标题。"
+  },
+  "resetLibrarySubtitle": "重置媒体库将清除您的文件开启记录。不会改动您现有的媒体库。您想要继续吗？",
+  "@resetLibrarySubtitle": {},
+  "unavailable": "不可用",
+  "@unavailable": {
+    "description": "仅在出现错误时出现的不可用的上下文菜单元素。"
+  },
+  "goToArtist": "前往艺术家",
+  "@goToArtist": {
+    "description": "引导用户前往艺术家页面的上下文菜单项。"
+  },
+  "goToAlbum": "前往专辑",
+  "@goToAlbum": {
+    "description": "引导用户前往专辑页面的上下文菜单项。"
+  },
+  "addToPlaylist": "添加到播放列表",
+  "@addToPlaylist": {
+    "description": "引导用户将一首歌曲或一张专辑添加到播放列表的上下文菜单项。"
+  },
+  "newPlaylist": "新建播放列表",
+  "@newPlaylist": {
+    "description": "引导用户创建新播放列表的上下文菜单项。"
+  },
+  "unableToOpenLibrary": "无法打开媒体库",
+  "@unableToOpenLibrary": {
+    "description": "告知用户无法打开媒体库的模态框标题。"
+  },
+  "unableToOpenLibrarySubtitle": "由于以下错误，无法打开媒体库：",
+  "@unableToOpenLibrarySubtitle": {},
+  "unknownError": "未知错误",
+  "@unknownError": {
+    "description": "表示出现未知错误的模态框错误内容。"
+  },
+  "close": "关闭",
+  "@close": {
+    "description": "模态框中引导用户关闭它的操作按钮。"
+  },
+  "queue": "队列",
+  "@queue": {
+    "description": "播放列表模态框的标题。"
+  },
+  "createMix": "创建 Mix",
+  "@createMix": {
+    "description": "引导用户创建新Mix的上下文菜单项。Mix 是一种智能播放列表。"
+  },
+  "removeMixTitle": "删除 Mix",
+  "@removeMixTitle": {
+    "description": "告知用户他们即将删除Mix的模态框标题。Mix 是一种智能播放列表。"
+  },
+  "removeMixSubtitle": "如果删除此 Mix ，您将无法恢复。您确定要删除吗？",
+  "@removeMixSubtitle": {},
+  "delete": "删除",
+  "@delete": {
+    "description": "模态框中的操作按钮文本，表示按下它将删除信息。"
+  },
+  "removePlaylistTitle": "移除播放列表",
+  "@removePlaylistTitle": {
+    "description": "告知用户他们即将删除播放列表的模态框标题。"
+  },
+  "removePlaylistSubtitle": "如果删除此播放列表，您将无法恢复。您确定要删除吗？",
+  "@removePlaylistSubtitle": {},
+  "cancelTaskTitle": "取消任务",
+  "@cancelTaskTitle": {
+    "description": "告知用户他们即将取消一个任务的模态框标题。"
+  },
+  "cancelTaskSubtitle": "如果取消此任务，它将停止在当前进度。您确定要取消吗？",
+  "@cancelTaskSubtitle": {},
+  "cancelTask": "取消任务",
+  "@cancelTask": {
+    "description": "模态框中的操作按钮文本，表示按下它将取消任务。"
+  },
+  "continueTask": "继续",
+  "@continueTask": {
+    "description": "模态框中的操作按钮文本，表示按下它将继续任务。"
+  },
+  "refresh": "刷新",
+  "@refresh": {
+    "description": "引导用户刷新当前页面信息的上下文菜单项。"
+  },
+  "explore": "探索",
+  "@explore": {
+    "description": "一个功能区域的标题。"
+  },
+  "language": "语言",
+  "@language": {
+    "description": "语言设置页面的标题。"
+  },
+  "followSystemLanguage": "跟随系统语言",
+  "@followSystemLanguage": {
+    "description": "设置中的操作按钮文本，表示 Rune 的语言应跟随操作系统。"
+  },
+  "followSystemLanguageSubtitle": "遵循系统语言，无需特殊设置。",
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "窗口大小",
+  "@windowSize": {
+    "description": "主题页面中设置窗口大小的提示文本。"
+  },
+  "windowSizeSubtitle": "选择应用程序的首选窗口大小。",
+  "@windowSizeSubtitle": {
+    "description": "解释窗口大小选项的副标题。"
+  },
+  "normalWindowSize": "普通",
+  "@normalWindowSize": {
+    "description": "标准窗口大小的选项。"
+  },
+  "slimWindowSize": "窄",
+  "@slimWindowSize": {
+    "description": "较窄窗口大小的选项。"
+  },
+  "stockyWindowSize": "长",
+  "@stockyWindowSize": {
+    "description": "较宽窗口大小的选项。"
+  },
+  "log": "日志",
+  "@log": {
+    "description": "设置部分中的日志页面的标题，此页面包含程序运行时发生的错误和警告。"
+  },
+  "viewLogDetail": "查看日志详情",
+  "@viewLogDetail": {
+    "description": "上下文菜单中的一个条目。按下此条目将显示日志详情模态框。"
+  },
+  "removeLogTitle": "删除日志",
+  "@removeLogTitle": {
+    "description": "告知用户他们即将删除一条日志的模态框标题。"
+  },
+  "removeLogSubtitle": "如果删除此日志，您将无法恢复它。您确定要删除吗？",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "移除所有日志",
+  "@clearLogTitle": {
+    "description": "告知用户他们即将删除所有日志的模态框标题。"
+  },
+  "clearLogSubtitle": "如果删除所有日志，您将无法恢复。您确定要删除吗？",
+  "@clearLogSubtitle": {},
+  "deleteAll": "全部删除",
+  "@deleteAll": {
+    "description": "上下文菜单中的一个条目。按下此条目将删除所有可用项目。"
+  },
+  "noLogsAvailable": "无可用日志",
+  "@noLogsAvailable": {
+    "description": "日志设置页面的空状态图标的标题。"
+  },
+  "home": "主页",
+  "@home": {
+    "description": "主页设置页面的标题。"
+  },
+  "newest": "最新",
+  "@newest": {
+    "description": "媒体库主页设置下拉列表中的条目。"
+  },
+  "oldest": "最旧",
+  "@oldest": {
+    "description": "媒体库主页设置下拉列表中的条目。"
+  },
+  "random": "随机",
+  "@random": {
+    "description": "媒体库主页设置下拉列表中的条目。"
+  },
+  "mostPlayed": "最常播放",
+  "@mostPlayed": {
+    "description": "媒体库主页中的标题。"
+  },
+  "personalize": "个性化",
+  "@personalize": {
+    "description": "媒体库主页的上下文菜单中的条目。"
+  },
+  "artistsLibraryHomeSubtitle": "发现和探索您最喜爱的艺术家的世界",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "媒体库主页中艺术家部分的描述。"
+  },
+  "albumsLibraryHomeSubtitle": "沉浸在由才华横溢的艺术家创作的专辑中",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "媒体库主页中专辑部分的描述。"
+  },
+  "playlistsLibraryHomeSubtitle": "策划您自己的个性化聆听之旅",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "媒体库主页中播放列表部分的描述。"
+  },
+  "tracksLibraryHomeSubtitle": "深入研究您熟悉和喜爱的曲目",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "媒体库主页中曲目部分的描述。"
+  },
+  "likedLibraryHomeSubtitle": "重温您最珍视的曲目",
+  "@likedLibraryHomeSubtitle": {
+    "description": "媒体库主页中收藏部分的描述。"
+  },
+  "mostLibraryHomeSubtitle": "再次聆听一次又一次吸引您的旋律",
+  "@mostLibraryHomeSubtitle": {
+    "description": "媒体库主页中最多播放部分的描述。"
+  },
+  "showRune": "显示 Rune",
+  "@showRune": {
+    "description": "托盘菜单中的条目。"
+  },
+  "exit": "退出",
+  "@exit": {
+    "description": "托盘菜单中的条目。"
+  },
+  "back": "返回",
+  "@back": {
+    "description": "Windows 标题栏左上角图标的工具提示。"
+  },
+  "exportTracks": "导出为",
+  "@exportTracks": {
+    "description": "上下文菜单中允许用户导出集合的条目"
+  },
+  "exportM3u8": "播放列表文件",
+  "@exportM3u8": {
+    "description": "上下文菜单中的一个条目，允许用户以 M3U8 格式导出集合"
+  },
+  "exportCoverWall": "封面墙",
+  "@exportCoverWall": {
+    "description": "上下文菜单中的一个条目，允许用户导出封面墙"
+  },
+  "ratio": "比例",
+  "@ratio": {
+    "description": "封面墙模态的输入字段标题"
+  },
+  "frame": "边框",
+  "@frame": {
+    "description": "封面墙模态的输入字段标题"
+  },
+  "background": "背景",
+  "@background": {
+    "description": "封面墙模态的输入字段标题"
+  },
+  "evaluationMode": "评估模式",
+  "@evaluationMode": {
+    "description": "评估模式模态框的标题"
+  },
+  "evaluationModeContent1": "Rune 不是免费软件。我们鼓励您从应用商店购买正版许可证。",
+  "@evaluationModeContent1": {
+    "description": "评估模式模态框的内容"
+  },
+  "evaluationModeContent2": "许可用户可享受由应用商店提供的自动更新，并有权直接向开发人员提出新功能。",
+  "@evaluationModeContent2": {
+    "description": "评估模式模态框的内容"
+  },
+  "evaluationModeContent3": "您可以选择在 180 天内关闭此提醒，我们稍后会再次提醒您。",
+  "@evaluationModeContent3": {
+    "description": "评估模式模态框的内容"
+  },
+  "remindMeLater": "稍后提醒",
+  "@remindMeLater": {
+    "description": "评估模式模态框的动作按钮"
+  },
+  "mysteriousButton": "神秘按钮",
+  "@mysteriousButton": {
+    "description": "上下文菜单中的项目"
+  },
+  "mysteriousModalTitle": "嘎吱",
+  "@mysteriousModalTitle": {
+    "description": "模态框的标题"
+  },
+  "mysteriousModalContent": "你似乎触发了一个神秘的机关。空间的结构好像发生了变化，露出了新的探索区域。",
+  "@mysteriousModalContent": {
+    "description": "模态框的内容"
+  },
+  "laboratory": "实验室",
+  "@laboratory": {
+    "description": "链接标题的标题"
+  },
+  "libraryMode": "媒体库设置",
+  "@libraryMode": {
+    "description": "模态框的标题，用于指导用户选择存储数据库的位置"
+  },
+  "libraryModeSubtitle": "我们需要更多了解您的媒体库。您的媒体文件存储在哪里？",
+  "@libraryModeSubtitle": {
+    "description": "模态框的副标题，引导用户选择数据库的存储位置"
+  },
+  "portableMode": "本地硬盘",
+  "@portableMode": {
+    "description": "用户的一个候选库模式"
+  },
+  "portableModeSubtitle": "我们会将您的媒体索引一并存储在媒体库所在的文件夹中。",
+  "@portableModeSubtitle": {
+    "description": "用户的候选库模式的副标题"
+  },
+  "localMode": "云端",
+  "@localMode": {
+    "description": "用户的一个候选库模式"
+  },
+  "localModeSubtitle": "我们会将您的媒体索引存储在 Rune 的配置目录中。",
+  "@localModeSubtitle": {
+    "description": "用户的候选库模式的副标题"
+  },
+  "rememberWindowSize": "记忆窗口大小",
+  "@rememberWindowSize": {
+    "description": "主题页面中设置选项的标题"
+  },
+  "rememberWindowSizeSubtitle": "在调整窗口大小时保存，下次启动程序时尺寸不变。",
+  "@rememberWindowSizeSubtitle": {
+    "description": "主题页面中设置选项的副标题"
+  },
+  "closeNotification": "Rune 仍在运行",
+  "@closeNotification": {
+    "description": "当用户关闭窗口时，弹出的通知"
+  },
+  "closeNotificationSubtitle": "Rune 正在后台运行。您可以在系统托盘中轻松找到。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "注册",
+  "@register": {
+    "description": "设置页面中注册磁贴的标题。"
+  },
+  "evaluationModeContent4": "您可以从下面的商店购买音乐文件作为注册码。点击“注册”以验证您的正版状态。",
+  "@evaluationModeContent4": {
+    "description": "评估模式模态的内容。"
+  },
+  "registerAction": "注册",
+  "@registerAction": {
+    "description": "模态中注册按钮的标签。"
+  },
+  "registerFailed": "注册失败",
+  "@registerFailed": {
+    "description": "注册失败模态的标题。"
+  },
+  "registerFailedSubtitle": "验证过程中发生错误。",
+  "@registerFailedSubtitle": {
+    "description": "注册失败模态的内容。"
+  },
+  "registerSuccess": "注册成功",
+  "@registerSuccess": {
+    "description": "注册成功模态的标题。"
+  },
+  "registerSuccessSubtitle": "恭喜！您的软件已成功注册，感谢您选择 Rune。",
+  "@registerSuccessSubtitle": {
+    "description": "注册成功模态的内容。"
+  },
+  "registerInvalid": "密钥无效",
+  "@registerInvalid": {
+    "description": "无效注册密钥模态的标题。"
+  },
+  "registerInvalidSubtitle": "您提供的密钥文件无效。请检查文件并重试。",
+  "@registerInvalidSubtitle": {
+    "description": "无效注册密钥模态的内容。"
+  },
+  "importM3u8Success": "导入成功",
+  "@importM3u8Success": {
+    "description": "部分导入成功模态的标题。"
+  },
+  "importM3u8SuccessSubtitle": "您的曲目已导入，但有些曲目并未在数据库中检索到。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "部分导入成功模态的内容。"
+  },
+  "importM3u8Failed": "导入失败",
+  "@importM3u8Failed": {
+    "description": "导入失败模态的标题。"
+  },
+  "importM3u8FailedSubtitle": "导入过程中发生错误。",
+  "@importM3u8FailedSubtitle": {
+    "description": "导入失败模态的内容。"
+  },
+  "importM3u8": "导入播放列表",
+  "@importM3u8": {
+    "description": "上下文菜单项，指导用户导入新播放列表。"
+  }
 }

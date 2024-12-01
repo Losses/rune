@@ -692,5 +692,269 @@
     "description": "Aktionsknopftext in den Einstellungen, der anzeigt, dass die Sprache von Rune der des Betriebssystems folgen soll."
   },
   "followSystemLanguageSubtitle": "Folgen Sie Ihren Systemeinstellungen für die Sprache, ohne spezielle Einstellungen.",
-  "@followSystemLanguageSubtitle": {}
+  "@followSystemLanguageSubtitle": {},
+  "windowSize": "Fenstergröße",
+  "@windowSize": {
+    "description": "Prompt text for setting the window size in the theme page."
+  },
+  "windowSizeSubtitle": "Wählen Sie die bevorzugte Fenstergröße für die Anwendung.",
+  "@windowSizeSubtitle": {
+    "description": "Subtitle explaining the window size options."
+  },
+  "normalWindowSize": "Normal",
+  "@normalWindowSize": {
+    "description": "Option for a standard window size."
+  },
+  "slimWindowSize": "Schmal",
+  "@slimWindowSize": {
+    "description": "Option for a narrower window size."
+  },
+  "stockyWindowSize": "Breit",
+  "@stockyWindowSize": {
+    "description": "Option for a wider window size."
+  },
+  "log": "Protokoll",
+  "@log": {
+    "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
+  },
+  "viewLogDetail": "Protokolldetails",
+  "@viewLogDetail": {
+    "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
+  },
+  "removeLogTitle": "Protokoll löschen",
+  "@removeLogTitle": {
+    "description": "Modal title informing users they are about to delete a log."
+  },
+  "removeLogSubtitle": "Wenn Sie dieses Protokoll löschen, können Sie es nicht wiederherstellen. Möchten Sie es löschen?",
+  "@removeLogSubtitle": {},
+  "clearLogTitle": "Alle Protokolle löschen",
+  "@clearLogTitle": {
+    "description": "Modal title informing users they are about to delete all logs."
+  },
+  "clearLogSubtitle": "Wenn Sie alle Protokolle löschen, können Sie sie nicht wiederherstellen. Möchten Sie sie löschen?",
+  "@clearLogSubtitle": {},
+  "deleteAll": "Alles löschen",
+  "@deleteAll": {
+    "description": "An entry in the context menu. Pressing this entry will remove all items available."
+  },
+  "noLogsAvailable": "Keine Protokolle verfügbar",
+  "@noLogsAvailable": {
+    "description": "The title of empty state icon in the logs settings page."
+  },
+  "home": "Startseite",
+  "@home": {
+    "description": "Title of a the home settings page."
+  },
+  "newest": "Neueste",
+  "@newest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "oldest": "Älteste",
+  "@oldest": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "random": "Zufällig",
+  "@random": {
+    "description": "An entry in the library home setting dropdown."
+  },
+  "mostPlayed": "Meist gespielt",
+  "@mostPlayed": {
+    "description": "Title of an library home group."
+  },
+  "personalize": "Personalisieren",
+  "@personalize": {
+    "description": "Entry in the context menu of the library home page."
+  },
+  "artistsLibraryHomeSubtitle": "Entdecken und erkunden Sie die Welt Ihrer Lieblingskünstler",
+  "@artistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the artists section in the library home."
+  },
+  "albumsLibraryHomeSubtitle": "Tauchen Sie ein in Alben talentierter Künstler",
+  "@albumsLibraryHomeSubtitle": {
+    "description": "Subtitle for the albums section in the library home."
+  },
+  "playlistsLibraryHomeSubtitle": "Gestalten Sie Ihre eigene personalisierte Hörerfahrung",
+  "@playlistsLibraryHomeSubtitle": {
+    "description": "Subtitle for the playlists section in the library home."
+  },
+  "tracksLibraryHomeSubtitle": "Tauchen Sie ein in die Titel, die Sie kennen und lieben",
+  "@tracksLibraryHomeSubtitle": {
+    "description": "Subtitle for the tracks section in the library home."
+  },
+  "likedLibraryHomeSubtitle": "Erleben Sie Ihre Lieblingstitel noch einmal",
+  "@likedLibraryHomeSubtitle": {
+    "description": "Subtitle for the liked section in the library home."
+  },
+  "mostLibraryHomeSubtitle": "Hören Sie die Melodien, die Sie immer wieder fesseln",
+  "@mostLibraryHomeSubtitle": {
+    "description": "Subtitle for the most played section in the library home."
+  },
+  "showRune": "Rune anzeigen",
+  "@showRune": {
+    "description": "Entry in the tray menu."
+  },
+  "exit": "Beenden",
+  "@exit": {
+    "description": "Entry in the tray menu."
+  },
+  "back": "Zurück",
+  "@back": {
+    "description": "Tool tip for the top left icon of the Windows titlebar."
+  },
+  "exportTracks": "Exportieren als",
+  "@exportTracks": {
+    "description": "An entry in the context menu that allows users to export a Collection"
+  },
+  "exportM3u8": "Playlist-Datei",
+  "@exportM3u8": {
+    "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
+  },
+  "exportCoverWall": "Cover-Wand",
+  "@exportCoverWall": {
+    "description": "An entry in the context menu that allows users to export a cover art wall"
+  },
+  "ratio": "Verhältnis",
+  "@ratio": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "frame": "Rahmen",
+  "@frame": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "background": "Hintergrund",
+  "@background": {
+    "description": "Input field title of the cover art wall modal"
+  },
+  "evaluationMode": "Evaluierungsmodus",
+  "@evaluationMode": {
+    "description": "Title of the evaluation mode modal"
+  },
+  "evaluationModeContent1": "Rune ist kein kostenloses Bier. Wir empfehlen Ihnen, eine echte Lizenz im App Store zu erwerben.",
+  "@evaluationModeContent1": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent2": "Lizenzierte Benutzer profitieren von automatischen Updates durch den App Store und haben das Privileg, den Entwicklern direkt neue Funktionen vorzuschlagen.",
+  "@evaluationModeContent2": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "evaluationModeContent3": "Sie können diese Erinnerung für 180 Tage ausblenden, und wir werden Sie später erneut erinnern.",
+  "@evaluationModeContent3": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "remindMeLater": "Später erinnern",
+  "@remindMeLater": {
+    "description": "Action button of the evaluation mode modal"
+  },
+  "mysteriousButton": "Geheimnisvoller Knopf",
+  "@mysteriousButton": {
+    "description": "A context menu item"
+  },
+  "mysteriousModalTitle": "Knarren",
+  "@mysteriousModalTitle": {
+    "description": "The title of a modal"
+  },
+  "mysteriousModalContent": "Es scheint, Sie haben einen geheimnisvollen Mechanismus ausgelöst. Die Struktur des Raums scheint sich verändert zu haben und offenbart neue Bereiche zum Erkunden.",
+  "@mysteriousModalContent": {
+    "description": "The content of a modal"
+  },
+  "laboratory": "Labor",
+  "@laboratory": {
+    "description": "The title of a link title"
+  },
+  "libraryMode": "Bibliothek-Setup",
+  "@libraryMode": {
+    "description": "The title of a modal, which guides user to select where to store the database"
+  },
+  "libraryModeSubtitle": "Wir müssen etwas mehr über Ihre Bibliothek wissen. Wo sind Ihre Mediendateien gespeichert?",
+  "@libraryModeSubtitle": {
+    "description": "The subtitle of a modal, which guides user to select where to store the database"
+  },
+  "portableMode": "Lokale Festplatte",
+  "@portableMode": {
+    "description": "One candidate library mode for users"
+  },
+  "portableModeSubtitle": "Wir speichern Ihren Medienindex zusammen im Bibliotheksordner.",
+  "@portableModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "localMode": "In der Cloud",
+  "@localMode": {
+    "description": "One candidate library mode for users"
+  },
+  "localModeSubtitle": "Wir speichern Ihren Medienindex im Konfigurationsverzeichnis von Rune.",
+  "@localModeSubtitle": {
+    "description": "The subtitle of the candidate library mode for users"
+  },
+  "rememberWindowSize": "Fenstergröße merken",
+  "@rememberWindowSize": {
+    "description": "Title of a setting option in the theme page"
+  },
+  "rememberWindowSizeSubtitle": "Speichern Sie Ihre Fenstergröße während der Anpassung und starten Sie das Programm beim nächsten Mal mit denselben Abmessungen.",
+  "@rememberWindowSizeSubtitle": {
+    "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune läuft noch",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune läuft derzeit im Hintergrund. Sie finden es im System-Tray.",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "Registrieren",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "Sie können eine Musikdatei als Registrierungsschlüssel im Store unten erwerben. Klicken Sie auf \"Registrieren\", um Ihren Original-Status zu überprüfen.",
+  "@evaluationModeContent4": {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "Registrieren",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "Fehlgeschlagen",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "Während der Überprüfung ist ein Fehler aufgetreten.",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "Abgeschlossen",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "Glückwunsch! Ihre Software wurde erfolgreich registriert. Danke, dass Sie sich für Rune entschieden haben.",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "Ungültiger Schlüssel",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "Die von Ihnen bereitgestellte Schlüsseldatei ist ungültig. Bitte überprüfen Sie die Datei und versuchen Sie es erneut.",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8Success": "Teilweise erfolgreich",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "Ihre Titel wurden importiert, aber einige wurden nicht gefunden.",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "Import fehlgeschlagen",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "Während des Importvorgangs ist ein Fehler aufgetreten.",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "Playlist importieren",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
+  }
 }
