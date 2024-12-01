@@ -12,10 +12,17 @@ echo "Codesign: ----------------------------"
   --deep \
   --force \
   -s "$APPLE_DISTRIBUTION_SIGNING_IDENTITY" \
+  --options runtime \
+  -v \
+  Rune.app
+
+/usr/bin/codesign \
+  --force \
+  -s "$APPLE_DISTRIBUTION_SIGNING_IDENTITY" \
   --entitlements Release.entitlements \
   --options runtime \
-  Rune.app \
-  -v
+  -v \
+  Rune.app
 
 echo "Package: ----------------------------"
 
