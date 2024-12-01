@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use regex::Regex;
 use anyhow::{bail, Context, Result};
 use log::{debug, error, info};
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
@@ -873,6 +874,11 @@ where
     Ok(processed_files)
 }
 
+fn extract_number(s: &str) -> Option<i32> {
+    let re = Regex::new(r"\d+").unwrap();
+    re.find(s).and_then(|mat| mat.as_str().parse::<i32>().ok())
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct MetadataSummary {
     pub id: i32,
@@ -929,12 +935,12 @@ pub async fn get_metadata_summary_by_files(
 
         let parsed_disk_number = metadata
             .get("disc_number")
-            .and_then(|s| s.parse::<i32>().ok())
+            .and_then(|s| extract_number(s))
             .unwrap_or(0);
 
         let parsed_track_number = metadata
             .get("track_number")
-            .and_then(|s| s.parse::<i32>().ok())
+            .and_then(|s| extract_number(s))
             .unwrap_or(0);
 
         let track_number = parsed_disk_number * 1000 + parsed_track_number;
