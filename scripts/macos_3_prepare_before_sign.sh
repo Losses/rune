@@ -10,3 +10,4 @@ mkdir temp_macos
 
 ditto build/macos/Build/Products/Release/Rune.app temp_macos/Rune.app
 cp macos/Runner/Release.entitlements temp_macos
+cp ~/Library/MobileDevice/Provisioning\ Profiles/*.provisionprofile temp_macos/Rune.app/Contents/embedded.provisionprofile

@@ -311,13 +311,16 @@ jobs:
           DEVELOPER_ID_APPLICATION_P12_BASE64_MAC: ${{ secrets.DEVELOPER_ID_APPLICATION_P12_BASE64_MAC }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_NOTARIZED_PROVISION_PROFILE: ${{ secrets.BUILD_NOTARIZED_PROVISION_PROFILE }}
         run: |
           # create variables
           DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH=$RUNNER_TEMP/build_developerID_application_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_Notarized.provisionprofile
 
           # import certificate and provisioning profile from secrets
           echo -n "$DEVELOPER_ID_APPLICATION_P12_BASE64_MAC" | base64 --decode --output $DEVELOPER_ID_APPLICATION_CERTIFICATE_PATH
+          echo -n "$BUILD_NOTARIZED_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -330,6 +333,9 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
       - name: All
         run: |
           brew install just
@@ -409,15 +415,18 @@ jobs:
           APP_STORE_CONNECT_PUBLIC_ID: ${{ secrets.APP_STORE_CONNECT_PUBLIC_ID }}
           APP_STORE_CONNECT_KEYID: ${{ secrets.APP_STORE_CONNECT_KEYID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUILD_APP_STORE_PROVISION_PROFILE: ${{ secrets.BUILD_APP_STORE_PROVISION_PROFILE }}
         run: |
           # create variables
           APPLE_DISTRIBUTION_CERTIFICATE_PATH=$RUNNER_TEMP/build_apple_distribution_certificate.p12
           MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH=$RUNNER_TEMP/build_mac_developer_installer_certificate.p12
           KEYCHAIN_PATH=$RUNNER_TEMP/rune-signing.keychain-db
+          PP_PATH=$RUNNER_TEMP/Rune_App_Store.provisionprofile
 
           # import certificate and provisioning profile from secrets
           echo -n "$APPLE_DISTRIBUTION_CERTIFICATE" | base64 --decode --output $APPLE_DISTRIBUTION_CERTIFICATE_PATH
           echo -n "$MAC_DEVELOPER_INSTALLER_CERTIFICATE" | base64 --decode --output $MAC_DEVELOPER_INSTALLER_CERTIFICATE_PATH
+          echo -n "$BUILD_APP_STORE_PROVISION_PROFILE" | base64 --decode --output $PP_PATH
 
           # create temporary keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
@@ -433,6 +442,10 @@ jobs:
 
           # import App Store Connect API Key
           echo "$APP_STORE_CONNECT_API_KEY" | base64 --decode --output $RUNNER_TEMP/AuthKey_$APP_STORE_CONNECT_KEYID.p8
+
+          # apply provisioning profile
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles
       - name: All
         run: |
           export RUNE_APPSTORE_BUILD_VERSION=$(echo "$REF_NAME" | sed -E 's/^v([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
