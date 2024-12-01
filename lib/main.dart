@@ -167,10 +167,6 @@ void main(List<String> arguments) async {
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
 
-  if (Platform.isMacOS) {
-    MacOSWindowControlButtonManager.setVertical();
-  }
-
   final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
   final bool? rememberWindowSize =
@@ -206,6 +202,11 @@ void main(List<String> arguments) async {
     appWindow.size = windowSize;
     appWindow.alignment = Alignment.center;
     appWindow.show();
+
+    // TODO: After rewrite bitdojo_window, move this code to NSWindowController.windowWillLoad
+    if (Platform.isMacOS) {
+      MacOSWindowControlButtonManager.setVertical();
+    }
 
     if (storedFullScreen != null) {
       FullScreen.setFullScreen(storedFullScreen);
