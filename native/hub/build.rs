@@ -19,11 +19,13 @@ fn main() -> Result<()> {
         .add_instructions(&rustc)?
         .emit()?;
 
+    #[cfg(target_os = "macos")]    
     apple_bridge::build_apple_bridge_library();
 
     Ok(())
 }
 
+#[cfg(target_os = "macos")]
 pub mod apple_bridge {
     use std::path::PathBuf;
     use std::process::Command;
