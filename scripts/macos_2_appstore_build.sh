@@ -8,8 +8,10 @@ cd ..
 # Create backup of project.pbxproj
 cp macos/Runner.xcodeproj/project.pbxproj macos/Runner.xcodeproj/project.pbxproj.backup
 
-# Patch macos/Runner.xcodeproj/project.pbxproj and macos/Runner/Release.entitlements to replace bundle ID
+# Patch macos/Runner.xcodeproj/project.pbxproj and macos/Runner/Release.entitlements to replace bundle ID and provisioning profile
 sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune.appstore;/g' macos/Runner.xcodeproj/project.pbxproj
+sed -i '' 's/PROVISIONING_PROFILE_SPECIFIER = "Rune Notarized";/PROVISIONING_PROFILE_SPECIFIER = "Rune App Store";/g' macos/Runner.xcodeproj/project.pbxproj
+sed -i '' 's/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "3rd Party Mac Developer Application";/g' macos/Runner.xcodeproj/project.pbxproj
 sed -i '' 's/<string>LG57TUQ726.ci.not.rune<\/string>/<string>LG57TUQ726.ci.not.rune.appstore<\/string>/g' macos/Runner/Release.entitlements
 
 flutter pub get
