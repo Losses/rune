@@ -162,7 +162,7 @@ void main(List<String> arguments) async {
   );
 
   await systemTray.initSystemTray(
-    title: 'Rune',
+    title: Platform.isMacOS ? null : 'Rune',
     iconPath: TrayManager.getTrayIconPath(),
     isTemplate: true,
   );
