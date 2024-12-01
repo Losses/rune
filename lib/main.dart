@@ -193,20 +193,21 @@ void main(List<String> arguments) async {
   }
 
   mainLoop(licenseProvider);
-  appWindow.show();
+  if (!Platform.isMacOS) {
+    appWindow.show();
+  }
 
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');
 
   doWhenWindowReady(() {
-    appWindow.size = windowSize;
-    appWindow.alignment = Alignment.center;
-    appWindow.show();
-
-    // TODO: After rewrite bitdojo_window, move this code to NSWindowController.windowWillLoad
     if (Platform.isMacOS) {
       MacOSWindowControlButtonManager.setVertical();
     }
+
+    appWindow.size = windowSize;
+    appWindow.alignment = Alignment.center;
+    appWindow.show();
 
     if (storedFullScreen != null) {
       FullScreen.setFullScreen(storedFullScreen);
