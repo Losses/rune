@@ -28,7 +28,7 @@ jobs:
           channel: 'stable'
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt, clippy
 
@@ -61,7 +61,9 @@ jobs:
         run: cargo fmt -- --check
       
       - name: Run cargo clippy
-        run: cargo clippy -- -D warnings
+        run: |
+          rustup override set stable
+          cargo clippy -- -D warnings
 
   flutter-analyze:
     name: Flutter analyze
