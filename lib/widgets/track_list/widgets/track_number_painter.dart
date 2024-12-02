@@ -31,7 +31,7 @@ class TrackNumberPainter extends CustomPainter {
           style: TextStyle(
             fontSize: size.width * fontSizeFactor,
             fontWeight: FontWeight.bold,
-            color: color,
+            color: color.withAlpha(180),
           ),
         ),
         textDirection: TextDirection.ltr,
