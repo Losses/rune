@@ -17,13 +17,15 @@ Future<List<InternalMediaFile>> fetchMediaFileByIds(
   return response.mediaFiles
       .map(
         (x) => InternalMediaFile(
-            id: x.id,
-            path: x.path,
-            artist: x.artist,
-            album: x.album,
-            title: x.title,
-            duration: x.duration,
-            coverArtPath: response.coverArtMap[x.id] ?? ''),
+          id: x.id,
+          path: x.path,
+          artist: x.artist,
+          album: x.album,
+          title: x.title,
+          duration: x.duration,
+          coverArtPath: response.coverArtMap[x.id] ?? '',
+          trackNumber: x.trackNumber,
+        ),
       )
       .toList();
 }

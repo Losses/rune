@@ -1,7 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../widgets/cover_wall_background/cover_wall_background.dart';
-
 class SettingsTestPage extends StatefulWidget {
   const SettingsTestPage({super.key});
 
@@ -9,12 +7,13 @@ class SettingsTestPage extends StatefulWidget {
   State<SettingsTestPage> createState() => _SettingsTestPageState();
 }
 
+const fontSizeFactor = 0.46;
+
 class _SettingsTestPageState extends State<SettingsTestPage> {
   @override
   Widget build(BuildContext context) {
-    return CoverWallBackground(
-      seed: 114514,
-      gap: 2,
+    return Column(
+      children: [],
     );
   }
 }

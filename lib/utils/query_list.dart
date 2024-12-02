@@ -49,4 +49,9 @@ class QueryList extends ListBase<(String, String)> {
   static fromMixQuery(List<MixQuery> queries) {
     return QueryList(queries.map((x) => (x.operator, x.parameter)).toList());
   }
+
+  static bool computeIsAlbumQuery(QueryList elements) {
+    final libQueries = elements.where((x) => x.$1.startsWith('lib::'));
+    return libQueries.length == 1 && libQueries.first.$1 == 'lib::album';
+  }
 }

@@ -19,6 +19,7 @@ message MediaFile {
   string title = 5;
   double duration = 6;
   int32 cover_art_id = 7;
+  int32 track_number = 8;
 }
 
 // [DART-SIGNAL]

@@ -16,9 +16,9 @@ import 'api/play_previous.dart';
 import 'close_manager.dart';
 import 'l10n.dart';
 
-class TrayManager {
-  final SystemTray systemTray = SystemTray();
+final SystemTray systemTray = SystemTray();
 
+class TrayManager {
   static String getTrayIconPath() {
     if (Platform.isWindows) {
       return SchedulerBinding.instance.platformDispatcher.platformBrightness ==
@@ -38,6 +38,13 @@ class TrayManager {
   String? _cachedLocale;
 
   Future<void> updateTray(BuildContext context) async {
+    final updated = await updateTrayItem(context);
+    if (updated) {
+      await updateTrayIcon();
+    }
+  }
+
+  Future<bool> updateTrayItem(BuildContext context) async {
     final path = $router.path;
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
@@ -49,19 +56,10 @@ class TrayManager {
     final suppressRefresh =
         playing == _cachedPlaying && locale == _cachedLocale;
 
-    if (suppressRefresh) return;
+    if (suppressRefresh) return false;
 
     _cachedPlaying = playing;
     _cachedLocale = locale;
-
-    await systemTray.destroy();
-    _registerEventHandlers();
-
-    await systemTray.initSystemTray(
-      title: s.rune,
-      iconPath: getTrayIconPath(),
-      isTemplate: true,
-    );
 
     $closeManager.notificationTitle = s.closeNotification;
     $closeManager.notificationSubtitle = s.closeNotificationSubtitle;
@@ -96,9 +94,16 @@ class TrayManager {
     final menu = Menu();
     await menu.buildFrom(menuItems);
     await systemTray.setContextMenu(menu);
+
+    return true;
   }
 
-  void _registerEventHandlers() {
+  Future<void> updateTrayIcon() async {
+    final iconPath = getTrayIconPath();
+    await systemTray.setImage(iconPath);
+  }
+
+  static void registerEventHandlers() {
     systemTray.registerSystemTrayEventHandler((eventName) {
       if (eventName == kSystemTrayEventClick) {
         Platform.isWindows ? appWindow.show() : systemTray.popUpContextMenu();

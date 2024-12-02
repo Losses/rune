@@ -33,6 +33,7 @@ class LargeScreenTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final brightness = FluentTheme.of(context).brightness;
+    final isAlbumQuery = QueryList.computeIsAlbumQuery(queries);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 12),
@@ -104,6 +105,7 @@ class LargeScreenTrackList extends StatelessWidget {
                             fallbackFileIds: fallbackFileIds,
                             coverArtPath: item.coverArtPath,
                             mode: mode,
+                            isAlbumQuery: isAlbumQuery,
                           ),
                         ),
                       ),
