@@ -32,6 +32,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y liblmdb0 jq alsa-base alsa-source librust-alsa-sys-dev libasound2-dev liblmdb-dev clang cmake ninja-build pkg-config libgtk-3-dev dpkg-dev libayatana-appindicator3-dev libnotify-dev
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Protoc
