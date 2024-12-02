@@ -38,11 +38,13 @@ class TrayManager {
   String? _cachedLocale;
 
   Future<void> updateTray(BuildContext context) async {
-    await updateTrayItem(context);
-    await updateTrayIcon();
+    final updated = await updateTrayItem(context);
+    if (updated) {
+      await updateTrayIcon();
+    }
   }
 
-  Future<void> updateTrayItem(BuildContext context) async {
+  Future<bool> updateTrayItem(BuildContext context) async {
     final path = $router.path;
     final status = Provider.of<PlaybackStatusProvider>(context, listen: false);
     final bool playing =
@@ -54,7 +56,7 @@ class TrayManager {
     final suppressRefresh =
         playing == _cachedPlaying && locale == _cachedLocale;
 
-    if (suppressRefresh) return;
+    if (suppressRefresh) return false;
 
     _cachedPlaying = playing;
     _cachedLocale = locale;
@@ -92,6 +94,8 @@ class TrayManager {
     final menu = Menu();
     await menu.buildFrom(menuItems);
     await systemTray.setContextMenu(menu);
+
+    return true;
   }
 
   Future<void> updateTrayIcon() async {
