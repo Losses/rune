@@ -139,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/windows/x64/runner/Release/rune.msix
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-msix
 
   release-msix-windows:
     permissions:
@@ -151,7 +151,7 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: Rune-*-windows
+          pattern: Rune-*-windows-msix
           path: artifacts
 
       - uses: benjlevesque/short-sha@v3.0
