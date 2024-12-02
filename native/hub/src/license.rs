@@ -5,7 +5,6 @@ use rinf::DartSignal;
 
 use database::connection::MainDbConnection;
 
-use crate::apple_bridge::apple_bridge::bundle_id;
 use crate::{
     RegisterLicenseRequest, RegisterLicenseResponse, ValidateLicenseRequest,
     ValidateLicenseResponse,
@@ -41,6 +40,7 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
 
 #[cfg(target_os = "macos")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
+    use crate::apple_bridge::apple_bridge::bundle_id;
     let bundle_id = bundle_id();
     let mut is_active = false;
     let mut is_trial = false;

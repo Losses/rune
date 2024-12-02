@@ -7,10 +7,10 @@ pub mod apple_bridge {
 
 #[cfg(test)]
 mod tests {
-    use crate::apple_bridge::apple_bridge::bundle_id;
     #[test]
     #[cfg(target_os = "macos")]
     fn test_bundle_id() {
+        use crate::apple_bridge::apple_bridge::bundle_id;
         let id = bundle_id();
         println!("Bundle ID: {}", id);
         // assert!(!id.is_empty(), "Bundle ID should not be empty");
