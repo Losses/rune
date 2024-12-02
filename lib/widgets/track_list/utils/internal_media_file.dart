@@ -6,6 +6,7 @@ class InternalMediaFile {
   final String title;
   final double duration;
   final String coverArtPath;
+  final int? trackNumber;
 
   InternalMediaFile({
     required this.id,
@@ -15,5 +16,6 @@ class InternalMediaFile {
     required this.title,
     required this.duration,
     required this.coverArtPath,
+    required this.trackNumber,
   });
 }

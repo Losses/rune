@@ -58,6 +58,7 @@ pub async fn parse_media_files(
                     },
                     duration: file.duration,
                     cover_art_id: file.cover_art_id.unwrap_or(-1),
+                    track_number: file.track_number,
                 };
 
                 media_files.push(media_file);

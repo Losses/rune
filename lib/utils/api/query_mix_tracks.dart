@@ -1,4 +1,3 @@
-
 import '../../utils/query_list.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/all.dart';
@@ -21,13 +20,15 @@ Future<List<InternalMediaFile>> queryMixTracks(
   return response.files
       .map(
         (x) => InternalMediaFile(
-            id: x.id,
-            path: x.path,
-            artist: x.artist,
-            album: x.album,
-            title: x.title,
-            duration: x.duration,
-            coverArtPath: response.coverArtMap[x.id] ?? ''),
+          id: x.id,
+          path: x.path,
+          artist: x.artist,
+          album: x.album,
+          title: x.title,
+          duration: x.duration,
+          coverArtPath: response.coverArtMap[x.id] ?? '',
+          trackNumber: x.trackNumber,
+        ),
       )
       .toList();
 }

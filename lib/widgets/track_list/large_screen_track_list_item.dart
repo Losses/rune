@@ -11,6 +11,7 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/all.dart';
 
 import '../tile/cover_art.dart';
+import 'widgets/track_number_cover_art.dart';
 
 class LargeScreenTrackListItem extends StatefulWidget {
   final InternalMediaFile item;
@@ -19,7 +20,7 @@ class LargeScreenTrackListItem extends StatefulWidget {
   final int mode;
   final String? coverArtPath;
   final List<int> fallbackFileIds;
-
+  final bool isAlbumQuery;
 
   const LargeScreenTrackListItem({
     super.key,
@@ -29,10 +30,12 @@ class LargeScreenTrackListItem extends StatefulWidget {
     required this.mode,
     required this.fallbackFileIds,
     required this.coverArtPath,
+    required this.isAlbumQuery,
   });
 
   @override
-  State<LargeScreenTrackListItem> createState() => _LargeScreenTrackListItemState();
+  State<LargeScreenTrackListItem> createState() =>
+      _LargeScreenTrackListItemState();
 }
 
 class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
@@ -48,7 +51,11 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
 
   @override
   Widget build(BuildContext context) {
-    Typography typography = FluentTheme.of(context).typography;
+    final Typography typography = FluentTheme.of(context).typography;
+    final int? trackNumber =
+        widget.item.trackNumber == 0 ? null : widget.item.trackNumber;
+    final int? diskNumber =
+        trackNumber == null ? trackNumber : trackNumber ~/ 1000;
 
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
@@ -61,8 +68,8 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
         );
       },
       onContextMenu: (position) {
-        openTrackItemContextMenu(
-            position, context, contextAttachKey, contextController, widget.item.id);
+        openTrackItemContextMenu(position, context, contextAttachKey,
+            contextController, widget.item.id);
       },
       child: Button(
         style: const ButtonStyle(
@@ -89,15 +96,20 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
               final size = min(constraints.maxWidth, constraints.maxHeight);
               return Row(
                 children: [
-                  CoverArt(
-                    path: widget.coverArtPath,
-                    size: size,
-                    hint: (
-                      widget.item.album,
-                      widget.item.artist,
-                      'Total Time ${formatTime(widget.item.duration)}'
-                    ),
-                  ),
+                  widget.isAlbumQuery && trackNumber != null
+                      ? TrackNumberCoverArt(
+                          diskNumber: diskNumber == 0 ? null : diskNumber,
+                          trackNumber: trackNumber % 1000,
+                        )
+                      : CoverArt(
+                          path: widget.coverArtPath,
+                          size: size,
+                          hint: (
+                            widget.item.album,
+                            widget.item.artist,
+                            'Total Time ${formatTime(widget.item.duration)}'
+                          ),
+                        ),
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.all(8),
