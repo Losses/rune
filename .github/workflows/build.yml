@@ -161,7 +161,7 @@ jobs:
 
       - name: Rename MSIX
         run: |
-          mv artifacts/rune.msix "artifacts/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.msix"
+          mv artifacts/Rune-*-windows-msix "artifacts/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.msix"
 
       - name: Release
         uses: ncipollo/release-action@v1
