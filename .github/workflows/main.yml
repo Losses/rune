@@ -1,0 +1,56 @@
+name: Lint
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  rust-analyze:
+    name: Rust Analyze
+    runs-on: ubuntu-latest
+    
+    steps: 
+      - name: Check Out
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Run Rust Linter
+        uses: wearerequired/lint-action@v2
+        with:
+          clippy: true
+          rustfmt: true
+
+  flutter-analyze:
+    name: Flutter analyze
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check Out
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+      
+      - name: Install dependencies
+        run: flutter pub get
+      
+      - name: Analyze Flutter/Dart code
+        run: |
+          flutter analyze .
+          dart analyze .
+
+      
+
+
