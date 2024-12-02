@@ -27,11 +27,11 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Run Rust Linter
-        uses: wearerequired/lint-action@v2
-        with:
-          clippy: true
-          rustfmt: true
+      - name: Run cargo fmt
+        run: cargo fmt -- --check
+      
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
 
   flutter-analyze:
     name: Flutter analyze
@@ -49,9 +49,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
       
-      - name: Analyze Flutter/Dart code
+      - name: Analyze Flutter
         run: |
           flutter analyze .
+
+      - name: Dart Flutter
+        run: |
           dart analyze .
 
       
