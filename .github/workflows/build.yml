@@ -64,14 +64,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.zip
+          filename: Rune-${{ github.ref_name }}-windows-amd64.zip
           directory: build/windows/x64/runner/Release/
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/windows/x64/runner/Release/*-windows-amd64.zip"
+          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.zip"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
@@ -132,13 +132,13 @@ jobs:
       - name: Rename MSIX
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          mv build/windows/x64/runner/Release/rune.msix "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.msix"
+          mv build/windows/x64/runner/Release/rune.msix "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/windows/x64/runner/Release/*-windows-amd64.msix"
+          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
@@ -204,14 +204,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux-amd64.zip
+          filename: Rune-${{ github.ref_name }}-linux-amd64.zip
           directory: build/linux/x64/release/bundle/
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/linux/x64/release/bundle/*-linux-amd64.zip"
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-linux-amd64.zip"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
@@ -289,14 +289,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper-amd64.zip
+          filename: Rune-${{ github.ref_name }}-steam-sniper-amd64.zip
           directory: build/linux/x64/release/bundle/
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "build/linux/x64/release/bundle/*-steam-sniper-amd64.zip"
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-steam-sniper-amd64.zip"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
@@ -402,13 +402,13 @@ jobs:
       - name: Rename DMG
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg"
+          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
 
       - name: Release
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "temp_macos/*-macOS.dmg"
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
