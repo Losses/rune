@@ -314,8 +314,14 @@ impl PlayerInternal {
             let item = &self.playlist[mapped_index];
             let file = File::open(item.path.clone())
                 .with_context(|| format!("Failed to open file: {:?}", item.path))?;
-            let source =
-                Decoder::new(BufReader::new(file)).with_context(|| "Failed to decode audio")?;
+            let source = Decoder::new(BufReader::new(file));
+
+            if source.is_err() {
+                self.next()?;
+                return Ok(());
+            }
+
+            let source = source.unwrap();
 
             let (stream, stream_handle) = RuneOutputStream::try_default_with_callback({
                 let error_sender = self.stream_error_sender.clone();
