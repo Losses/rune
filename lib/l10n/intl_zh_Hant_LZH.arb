@@ -925,7 +925,7 @@
   "@registerSuccess": {
     "description": "The title of the register success modal"
   },
-  "registerSuccessSubtitle": "喜賀焉哉！增簿告成。惠擇符聆，躬謝垂青。",
+  "registerSuccessSubtitle": "喜賀焉哉！登簿告成。惠擇符聆，躬謝垂青。",
   "@registerSuccessSubtitle": {
     "description": "The content of the register success modal"
   },
