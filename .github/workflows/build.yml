@@ -139,7 +139,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/windows/x64/runner/Release/rune.msix
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.msix
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows
 
   release-msix-windows:
     permissions:
@@ -151,8 +151,17 @@ jobs:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: Rune-*-windows-amd64.msix
+          pattern: Rune-*-windows
           path: artifacts
+
+      - uses: benjlevesque/short-sha@v3.0
+        id: short-sha
+        with:
+          length: 7
+
+      - name: Rename MSIX
+        run: |
+          mv artifacts/rune.msix "artifacts/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.msix"
 
       - name: Release
         uses: ncipollo/release-action@v1
