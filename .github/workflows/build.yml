@@ -55,7 +55,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/windows/x64/runner/Release/
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows
 
   release-windows:
     permissions:
@@ -79,7 +79,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-windows-amd64.zip
+          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.zip
           directory: artifacts
 
       - name: Release
@@ -214,7 +214,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux
 
   build-steam-sniper:
     runs-on: ubuntu-latest
@@ -279,7 +279,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: build/linux/x64/release/bundle/
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-steam-sniper
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper
 
   release-linux:
     permissions:
@@ -303,7 +303,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-linux-amd64.zip
+          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux-amd64.zip
           directory: artifacts
 
       - name: Release
@@ -337,7 +337,7 @@ jobs:
         uses: thedoctor0/zip-release@master
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-steam-sniper-amd64.zip
+          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper-amd64.zip
           directory: artifacts
 
       - name: Release
@@ -432,7 +432,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: "temp_macos/*.dmg"
-          name: Rune-${{ github.ref_name }}-${{ steps.short-sha.outputs.sha }}-macOS
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
 
       - name: Clean up
         if: ${{ always() }}
