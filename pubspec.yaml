@@ -163,3 +163,4 @@ msix_config:
   store: true
   capabilities: removableStorage
   logo_path: ./assets/source/microsoft_store/installer_icon.png
+  debug: false
