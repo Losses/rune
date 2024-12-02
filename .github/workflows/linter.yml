@@ -9,6 +9,10 @@ on:
       - main
   workflow_dispatch:
 
+permissions:
+  checks: write
+  pull-requests: write
+
 jobs:
   rust-analyze:
     name: Rust Analyze
@@ -35,7 +39,7 @@ jobs:
 
     steps:
       - name: Check Out
-      - uses: actions/checkout@v4
+        uses: actions/checkout@v4
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
