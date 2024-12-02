@@ -170,7 +170,13 @@ async fn main() {
             index_audio_library(&main_db).await;
         }
         Commands::Analyze { computing_device } => {
-            analyze_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
+            analyze_audio_library(
+                computing_device.as_str().into(),
+                &main_db,
+                &analysis_db,
+                &path,
+            )
+            .await;
         }
         Commands::Info { file_ids } => {
             match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {

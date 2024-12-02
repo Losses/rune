@@ -28,7 +28,11 @@ impl RuneOutputStream {
         let default_config = device
             .default_output_config()
             .map_err(StreamError::DefaultStreamConfigError)?;
-        RuneOutputStream::try_from_device_config_with_callback(device, default_config, error_callback)
+        RuneOutputStream::try_from_device_config_with_callback(
+            device,
+            default_config,
+            error_callback,
+        )
     }
 
     pub fn try_from_device_config_with_callback<E>(

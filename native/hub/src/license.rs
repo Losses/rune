@@ -44,7 +44,7 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'sta
     let bundle_id = bundle_id();
     let mut is_active = false;
     let mut is_trial = false;
-    
+
     if bundle_id == "ci.not.rune.appstore" {
         is_active = true;
         is_trial = false;

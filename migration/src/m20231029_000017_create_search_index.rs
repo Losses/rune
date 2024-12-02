@@ -16,7 +16,7 @@ impl MigrationTrait for Migration {
 
         // ID is only for making sea-orm happy
         db.execute_unprepared(
-            "CREATE VIRTUAL TABLE search_index USING fts5(id, key, entry_type, doc);"
+            "CREATE VIRTUAL TABLE search_index USING fts5(id, key, entry_type, doc);",
         )
         .await?;
 

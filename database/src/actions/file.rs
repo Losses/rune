@@ -5,7 +5,10 @@ use anyhow::Result;
 use metadata::describe::FileDescription;
 use rust_decimal::prelude::ToPrimitive;
 use sea_orm::entity::prelude::*;
-use sea_orm::{ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
+use sea_orm::{
+    ColumnTrait, EntityTrait, FromQueryResult, Order, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait,
+};
 
 use migration::{Func, SimpleExpr};
 

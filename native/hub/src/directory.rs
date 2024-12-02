@@ -3,7 +3,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use rinf::DartSignal;
 
-
 use database::actions::directory::get_directory_tree;
 use database::actions::directory::DirectoryTree;
 use database::connection::MainDbConnection;

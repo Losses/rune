@@ -1,4 +1,5 @@
 mod analyze;
+mod apple_bridge;
 mod collection;
 mod connection;
 mod cover_art;
@@ -18,7 +19,6 @@ mod sfx;
 mod stat;
 mod system;
 mod utils;
-mod apple_bridge;
 
 use std::sync::Arc;
 
