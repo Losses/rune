@@ -892,5 +892,69 @@
   "rememberWindowSizeSubtitle": "調整した窓の形態を保存し、次回は同じ形態で Rune を起動します。",
   "@rememberWindowSizeSubtitle": {
     "description": "The subtitle of a setting option in the theme page"
+  },
+  "closeNotification": "Rune はまだ運行中",
+  "@closeNotification": {
+    "description": "The notification is popped up while user closed the window"
+  },
+  "closeNotificationSubtitle": "Rune は現在裏で動作しています。系統の通知領域で簡単に見つけることができます。",
+  "@closeNotificationSubtitle": {
+    "description": ""
+  },
+  "register": "登録",
+  "@register": {
+    "description": "Title of the register tile in the settings page"
+  },
+  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を触れて、認証済み使用者であることを確認してください。",
+  "@evaluationModeContent4" : {
+    "description": "Content of the evaluation mode modal"
+  },
+  "registerAction": "登録",
+  "@registerAction": {
+    "description": "The label of the register button in a modal"
+  },
+  "registerFailed": "失敗しました",
+  "@registerFailed": {
+    "description": "The title of the register failed modal"
+  },
+  "registerFailedSubtitle": "確認過程で不具合が発生しました。",
+  "@registerFailedSubtitle": {
+    "description": "The content of the register failed modal"
+  },
+  "registerSuccess": "完成しました",
+  "@registerSuccess": {
+    "description": "The title of the register success modal"
+  },
+  "registerSuccessSubtitle": "おめでとうございます！登録が無事に完了しました。Rune をお選びいただき、ありがとうございます。",
+  "@registerSuccessSubtitle": {
+    "description": "The content of the register success modal"
+  },
+  "registerInvalid": "無効な鍵",
+  "@registerInvalid": {
+    "description": "The title of the invalid register key modal"
+  },
+  "registerInvalidSubtitle": "提供された鍵音楽は無効です。鍵音楽を確認し、再度お試しください。",
+  "@registerInvalidSubtitle": {
+    "description": "The content of the invalid register key modal"
+  },
+  "importM3u8Success": "一部成功",
+  "@importM3u8Success": {
+    "description": "The title of the partially import success modal"
+  },
+  "importM3u8SuccessSubtitle": "曲の取り込みが完了しましたが、一部の曲が見つかりませんでした。",
+  "@importM3u8SuccessSubtitle": {
+    "description": "The content of the partially import success modal"
+  },
+  "importM3u8Failed": "導入失敗",
+  "@importM3u8Failed": {
+    "description": "The title of the import failed modal"
+  },
+  "importM3u8FailedSubtitle": "導入過程で誤りが発生しました。",
+  "@importM3u8FailedSubtitle": {
+    "description": "The content of the import failed modal"
+  },
+  "importM3u8": "再生一覧表を導入",
+  "@importM3u8": {
+    "description": "Context menu item guiding users to import a new playlist."
   }
 }
