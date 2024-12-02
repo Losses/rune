@@ -10,8 +10,8 @@ cp macos/Runner.xcodeproj/project.pbxproj macos/Runner.xcodeproj/project.pbxproj
 
 # Patch macos/Runner.xcodeproj/project.pbxproj and macos/Runner/Release.entitlements to replace bundle ID and provisioning profile
 sed -i '' 's/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune;/PRODUCT_BUNDLE_IDENTIFIER = ci.not.rune.appstore;/g' macos/Runner.xcodeproj/project.pbxproj
-sed -i '' 's/"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Rune Notarized";/"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Rune App Store";/g' macos/Runner.xcodeproj/project.pbxproj
-sed -i '' 's/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "3rd Party Mac Developer Application";/g' macos/Runner.xcodeproj/project.pbxproj
+sed -i '' 's/"PROVISIONING_PROFILE_SPECIFIER\[sdk=macosx\*]" = "Rune Notarized";/"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Rune App Store";/g' macos/Runner.xcodeproj/project.pbxproj
+sed -i '' 's/"CODE_SIGN_IDENTITY\[sdk=macosx\*]" = "Developer ID Application";/"CODE_SIGN_IDENTITY[sdk=macosx*]" = "3rd Party Mac Developer Application";/g' macos/Runner.xcodeproj/project.pbxproj
 sed -i '' 's/<string>LG57TUQ726.ci.not.rune<\/string>/<string>LG57TUQ726.ci.not.rune.appstore<\/string>/g' macos/Runner/Release.entitlements
 
 flutter pub get
