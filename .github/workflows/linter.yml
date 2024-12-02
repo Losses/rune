@@ -22,10 +22,33 @@ jobs:
       - name: Check Out
         uses: actions/checkout@v4
 
+      - name: Setup Flutter Toolchain
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf message
 
       - name: Run cargo fmt
         run: cargo fmt -- --check
