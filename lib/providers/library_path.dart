@@ -82,10 +82,12 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
-      libraryHistory.add(filePath);
+      if (!libraryHistory.contains(filePath)) {
+        libraryHistory.add(filePath);
+        notifyListeners();
+      }
       CollectionCache().clearAll();
       _fileStorageService.storeFilePath(filePath);
-      notifyListeners();
 
       await operatePlaybackWithMixQuery(
         queries: const QueryList([("lib::queue", "true")]),
