@@ -2,8 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::{Arc, Mutex};
 
-use rodio::{Decoder, Source};
-use tokio::time::Duration;
+use rodio::Decoder;
 
 use crate::buffered::RuneBuffered;
 
