@@ -1,3 +1,5 @@
+set dotenv-load
+
 lint:
   cargo fmt -- --check
   cargo clippy -- -D warnings

@@ -389,6 +389,12 @@ jobs:
           path: "temp_macos/*.dmg"
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
 
+      - name: Upload artifact macOS ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          path: "temp_macos/*.zip"
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
+
       - name: Clean up
         if: ${{ always() }}
         run: |
@@ -404,11 +410,26 @@ jobs:
         run: |
           mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
 
-      - name: Release
+      - name: Rename ZIP
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mv temp_macos/*.zip "temp_macos/Rune-${{ github.ref_name }}-macOS.zip"
+
+      - name: Release DMG
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
+
+      - name: Release ZIP
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.zip"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
