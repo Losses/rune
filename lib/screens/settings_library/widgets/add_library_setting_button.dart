@@ -4,7 +4,6 @@ import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/api/close_library.dart';
-import '../../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_manager.dart';
@@ -39,12 +38,6 @@ class AddLibrarySettingButton extends StatelessWidget {
         if (path == null) return;
         if (!context.mounted) return;
 
-        final result = await testAndSelectLibraryMode(context, path);
-
-        if (result == null) return;
-        final (initialized, initializeMode) = result;
-        if (!initialized && initializeMode == null) return;
-
         if (tryClose) {
           if (!context.mounted) return;
           await closeLibrary(context);
@@ -53,7 +46,7 @@ class AddLibrarySettingButton extends StatelessWidget {
         if (!context.mounted) return;
 
         final (switched, cancelled, error) =
-            await libraryPath.setLibraryPath(context, path, initializeMode);
+            await libraryPath.setLibraryPath(context, path, null);
 
         if (switched) {
           libraryManager.scanLibrary(path, true);
