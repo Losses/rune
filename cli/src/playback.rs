@@ -1,24 +1,35 @@
 use dunce::canonicalize;
+use futures::future::join_all;
 use log::{debug, error, info};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 use tokio::task;
 
-use database::actions::file::get_random_files;
+use database::actions::file::{get_file_by_id, get_random_files};
 use database::connection::MainDbConnection;
 use playback::player::Player;
 
-pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) {
+async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_ids: Vec<i32>) {
     let player = Player::new(None);
     let player = Arc::new(Mutex::new(player));
 
-    let files = match get_random_files(main_db, 30).await {
-        Ok(files) => files,
-        Err(e) => {
-            error!("Failed to get random files by: {}", e);
-            return;
+    let file_futures = file_ids.into_iter().map(|id| async move {
+        match get_file_by_id(main_db, id).await {
+            Ok(file) => Some(file),
+            Err(e) => {
+                error!("Failed to get file by id {}: {}", id, e);
+                None
+            }
         }
-    };
+    });
+
+    let files: Vec<database::entities::media_files::Model> = join_all(file_futures)
+        .await
+        .into_iter()
+        .filter_map(|file| file.flatten())
+        .collect();
 
     player.lock().unwrap().add_to_playlist(
         files
@@ -52,4 +63,22 @@ pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) 
             );
         }
     });
+
+    thread::sleep(Duration::from_millis(30000));
+}
+
+pub async fn play_random(main_db: &MainDbConnection, canonicalized_path: &Path) {
+    match get_random_files(main_db, 30).await {
+        Ok(files) => {
+            let file_ids = files.into_iter().map(|file| file.id).collect();
+            play_files(main_db, canonicalized_path, file_ids).await;
+        }
+        Err(e) => {
+            error!("Failed to get random files: {}", e);
+        }
+    }
+}
+
+pub async fn play_by_id(main_db: &MainDbConnection, canonicalized_path: &Path, id: i32) {
+    play_files(main_db, canonicalized_path, vec![id]).await;
 }

@@ -1,3 +1,11 @@
+set dotenv-load
+
+lint:
+  cargo fmt -- --check
+  cargo clippy -- -D warnings
+  flutter analyze .
+  dart analyze .
+
 macos-ci-all: macos-ci-clean macos-ci-install
   ./scripts/macos_2_build.sh
   ./scripts/macos_3_prepare_before_sign.sh

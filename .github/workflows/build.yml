@@ -11,6 +11,8 @@ jobs:
     runs-on: windows-latest
     env:
       VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+    permissions:
+      contents: write
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
@@ -57,35 +59,86 @@ jobs:
           path: build/windows/x64/runner/Release/
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows
 
-  release-windows:
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-windows-amd64.zip
+          directory: build/windows/x64/runner/Release/
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
+
+  build-windows-msix:
+    runs-on: windows-latest
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
     permissions:
       contents: write
-    needs: build-windows
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          pattern: Rune-*-windows
-          path: artifacts
+          channel: "stable"
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "26.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install the Rust dependencies
+        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+
+      - name: Activate Protobuf
+        run: flutter pub global activate protoc_plugin
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Generate message files
+        run: rinf message
+
+      - name: Build MSIX
+        run: dart run msix:create --release
 
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
           length: 7
 
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
         with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-amd64.zip
-          directory: artifacts
+          path: build/windows/x64/runner/Release/rune.msix
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-windows-msix
+
+      - name: Rename MSIX
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mv build/windows/x64/runner/Release/rune.msix "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
 
       - name: Release
         uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
-          artifacts: "artifacts/*.zip"
+          artifacts: "build/windows/x64/runner/Release/Rune-${{ github.ref_name }}-windows-amd64.msix"
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
@@ -93,6 +146,8 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
@@ -144,9 +199,29 @@ jobs:
           path: build/linux/x64/release/bundle/
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux
 
+      - name: Build Zip for Release
+        uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          type: "zip"
+          filename: Rune-${{ github.ref_name }}-linux-amd64.zip
+          directory: build/linux/x64/release/bundle/
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-linux-amd64.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
+
   build-steam-sniper:
     runs-on: ubuntu-latest
     container: registry.gitlab.steamos.cloud/steamrt/sniper/sdk:beta
+    permissions:
+      contents: write
     steps:
       - name: Checkout branch
         uses: actions/checkout@v4
@@ -209,76 +284,28 @@ jobs:
           path: build/linux/x64/release/bundle/
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper
 
-  release-linux:
-    permissions:
-      contents: write
-    needs: build-linux
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*-linux
-          path: artifacts
-
-      - uses: benjlevesque/short-sha@v3.0
-        id: short-sha
-        with:
-          length: 7
-
       - name: Build Zip for Release
         uses: thedoctor0/zip-release@master
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
           type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-linux-amd64.zip
-          directory: artifacts
+          filename: Rune-${{ github.ref_name }}-steam-sniper-amd64.zip
+          directory: build/linux/x64/release/bundle/
 
       - name: Release
         uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
         with:
+          artifacts: "build/linux/x64/release/bundle/Rune-${{ github.ref_name }}-steam-sniper-amd64.zip"
           allowUpdates: true
-          artifacts: "artifacts/*.zip"
-          replacesArtifacts: false
-          omitBodyDuringUpdate: true
-          makeLatest: true
-
-  release-steam-sniper:
-    permissions:
-      contents: write
-    needs: build-steam-sniper
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*-steam-sniper
-          path: artifacts
-
-      - uses: benjlevesque/short-sha@v3.0
-        id: short-sha
-        with:
-          length: 7
-
-      - name: Build Zip for Release
-        uses: thedoctor0/zip-release@master
-        with:
-          type: "zip"
-          filename: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-steam-sniper-amd64.zip
-          directory: artifacts
-
-      - name: Release
-        uses: ncipollo/release-action@v1
-        with:
-          allowUpdates: true
-          artifacts: "artifacts/*.zip"
           replacesArtifacts: false
           omitBodyDuringUpdate: true
           makeLatest: true
 
   build-macos:
     runs-on: macos-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -356,11 +383,26 @@ jobs:
           install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
         working-directory: build/macos/Build/Products/Release
 
+      - name: Rename DMG
+        run: |
+          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg"
+
+      - name: Rename ZIP
+        run: |
+          mv temp_macos/*.zip "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip"
+
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          path: "temp_macos/*.dmg"
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
+          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
+
+      - name: Upload artifact macOS ZIP
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
 
       - name: Clean up
         if: ${{ always() }}
@@ -372,8 +414,29 @@ jobs:
           fi
           rm -f .env
 
+      - name: Release DMG
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
+
+      - name: Release ZIP
+        uses: ncipollo/release-action@v1
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          artifacts: "temp_macos/Rune-${{ github.ref_name }}-macOS.zip"
+          allowUpdates: true
+          replacesArtifacts: false
+          omitBodyDuringUpdate: true
+          makeLatest: true
+
   build-and-release-mac-app-store:
     runs-on: macos-latest
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -473,25 +536,3 @@ jobs:
           fi
           rm -f .env
           rm -f $RUNNER_TEMP/*.p8
-
-  release-macos:
-    permissions:
-      contents: write
-    needs: build-macos
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          pattern: Rune-*-macOS
-          path: artifacts
-
-      - name: Release
-        uses: ncipollo/release-action@v1
-        with:
-          artifacts: "artifacts/**/*.dmg"
-          allowUpdates: true
-          replacesArtifacts: false
-          omitBodyDuringUpdate: true
-          makeLatest: true

@@ -4,6 +4,7 @@ use std::num::NonZeroUsize;
 use anyhow::{bail, Context, Result};
 use arroy::distances::Euclidean;
 use arroy::{Reader, Writer};
+use log::error;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rust_decimal::prelude::ToPrimitive;
@@ -71,12 +72,20 @@ pub fn get_recommendation_by_parameter(
 
     let results = reader
         .nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)
-        .with_context(|| "Failed to get recommendation by parameter")?;
+        .with_context(|| "Failed to get recommendation by parameter");
 
-    if results.is_empty() {
-        bail!("No results found for the given parameter")
-    } else {
-        Ok(results)
+    match results {
+        Ok(results) => {
+            if results.is_empty() {
+                bail!("No results found for the given parameter")
+            } else {
+                Ok(results)
+            }
+        }
+        Err(e) => {
+            error!("{:#?}", e);
+            Ok(vec![])
+        }
     }
 }
 

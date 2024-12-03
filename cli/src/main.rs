@@ -54,9 +54,13 @@ enum Commands {
 
     /// Play audio files in the library
     Play {
-        /// Currently, we only support play audio files randomly
+        /// The mode to play audio files
         #[arg()]
         mode: Option<String>,
+
+        /// The ID of the file to play (used with playById mode)
+        #[arg(short, long)]
+        id: Option<i32>,
     },
 
     /// Recommend music
@@ -170,7 +174,13 @@ async fn main() {
             index_audio_library(&main_db).await;
         }
         Commands::Analyze { computing_device } => {
-            analyze_audio_library(computing_device.as_str().into(), &main_db, &analysis_db, &path).await;
+            analyze_audio_library(
+                computing_device.as_str().into(),
+                &main_db,
+                &analysis_db,
+                &path,
+            )
+            .await;
         }
         Commands::Info { file_ids } => {
             match get_metadata_summary_by_file_ids(&main_db, file_ids.to_vec()).await {
@@ -205,13 +215,22 @@ async fn main() {
                 }
             }
         }
-        Commands::Play { mode } => {
-            if mode.as_deref() == Some("random") {
+        // In the main function, update the match statement for Commands::Play
+        Commands::Play { mode, id } => match mode.as_deref() {
+            Some("random") => {
                 play_random(&main_db, &canonicalized_path).await;
-            } else {
+            }
+            Some("id") => {
+                if let Some(file_id) = id {
+                    play_by_id(&main_db, &canonicalized_path, *file_id).await;
+                } else {
+                    error!("File ID is required for playById mode.");
+                }
+            }
+            _ => {
                 info!("Mode not implemented!");
             }
-        }
+        },
         Commands::Recommend {
             item_id,
             file_path,

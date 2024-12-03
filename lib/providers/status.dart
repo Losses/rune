@@ -46,6 +46,8 @@ class PlaybackStatusProvider with ChangeNotifier {
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
     final newStatus = signal.message;
     if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
+      final bool isNewTrack = _playbackStatus.id != newStatus.id;
+
       _playbackStatus.state = newStatus.state;
       _playbackStatus.progressSeconds = newStatus.progressSeconds;
       _playbackStatus.progressPercentage = newStatus.progressPercentage;
@@ -59,9 +61,7 @@ class PlaybackStatusProvider with ChangeNotifier {
       _playbackStatus.ready = newStatus.ready;
       _playbackStatus.coverArtPath = newStatus.coverArtPath;
 
-      final bool isNewTrack = _playbackStatus.id != newStatus.id;
-
-      if (isNewTrack && newStatus.state != "Stopped") {
+      if (isNewTrack) {
         ThemeColorManager().handleCoverArtColorChange(newStatus.id);
         SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }

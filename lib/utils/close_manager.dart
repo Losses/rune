@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:bitsdojo_window/bitsdojo_window.dart';
+import 'package:flutter/services.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:flutter_window_close/flutter_window_close.dart';
 
@@ -40,7 +41,12 @@ class CloseManager {
 
   close() {
     forceClose = true;
-    appWindow.close();
+    
+    if (Platform.isMacOS) {
+      SystemNavigator.pop();
+    } else {
+      appWindow.close();
+    }
   }
 }
 

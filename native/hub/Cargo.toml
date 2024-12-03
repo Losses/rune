@@ -30,7 +30,7 @@ num_cpus = "1.16.0"
 anyhow = { version = "1.0.89", features = ["backtrace"] }
 futures = "0.3.30"
 async-trait = "0.1.83"
-sysinfo = { version = "0.31.4", features = ["windows"] }
+sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 tracing-appender = "0.2.3"
 chrono = "0.4.38"
 windows = { version = "0.58.0", features = ["Services", "Services_Store" ] }
