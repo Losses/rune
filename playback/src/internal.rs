@@ -10,8 +10,10 @@ use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
+use crate::buffered::rune_buffered;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::realtime_fft::RealTimeFFT;
+use crate::shared_sample::SharedSource;
 use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
     ShuffleStrategy, UpdateReason,
@@ -144,6 +146,24 @@ fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
     let (sink, queue_rx) = Sink::new_idle();
     stream.play_raw(queue_rx)?;
     Ok(sink)
+}
+
+impl Source for SharedSource {
+    fn current_frame_len(&self) -> Option<usize> {
+        self.inner.lock().unwrap().current_frame_len()
+    }
+
+    fn channels(&self) -> u16 {
+        self.inner.lock().unwrap().channels()
+    }
+
+    fn sample_rate(&self) -> u32 {
+        self.inner.lock().unwrap().sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.lock().unwrap().total_duration()
+    }
 }
 
 pub(crate) struct PlayerInternal {
@@ -321,7 +341,8 @@ impl PlayerInternal {
                 return Ok(());
             }
 
-            let source = source.unwrap();
+            let source = SharedSource::new(rune_buffered(source.unwrap()));
+            let source_for_fft = Arc::clone(&source.inner);
 
             let (stream, stream_handle) = RuneOutputStream::try_default_with_callback({
                 let error_sender = self.stream_error_sender.clone();
@@ -351,14 +372,19 @@ impl PlayerInternal {
             });
 
             sink.set_volume(self.volume);
-            sink.append(
-                source.periodic_access(Duration::from_millis(16), move |sample| {
-                    let data: Vec<i16> = sample.take(sample.channels() as usize).collect();
-                    if fft_tx.send(data).is_err() {
-                        error!("Failed to send FFT data");
+            sink.append(source.periodic_access(
+                Duration::from_millis(12),
+                move |_sample: &mut SharedSource| {
+                    if let Ok(guard) = source_for_fft.lock() {
+                        let data: Option<Vec<i16>> = guard.current_samples();
+                        if let Some(data) = data {
+                            if fft_tx.send(data).is_err() {
+                                error!("Failed to send FFT data");
+                            }
+                        }
                     }
-                }),
-            );
+                },
+            ));
 
             if !play {
                 sink.pause();

@@ -77,7 +77,7 @@ dependencies:
   system_tray:
     git:
       url: https://github.com/Losses/system_tray.git
-      ref: bc64829aa789a890d6dde5f4d960d7dcd3152341
+      ref: e0fd539785d2f656a8efd76376c6f2225848b9be
 
 dev_dependencies:
   build_runner: ^2.4.11

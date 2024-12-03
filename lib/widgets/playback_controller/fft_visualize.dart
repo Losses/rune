@@ -86,7 +86,7 @@ class FFTVisualizeState extends State<FFTVisualize>
 
     _ticker = createTicker((Duration elapsed) {
       final now = DateTime.now().millisecondsSinceEpoch;
-      if (now - _lastUpdateTime > 42) {
+      if (now - _lastUpdateTime > 168) {
         if (mounted) {
           final reduced = _currentFftValues.reduce((a, b) => a + b);
           if (!_hasData && reduced < 1e-2) {
