@@ -383,17 +383,26 @@ jobs:
           install_name_tool -change /opt/homebrew/opt/lmdb/lib/liblmdb.dylib @executable_path/../Frameworks/liblmdb.dylib Rune.app/Contents/MacOS/Rune
         working-directory: build/macos/Build/Products/Release
 
+      - name: Rename DMG
+        run: |
+          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg"
+
+      - name: Rename ZIP
+        run: |
+          mv temp_macos/*.zip "temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip"
+
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          path: "temp_macos/*.dmg"
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
+          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
 
       - name: Upload artifact macOS ZIP
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          path: "temp_macos/*.zip"
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
+          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
 
       - name: Clean up
         if: ${{ always() }}
@@ -404,16 +413,6 @@ jobs:
             security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
           fi
           rm -f .env
-        
-      - name: Rename DMG
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          mv temp_macos/*.dmg "temp_macos/Rune-${{ github.ref_name }}-macOS.dmg"
-
-      - name: Rename ZIP
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          mv temp_macos/*.zip "temp_macos/Rune-${{ github.ref_name }}-macOS.zip"
 
       - name: Release DMG
         uses: ncipollo/release-action@v1
