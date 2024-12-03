@@ -8,7 +8,7 @@ use jni::{
     sys::{jint, JNI_VERSION_1_6},
     JavaVM,
 };
-use ndk_context::{release_android_context, initialize_android_context};
+use ndk_context::{initialize_android_context, release_android_context};
 
 /// Invalid JNI version constant, signifying JNI_OnLoad failure.
 const INVALID_JNI_VERSION: jint = 0;
@@ -45,7 +45,7 @@ pub extern "system" fn Java_ci_not_rune_MainActivity_initializeContext(
         if let Some(jvm) = JVM {
             // Converting context to raw pointer
             let context_ptr = context.into_raw() as *mut c_void;
-            
+
             initialize_android_context(jvm, context_ptr);
         }
     }

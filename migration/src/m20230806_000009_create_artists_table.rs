@@ -28,11 +28,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
-                    .col(
-                        ColumnDef::new(Artists::Group)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Artists::Group).string().not_null())
                     .to_owned(),
             )
             .await

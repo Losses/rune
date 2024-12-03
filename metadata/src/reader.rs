@@ -183,7 +183,11 @@ pub fn string_to_standard_tag_key(s: &str) -> Option<StandardTagKey> {
     STRING_TO_STANDARD_TAG_KEY.get(s).cloned()
 }
 
-fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, String)>, field_blacklist: &[&str]) {
+fn push_tags(
+    revision: &MetadataRevision,
+    metadata_list: &mut Vec<(String, String)>,
+    field_blacklist: &[&str],
+) {
     for tag in revision.tags() {
         let std_key = match tag.std_key {
             Some(standard_key) => standard_tag_key_to_string(standard_key),
@@ -207,7 +211,10 @@ fn push_tags(revision: &MetadataRevision, metadata_list: &mut Vec<(String, Strin
     }
 }
 
-pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Result<Vec<(String, String)>> {
+pub fn get_metadata(
+    file_path: &str,
+    field_blacklist: Option<Vec<&str>>,
+) -> Result<Vec<(String, String)>> {
     if !Path::new(file_path).exists() {
         bail!("File not found");
     }
@@ -228,13 +235,13 @@ pub fn get_metadata(file_path: &str, field_blacklist: Option<Vec<&str>>) -> Resu
     let meta_opts: MetadataOptions = Default::default();
 
     // Probe the media source.
-    let mut probed = symphonia::default::get_probe()
-        .format(&hint, mss, &fmt_opts, &meta_opts)?;
+    let mut probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts)?;
 
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
 
-    let blacklist = field_blacklist.unwrap_or(vec!["encoded_by", "encoder", "comment", "description"]);
+    let blacklist =
+        field_blacklist.unwrap_or(vec!["encoded_by", "encoder", "comment", "description"]);
 
     if let Some(metadata_rev) = format.metadata().current() {
         push_tags(metadata_rev, &mut metadata_list, &blacklist);

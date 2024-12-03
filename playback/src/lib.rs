@@ -1,13 +1,13 @@
 mod internal;
-mod sfx_internal;
 mod realtime_fft;
+mod sfx_internal;
 mod simple_channel;
 
-pub mod strategies;
-pub mod output_stream;
 pub mod controller;
+pub mod output_stream;
 pub mod player;
 pub mod sfx_player;
+pub mod strategies;
 
 #[cfg(target_os = "android")]
 mod dummy_souvlaki;

@@ -1,5 +1,4 @@
 /// A dummy implementation of the media controls.
-
 use std::time::Duration;
 
 /// The metadata of a media item.
