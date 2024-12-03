@@ -46,7 +46,6 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
     );
 
     player.lock().unwrap().play();
-    player.lock().unwrap().set_volume(0.4);
 
     let status_receiver = player.lock().unwrap().subscribe_status();
 
