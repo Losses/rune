@@ -394,7 +394,7 @@ jobs:
       - name: Upload artifact macOS DMG
         uses: actions/upload-artifact@v4
         with:
-          path: temp_macos/temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
+          path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.dmg
 
       - name: Upload artifact macOS ZIP
