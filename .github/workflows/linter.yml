@@ -59,7 +59,6 @@ jobs:
       - name: Format message files
         run: |
           shopt -s globstar
-          ls -al native/hub/src/messages/
           cargo fmt -- native/hub/src/messages/**/*.rs
 
       - name: Run cargo fmt
