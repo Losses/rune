@@ -1,9 +1,9 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/api/close_library.dart';
+import '../../../utils/get_dir_path.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_manager.dart';
@@ -33,7 +33,7 @@ class AddLibrarySettingButton extends StatelessWidget {
       title: S.of(context).addLibrary,
       subtitle: S.of(context).addLibrarySubtitle,
       onPressed: () async {
-        final path = await getDirectoryPath();
+        final path = await getDirPath();
 
         if (path == null) return;
         if (!context.mounted) return;

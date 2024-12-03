@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../../utils/ax_shadow.dart';
@@ -11,6 +10,7 @@ import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../utils/get_dir_path.dart';
 import '../../../utils/l10n.dart';
 
 class WelcomePage extends StatelessWidget {
@@ -79,7 +79,7 @@ class WelcomePage extends StatelessWidget {
                               // on Android, check for permission
                               if (!await requestAndroidPermission()) return;
 
-                              final path = await getDirectoryPath();
+                              final path = await getDirPath();
 
                               if (path == null) return;
                               if (!context.mounted) return;
