@@ -36,14 +36,20 @@ pub fn get_format(file_path: &str) -> Result<Box<dyn FormatReader>> {
 }
 
 pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::core::errors::Error> {
-    let sample_rate = track
-        .codec_params
-        .sample_rate
-        .ok_or(symphonia::core::errors::Error::Unsupported("No sample rate found"))?;
-    let duration = track
-        .codec_params
-        .n_frames
-        .ok_or(symphonia::core::errors::Error::Unsupported("No duration found"))?;
+    let sample_rate =
+        track
+            .codec_params
+            .sample_rate
+            .ok_or(symphonia::core::errors::Error::Unsupported(
+                "No sample rate found",
+            ))?;
+    let duration =
+        track
+            .codec_params
+            .n_frames
+            .ok_or(symphonia::core::errors::Error::Unsupported(
+                "No duration found",
+            ))?;
 
     let time_base = track
         .codec_params
