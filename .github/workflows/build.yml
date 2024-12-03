@@ -393,7 +393,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: "temp_macos/*.zip"
-          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS
+          name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS-zip
 
       - name: Clean up
         if: ${{ always() }}
