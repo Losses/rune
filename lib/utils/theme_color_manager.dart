@@ -38,6 +38,8 @@ class ThemeColorManager {
       // If dynamic colors are enabled and a song is currently playing, apply the cover color immediately
       if (_currentCoverArtId != null) {
         await handleCoverArtColorChange(_currentCoverArtId!);
+      } else {
+        appTheme.updateThemeColor(_userSelectedColor);
       }
     } else {
       // If dynamic colors are disabled, decide which color to use based on user settings
@@ -52,6 +54,12 @@ class ThemeColorManager {
     // If dynamic colors are not enabled, update the theme based on user selection
     if (!_isDynamicColorEnabled) {
       appTheme.updateThemeColor(color);
+    } else {
+      if (_currentCoverArtId != null) {
+        handleCoverArtColorChange(_currentCoverArtId!);
+      } else {
+        appTheme.updateThemeColor(color);
+      }
     }
   }
 
