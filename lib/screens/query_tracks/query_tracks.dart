@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -45,9 +47,12 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
               children: [
                 if (!isMini)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
+                    padding: Platform.isMacOS
+                        ? const EdgeInsets.fromLTRB(24, 54, 24, 12)
+                        : const EdgeInsets.fromLTRB(20, 54, 24, 12),
                     child: Transform.scale(
                       scale: 1.2,
+                      alignment: Alignment.centerLeft,
                       child: Text(
                         widget.title ?? 'Tracks',
                         style: TextStyle(color: theme.inactiveColor),
