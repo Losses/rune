@@ -59,7 +59,6 @@ class LibraryPathProvider with ChangeNotifier {
     LibraryInitializeMode? selectedMode,
   ) async {
     _currentPath = filePath;
-    libraryHistory.add(filePath);
     notifyListeners();
 
     var (success, notReady, error) =
@@ -83,8 +82,10 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
+      libraryHistory.add(filePath);
       CollectionCache().clearAll();
       _fileStorageService.storeFilePath(filePath);
+      notifyListeners();
 
       await operatePlaybackWithMixQuery(
         queries: const QueryList([("lib::queue", "true")]),
