@@ -57,7 +57,9 @@ jobs:
         run: rinf message
 
       - name: Format message files
-        run: cargo fmt -- native/hub/src/messages/**/*.rs
+        run: |
+          shopt -s globstar
+          cargo fmt -- native/hub/src/messages/**/*.rs
 
       - name: Run cargo fmt
         run: cargo fmt -- --check
