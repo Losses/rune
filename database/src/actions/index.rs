@@ -1,4 +1,4 @@
-use anyhow::{Result, Error};
+use anyhow::{Error, Result};
 use log::{error, info};
 use sea_orm::{prelude::*, ActiveValue};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
@@ -167,10 +167,8 @@ pub async fn index_audio_library(
     let producer = async {
         loop {
             // Fetch the next batch of files
-            let files: Vec<media_files::Model> = cursor
-                .first(batch_size.try_into()?)
-                .all(main_db)
-                .await?;
+            let files: Vec<media_files::Model> =
+                cursor.first(batch_size.try_into()?).all(main_db).await?;
 
             if files.is_empty() {
                 info!("No more files to process. Exiting loop.");

@@ -420,7 +420,7 @@ pub async fn get_percentile(
     };
     // .with_context(|| "Unable to get analysis value")?;
 
-    Ok(result.unwrap_or_default() as f32)
+    Ok(result.unwrap_or_default())
 }
 
 pub async fn get_percentile_analysis_result(

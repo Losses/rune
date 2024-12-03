@@ -131,7 +131,7 @@ pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<Storage
                 let db_path = db_path.context("db_path is required for redirected storage")?;
                 PathBuf::from(db_path).join(uuid.to_string())
             }
-        }
+        },
     };
 
     Ok(StorageInfo {

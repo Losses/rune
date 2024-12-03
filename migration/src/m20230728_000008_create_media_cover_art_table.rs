@@ -22,8 +22,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(MediaCoverArt::FileHash).char_len(64).not_null())
-                    .col(ColumnDef::new(MediaCoverArt::Binary).var_binary(16777216).not_null())
+                    .col(
+                        ColumnDef::new(MediaCoverArt::FileHash)
+                            .char_len(64)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(MediaCoverArt::Binary)
+                            .var_binary(16777216)
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await
@@ -42,5 +50,5 @@ pub enum MediaCoverArt {
     Id,
     FileHash,
     Binary,
-    PrimaryColor
+    PrimaryColor,
 }
