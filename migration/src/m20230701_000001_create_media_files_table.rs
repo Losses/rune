@@ -34,11 +34,7 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(ColumnDef::new(MediaFiles::CoverArtId).integer().null())
-                    .col(
-                        ColumnDef::new(MediaFiles::SampleRate)
-                            .integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(MediaFiles::SampleRate).integer().not_null())
                     .col(ColumnDef::new(MediaFiles::Duration).double().not_null())
                     .foreign_key(
                         ForeignKey::create()

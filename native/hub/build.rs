@@ -19,7 +19,7 @@ fn main() -> Result<()> {
         .add_instructions(&rustc)?
         .emit()?;
 
-    #[cfg(target_os = "macos")]    
+    #[cfg(target_os = "macos")]
     apple_bridge::build_apple_bridge_library();
 
     Ok(())

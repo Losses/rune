@@ -43,7 +43,8 @@ impl SubAnalyzer for GpuSubAnalyzer {
         core_analyzer.total_energy += energy(resampled_chunk);
 
         let start_idx = self.batch_cache_buffer_count * core_analyzer.window_size;
-        let buffer_slice = &mut self.batch_fft_buffer[start_idx..start_idx + core_analyzer.window_size];
+        let buffer_slice =
+            &mut self.batch_fft_buffer[start_idx..start_idx + core_analyzer.window_size];
         for (i, sample) in buffer_slice.iter_mut().enumerate() {
             *sample = Complex::new(resampled_chunk[i] * self.hanning_window[i], 0.0);
         }
