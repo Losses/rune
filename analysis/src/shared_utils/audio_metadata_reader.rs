@@ -39,11 +39,11 @@ pub fn get_codec_information(track: &Track) -> Result<(u32, f64), symphonia::cor
     let sample_rate = track
         .codec_params
         .sample_rate
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No sample rate found"))?;
+        .ok_or(symphonia::core::errors::Error::Unsupported("No sample rate found"))?;
     let duration = track
         .codec_params
         .n_frames
-        .ok_or_else(|| symphonia::core::errors::Error::Unsupported("No duration found"))?;
+        .ok_or(symphonia::core::errors::Error::Unsupported("No duration found"))?;
 
     let time_base = track
         .codec_params
