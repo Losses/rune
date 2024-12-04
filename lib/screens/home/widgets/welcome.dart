@@ -92,7 +92,10 @@ class WelcomePage extends StatelessWidget {
                               );
 
                               if (success) {
-                                libraryManager.scanLibrary(path, true);
+                                libraryManager.scanLibrary(
+                                  path,
+                                  isInitializeTask: true,
+                                );
                               } else if (!cancelled) {
                                 if (!context.mounted) return;
                                 await showFailedToInitializeLibrary(

@@ -190,6 +190,10 @@ pub async fn sync_file_descriptions(
                                 continue;
                             }
                         } else {
+                            if force {
+                                info!("Force scanning triggered: {}", existing_file.id);
+                            }
+
                             // If the hash is different, update the metadata
                             debug!(
                                 "File hash is different, updating metadata: {}",
@@ -601,20 +605,22 @@ where
         })
         .collect();
 
-    if let Err(e) = media_metadata::Entity::insert_many(new_metadata)
-        .exec(db)
-        .await
-        .with_context(|| "Failed to insert new metadata")
-    {
-        error!("{:?}", e);
-        insert_log(
-            db,
-            LogLevel::Error,
-            "actions::metadata::update_file_metadata".to_string(),
-            format!("{:#?}", e),
-        )
-        .await?;
-        return Err(e);
+    if !new_metadata.is_empty() {
+        if let Err(e) = media_metadata::Entity::insert_many(new_metadata.clone())
+            .exec(db)
+            .await
+            .with_context(|| "Failed to insert new metadata while executing updating")
+        {
+            error!("{:?}", e);
+            insert_log(
+                db,
+                LogLevel::Error,
+                "actions::metadata::update_file_metadata".to_string(),
+                format!("{:#?}", e),
+            )
+            .await?;
+            return Err(e);
+        }
     }
 
     Ok(())

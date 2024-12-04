@@ -1,12 +1,13 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/l10n.dart';
+import '../utils/platform.dart';
 import '../utils/router/navigation.dart';
 import '../screens/settings_library/widgets/progress_button.dart';
 import '../messages/library_manage.pbenum.dart';
 import '../providers/library_manager.dart';
 import '../providers/library_path.dart';
-import '../utils/l10n.dart';
 
 Future<bool?> showCancelDialog(BuildContext context) {
   return $showModal<bool>(
@@ -36,6 +37,7 @@ class LibraryTaskButton extends StatelessWidget {
   final String title;
   final String progressTitle;
   final Future<void> Function(LibraryManagerProvider, String) onPressedStart;
+  final Future<void> Function(LibraryManagerProvider, String)? onContextMenu;
   final void Function(LibraryManagerProvider, String) onPressedCancel;
   final bool Function(bool, bool) isTaskWorking;
   final double? progress;
@@ -47,6 +49,7 @@ class LibraryTaskButton extends StatelessWidget {
     required this.onPressedCancel,
     required this.isTaskWorking,
     required this.progress,
+    this.onContextMenu,
     super.key,
   });
 
@@ -77,11 +80,27 @@ class LibraryTaskButton extends StatelessWidget {
             progress: progress,
             filled: false,
           )
-        : Button(
-            onPressed: isWorking
+        : GestureDetector(
+            onSecondaryTapUp: isDesktop
+                ? (details) {
+                    if (onContextMenu != null) {
+                      onContextMenu!(libraryManager, itemPath);
+                    }
+                  }
+                : null,
+            onLongPressEnd: isDesktop
                 ? null
-                : () => onPressedStart(libraryManager, itemPath),
-            child: Text(title),
+                : (details) {
+                    if (onContextMenu != null) {
+                      onContextMenu!(libraryManager, itemPath);
+                    }
+                  },
+            child: Button(
+              onPressed: isWorking
+                  ? null
+                  : () => onPressedStart(libraryManager, itemPath),
+              child: Text(title),
+            ),
           );
   }
 }
@@ -110,7 +129,22 @@ class ScanLibraryButton extends StatelessWidget {
         }
       },
       onPressedStart: (libraryManager, itemPath) async {
-        libraryManager.scanLibrary(itemPath, false);
+        libraryManager.scanLibrary(
+          itemPath,
+          isInitializeTask: false,
+        );
+        await libraryManager.waitForScanToComplete(itemPath);
+
+        if (onFinished != null) {
+          onFinished!();
+        }
+      },
+      onContextMenu: (libraryManager, itemPath) async {
+        libraryManager.scanLibrary(
+          itemPath,
+          isInitializeTask: false,
+          force: true,
+        );
         await libraryManager.waitForScanToComplete(itemPath);
 
         if (onFinished != null) {

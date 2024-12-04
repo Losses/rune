@@ -37,6 +37,7 @@ async fn main() {
         &main_db,
         &root_path,
         true,
+        false,
         empty_scan_progress_callback,
         None,
     )
