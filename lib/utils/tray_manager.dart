@@ -100,7 +100,7 @@ class TrayManager {
 
   Future<void> updateTrayIcon() async {
     final iconPath = getTrayIconPath();
-    await systemTray.setImage(iconPath);
+    await systemTray.setImage(iconPath, isTemplate: true);
   }
 
   static void registerEventHandlers() {
