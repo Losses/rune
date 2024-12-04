@@ -55,6 +55,7 @@ pub fn read_metadata(description: &FileDescription) -> Result<FileMetadata> {
 pub async fn sync_file_descriptions(
     main_db: &DatabaseConnection,
     descriptions: &mut [Option<FileDescription>],
+    force: bool,
 ) -> Result<()> {
     debug!("Starting to process multiple files");
 
@@ -80,7 +81,6 @@ pub async fn sync_file_descriptions(
             Some(description) => {
                 debug!("Processing file: {}", description.file_name.clone());
 
-                // Check if the file already exists in the database
                 let existing_file = match media_files::Entity::find()
                     .filter(media_files::Column::Directory.eq(description.directory.clone()))
                     .filter(media_files::Column::FileName.eq(description.file_name.clone()))
@@ -109,7 +109,7 @@ pub async fn sync_file_descriptions(
                     );
 
                     // File exists in the database
-                    if existing_file.last_modified == description.last_modified {
+                    if existing_file.last_modified == description.last_modified && !force {
                         // If the file's last modified date hasn't changed, skip it
                         debug!(
                             "File's last modified date hasn't changed ({}), skipping: {}",
@@ -143,7 +143,7 @@ pub async fn sync_file_descriptions(
                             }
                         };
 
-                        if existing_file.file_hash == new_hash {
+                        if existing_file.file_hash == new_hash && !force {
                             // If the hash is the same, update the last modified date
                             debug!(
                                 "File hash is the same, updating last modified date: {}",
@@ -796,6 +796,7 @@ pub async fn scan_audio_library<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
     cleanup: bool,
+    force: bool,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
 ) -> Result<usize, sea_orm::DbErr>
@@ -829,7 +830,7 @@ where
             .map(|result| result.ok())
             .collect();
 
-        match sync_file_descriptions(main_db, &mut descriptions)
+        match sync_file_descriptions(main_db, &mut descriptions, force)
             .await
             .with_context(|| "Unable to describe files")
         {
