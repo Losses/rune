@@ -50,7 +50,7 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'sta
         is_trial = false;
         Ok(Some((bundle_id, is_active, is_trial)))
     } else {
-        return None
+        return Ok(None)
     }
 }
 
