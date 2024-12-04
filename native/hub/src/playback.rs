@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -29,20 +30,20 @@ use crate::{
 pub fn files_to_playback_request(
     lib_path: &String,
     files: &[database::entities::media_files::Model],
-) -> std::vec::Vec<(i32, std::path::PathBuf)> {
+) -> Vec<(i32, PathBuf)> {
     files
         .iter()
-        .map(|file| {
-            let file_path = canonicalize(
-                Path::new(lib_path)
-                    .join(&file.directory)
-                    .join(&file.file_name),
-            )
-            .unwrap();
+        .filter_map(|file| {
+            let file_path = Path::new(lib_path)
+                .join(&file.directory)
+                .join(&file.file_name);
 
-            (file.id, file_path)
+            match canonicalize(&file_path) {
+                Ok(canonical_path) => Some((file.id, canonical_path)),
+                Err(_) => None,
+            }
         })
-        .collect::<Vec<_>>()
+        .collect()
 }
 
 pub async fn load_request(
