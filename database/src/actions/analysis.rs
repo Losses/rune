@@ -223,6 +223,86 @@ impl From<AggregatedAnalysisResult> for [f32; 61] {
     }
 }
 
+impl From<media_analysis::Model> for AggregatedAnalysisResult {
+    fn from(model: media_analysis::Model) -> Self {
+        AggregatedAnalysisResult {
+            rms: model.rms.unwrap_or_default().to_f64().unwrap_or_default(),
+            zcr: model.zcr.unwrap_or_default().to_f64().unwrap_or_default(),
+            energy: model
+                .energy
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_centroid: model
+                .spectral_centroid
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_flatness: model
+                .spectral_flatness
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_slope: model
+                .spectral_slope
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_rolloff: model
+                .spectral_rolloff
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_spread: model
+                .spectral_spread
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_skewness: model
+                .spectral_skewness
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            spectral_kurtosis: model
+                .spectral_kurtosis
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            chroma: {
+                let mut chroma_array = [0.0; 12];
+                seq!(N in 0..=11 {
+                    chroma_array[N] = model.chroma~N.map(|d| d.to_f64().unwrap_or(0.0)).unwrap_or(0.0);
+                });
+                chroma_array
+            },
+            perceptual_spread: model
+                .perceptual_spread
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            perceptual_sharpness: model
+                .perceptual_sharpness
+                .unwrap_or_default()
+                .to_f64()
+                .unwrap_or_default(),
+            perceptual_loudness: {
+                let mut loudness_array = [0.0; 24];
+                seq!(N in 0..=23 {
+                    loudness_array[N] = model.perceptual_loudness~N.map(|d| d.to_f64().unwrap_or(0.0)).unwrap_or(0.0);
+                });
+                loudness_array
+            },
+            mfcc: {
+                let mut mfcc_array = [0.0; 13];
+                seq!(N in 0..=12 {
+                    mfcc_array[N] = model.mfcc~N.map(|d| d.to_f64().unwrap_or(0.0)).unwrap_or(0.0);
+                });
+                mfcc_array
+            },
+        }
+    }
+}
+
 /// Macro to process individual fields by updating their sum and count.
 macro_rules! process_field {
     ($sum:expr, $count:expr, $result:expr, $field:ident) => {
