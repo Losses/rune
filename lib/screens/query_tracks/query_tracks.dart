@@ -48,7 +48,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
                 if (!isMini)
                   Padding(
                     padding: Platform.isMacOS
-                        // The left offset on macOS should be the same as the naviagtion_bar's parent title left offset
+                        // The left offset on macOS should be the same as the NavigationBar's parent title left offset
                         // But due to font and typography reasons(#166), we need to add 2px to visually align them.
                         ? const EdgeInsets.fromLTRB(26, 54, 24, 12)
                         : const EdgeInsets.fromLTRB(20, 54, 24, 12),
