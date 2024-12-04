@@ -48,9 +48,10 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'sta
     if bundle_id == "ci.not.rune.appstore" {
         is_active = true;
         is_trial = false;
+        Ok(Some((bundle_id, is_active, is_trial)))
+    } else {
+        return Ok(None)
     }
-
-    Ok(Some((bundle_id, is_active, is_trial)))
 }
 
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]

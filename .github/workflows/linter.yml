@@ -18,6 +18,8 @@ jobs:
     steps: 
       - name: Check Out
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Flutter Toolchain
         uses: subosito/flutter-action@v2
@@ -25,7 +27,7 @@ jobs:
           channel: 'stable'
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
@@ -54,13 +56,16 @@ jobs:
       - name: Generate message files
         run: rinf message
 
+      - name: Format message files
+        run: |
+          shopt -s globstar
+          cargo fmt -- native/hub/src/messages/**/*.rs
+
       - name: Run cargo fmt
         run: cargo fmt -- --check
       
       - name: Run cargo clippy
-        run: |
-          rustup override set stable
-          cargo clippy -- -D warnings
+        run: cargo clippy -- -D warnings
 
   flutter-analyze:
     name: Flutter analyze
@@ -69,6 +74,8 @@ jobs:
     steps:
       - name: Check Out
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Flutter Toolchain
         uses: subosito/flutter-action@v2

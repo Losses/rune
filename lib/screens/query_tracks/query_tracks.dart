@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
@@ -45,9 +47,14 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
               children: [
                 if (!isMini)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 54, 24, 12),
+                    padding: Platform.isMacOS
+                        // The left offset on macOS should be the same as the NavigationBar's parent title left offset
+                        // But due to font and typography reasons(#166), we need to add 2px to visually align them.
+                        ? const EdgeInsets.fromLTRB(26, 54, 24, 12)
+                        : const EdgeInsets.fromLTRB(20, 54, 24, 12),
                     child: Transform.scale(
                       scale: 1.2,
+                      alignment: Alignment.centerLeft,
                       child: Text(
                         widget.title ?? 'Tracks',
                         style: TextStyle(color: theme.inactiveColor),

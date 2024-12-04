@@ -7,11 +7,9 @@ use arroy::{Reader, Writer};
 use log::error;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rust_decimal::prelude::ToPrimitive;
-use rust_decimal_macros::dec;
 use sea_orm::entity::prelude::*;
-use seq_macro::seq;
 
+use crate::actions::analysis::AggregatedAnalysisResult;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{media_analysis, media_files};
 
@@ -119,84 +117,11 @@ pub async fn sync_recommendation(
 
     // Insert or update analysis data in the recommendation database
     for analysis in analyzes {
-        let mut vector = vec![
-            analysis
-                .rms
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert RMS"),
-            analysis
-                .zcr
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert ZCR"),
-            analysis
-                .energy
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Energy"),
-            analysis
-                .spectral_centroid
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Centroid"),
-            analysis
-                .spectral_flatness
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Flatness"),
-            analysis
-                .spectral_slope
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Slope"),
-            analysis
-                .spectral_rolloff
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Rolloff"),
-            analysis
-                .spectral_spread
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Spread"),
-            analysis
-                .spectral_skewness
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Skewness"),
-            analysis
-                .spectral_kurtosis
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Kurtosis"),
-            analysis
-                .perceptual_spread
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Perceptual Spread"),
-            analysis
-                .perceptual_sharpness
-                .unwrap_or(dec!(0.0))
-                .to_f32()
-                .expect("Unable to convert Spectral Sharpness"),
-        ];
+        let file_id: u32 = analysis.file_id.try_into()?;
+        let parsed_result: AggregatedAnalysisResult = analysis.into();
+        let vector: [f32; 61] = parsed_result.into();
 
-        seq!(N in 0..12 {
-            vector.push(analysis.chroma~N.unwrap_or(dec!(0.0)).to_f32().expect("Unable to convert Chroma"));
-        });
-        seq!(N in 0..24 {
-            vector.push(analysis.perceptual_loudness~N.unwrap_or(dec!(0.0)).to_f32().expect("Unable to convert Perceptual Loudness"));
-        });
-        seq!(N in 0..13 {
-            vector.push(analysis.mfcc~N.unwrap_or(dec!(0.0)).to_f32().expect("Unable to convert MFCC"));
-        });
-
-        writer.add_item(
-            &mut wtxn,
-            (analysis.file_id as usize).try_into().unwrap(),
-            &vector,
-        )?;
+        writer.add_item(&mut wtxn, file_id, &vector)?;
     }
 
     // Build the index

@@ -873,7 +873,7 @@
   "@portableMode": {
     "description": "One candidate library mode for users"
   },
-  "portableModeSubtitle": "We will store your media index together in the library folder.",
+  "portableModeSubtitle": "We will store your index together in the library folder.",
   "@portableModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   },
@@ -881,7 +881,7 @@
   "@localMode": {
     "description": "One candidate library mode for users"
   },
-  "localModeSubtitle": "We will store your media index in Rune's configuration directory.",
+  "localModeSubtitle": "We will store your index in the configuration directory.",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   },

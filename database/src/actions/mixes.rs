@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -9,24 +8,20 @@ use migration::ExprTrait;
 use migration::Func;
 use migration::SimpleExpr;
 use sea_orm::entity::prelude::*;
-use sea_orm::sea_query::Condition;
-use sea_orm::sea_query::Expr;
-use sea_orm::ActiveValue;
-use sea_orm::JoinType;
-use sea_orm::TransactionTrait;
-use sea_orm::{ColumnTrait, EntityTrait, Order, QueryFilter, QueryOrder, QuerySelect, QueryTrait};
+use sea_orm::sea_query::{Condition, Expr};
+use sea_orm::{
+    ActiveValue, ColumnTrait, EntityTrait, JoinType, Order, QueryFilter, QueryOrder, QuerySelect,
+    QueryTrait, TransactionTrait,
+};
 
 use crate::actions::analysis::get_analyze_count;
 use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
-use crate::connection::MainDbConnection;
-use crate::connection::RecommendationDbConnection;
-use crate::entities::media_analysis;
-use crate::entities::mix_queries;
-use crate::entities::mixes;
+use crate::connection::{MainDbConnection, RecommendationDbConnection};
 use crate::entities::{
-    media_file_albums, media_file_artists, media_file_playlists, media_file_stats, media_files,
+    media_analysis, media_file_albums, media_file_artists, media_file_playlists, media_file_stats,
+    media_files, mix_queries, mixes,
 };
 
 use super::analysis::get_centralized_analysis_result;
@@ -35,7 +30,6 @@ use super::collection::CollectionQueryListMode;
 use super::collection::CollectionQueryType;
 use super::file::get_files_by_ids;
 use super::recommendation::get_recommendation_by_parameter;
-
 use super::utils::CollectionDefinition;
 
 impl CollectionDefinition for mixes::Entity {
@@ -912,7 +906,7 @@ pub async fn query_mix_media_files(
             query = query.limit(query_limit);
         }
 
-        let file_ids = query
+        let candidate_file_ids = query
             .select_only()
             .column(media_files::Column::Id)
             .distinct()
@@ -921,7 +915,7 @@ pub async fn query_mix_media_files(
             .await
             .with_context(|| "Failed to query file ids for recommendation")?;
 
-        if file_ids.is_empty() {
+        if candidate_file_ids.is_empty() {
             return Ok([].to_vec());
         }
 
@@ -933,7 +927,7 @@ pub async fn query_mix_media_files(
             .await
             .with_context(|| "Failed to query percentile data")?
         } else {
-            get_centralized_analysis_result(main_db, file_ids)
+            get_centralized_analysis_result(main_db, candidate_file_ids)
                 .await
                 .with_context(|| "Failed to query centralized data")?
                 .into()
@@ -948,19 +942,24 @@ pub async fn query_mix_media_files(
                 .map(|x| x.0 as i32)
                 .collect::<Vec<i32>>();
 
-        let files = get_files_by_ids(main_db, &file_ids).await?;
+        let media_files = get_files_by_ids(main_db, &file_ids).await?;
 
         // Create a hash map to store files by their ID
-        let file_map: std::collections::HashMap<i32, _> =
-            files.into_iter().map(|file| (file.id, file)).collect();
+        let file_map: std::collections::HashMap<i32, _> = media_files
+            .into_iter()
+            .map(|file| (file.id, file))
+            .collect();
 
         // Reorder files according to the order of file_ids
-        let ordered_files = file_ids
+        let files_by_recommendation = file_ids
+            .clone()
             .into_iter()
             .filter_map(|id| file_map.get(&id).cloned())
             .collect::<Vec<_>>();
 
-        return Ok(ordered_files);
+        let sorted_files = sort_media_files(files_by_recommendation, &track_ids);
+
+        return Ok(sorted_files);
     }
 
     if let Some(asc) = sort_track_number_asc {

@@ -404,16 +404,6 @@ jobs:
           path: temp_macos/Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
           name: Rune-${{ github.ref_name }}${{ github.event_name == 'workflow_dispatch' && format('-{0}', steps.short-sha.outputs.sha) || '' }}-macOS.zip
 
-      - name: Clean up
-        if: ${{ always() }}
-        run: |
-          just macos-ci-clean
-          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
-            echo "$RUNNER_TEMP/rune-signing.keychain-db"
-            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
-          fi
-          rm -f .env
-
       - name: Release DMG
         uses: ncipollo/release-action@v1
         if: startsWith(github.ref, 'refs/tags/v')
@@ -433,6 +423,16 @@ jobs:
           replacesArtifacts: false
           omitBodyDuringUpdate: true
           makeLatest: true
+
+      - name: Clean up
+        if: ${{ always() }}
+        run: |
+          just macos-ci-clean
+          if [ -f "$RUNNER_TEMP/rune-signing.keychain-db" ]; then
+            echo "$RUNNER_TEMP/rune-signing.keychain-db"
+            security delete-keychain $RUNNER_TEMP/rune-signing.keychain-db
+          fi
+          rm -f .env
 
   build-and-release-mac-app-store:
     runs-on: macos-latest
