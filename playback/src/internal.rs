@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use crate::buffered::rune_buffered;
 use crate::output_stream::{RuneOutputStream, RuneOutputStreamHandle};
 use crate::realtime_fft::RealTimeFFT;
-use crate::shared_sample::SharedSource;
+use crate::shared_source::SharedSource;
 use crate::strategies::{
     AddMode, PlaybackStrategy, RepeatAllStrategy, RepeatOneStrategy, SequentialStrategy,
     ShuffleStrategy, UpdateReason,

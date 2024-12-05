@@ -1,14 +1,7 @@
-/**
- * These code comes from: https://github.com/RustAudio/rodio/blob/de0ffdc9050ed6a0b4ecf1ce7ad981829c97e82e/src/source/buffered.rs#L12
- * Licensed under the MIT License.
- */
-use std::cmp;
-use std::mem;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-
+use log::warn;
 use rodio::source::SeekError;
 use rodio::{Sample, Source};
+use std::time::Duration;
 
 /// Internal function that builds a `RuneBuffered` object.
 #[inline]
@@ -17,119 +10,31 @@ where
     I: Source,
     I::Item: Sample,
 {
-    let total_duration = input.total_duration();
-    let first_frame = extract(input);
-
     RuneBuffered {
-        current_frame: first_frame,
+        source: input,
+        current_frame_data: Vec::new(),
+        current_frame_channels: 0,
         position_in_frame: 0,
-        total_duration,
     }
 }
 
-/// Iterator that at the same time extracts data from the iterator and stores it in a buffer.
+/// A source that proxies to the underlying source while maintaining current frame data
 pub struct RuneBuffered<I>
 where
     I: Source,
     I::Item: Sample,
 {
-    /// Immutable reference to the next frame of data. Cannot be `Frame::Input`.
-    current_frame: Arc<Frame<I>>,
+    /// The underlying source
+    source: I,
 
-    /// The position in number of samples of this iterator inside `current_frame`.
+    /// Current frame data for current_samples() support
+    current_frame_data: Vec<I::Item>,
+
+    /// Number of channels in current frame
+    current_frame_channels: u16,
+
+    /// The position in number of samples inside current frame
     position_in_frame: usize,
-
-    /// Obtained once at creation and never modified again.
-    total_duration: Option<Duration>,
-}
-
-enum Frame<I>
-where
-    I: Source,
-    I::Item: Sample,
-{
-    /// Data that has already been extracted from the iterator. Also contains a pointer to the
-    /// next frame.
-    Data(FrameData<I>),
-
-    /// No more data.
-    End,
-
-    /// Unextracted data. The `Option` should never be `None` and is only here for easier data
-    /// processing.
-    Input(Mutex<Option<I>>),
-}
-
-struct FrameData<I>
-where
-    I: Source,
-    I::Item: Sample,
-{
-    data: Vec<I::Item>,
-    channels: u16,
-    rate: u32,
-    next: Mutex<Arc<Frame<I>>>,
-}
-
-impl<I> Drop for FrameData<I>
-where
-    I: Source,
-    I::Item: Sample,
-{
-    fn drop(&mut self) {
-        // This is necessary to prevent stack overflows deallocating long chains of the mutually
-        // recursive `Frame` and `FrameData` types. This iteratively traverses as much of the
-        // chain as needs to be deallocated, and repeatedly "pops" the head off the list. This
-        // solves the problem, as when the time comes to actually deallocate the `FrameData`,
-        // the `next` field will contain a `Frame::End`, or an `Arc` with additional references,
-        // so the depth of recursive drops will be bounded.
-        while let Ok(arc_next) = self.next.get_mut() {
-            if let Some(next_ref) = Arc::get_mut(arc_next) {
-                // This allows us to own the next Frame.
-                let next = mem::replace(next_ref, Frame::End);
-                if let Frame::Data(next_data) = next {
-                    // Swap the current FrameData with the next one, allowing the current one
-                    // to go out of scope.
-                    *self = next_data;
-                } else {
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-    }
-}
-
-/// Builds a frame from the input iterator.
-fn extract<I>(mut input: I) -> Arc<Frame<I>>
-where
-    I: Source,
-    I::Item: Sample,
-{
-    let frame_len = input.current_frame_len();
-
-    if frame_len == Some(0) {
-        return Arc::new(Frame::End);
-    }
-
-    let channels = input.channels();
-    let rate = input.sample_rate();
-    let data: Vec<I::Item> = input
-        .by_ref()
-        .take(cmp::min(frame_len.unwrap_or(32768), 32768))
-        .collect();
-
-    if data.is_empty() {
-        return Arc::new(Frame::End);
-    }
-
-    Arc::new(Frame::Data(FrameData {
-        data,
-        channels,
-        rate,
-        next: Mutex::new(Arc::new(Frame::Input(Mutex::new(Some(input))))),
-    }))
 }
 
 impl<I> RuneBuffered<I>
@@ -137,48 +42,33 @@ where
     I: Source,
     I::Item: Sample,
 {
-    /// Advances to the next frame.
-    fn next_frame(&mut self) {
-        let next_frame = {
-            let mut next_frame_ptr = match &*self.current_frame {
-                Frame::Data(FrameData { next, .. }) => next.lock().unwrap(),
-                _ => unreachable!(),
-            };
-
-            let next_frame = match &**next_frame_ptr {
-                Frame::Data(_) => next_frame_ptr.clone(),
-                Frame::End => next_frame_ptr.clone(),
-                Frame::Input(input) => {
-                    let input = input.lock().unwrap().take().unwrap();
-                    extract(input)
-                }
-            };
-
-            *next_frame_ptr = next_frame.clone();
-            next_frame
-        };
-
-        self.current_frame = next_frame;
-        self.position_in_frame = 0;
-    }
-
     /// Returns the current samples for all channels at the current position
     /// Returns None if we're at the end of the stream or the position is invalid
     pub fn current_samples(&self) -> Option<Vec<I::Item>> {
-        match &*self.current_frame {
-            Frame::Data(FrameData { data, channels, .. }) => {
-                let channels = *channels as usize;
-                let base_pos = self.position_in_frame * channels;
-
-                if base_pos + channels <= data.len() {
-                    Some(data[base_pos..base_pos + channels].to_vec())
-                } else {
-                    None
-                }
-            }
-            Frame::End => None,
-            Frame::Input(_) => None,
+        let channels = self.current_frame_channels as usize;
+        if channels == 0 {
+            return None;
         }
+
+        let base_pos = self.position_in_frame * channels;
+        if base_pos + channels <= self.current_frame_data.len() {
+            Some(self.current_frame_data[base_pos..base_pos + channels].to_vec())
+        } else {
+            None
+        }
+    }
+
+    /// Updates the current frame data from source
+    fn update_frame(&mut self) {
+        self.current_frame_data.clear();
+        self.current_frame_channels = self.source.channels();
+
+        let frame_len = self.source.current_frame_len().unwrap_or(0);
+        if frame_len > 0 {
+            self.current_frame_data = (&mut self.source).take(frame_len).collect();
+        }
+
+        self.position_in_frame = 0;
     }
 }
 
@@ -191,41 +81,25 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<I::Item> {
-        let current_sample;
-        let advance_frame;
-
-        match &*self.current_frame {
-            Frame::Data(FrameData { data, .. }) => {
-                current_sample = Some(data[self.position_in_frame]);
-                self.position_in_frame += 1;
-                advance_frame = self.position_in_frame >= data.len();
-            }
-
-            Frame::End => {
-                current_sample = None;
-                advance_frame = false;
-            }
-
-            Frame::Input(_) => unreachable!(),
-        };
-
-        if advance_frame {
-            self.next_frame();
+        // If we've exhausted current frame data, get next frame
+        if self.position_in_frame >= self.current_frame_data.len() {
+            self.update_frame();
         }
 
-        current_sample
+        if self.position_in_frame < self.current_frame_data.len() {
+            let sample = self.current_frame_data[self.position_in_frame];
+            self.position_in_frame += 1;
+            Some(sample)
+        } else {
+            None
+        }
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        // TODO:
         (0, None)
     }
 }
-
-// TODO: uncomment when `size_hint` is fixed
-/*impl<I> ExactSizeIterator for Amplify<I> where I: Source + ExactSizeIterator, I::Item: Sample {
-}*/
 
 impl<I> Source for RuneBuffered<I>
 where
@@ -234,57 +108,48 @@ where
 {
     #[inline]
     fn current_frame_len(&self) -> Option<usize> {
-        match &*self.current_frame {
-            Frame::Data(FrameData { data, .. }) => Some(data.len() - self.position_in_frame),
-            Frame::End => Some(0),
-            Frame::Input(_) => unreachable!(),
-        }
+        self.source.current_frame_len()
     }
 
     #[inline]
     fn channels(&self) -> u16 {
-        match *self.current_frame {
-            Frame::Data(FrameData { channels, .. }) => channels,
-            Frame::End => 1,
-            Frame::Input(_) => unreachable!(),
-        }
+        self.source.channels()
     }
 
     #[inline]
     fn sample_rate(&self) -> u32 {
-        match *self.current_frame {
-            Frame::Data(FrameData { rate, .. }) => rate,
-            Frame::End => 44100,
-            Frame::Input(_) => unreachable!(),
-        }
+        self.source.sample_rate()
     }
 
     #[inline]
     fn total_duration(&self) -> Option<Duration> {
-        self.total_duration
+        self.source.total_duration()
     }
 
-    /// Can not support seek, in the end state we lose the underlying source
-    /// which makes seeking back impossible.
     #[inline]
-    fn try_seek(&mut self, _: Duration) -> Result<(), SeekError> {
-        Err(SeekError::NotSupported {
-            underlying_source: std::any::type_name::<Self>(),
-        })
+    fn try_seek(&mut self, time: Duration) -> Result<(), SeekError> {
+        let result = self.source.try_seek(time);
+
+        if result.is_ok() {
+            self.update_frame();
+        }
+
+        result
     }
 }
 
 impl<I> Clone for RuneBuffered<I>
 where
-    I: Source,
+    I: Source + Clone,
     I::Item: Sample,
 {
     #[inline]
     fn clone(&self) -> RuneBuffered<I> {
         RuneBuffered {
-            current_frame: self.current_frame.clone(),
+            source: self.source.clone(),
+            current_frame_data: self.current_frame_data.clone(),
+            current_frame_channels: self.current_frame_channels,
             position_in_frame: self.position_in_frame,
-            total_duration: self.total_duration,
         }
     }
 }
