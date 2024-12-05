@@ -6,6 +6,7 @@ use chrono::Utc;
 use log::warn;
 use migration::ExprTrait;
 use migration::Func;
+use migration::IntoCondition;
 use migration::SimpleExpr;
 use sea_orm::entity::prelude::*;
 use sea_orm::sea_query::{Condition, Expr};
@@ -714,6 +715,20 @@ pub async fn query_mix_media_files(
         filter_analyzed = Some(true);
     }
 
+    let only_one_playlist = artist_ids.is_empty()
+        && album_ids.is_empty()
+        && track_ids.is_empty()
+        && random_count.is_empty()
+        && directories_deep.is_empty()
+        && directories_shallow.is_empty()
+        && playlist_ids.len() == 1;
+
+    let only_playlist = if only_one_playlist {
+        playlist_ids[0]
+    } else {
+        -1
+    };
+
     // Base query for media_files
     let mut query = media_files::Entity::find();
 
@@ -873,6 +888,22 @@ pub async fn query_mix_media_files(
         sort_skipped_asc,
     );
 
+    if only_one_playlist {
+        query = query
+            .join(
+                JoinType::LeftJoin,
+                media_file_playlists::Relation::MediaFiles
+                    .def()
+                    .rev()
+                    .on_condition(move |_left, right| {
+                        Expr::col((right, media_file_playlists::Column::PlaylistId))
+                            .eq(only_playlist)
+                            .into_condition()
+                    }),
+            )
+            .column(media_file_playlists::Column::Position);
+    }
+
     if let Some(recommend_group) = pipe_recommend {
         apply_sorting_macro!(
             query,
@@ -962,6 +993,10 @@ pub async fn query_mix_media_files(
         return Ok(sorted_files);
     }
 
+    if only_one_playlist {
+        query = query.order_by(media_file_playlists::Column::Position, Order::Asc);
+    }
+
     if let Some(asc) = sort_track_number_asc {
         query = query.order_by(
             media_file_albums::Column::TrackNumber,
@@ -1017,36 +1052,6 @@ pub async fn query_mix_media_files(
         .unwrap();
 
     let sorted_files = sort_media_files(media_files, &track_ids);
-
-    let no_sorting = sort_track_number_asc.is_none()
-        && sort_last_modified_asc.is_none()
-        && sort_duration_asc.is_none()
-        && sort_playedthrough_asc.is_none()
-        && sort_skipped_asc.is_none();
-
-    let sorted_files = if no_sorting && playlist_ids.len() == 1 {
-        let playlist_id = playlist_ids[0];
-        let positions = media_file_playlists::Entity::find()
-            .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
-            .filter(
-                media_file_playlists::Column::MediaFileId
-                    .is_in(sorted_files.iter().map(|f| f.id).collect::<Vec<_>>()),
-            )
-            .order_by(media_file_playlists::Column::Position, Order::Asc)
-            .all(main_db)
-            .await?;
-
-        let position_map: HashMap<i32, i32> = positions
-            .into_iter()
-            .map(|p| (p.media_file_id, p.position))
-            .collect();
-
-        let mut sorted_files = sorted_files;
-        sorted_files.sort_by_key(|file| position_map.get(&file.id).cloned().unwrap_or(i32::MAX));
-        sorted_files
-    } else {
-        sorted_files
-    };
 
     Ok(sorted_files)
 }
