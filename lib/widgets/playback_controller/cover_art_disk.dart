@@ -11,6 +11,7 @@ import '../../utils/format_time.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
+import '../../screens/cover_wall/widgets/small_screen_playing_track_command_bar_container.dart';
 import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -47,6 +48,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
   bool _isFocused = false;
 
   final FocusNode _focusNode = FocusNode(debugLabel: 'Cover Art Disk');
+  final _contextController = FlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   void _handleFocusHighlight(bool value) {
     setState(() {
@@ -108,11 +111,32 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void dispose() {
     _ticker.dispose();
     _focusNode.dispose();
+    _contextController.dispose();
     super.dispose();
   }
 
   onPressed() {
     showCoverArtWall();
+  }
+
+  showContextMenu(PointerUpEvent event) {
+    // This calculates the position of the flyout according to the parent navigator
+    final targetContext = _contextAttachKey.currentContext;
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      event.localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    _contextController.showFlyout(
+      position: position,
+      builder: (context) {
+        return FlyoutContent(
+          child: SmallScreenPlayingTrackCommandBarContainer(shadows: const []),
+        );
+      },
+    );
   }
 
   int _pointerDownButton = 0;
@@ -190,9 +214,11 @@ class CoverArtDiskState extends State<CoverArtDisk>
                   onPointerDown: (event) {
                     _pointerDownButton = event.buttons;
                   },
-                  onPointerUp: (_) {
+                  onPointerUp: (event) {
                     if (_pointerDownButton == kPrimaryButton) {
                       showCoverArtWall();
+                    } else if (_pointerDownButton == kSecondaryButton) {
+                      showContextMenu(event);
                     }
                   },
                   child: child,
@@ -202,51 +228,55 @@ class CoverArtDiskState extends State<CoverArtDisk>
             child: child,
           );
         },
-        child: FocusableActionDetector(
-          focusNode: _focusNode,
-          onShowFocusHighlight: _handleFocusHighlight,
-          onShowHoverHighlight: _handleHoverHighlight,
-          actions: {
-            ActivateIntent: ActivateLinkAction(context, onPressed),
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(512),
-              boxShadow: axShadow(10),
-            ),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(512),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: 5.0,
-                      sigmaY: 5.0,
-                    ),
-                    child: AnimatedContainer(
-                      duration: theme.fastAnimationDuration,
-                      width: double.infinity,
-                      height: double.infinity,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: borderColor,
-                          width: 5,
-                        ),
-                        borderRadius: BorderRadius.circular(512),
-                        boxShadow: _isFocused ? boxShadow : null,
+        child: FlyoutTarget(
+          key: _contextAttachKey,
+          controller: _contextController,
+          child: FocusableActionDetector(
+            focusNode: _focusNode,
+            onShowFocusHighlight: _handleFocusHighlight,
+            onShowHoverHighlight: _handleHoverHighlight,
+            actions: {
+              ActivateIntent: ActivateLinkAction(context, onPressed),
+            },
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(512),
+                boxShadow: axShadow(10),
+              ),
+              child: SizedBox(
+                width: size,
+                height: size,
+                child: AspectRatio(
+                  aspectRatio: 1,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(512),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(
+                        sigmaX: 5.0,
+                        sigmaY: 5.0,
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(radius - 1),
-                        child: CoverArt(
-                          size: size,
-                          path: status.coverArtPath,
-                          hint: (
-                            status.album,
-                            status.artist,
-                            'Total Time ${formatTime(status.duration)}'
+                      child: AnimatedContainer(
+                        duration: theme.fastAnimationDuration,
+                        width: double.infinity,
+                        height: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: borderColor,
+                            width: 5,
+                          ),
+                          borderRadius: BorderRadius.circular(512),
+                          boxShadow: _isFocused ? boxShadow : null,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(radius - 1),
+                          child: CoverArt(
+                            size: size,
+                            path: status.coverArtPath,
+                            hint: (
+                              status.album,
+                              status.artist,
+                              'Total Time ${formatTime(status.duration)}'
+                            ),
                           ),
                         ),
                       ),
