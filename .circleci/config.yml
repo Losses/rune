@@ -63,14 +63,12 @@ jobs:
         command: |
           cd build/linux/arm64/release/
           TAG=${CIRCLE_TAG}
-          HASH=${CIRCLE_SHA1:0:7}
-          zip -r Rune-${TAG}-${HASH}-linux-aarch64.zip bundle/
+          zip -r Rune-${TAG}-linux-aarch64.zip bundle/
     - run:
         name: Upload to GitHub Release
         command: |
           TAG=${CIRCLE_TAG}
-          HASH=${CIRCLE_SHA1:0:7}
-          ARTIFACT="build/linux/arm64/release/Rune-${TAG}-${HASH}-linux-aarch64.zip"
+          ARTIFACT="build/linux/arm64/release/Rune-${TAG}-linux-aarch64.zip"
           
           # GitHub CLI installation
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
@@ -151,9 +149,9 @@ jobs:
             TAG=${CIRCLE_TAG}
             mkdir dist
             cd build/app/outputs/flutter-apk/
-            cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-armeabi-v7a.apk
-            cp app-arm64-v8a-release.apk ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-arm64-v8a.apk
-            cp app-x86_64-release.apk  ../../../../dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-x86_64.apk
+            cp app-armeabi-v7a-release.apk ../../../../dist/Rune-${TAG}-android-armeabi-v7a.apk
+            cp app-arm64-v8a-release.apk ../../../../dist/Rune-${TAG}-android-arm64-v8a.apk
+            cp app-x86_64-release.apk  ../../../../dist/Rune-${TAG}-android-x86_64.apk
 
       - run:
           name: Upload to GitHub Release
@@ -168,9 +166,9 @@ jobs:
             gh --version
             
             # Upload to GitHub release
-            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-armeabi-v7a.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-arm64-v8a.apk" --clobber
-            gh release upload ${TAG} "dist/Rune-${TAG}-${CIRCLE_SHA1:0:7}-android-x86_64.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-android-armeabi-v7a.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-android-arm64-v8a.apk" --clobber
+            gh release upload ${TAG} "dist/Rune-${TAG}-android-x86_64.apk" --clobber
 
 workflows:
   version: 2
