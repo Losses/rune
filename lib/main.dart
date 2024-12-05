@@ -210,7 +210,7 @@ void main(List<String> arguments) async {
 
   doWhenWindowReady(() {
     if (Platform.isMacOS) {
-      MacOSWindowControlButtonManager.setVertical();
+      MacOSWindowControlButtonManager.shared.setVertical();
     }
 
     appWindow.size = windowSize;

@@ -72,6 +72,13 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
           ],
           builder: (context, activeBreakpoint) {
             if (activeBreakpoint == DeviceType.band ||
+                activeBreakpoint == DeviceType.dock) {
+              MacOSWindowControlButtonManager.shared.setHide();
+            } else {
+              MacOSWindowControlButtonManager.shared.setShow();
+            }
+
+            if (activeBreakpoint == DeviceType.band ||
                 activeBreakpoint == DeviceType.dock ||
                 path == '/' ||
                 path == '/scanning') {

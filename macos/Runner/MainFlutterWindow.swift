@@ -21,6 +21,10 @@ class MainFlutterWindow: BitsdojoWindow {
       switch call.method {
       case "set_vertical":
         WindowButtonPositioner.shared.setVertical()
+      case "set_hide":
+        WindowButtonPositioner.shared.setHide()
+      case "set_show":
+        WindowButtonPositioner.shared.setShow()
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -85,6 +89,18 @@ class WindowButtonPositioner {
 
   init(mainFlutterWindow: NSWindow) {
     self.mainFlutterWindow = mainFlutterWindow
+  }
+
+  func setHide() {
+    mainFlutterWindow?.standardWindowButton(.closeButton)?.isHidden = true
+    mainFlutterWindow?.standardWindowButton(.miniaturizeButton)?.isHidden = true
+    mainFlutterWindow?.standardWindowButton(.zoomButton)?.isHidden = true
+  }
+
+  func setShow() {
+    mainFlutterWindow?.standardWindowButton(.closeButton)?.isHidden = false
+    mainFlutterWindow?.standardWindowButton(.miniaturizeButton)?.isHidden = false
+    mainFlutterWindow?.standardWindowButton(.zoomButton)?.isHidden = false
   }
 
   func setVertical() {
