@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'dart:math';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -37,8 +38,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
   // Animation configuration
   static const double rotationsPerSecond = 0.04; // Rotations per second
-  static const double radiansPerSecond = rotationsPerSecond * 2 * pi; // Radians per second
-  static const double lerpFactor = 0.04; // Angle interpolation factor, controls smoothness
+  static const double radiansPerSecond =
+      rotationsPerSecond * 2 * pi; // Radians per second
+  static const double lerpFactor =
+      0.04; // Angle interpolation factor, controls smoothness
 
   bool _isHovered = false;
   bool _isFocused = false;
@@ -112,6 +115,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
     showCoverArtWall();
   }
 
+  int _pointerDownButton = 0;
+
   @override
   Widget build(BuildContext context) {
     final statusProvider = Provider.of<PlaybackStatusProvider>(context);
@@ -182,8 +187,13 @@ class CoverArtDiskState extends State<CoverArtDisk>
                   ..rotateZ(_currentRotation),
                 alignment: Alignment.center,
                 child: Listener(
-                  onPointerUp: (event) {
-                    showCoverArtWall();
+                  onPointerDown: (event) {
+                    _pointerDownButton = event.buttons;
+                  },
+                  onPointerUp: (_) {
+                    if (_pointerDownButton == kPrimaryButton) {
+                      showCoverArtWall();
+                    }
                   },
                   child: child,
                 ),
