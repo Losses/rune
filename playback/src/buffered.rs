@@ -1,4 +1,3 @@
-use log::warn;
 use rodio::source::SeekError;
 use rodio::{Sample, Source};
 use std::time::Duration;
