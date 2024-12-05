@@ -110,7 +110,9 @@ class _ControllerButtonsState extends State<ControllerButtons> {
                       return Container(
                         constraints: const BoxConstraints(maxWidth: 200),
                         child: MenuFlyout(
-                          items: hiddenEntries
+                          items: ((miniLayout && !coverArtWallLayout)
+                                  ? entries
+                                  : hiddenEntries)
                               .map(
                                 (x) =>
                                     flyoutItems[x.id] ??
