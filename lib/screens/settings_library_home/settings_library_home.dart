@@ -4,6 +4,7 @@ import 'package:reorderables/reorderables.dart';
 
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
+import '../../utils/build_draggable_feedback.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -36,6 +37,7 @@ class _SettingsLibraryHomeState extends State<SettingsLibraryHome> {
                     child: ReorderableColumn(
                       needsLongPressDraggable: false,
                       onReorder: libraryHome.reorder,
+                      buildDraggableFeedback: buildDraggableFeedback,
                       children: libraryHome.entries
                           .map(
                             (item) => SettingsBoxComboBox(
