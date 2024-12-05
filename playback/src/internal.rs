@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, error, info, warn};
+use rodio::source::SeekError;
 use rodio::{Decoder, PlayError, Sink, Source};
 use tokio::sync::mpsc;
 use tokio::time::{interval, sleep_until, Duration, Instant};
@@ -163,6 +164,10 @@ impl Source for SharedSource {
 
     fn total_duration(&self) -> Option<Duration> {
         self.inner.lock().unwrap().total_duration()
+    }
+
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.inner.lock().unwrap().try_seek(pos)
     }
 }
 
