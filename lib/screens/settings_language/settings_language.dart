@@ -49,11 +49,17 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
     });
 
     if (newLocale != null) {
-      final serializedLocale = [
-        newLocale.languageCode,
-        if (newLocale.scriptCode != null) newLocale.scriptCode,
-        if (newLocale.countryCode != null) newLocale.countryCode,
-      ].join('_');
+      final List<String> parts = [newLocale.languageCode];
+
+      if (newLocale.scriptCode != null) {
+        parts.add('s_${newLocale.scriptCode}');
+      }
+
+      if (newLocale.countryCode != null) {
+        parts.add('c_${newLocale.countryCode}');
+      }
+
+      final serializedLocale = parts.join('|');
 
       await _settingsManager.setValue(localeKey, serializedLocale);
     } else {
