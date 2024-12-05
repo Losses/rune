@@ -8,6 +8,8 @@ import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
 import '../../utils/l10n.dart';
 
+import '../rune_icon_button.dart';
+
 IconData modeToIcon(PlaybackMode mode) {
   switch (mode) {
     case PlaybackMode.sequential:
@@ -100,7 +102,7 @@ class PlaybackModeButton extends StatelessWidget {
           playbackStatusProvider.playbackStatus.playbackMode,
         );
 
-        return IconButton(
+        return RuneIconButton(
           onPressed: () async {
             final next = await getNextEnabledMode(currentMode);
             playMode(next.toValue());

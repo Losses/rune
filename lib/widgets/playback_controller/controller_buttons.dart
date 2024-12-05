@@ -11,6 +11,7 @@ import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 import '../collection_item.dart';
+import '../rune_icon_button.dart';
 
 class ControllerButtons extends StatefulWidget {
   const ControllerButtons({super.key});
@@ -94,21 +95,15 @@ class _ControllerButtonsState extends State<ControllerButtons> {
             : visibleEntries)
           Tooltip(
             message: entry.tooltipBuilder(context),
-            child: AxReveal(
-              config: brightness == Brightness.dark
-                  ? defaultLightRevealConfig
-                  : defaultDarkRevealConfig,
+            child: AxReveal0(
               child: entry.controllerButtonBuilder(context, null),
             ),
           ),
         if (hiddenEntries.isNotEmpty)
           FlyoutTarget(
             controller: menuController,
-            child: AxReveal(
-              config: brightness == Brightness.dark
-                  ? defaultLightRevealConfig
-                  : defaultDarkRevealConfig,
-              child: IconButton(
+            child: AxReveal0(
+              child: RuneIconButton(
                 icon: const Icon(Symbols.more_vert),
                 onPressed: () async {
                   await _fetchFlyoutItems(Localizations.localeOf(context));

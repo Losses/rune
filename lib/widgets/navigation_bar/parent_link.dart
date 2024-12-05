@@ -49,8 +49,8 @@ class ParentLinkState extends State<ParentLink> {
 
     return Padding(
       padding: const EdgeInsets.only(right: 12),
-      child: GestureDetector(
-        onTap: widget.onPressed,
+      child: Listener(
+        onPointerUp: (_) => widget.onPressed(),
         child: FocusableActionDetector(
           focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,

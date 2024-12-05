@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../widgets/playback_controller/queue.dart';
 import '../../utils/l10n.dart';
 
+import '../../widgets/rune_icon_button.dart';
 import '../router/navigation.dart';
 
 Future<void> showPlayQueueDialog(
@@ -22,7 +23,7 @@ Future<void> showPlayQueueDialog(
           Expanded(
             child: Container(),
           ),
-          IconButton(
+          RuneIconButton(
             icon: const Icon(
               Symbols.close,
               size: 24,

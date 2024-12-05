@@ -4,7 +4,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/ax_pressure.dart';
 import '../../../widgets/hover_opacity.dart';
-import '../../../widgets/collection_item.dart';
 import '../../../widgets/ax_reveal/ax_reveal.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../providers/responsive_providers.dart';
@@ -40,8 +39,6 @@ abstract class SearchCardState<T extends SearchCard> extends State<T> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = FluentTheme.of(context).brightness;
-
     return ContextMenuWrapper(
       contextAttachKey: contextAttachKey,
       contextController: contextController,
@@ -114,10 +111,7 @@ abstract class SearchCardState<T extends SearchCard> extends State<T> {
               );
             }
 
-            return AxReveal(
-              config: brightness == Brightness.dark
-                  ? defaultLightRevealConfig
-                  : defaultDarkRevealConfig,
+            return AxReveal0(
               child: Button(
                 style: const ButtonStyle(
                   padding: WidgetStatePropertyAll(EdgeInsets.all(0)),

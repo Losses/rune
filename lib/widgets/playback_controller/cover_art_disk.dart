@@ -193,20 +193,21 @@ class CoverArtDiskState extends State<CoverArtDisk>
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
-    return AxPressure(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween<double>(begin: translateY, end: translateY),
-        duration: duration,
-        curve: Curves.easeInOut,
-        builder: (context, animatedTranslateY, child) {
-          return TweenAnimationBuilder<double>(
-            tween: Tween<double>(begin: translateX, end: translateX),
-            duration: duration,
-            curve: Curves.easeInOut,
-            builder: (context, animatedTranslateX, child) {
-              return Transform(
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: translateY, end: translateY),
+      duration: duration,
+      curve: Curves.easeInOut,
+      builder: (context, animatedTranslateY, child) {
+        return TweenAnimationBuilder<double>(
+          tween: Tween<double>(begin: translateX, end: translateX),
+          duration: duration,
+          curve: Curves.easeInOut,
+          builder: (context, animatedTranslateX, child) {
+            return Positioned(
+              right: 0 - animatedTranslateX,
+              bottom: 0 - animatedTranslateY,
+              child: Transform(
                 transform: Matrix4.identity()
-                  ..translate(animatedTranslateX, animatedTranslateY)
                   ..scale(0.9)
                   ..rotateZ(_currentRotation),
                 alignment: Alignment.center,
@@ -223,31 +224,33 @@ class CoverArtDiskState extends State<CoverArtDisk>
                   },
                   child: child,
                 ),
-              );
-            },
-            child: child,
-          );
-        },
-        child: FlyoutTarget(
-          key: _contextAttachKey,
-          controller: _contextController,
-          child: FocusableActionDetector(
-            focusNode: _focusNode,
-            onShowFocusHighlight: _handleFocusHighlight,
-            onShowHoverHighlight: _handleHoverHighlight,
-            actions: {
-              ActivateIntent: ActivateLinkAction(context, onPressed),
-            },
-            child: Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(512),
-                boxShadow: axShadow(10),
               ),
-              child: SizedBox(
-                width: size,
-                height: size,
-                child: AspectRatio(
-                  aspectRatio: 1,
+            );
+          },
+          child: child,
+        );
+      },
+      child: FlyoutTarget(
+        key: _contextAttachKey,
+        controller: _contextController,
+        child: FocusableActionDetector(
+          focusNode: _focusNode,
+          onShowFocusHighlight: _handleFocusHighlight,
+          onShowHoverHighlight: _handleHoverHighlight,
+          actions: {
+            ActivateIntent: ActivateLinkAction(context, onPressed),
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(512),
+              boxShadow: axShadow(10),
+            ),
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: AxPressure(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(512),
                     child: BackdropFilter(

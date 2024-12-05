@@ -5,6 +5,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/volume.dart';
 
+import '../rune_icon_button.dart';
+
 class VolumeButton extends StatefulWidget {
   const VolumeButton({
     super.key,
@@ -39,7 +41,7 @@ class VolumeButtonState extends State<VolumeButton> {
       },
       child: FlyoutTarget(
         controller: _flyoutController,
-        child: IconButton(
+        child: RuneIconButton(
           icon: Icon(
             volumeProvider.volume > 0.3
                 ? Symbols.volume_up

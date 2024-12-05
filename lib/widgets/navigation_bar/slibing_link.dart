@@ -83,8 +83,8 @@ class _SlibingLinkState extends State<SlibingLink> {
 
     return Padding(
       padding: const EdgeInsets.only(right: 24),
-      child: GestureDetector(
-        onTap: widget.onTap,
+      child: Listener(
+        onPointerUp: (_) => widget.onTap(),
         child: FocusableActionDetector(
           focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,

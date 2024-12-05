@@ -4,6 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/responsive_providers.dart';
+import '../../widgets/rune_icon_button.dart';
 
 class UnavailableDialogOnBand extends StatelessWidget {
   const UnavailableDialogOnBand({
@@ -33,7 +34,7 @@ class UnavailableDialogOnBand extends StatelessWidget {
           return Center(
             child: LayoutBuilder(
               builder: (context, constraint) {
-                return IconButton(
+                return RuneIconButton(
                   icon: Icon(
                     icon ?? Symbols.devices,
                     size: (min(constraint.maxWidth, constraint.maxHeight) * 0.8)

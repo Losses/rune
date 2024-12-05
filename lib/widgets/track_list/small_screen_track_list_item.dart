@@ -12,7 +12,6 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
 import '../../messages/all.dart';
 
-import '../collection_item.dart';
 import '../tile/cover_art.dart';
 import '../ax_reveal/ax_reveal.dart';
 
@@ -170,10 +169,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                               ),
                             ],
                           ),
-                          child: AxReveal(
-                            config: theme.brightness == Brightness.dark
-                                ? defaultLightRevealConfig
-                                : defaultDarkRevealConfig,
+                          child: AxReveal0(
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(4),
                               child: CoverArt(

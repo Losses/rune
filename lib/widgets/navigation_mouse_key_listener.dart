@@ -121,7 +121,7 @@ class NavigationMouseKeyListener extends StatelessWidget {
     // Wrap the child with RawGestureDetector
     return RawGestureDetector(
       gestures: gestures,
-      behavior: behavior ?? HitTestBehavior.deferToChild,
+      behavior: behavior ?? HitTestBehavior.translucent,
       child: child,
     );
   }

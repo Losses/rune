@@ -13,6 +13,8 @@ import '../../widgets/navigation_bar/navigation_back_button.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
+import '../ax_reveal/ax_reveal.dart';
+import '../rune_icon_button.dart';
 import 'parent_link.dart';
 import 'slibing_link.dart';
 import 'flip_animation_manager.dart';
@@ -196,10 +198,7 @@ class NavigationBarState extends State<NavigationBar> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.max,
-                      children: [
-                        parentWidget,
-                        childrenWidget
-                      ],
+                      children: [parentWidget, childrenWidget],
                     ),
                   ),
                 ),
@@ -208,14 +207,20 @@ class NavigationBarState extends State<NavigationBar> {
               Positioned(
                 top: 16,
                 right: 16,
-                child: IconButton(
-                  icon: Icon(
-                    isSearch ? Symbols.close : Symbols.search,
-                    size: 24,
+                child: AxReveal0(
+                  child: RuneIconButton(
+                    icon: Icon(
+                      isSearch ? Symbols.close : Symbols.search,
+                      size: 24,
+                    ),
+                    onPressed: () {
+                      if (isSearch) {
+                        escapeFromSearch();
+                      } else {
+                        $push('/search');
+                      }
+                    },
                   ),
-                  onPressed: () => {
-                    if (isSearch) {escapeFromSearch()} else {$push('/search')}
-                  },
                 ),
               ),
           ],

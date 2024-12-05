@@ -66,13 +66,8 @@ class _CollectionItemState extends State<CollectionItem> {
 
   @override
   Widget build(BuildContext context) {
-    final brightness = FluentTheme.of(context).brightness;
-
     return AxPressure(
-      child: AxReveal(
-        config: brightness == Brightness.dark
-            ? defaultLightRevealConfig
-            : defaultDarkRevealConfig,
+      child: AxReveal0(
         child: ContextMenuWrapper(
           contextAttachKey: contextAttachKey,
           contextController: contextController,

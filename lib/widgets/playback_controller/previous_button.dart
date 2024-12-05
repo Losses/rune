@@ -3,6 +3,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/play_previous.dart';
 
+import '../rune_icon_button.dart';
+
 class PreviousButton extends StatelessWidget {
   final bool disabled;
   final List<Shadow>? shadows;
@@ -15,7 +17,7 @@ class PreviousButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    return RuneIconButton(
       onPressed: disabled ? null : playPrevious,
       icon: Icon(Symbols.skip_previous, shadows: shadows),
     );

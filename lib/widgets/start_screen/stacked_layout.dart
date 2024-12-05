@@ -41,8 +41,11 @@ class StartGroupStackedLayoutState extends State<StartGroupStackedLayout> {
                 _changeOpacity(0.5);
               }
             },
-            child: GestureDetector(
-              onTap: widget.onTitleTap,
+            child: Listener(
+              onPointerUp: (_) {
+                if (widget.onTitleTap == null) return;
+                widget.onTitleTap!();
+              },
               child: AnimatedOpacity(
                 opacity: _opacity,
                 duration: const Duration(milliseconds: 100),

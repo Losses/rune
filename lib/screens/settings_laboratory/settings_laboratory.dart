@@ -7,6 +7,7 @@ import '../../utils/settings_manager.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 import '../../widgets/cover_wall_background/cover_wall_background.dart';
+import '../../widgets/rune_icon_button.dart';
 import '../../widgets/settings/settings_container.dart';
 import '../../widgets/router/rune_stack.dart';
 import '../../providers/responsive_providers.dart';
@@ -51,7 +52,7 @@ class _SettingsLaboratoryState extends State<SettingsLaboratory> {
         Positioned(
           top: 16,
           left: 16,
-          child: IconButton(
+          child: RuneIconButton(
             icon: Icon(
               Symbols.arrow_back,
               size: 24,
