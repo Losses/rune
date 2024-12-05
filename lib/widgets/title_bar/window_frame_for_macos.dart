@@ -1,11 +1,10 @@
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
 import '../../utils/macos_window_control_button_manager.dart';
+import '../../providers/full_screen.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -22,25 +21,30 @@ class WindowFrameForMacOS extends StatefulWidget {
   State<WindowFrameForMacOS> createState() => _WindowFrameForMacOSState();
 }
 
-class _WindowFrameForMacOSState extends State<WindowFrameForMacOS>
-    with FullScreenListener {
+class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
+  late FullScreenProvider _fullscreen;
+  late ResponsiveProvider _responsiveProvider;
+
   @override
-  void initState() {
-    super.initState();
-    FullScreen.addListener(this);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _fullscreen = Provider.of<FullScreenProvider>(context, listen: false);
+    _responsiveProvider = Provider.of<ResponsiveProvider>(context, listen: false);
+
+    _fullscreen.addListener(updateWindowControlButtons);
+    _responsiveProvider.addListener(updateWindowControlButtons);
+    $router.addListener(updateWindowControlButtons);
   }
 
   @override
   dispose() {
     super.dispose();
-    FullScreen.removeListener(this);
+    _fullscreen.removeListener(updateWindowControlButtons);
+    _responsiveProvider.removeListener(updateWindowControlButtons);
+    $router.removeListener(updateWindowControlButtons);
   }
 
-  @override
-  void onFullScreenChanged(bool enabled, SystemUiMode? systemUiMode) {
-    if (!enabled) {
-      MacOSWindowControlButtonManager.setVertical();
-    }
+  void updateWindowControlButtons() {
     setState(() => {});
   }
 

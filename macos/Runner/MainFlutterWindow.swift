@@ -30,7 +30,49 @@ class MainFlutterWindow: BitsdojoWindow {
 
     WindowButtonPositioner.shared.mainFlutterWindow = self
 
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidEnterFullScreen),
+      name: NSWindow.didEnterFullScreenNotification,
+      object: self)
+            
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidExitFullScreen),
+      name: NSWindow.didExitFullScreenNotification,
+      object: self)
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowWillBeginSheet),
+      name: NSWindow.willBeginSheetNotification,
+      object: self)
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(windowDidEndSheet),
+      name: NSWindow.didEndSheetNotification,
+      object: self)
+
     super.awakeFromNib()
+  }
+
+  @objc private func windowDidEnterFullScreen(_ notification: Notification) {}
+
+  @objc private func windowDidExitFullScreen(_ notification: Notification) {
+    WindowButtonPositioner.shared.setVertical()
+  }
+
+  @objc private func windowWillBeginSheet(_ notification: Notification) {
+    WindowButtonPositioner.shared.setVertical()
+  }
+
+  @objc private func windowDidEndSheet(_ notification: Notification) {
+    WindowButtonPositioner.shared.setVertical()
+  }
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
   }
 }
 
