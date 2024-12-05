@@ -5,7 +5,6 @@ import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/tile.dart';
 import '../../widgets/ax_reveal/ax_reveal.dart';
 
-import '../collection_item.dart';
 import 'utils/get_tile_colors.dart';
 
 class LinkTile extends StatelessWidget {

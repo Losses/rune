@@ -10,7 +10,6 @@ import '../../providers/status.dart';
 import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
-import '../collection_item.dart';
 import '../rune_icon_button.dart';
 
 class ControllerButtons extends StatefulWidget {
@@ -72,8 +71,6 @@ class _ControllerButtonsState extends State<ControllerButtons> {
         path == '/cover_wall';
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
-
-    final brightness = FluentTheme.of(context).brightness;
 
     Provider.of<PlaybackStatusProvider>(context);
 
