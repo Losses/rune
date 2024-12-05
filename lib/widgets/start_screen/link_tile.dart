@@ -28,13 +28,8 @@ class LinkTile extends StatelessWidget {
 
     final List<Color> colors = getTileColors(theme);
 
-    final brightness = theme.brightness;
-
     return AxPressure(
-      child: AxReveal(
-        config: brightness == Brightness.dark
-            ? defaultLightRevealConfig
-            : defaultDarkRevealConfig,
+      child: AxReveal0(
         child: Tile(
           onPressed: onPressed ??
               () {

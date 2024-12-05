@@ -14,7 +14,15 @@ async fn main() {
 
     let root_path = PathBuf::from(&path);
 
-    let _ = scan_audio_library(&main_db, &root_path, true, empty_progress_callback, None).await;
+    let _ = scan_audio_library(
+        &main_db,
+        &root_path,
+        true,
+        false,
+        empty_progress_callback,
+        None,
+    )
+    .await;
 
     println!("OK");
 }

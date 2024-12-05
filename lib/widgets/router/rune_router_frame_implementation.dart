@@ -117,9 +117,11 @@ class _RuneRouterFrameImplementationState
                   ),
                   if (!(path == '/cover_wall' && !showDisk)) mainContent,
                   if (showDisk)
-                    const FocusTraversalOrder(
-                      order: NumericFocusOrder(4),
-                      child: CoverArtDisk(),
+                    const BlockHitTestStack(
+                      child: FocusTraversalOrder(
+                        order: NumericFocusOrder(4),
+                        child: CoverArtDisk(),
+                      ),
                     ),
                 ],
               ),

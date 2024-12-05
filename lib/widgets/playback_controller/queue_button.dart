@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../rune_icon_button.dart';
+
 import 'queue.dart';
 
 class QueueButton extends StatefulWidget {
@@ -53,7 +55,7 @@ class _QueueButtonState extends State<QueueButton> {
   Widget build(BuildContext context) {
     return FlyoutTarget(
       controller: contextController,
-      child: IconButton(
+      child: RuneIconButton(
         onPressed: () {
           openContextMenu(context);
         },

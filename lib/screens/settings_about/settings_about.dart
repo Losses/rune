@@ -376,8 +376,8 @@ class _DeviceState extends State<Device> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
-    return GestureDetector(
-      onTap: () {
+    return Listener(
+      onPointerUp: (_) {
         setState(() {
           configIndex = random.nextInt(9);
           colorHash = random.nextInt(100);

@@ -76,6 +76,7 @@ pub async fn scan_audio_library_request(
                     &main_db_clone,
                     Path::new(&path.clone()),
                     true,
+                    request.force,
                     |progress| {
                         ScanAudioLibraryProgress {
                             task: 0,

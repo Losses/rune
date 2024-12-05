@@ -49,7 +49,10 @@ class AddLibrarySettingButton extends StatelessWidget {
             await libraryPath.setLibraryPath(context, path, null);
 
         if (switched) {
-          libraryManager.scanLibrary(path, true);
+          libraryManager.scanLibrary(
+            path,
+            isInitializeTask: true,
+          );
         } else if (!cancelled) {
           if (!context.mounted) return;
           await showFailedToInitializeLibrary(context, error);

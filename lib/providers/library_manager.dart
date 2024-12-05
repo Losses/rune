@@ -209,7 +209,11 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scanLibrary(String path, [bool isInitializeTask = false]) async {
+  Future<void> scanLibrary(
+    String path, {
+    bool isInitializeTask = false,
+    bool force = false,
+  }) async {
     if (isInitializeTask) {
       $$replace('/scanning');
     }
@@ -221,7 +225,10 @@ class LibraryManagerProvider with ChangeNotifier {
       TaskStatus.working,
       isInitializeTask,
     );
-    ScanAudioLibraryRequest(path: path).sendSignalToRust();
+    ScanAudioLibraryRequest(
+      path: path,
+      force: force,
+    ).sendSignalToRust();
   }
 
   Future<void> analyzeLibrary(String path, [bool initialize = false]) async {

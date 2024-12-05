@@ -166,7 +166,8 @@ async fn main() {
 
     match &cli.command {
         Commands::Scan => {
-            let _ = scan_audio_library(&main_db, &path, true, empty_progress_callback, None).await;
+            let _ = scan_audio_library(&main_db, &path, true, false, empty_progress_callback, None)
+                .await;
             let _ = scan_cover_arts(&main_db, &path, 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }

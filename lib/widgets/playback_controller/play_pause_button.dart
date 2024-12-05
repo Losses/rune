@@ -4,6 +4,8 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/api/play_play.dart';
 import '../../utils/api/play_pause.dart';
 
+import '../rune_icon_button.dart';
+
 class PlayPauseButton extends StatelessWidget {
   final bool disabled;
   final String state;
@@ -18,7 +20,7 @@ class PlayPauseButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton(
+    return RuneIconButton(
       onPressed: disabled
           ? null
           : state == "Playing"

@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import '../../providers/full_screen.dart';
 
+import '../rune_icon_button.dart';
+
 class FullScreenButton extends StatelessWidget {
   final List<Shadow>? shadows;
   const FullScreenButton({
@@ -15,7 +17,7 @@ class FullScreenButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final fullScreen = Provider.of<FullScreenProvider>(context);
 
-    return IconButton(
+    return RuneIconButton(
       onPressed: () => fullScreen.setFullScreen(!fullScreen.isFullScreen),
       icon: fullScreen.isFullScreen
           ? Icon(

@@ -39,18 +39,16 @@ class LicenseProvider with ChangeNotifier {
 
   Future<void> _verifyLicense() async {
     final licenseData = await _settingsManager.getValue<String?>(licenseKey);
-    if (licenseData != null) {
-      final newLicenseResult = await _fetchLicenseFromApi(licenseData);
-      if (newLicenseResult != null) {
-        _isPro = newLicenseResult.isPro;
-        _isStoreMode = newLicenseResult.isStoreMode;
-        final encodedResult = jsonEncode({
-          'isPro': _isPro,
-          'isStoreMode': _isStoreMode,
-        });
-        await _settingsManager.setValue(licenseValidationKey, encodedResult);
-        notifyListeners();
-      }
+    final newLicenseResult = await _fetchLicenseFromApi(licenseData);
+    if (newLicenseResult != null) {
+      _isPro = newLicenseResult.isPro;
+      _isStoreMode = newLicenseResult.isStoreMode;
+      final encodedResult = jsonEncode({
+        'isPro': _isPro,
+        'isStoreMode': _isStoreMode,
+      });
+      await _settingsManager.setValue(licenseValidationKey, encodedResult);
+      notifyListeners();
     }
   }
 
@@ -58,7 +56,7 @@ class LicenseProvider with ChangeNotifier {
     await _verifyLicense();
   }
 
-  Future<ValidateLicenseResponse?> _fetchLicenseFromApi(String license) async {
+  Future<ValidateLicenseResponse?> _fetchLicenseFromApi(String? license) async {
     ValidateLicenseRequest(license: license).sendSignalToRust();
     return (await ValidateLicenseResponse.rustSignalStream.first).message;
   }

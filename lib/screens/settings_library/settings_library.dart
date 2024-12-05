@@ -44,7 +44,7 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
       if (!context.mounted) return;
 
       setState(() {
-        allOpenedFiles = x;
+        allOpenedFiles = x.reversed.toList();
       });
     });
 

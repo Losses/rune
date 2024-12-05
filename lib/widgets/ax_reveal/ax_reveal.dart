@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../collection_item.dart';
 import 'utils/reveal_config.dart';
 import 'utils/reveal_effect_painter.dart';
 import 'utils/reveal_effect_controller.dart';
@@ -68,6 +69,23 @@ class _AxRevealState extends State<AxReveal> {
         },
         child: widget.child,
       ),
+    );
+  }
+}
+
+class AxReveal0 extends StatelessWidget {
+  final Widget child;
+  const AxReveal0({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final brightness = FluentTheme.of(context).brightness;
+
+    return AxReveal(
+      config: brightness == Brightness.dark
+          ? defaultLightRevealConfig
+          : defaultDarkRevealConfig,
+      child: child,
     );
   }
 }
