@@ -108,9 +108,9 @@
   },
   "computingDeviceSubtitle": "グラフィックスプロセシングユニットまたはセントラルプロセシングユニットをセレクトして、ファスターまたはモアエフィシエントなプロセッシングをします。",
   "@computingDeviceSubtitle": {},
-  "gpu": "GPU",
+  "gpu": "グラフィックスプロセシングユニット",
   "@gpu": {},
-  "cpu": "CPU",
+  "cpu": "セントラルプロセシングユニット",
   "@cpu": {},
   "performanceLevel": "パフォーマンスレベル",
   "@performanceLevel": {},
@@ -218,7 +218,7 @@
   "@brandingAnimation": {
     "description": "ソフトウェア起動時にウェルカムアニメーションを再生するかどうかをユーザーが制御できる設定エントリ。"
   },
-  "brandingAnimationSubtitle": "ルーンがスタートするときにブランディングアニメーションを再生します。",
+  "brandingAnimationSubtitle": "ルーンがスタートするときにブランディングアニメーションをプレイします。",
   "@brandingAnimationSubtitle": {},
   "thisMightTakeAFewMinutes": "プリーズウェイトアモーメント。",
   "@thisMightTakeAFewMinutes": {
