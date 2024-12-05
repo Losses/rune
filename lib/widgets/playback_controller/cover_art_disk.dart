@@ -140,8 +140,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
                             : 0,
                       ),
                     alignment: Alignment.center,
-                    child: TapRegion(
-                      onTapInside: (_) {
+                    child: Listener(
+                      onPointerUp: (event) {
                         showCoverArtWall();
                       },
                       child: child,
