@@ -59,6 +59,12 @@ jobs:
         no_output_timeout: 30m
         command: flutter build linux --release --verbose
     - run:
+        name: Add assets
+        command: |
+          mkdir -p build/linux/arm64/release/bundle/assets
+          cp -r assets/icons/Papirus build/linux/arm64/release/bundle/assets/icons
+          cp assets/source/linux/* build/linux/arm64/release/bundle/assets
+    - run:
         name: Package artifact
         command: |
           cd build/linux/arm64/release/

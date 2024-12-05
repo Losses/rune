@@ -193,6 +193,12 @@ jobs:
         with:
           length: 7
 
+      - name: Add assets
+        run: |
+          mkdir -p build/linux/x64/release/bundle/assets
+          cp -r assets/icons/Papirus build/linux/x64/release/bundle/assets/icons
+          cp assets/source/linux/* build/linux/x64/release/bundle/assets
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
