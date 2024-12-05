@@ -84,7 +84,7 @@
   "@buildDate": {},
   "commitDate": "コミットデート",
   "@commitDate": {},
-  "rustcVersion": "Rustc バージョン",
+  "rustcVersion": "ラストコンパイラバージョン",
   "@rustcVersion": {},
   "activation": "アクティベーション",
   "@activation": {},
