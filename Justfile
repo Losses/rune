@@ -1,6 +1,7 @@
 set dotenv-load
 
 lint:
+  cargo fmt -- $(find native/hub/src/messages -name "*.rs")
   cargo fmt -- --check
   cargo clippy -- -D warnings
   flutter analyze .

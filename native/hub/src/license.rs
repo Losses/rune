@@ -42,15 +42,13 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
     use crate::apple_bridge::apple_bridge::bundle_id;
     let bundle_id = bundle_id();
-    let mut is_active = false;
-    let mut is_trial = false;
 
     if bundle_id == "ci.not.rune.appstore" {
-        is_active = true;
-        is_trial = false;
+        let is_active = true;
+        let is_trial = false;
         Ok(Some((bundle_id, is_active, is_trial)))
     } else {
-        return Ok(None)
+        Ok(None)
     }
 }
 
