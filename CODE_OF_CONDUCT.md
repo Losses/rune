@@ -1,128 +1,162 @@
-# Contributor Covenant Code of Conduct
+# Rune Project Contribution Guidelines
 
-## Our Pledge
+## 1. Preamble
 
-We as members, contributors, and leaders pledge to make participation in our
-community a harassment-free experience for everyone, regardless of age, body
-size, visible or invisible disability, ethnicity, sex characteristics, gender
-identity and expression, level of experience, education, socio-economic status,
-nationality, personal appearance, race, religion, or sexual identity
-and orientation.
+1.1. The terms "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be interpreted as described in BCP 14, RFC 2119.
 
-We pledge to act and interact in ways that contribute to an open, welcoming,
-diverse, inclusive, and healthy community.
+## 2. Language Requirements
 
-## Our Standards
+### 2.1 Use English
 
-Examples of behavior that contributes to a positive environment for our
-community include:
+2.1.1. All contributions MUST be in English to ensure clear communication among developers from diverse backgrounds and regions.
 
-* Demonstrating empathy and kindness toward other people
-* Being respectful of differing opinions, viewpoints, and experiences
-* Giving and gracefully accepting constructive feedback
-* Accepting responsibility and apologizing to those affected by our mistakes,
-  and learning from the experience
-* Focusing on what is best not just for us as individuals, but for the
-  overall community
+2.1.2. If you're not confident in your English, you MAY use any large language model to assist you.
 
-Examples of unacceptable behavior include:
+2.1.3. We do not accept pull requests for translating the README or any development documentation.
 
-* The use of sexualized language or imagery, and sexual attention or
-  advances of any kind
-* Trolling, insulting or derogatory comments, and personal or political attacks
-* Public or private harassment
-* Publishing others' private information, such as a physical or email
-  address, without their explicit permission
-* Other conduct which could reasonably be considered inappropriate in a
-  professional setting
+### 2.2 Precise Communication
 
-## Enforcement Responsibilities
+2.2.1. All contributions SHOULD NOT using adjectives, as they can be abstract and lead to unclear expression.
 
-Community leaders are responsible for clarifying and enforcing our standards of
-acceptable behavior and will take appropriate and fair corrective action in
-response to any behavior that they deem inappropriate, threatening, offensive,
-or harmful.
+2.2.2. Adjectives may cause misunderstandings because they often rely on personal feelings and judgments. Instead, contributions SHOULD:
 
-Community leaders have the right and responsibility to remove, edit, or reject
-comments, commits, code, wiki edits, issues, and other contributions that are
-not aligned to this Code of Conduct, and will communicate reasons for moderation
-decisions when appropriate.
+- **Use specific data:** Support your points with concrete numbers and facts.
+- **Provide clear definitions:** If adjectives must be used, first offer a clear definition.
+- **Adopt objective descriptions:** Use objective language to describe observed phenomena.
+- **Use standardized terminology:** In professional fields, use recognized terms and standards.
 
-## Scope
+### 2.3. Prohibited Conduct
 
-This Code of Conduct applies within all community spaces, and also applies when
-an individual is officially representing the community in public spaces.
-Examples of representing our community include using an official e-mail address,
-posting via an official social media account, or acting as an appointed
-representative at an online or offline event.
+Participants MUST NOT:
 
-## Enforcement
+2.3.1. Use offensive, derogatory, or discriminatory language
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-.
-All complaints will be reviewed and investigated promptly and fairly.
+2.3.2. Engage in trolling or harassment
 
-All community leaders are obligated to respect the privacy and security of the
-reporter of any incident.
+2.3.3. Make unfounded accusations against other participants
 
-## Enforcement Guidelines
+2.3.4. Deliberately disrupt community discussions
 
-Community leaders will follow these Community Impact Guidelines in determining
-the consequences for any action they deem in violation of this Code of Conduct:
+2.3.5. Use sexualized language or imagery or engage in sexual attention or advances
 
-### 1. Correction
+2.3.6. Make personal or political attacks
 
-**Community Impact**: Use of inappropriate language or other behavior deemed
-unprofessional or unwelcome in the community.
+2.3.7. Publish private information without explicit permission
 
-**Consequence**: A private, written warning from community leaders, providing
-clarity around the nature of the violation and an explanation of why the
-behavior was inappropriate. A public apology may be requested.
+2.3.8. Engage in any conduct reasonably considered inappropriate in a professional setting
 
-### 2. Warning
+## 3. Feature Development and Requests
 
-**Community Impact**: A violation through a single incident or series
-of actions.
+### 3.1. Eligibility and Process
 
-**Consequence**: A warning with consequences for continued behavior. No
-interaction with the people involved, including unsolicited interaction with
-those enforcing the Code of Conduct, for a specified period of time. This
-includes avoiding interactions in community spaces as well as external channels
-like social media. Violating these terms may lead to a temporary or
-permanent ban.
+3.1.1. Only paid genuine users and active code contributors COULD have the right to submit feature requests.
 
-### 3. Temporary Ban
+3.1.2. Contributors MUST contact the development team for preliminary discussion before implementing features to ensure alignment with Rune's vision.
 
-**Community Impact**: A serious violation of community standards, including
-sustained inappropriate behavior.
+### 3.2. Ethical Foundation
 
-**Consequence**: A temporary ban from any sort of interaction or public
-communication with the community for a specified period of time. No public or
-private interaction with the people involved, including unsolicited interaction
-with those enforcing the Code of Conduct, is allowed during this period.
-Violating these terms may lead to a permanent ban.
+The following principles SHALL form the ethical foundation of all product decisions:
 
-### 4. Permanent Ban
+3.2.1. **User Safety:** Features MUST NOT cause harm to users or their systems
 
-**Community Impact**: Demonstrating a pattern of violation of community
-standards, including sustained inappropriate behavior,  harassment of an
-individual, or aggression toward or disparagement of classes of individuals.
+3.2.2. **Privacy:** User privacy MUST be protected, and user data MUST be handled with transparency and care
 
-**Consequence**: A permanent ban from any sort of public interaction within
-the community.
+3.2.3. **Autonomy:** User autonomy MUST be respected and preserved
 
-## Attribution
+3.2.4. **Attention:** User attention MUST NOT be exploited for commercial or other purposes
 
-This Code of Conduct is adapted from the [Contributor Covenant][homepage],
-version 2.0, available at
-https://www.contributor-covenant.org/version/2/0/code_of_conduct.html.
+### 3.3. User-Centered Design
 
-Community Impact Guidelines were inspired by [Mozilla's code of conduct
-enforcement ladder](https://github.com/mozilla/diversity).
+All feature proposals MUST align with these core principles:
 
-[homepage]: https://www.contributor-covenant.org
+3.3.1. **Core Functionality:** Features MUST serve the primary purpose of music playback and library management
 
-For answers to common questions about this code of conduct, see the FAQ at
-https://www.contributor-covenant.org/faq. Translations are available at
-https://www.contributor-covenant.org/translations.
+3.3.2. **User Intent:** Features MUST respect user choices and control
+
+3.3.3. **User Experience:** Features SHOULD enhance, not impede, the music listening experience
+
+3.3.4. **Performance:** Features MUST NOT significantly degrade system performance
+
+### 3.4. Priority Guidelines
+
+3.4.1. Participants MUST NOT prioritize "commercial benefit", "community influence" or "market trends" over product first principles
+
+3.4.2. Popular feature requests that conflict with core principles SHALL be declined
+
+3.4.3. Market competitive analysis MAY inform but SHALL NOT override ethical considerations
+
+3.4.4. Monetization strategies MUST align with user interests and ethical principles
+
+3.4.5. While deviations from product value principles MAY be considered, such proposals MUST NOT disrupt the normal user experience
+
+## 4. Software Defect Reporting
+
+### 4.1. Definitions
+
+4.1.1. A "software defect" SHALL be defined as a verifiable deviation from documented functionality or performance specifications
+
+4.1.2. Personal preferences SHALL be defined as subjective opinions about software features or behaviors that conform to specifications
+
+4.1.3. Participants SHOULD distinguish between "software defects" and personal preferences
+
+### 4.2. Report Requirements
+
+4.2.1. All defect reports MUST include:
+
+- Steps to reproduce
+- Expected behavior
+- Actual behavior
+- System environment details
+
+4.2.2. Reports SHOULD include objective evidence such as:
+
+- Screenshots
+- Log files
+- Video recordings
+- Performance metrics
+
+## 5. Pull Request Standards
+
+5.1. All commits MUST follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification with clear and descriptive messages.
+
+## 6. Conduct and Enforcement
+
+## 6.1. Enforcement Responsibilities
+
+6.1.1. Community leaders are responsible for clarifying and enforcing community standards of acceptable behavior.
+
+6.1.2. Leaders have the right and responsibility to:
+
+- Remove, edit, or reject contributions that do not align with this Code of Conduct
+- Communicate reasons for moderation decisions when appropriate
+
+## 6.2. Scope of Conduct
+
+6.2.1. This Code of Conduct applies within all community spaces, including:
+
+- Official communication channels
+- Public representations of the community
+- Online and offline events
+
+### 6.3. Reporting and Enforcement Guidelines
+
+#### 6.3.1. Reporting Incidents
+
+- Instances of abusive, harassing, or unacceptable behavior may be reported to community leaders
+- All complaints will be reviewed and investigated promptly and fairly
+- Reporter privacy and security will be respected
+
+#### 6.3.2. Enforcement Levels
+
+| Level | Community Impact | Consequence |
+|-------|------------------|-------------|
+| Correction | Inappropriate language or unprofessional behavior | Public written warning; Explanation of violation; Potential request for public apology |
+| Warning | Violation through a single incident or series of actions | Warning with specified consequences; No interaction with involved parties; Potential temporary restriction from community spaces |
+| Temporary Ban | Serious violation of community standards | Temporary ban from community interactions;  No public or private interaction with involved parties |
+| Permanent Ban | Pattern of community standard violations | Permanent removal from all community interactions |
+
+# Attribution
+
+This Code of Conduct references the Contributor Covenant, version 2.0, which can be found at https://www.contributor-covenant.org/version/2/0/code_of_conduct.html.
+
+The Community Impact Guidelines drew inspiration from Mozilla's code of conduct enforcement ladder.

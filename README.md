@@ -49,7 +49,7 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
 **Rune is not a free pint of beer.** To use it legally, you should purchase a license. The price basement is $10 across all platforms, though it may vary due to store policies and regional differences.
 
-We offer a WinRAR-style trial mechanism, allowing you to try the software indefinitely until satisfied. Due to its unique design philosophy, we encourage thorough testing before purchase to ensure it suits your needs.
+However, we offer a WinRAR-style trial mechanism, allowing you to try the software indefinitely until satisfied. Due to its unique design philosophy, **we encourage thorough testing before purchase to ensure it suits your needs.**
 
 Please note that we do not accept feature requests from unpaid users.
 
