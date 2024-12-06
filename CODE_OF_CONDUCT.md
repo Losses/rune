@@ -121,7 +121,7 @@ All feature proposals MUST align with these core principles:
 
 ## 6. Conduct and Enforcement
 
-## 6.1. Enforcement Responsibilities
+### 6.1. Enforcement Responsibilities
 
 6.1.1. Community leaders are responsible for clarifying and enforcing community standards of acceptable behavior.
 
@@ -130,7 +130,7 @@ All feature proposals MUST align with these core principles:
 - Remove, edit, or reject contributions that do not align with this Code of Conduct
 - Communicate reasons for moderation decisions when appropriate
 
-## 6.2. Scope of Conduct
+### 6.2. Scope of Conduct
 
 6.2.1. This Code of Conduct applies within all community spaces, including:
 
