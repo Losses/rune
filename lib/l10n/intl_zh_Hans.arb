@@ -956,5 +956,13 @@
   "importM3u8": "导入播放列表",
   "@importM3u8": {
     "description": "上下文菜单项，指导用户导入新播放列表。"
+  },
+  "adaptiveSwitching": "自适应切换",
+  "@adaptiveSwitching": {
+    "description": "播放设置页面中条目的设置标题"
+  },
+  "adaptiveSwitchingSubtitle": "切换上一首时，若已播放超过 3 秒，则从头播放当前曲目。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "播放设置页面中条目的设置描述"
   }
 }

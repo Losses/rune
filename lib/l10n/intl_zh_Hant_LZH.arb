@@ -956,5 +956,13 @@
   "importM3u8": "入錄",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "更易隨適",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "逾三息则擊前復始。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
   }
 }
