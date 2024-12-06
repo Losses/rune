@@ -135,7 +135,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
   ) async {
     if (_currentPath == newPath || _isSwitching) return;
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     setState(() {
       _isSwitching = true;
@@ -143,7 +143,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     await Future.delayed(duration);
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     setState(() {
       _currentPath = newPath;
@@ -151,7 +151,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     await Future.delayed(duration);
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     setState(() {
       _isSwitching = false;
