@@ -6,6 +6,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/api/play_next.dart';
+import '../../utils/api/play_previous.dart';
 import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
 import '../../widgets/ax_pressure.dart';
@@ -168,12 +170,16 @@ class CoverArtDiskState extends State<CoverArtDisk>
   }
 
   void _onSwitch(DragDirection direction) {
-    print('Swiped $direction');
+    if (direction == DragDirection.right || direction == DragDirection.up) {
+      playPrevious();
+    } else {
+      playNext();
+    }
   }
 
   void _handlePointerDown(PointerDownEvent event) {
     _pointerDownButton = event.buttons;
-    _startPosition = event.localPosition;
+    _startPosition = event.position;
     _dragOffset = Offset.zero;
     _isDragging = false;
   }
@@ -181,7 +187,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void _handlePointerMove(PointerMoveEvent event) {
     if (_startPosition == null) return;
 
-    final delta = _startPosition! - event.localPosition;
+    final delta = _startPosition! - event.position;
 
     // If dragging hasn't started yet, check if it exceeds the threshold
     if (!_isDragging && delta.distance > _dragThreshold) {
