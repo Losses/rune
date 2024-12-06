@@ -14,6 +14,8 @@ class WindowFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     if (Platform.isMacOS) {
       return WindowFrameForMacOS(child, customRouteName: customRouteName);
+    } else if (Platform.isAndroid) {
+      return child;
     } else {
       return WindowFrameForWindows(child);
     }
