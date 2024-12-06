@@ -32,63 +32,79 @@ class MainFlutterWindow: BitsdojoWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
-    WindowButtonPositioner.shared.mainFlutterWindow = self
+    WindowButtonPositioner.shared.prepare(window: self)
+
+    super.awakeFromNib()
+  }
+}
+
+class WindowButtonPositioner: NSObject {
+  static let shared = WindowButtonPositioner()
+
+  var mainFlutterWindow: NSWindow? = nil
+
+  private override init() {}
+
+  deinit {
+    NotificationCenter.default.removeObserver(self)
+    removeSuperviewObserver()
+  }
+
+  func addSuperviewObserver() {
+    let button = mainFlutterWindow!.standardWindowButton(.miniaturizeButton)
+    button?.addObserver(self, forKeyPath: "superview", options: [.new, .old], context: nil)
+  }
+
+  func removeSuperviewObserver() {
+    let button = mainFlutterWindow!.standardWindowButton(.miniaturizeButton)
+    button?.removeObserver(self, forKeyPath: "superview")
+  }
+
+  func prepare(window: NSWindow) {
+    self.mainFlutterWindow = window
 
     NotificationCenter.default.addObserver(
       self,
-      selector: #selector(windowDidEnterFullScreen),
-      name: NSWindow.didEnterFullScreenNotification,
-      object: self)
-            
+      selector: #selector(windowWillEnterFullScreen),
+      name: NSWindow.willEnterFullScreenNotification,
+      object: window)
+
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(windowDidExitFullScreen),
       name: NSWindow.didExitFullScreenNotification,
-      object: self)
+      object: window)
 
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(windowWillBeginSheet),
       name: NSWindow.willBeginSheetNotification,
-      object: self)
+      object: window)
 
     NotificationCenter.default.addObserver(
       self,
       selector: #selector(windowDidEndSheet),
       name: NSWindow.didEndSheetNotification,
-      object: self)
+      object: window)
 
-    super.awakeFromNib()
+    addSuperviewObserver()
   }
 
-  @objc private func windowDidEnterFullScreen(_ notification: Notification) {}
+  @objc private func windowWillEnterFullScreen(_ notification: Notification) {
+    removeSuperviewObserver()
+  }
 
   @objc private func windowDidExitFullScreen(_ notification: Notification) {
-    WindowButtonPositioner.shared.setVertical()
+    addSuperviewObserver()
+    setVertical()
   }
 
   @objc private func windowWillBeginSheet(_ notification: Notification) {
-    WindowButtonPositioner.shared.setVertical()
+    setVertical()
   }
 
   @objc private func windowDidEndSheet(_ notification: Notification) {
-    WindowButtonPositioner.shared.setVertical()
-  }
-
-  deinit {
-    NotificationCenter.default.removeObserver(self)
-  }
-}
-
-class WindowButtonPositioner {
-  static let shared = WindowButtonPositioner()
-
-  var mainFlutterWindow: NSWindow? = nil
-
-  init() {}
-
-  init(mainFlutterWindow: NSWindow) {
-    self.mainFlutterWindow = mainFlutterWindow
+    setVertical()
   }
 
   func setHide() {
@@ -116,14 +132,17 @@ class WindowButtonPositioner {
       return
     }
 
-    standardWindowButton.removeFromSuperview()
+    if standardWindowButton.superview != mainFlutterWindow?.contentView {
+      standardWindowButton.removeFromSuperview()
+    } else {
+      return
+    }
 
     guard let contentView: NSView = mainFlutterWindow!.contentView else {
       return
     }
 
     contentView.addSubview(standardWindowButton)
-
     standardWindowButton.translatesAutoresizingMaskIntoConstraints = false
     standardWindowButton.wantsLayer = true
 
@@ -133,7 +152,14 @@ class WindowButtonPositioner {
       standardWindowButton.topAnchor.constraint(
         equalTo: contentView.topAnchor, constant: offset.y),
     ])
+  }
 
-    contentView.layoutSubtreeIfNeeded()
+  override func observeValue(
+    forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?,
+    context: UnsafeMutableRawPointer?
+  ) {
+    if keyPath == "superview" {
+      setVertical()
+    }
   }
 }
