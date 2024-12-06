@@ -25,15 +25,16 @@ Rune Player is a music player that offers audio analysis and recommendation feat
 
 ## Motivation
 
-Rune is a UX experiment inspired by the question: What if Zune[^1] had continued to evolve? Using a modern tech stack (Flutter + Rust), Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile and Windows Media Center[^1].
+Rune is a UX experiment inspired by the question: What if Zune had continued to evolve? Using a modern tech stack, Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile and Windows Media Center.
 
 The motivation behind Rune is to provide a modernized audio listening and management experience. With the rise of streaming services, localized music players have become less common, and many well-known media players have stagnated. Rune aims to offer a clean, consistent, and efficient audio playback experience.
 
 ## Unique Features
 
-- **Distinctive Design**: Rune boasts a unique design style.
+- **Distinctive Design**: Rune boasts a unique design style that respects user intent with no intrusive ads or unnecessary UI elements.
+- **Highly Customizable**: A complex responsive system ensures optimal viewing on various screen sizes, with comprehensive keyboard support and customizable color themes.
 - **Audio Analysis and Recommendations**: Users can analyze their entire music library to receive recommendations based on tracks, albums, or playlists.
-- **Dynamic "Mix" Feature**: Users can create dynamic playlists based on customizable rules, such as:
+- **Dynamic "Mix"**: Users can create dynamic playlists based on customizable rules, such as:
 
   - "Similar to this album"
   - "Top 100 most played tracks"
@@ -42,9 +43,31 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
   These mixes automatically update as users listen to and add new tracks.
 
+- **Cross-Platform Support**: Originally for Windows and NixOS, Rune now runs on macOS, general Linux distributions, and even Steam Deck. An Android version is under development.
+
+## Pricing
+
+**Rune is not a free pint of beer.** To use it legally, you should purchase a license. The price basement is $10 across all platforms, though it may vary due to store policies and regional differences.
+
+We offer a WinRAR-style trial mechanism, allowing you to try the software indefinitely until satisfied. Due to its unique design philosophy, we encourage thorough testing before purchase to ensure it suits your needs.
+
+Please note that we do not accept feature requests from unpaid users.
+
 ## Installation and Running
 
-Rune is still in the early stages of development and does not provide pre-compiled binaries. However, you can set up a development environment by following the [compiling instructions](documents/compiling.md).
+Rune offers [CI builds](https://github.com/Losses/rune/actions) for Linux (including SteamOS), Windows, and macOS. You can find the latest versions on the Release page.
+
+Alternatively, you can compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
+
+## Release Policy
+
+Rune is divided into two release queues: the Production Queue and the Cutting Edge Queue. These queues release independently.
+
+- **Production Queue**: Maintained by the Rune development team, ensuring no critical issues affect user experience before being pushed to stores. We only address software defects here, and no new features are introduced. Fixes go through Dev, Alpha, Beta, and RC stages before release.
+  
+- **Cutting Edge Queue**: Offers experimental features and is maintained by the community. Software packages from this queue may be available in community repositories, but Rune will never officially push these to users.
+
+If a version in the Cutting Edge Queue reaches production quality after the RC stage, it will replace the version in the Production Queue and be pushed to users.
 
 ## Contributing
 
