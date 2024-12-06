@@ -161,19 +161,21 @@ void main(List<String> arguments) async {
     shortcutPolicy: ShortcutPolicy.requireCreate,
   );
 
-  await systemTray.initSystemTray(
-    title: Platform.isMacOS ? null : 'Rune',
-    iconPath: TrayManager.getTrayIconPath(),
-    isTemplate: true,
-  );
+  if (isDesktop) {
+    await systemTray.initSystemTray(
+      title: Platform.isMacOS ? null : 'Rune',
+      iconPath: TrayManager.getTrayIconPath(),
+      isTemplate: true,
+    );
 
-  final Menu menu = Menu();
-  await menu.buildFrom([
-    MenuItemLabel(label: 'Show', onClicked: (menuItem) => appWindow.show()),
-  ]);
-  await systemTray.setContextMenu(menu);
+    final Menu menu = Menu();
+    await menu.buildFrom([
+      MenuItemLabel(label: 'Show', onClicked: (menuItem) => appWindow.show()),
+    ]);
+    await systemTray.setContextMenu(menu);
 
-  TrayManager.registerEventHandlers();
+    TrayManager.registerEventHandlers();
+  }
 
   final windowSizeMode =
       await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
@@ -192,35 +194,39 @@ void main(List<String> arguments) async {
     }
   }
 
-  if (!Platform.isLinux) {
-    appWindow.size = windowSize;
-  }
+  if (isDesktop) {
+    if (!Platform.isLinux) {
+      appWindow.size = windowSize;
+    }
 
-  if (Platform.isLinux) {
-    windowSize = windowSize / firstView.devicePixelRatio;
+    if (Platform.isLinux) {
+      windowSize = windowSize / firstView.devicePixelRatio;
+    }
   }
 
   mainLoop(licenseProvider);
-  if (!Platform.isMacOS) {
+  if (isDesktop && !Platform.isMacOS) {
     appWindow.show();
   }
 
   bool? storedFullScreen =
       await settingsManager.getValue<bool>('fullscreen_state');
 
-  doWhenWindowReady(() {
-    if (Platform.isMacOS) {
-      MacOSWindowControlButtonManager.shared.setVertical();
-    }
+  if (isDesktop) {
+    doWhenWindowReady(() {
+      if (Platform.isMacOS) {
+        MacOSWindowControlButtonManager.shared.setVertical();
+      }
 
-    appWindow.size = windowSize;
-    appWindow.alignment = Alignment.center;
-    appWindow.show();
+      appWindow.size = windowSize;
+      appWindow.alignment = Alignment.center;
+      appWindow.show();
 
-    if (storedFullScreen != null) {
-      FullScreen.setFullScreen(storedFullScreen);
-    }
-  });
+      if (storedFullScreen != null) {
+        FullScreen.setFullScreen(storedFullScreen);
+      }
+    });
+  }
 }
 
 void mainLoop(LicenseProvider licenseProvider) {
@@ -452,15 +458,19 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   }
 
   void _updateTray() {
-    $tray.updateTray(context);
+    if (isDesktop) {
+      $tray.updateTray(context);
+    }
   }
 
   void _updateLicense() {
-    if (!license.isPro) {
-      final evaluationMode = S.of(context).evaluationMode;
-      appWindow.title = 'Rune [$evaluationMode]';
-    } else {
-      appWindow.title = 'Rune';
+    if (isDesktop) {
+      if (!license.isPro) {
+        final evaluationMode = S.of(context).evaluationMode;
+        appWindow.title = 'Rune [$evaluationMode]';
+      } else {
+        appWindow.title = 'Rune';
+      }
     }
   }
 
