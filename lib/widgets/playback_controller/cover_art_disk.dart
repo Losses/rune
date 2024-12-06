@@ -6,10 +6,10 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/api/play_next.dart';
-import '../../utils/api/play_previous.dart';
 import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
+import '../../utils/api/play_next.dart';
+import '../../utils/api/play_previous.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
@@ -20,6 +20,10 @@ import '../../providers/responsive_providers.dart';
 import './constants/playback_controller_height.dart';
 
 import 'cover_wall_button.dart';
+
+double _lerpDouble(double a, double b, double t) {
+  return a * (1.0 - t) + b * t;
+}
 
 enum DragDirection {
   up,
@@ -117,11 +121,16 @@ class CoverArtDiskState extends State<CoverArtDisk>
         _currentRotation =
             _lerpAngle(_currentRotation, _targetRotation, lerpFactor);
 
-        _dragOffset = Offset.lerp(
-          _dragOffset,
-          _targetDragOffset,
+        _finalOffsetX = _lerpDouble(
+          _finalOffsetX,
+          0 - _baseOffsetX + _targetDragOffsetX,
           dragLerpFactor,
-        )!;
+        );
+        _finalOffsetY = _lerpDouble(
+          _finalOffsetY,
+          0 - _baseOffsetY + _targetDragOffsetY,
+          dragLerpFactor,
+        );
       });
     }
     _lastUpdateTime = now;
@@ -166,12 +175,19 @@ class CoverArtDiskState extends State<CoverArtDisk>
     super.dispose();
   }
 
+  double _baseOffsetX = 0.0;
+  double _baseOffsetY = 0.0;
+
   bool _isDragging = false;
-  Offset _dragOffset = Offset.zero;
-  Offset _targetDragOffset = Offset.zero;
+  double _targetDragOffsetX = 0.0;
+  double _targetDragOffsetY = 0.0;
+
   Offset? _startPosition;
   static const double _dragThreshold = 10.0;
-  static const double dragLerpFactor = 0.1;
+  static const double dragLerpFactor = 0.15;
+
+  double _finalOffsetX = 0.0;
+  double _finalOffsetY = 0.0;
 
   _onPressed() {
     showCoverArtWall();
@@ -188,7 +204,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void _handlePointerDown(PointerDownEvent event) {
     _pointerDownButton = event.buttons;
     _startPosition = event.position;
-    _dragOffset = Offset.zero;
+    _targetDragOffsetX = 0;
+    _targetDragOffsetY = 0;
     _isDragging = false;
   }
 
@@ -208,10 +225,11 @@ class CoverArtDiskState extends State<CoverArtDisk>
             .smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
-          _targetDragOffset =
-              Offset(0, delta.dy); // Allow only vertical direction
+          _targetDragOffsetX = 0;
+          _targetDragOffsetY = delta.dy;
         } else {
-          _targetDragOffset = Offset(delta.dx, 0);
+          _targetDragOffsetX = delta.dx;
+          _targetDragOffsetY = 0;
         }
       });
     }
@@ -225,24 +243,26 @@ class CoverArtDiskState extends State<CoverArtDisk>
         MediaQuery.of(context).size.width,
       );
 
-      if (_dragOffset.distance > size / 4) {
+      if ((_finalOffsetX * _finalOffsetX + _finalOffsetY * _finalOffsetY) >
+          (size / 4) * (size / 4)) {
         final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
             .smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
           _onSwitch(
-            _targetDragOffset.dy > 0 ? DragDirection.up : DragDirection.down,
+            _targetDragOffsetY > 0 ? DragDirection.up : DragDirection.down,
           );
         } else {
           _onSwitch(
-            _targetDragOffset.dx > 0 ? DragDirection.left : DragDirection.right,
+            _targetDragOffsetX > 0 ? DragDirection.left : DragDirection.right,
           );
         }
       }
 
       setState(() {
         _isDragging = false;
-        _targetDragOffset = Offset.zero;
+        _targetDragOffsetX = 0;
+        _targetDragOffsetY = 0;
       });
     } else if (_pointerDownButton == kPrimaryButton) {
       showCoverArtWall();
@@ -295,17 +315,13 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     if (isWatch) return Container();
 
-    final duration = notReady
-        ? const Duration(milliseconds: 0)
-        : theme.fastAnimationDuration;
-
-    final translateY = isCar
+    _baseOffsetY = isCar
         ? 0.0
         : notReady || _isSwitching
             ? size * 1.2
             : max(size / 5 * 3, size - playbackControllerHeight + 8);
 
-    final translateX = !isCar
+    _baseOffsetX = !isCar
         ? 0.0
         : notReady || _isSwitching
             ? screen.height / 2 + size * 1.2
@@ -331,85 +347,69 @@ class CoverArtDiskState extends State<CoverArtDisk>
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: translateY, end: translateY),
-      duration: duration,
-      curve: Curves.easeInOut,
-      builder: (context, animatedTranslateY, child) {
-        return TweenAnimationBuilder<double>(
-          tween: Tween<double>(begin: translateX, end: translateX),
-          duration: duration,
-          curve: Curves.easeInOut,
-          builder: (context, animatedTranslateX, child) {
-            return Positioned(
-              right: 0 - animatedTranslateX + _dragOffset.dx,
-              bottom: 0 - animatedTranslateY + _dragOffset.dy,
-              child: Transform(
-                transform: Matrix4.identity()
-                  ..scale(0.9)
-                  ..rotateZ(_currentRotation),
-                alignment: Alignment.center,
-                child: Listener(
-                  onPointerDown: _handlePointerDown,
-                  onPointerMove: _handlePointerMove,
-                  onPointerUp: _handlePointerUp,
-                  child: child,
+    return Positioned(
+      right: _finalOffsetX,
+      bottom: _finalOffsetY,
+      child: Transform(
+        transform: Matrix4.identity()
+          ..scale(0.9)
+          ..rotateZ(_currentRotation),
+        alignment: Alignment.center,
+        child: Listener(
+          onPointerDown: _handlePointerDown,
+          onPointerMove: _handlePointerMove,
+          onPointerUp: _handlePointerUp,
+          child: FlyoutTarget(
+            key: _contextAttachKey,
+            controller: _contextController,
+            child: FocusableActionDetector(
+              focusNode: _focusNode,
+              onShowFocusHighlight: _handleFocusHighlight,
+              onShowHoverHighlight: _handleHoverHighlight,
+              actions: {
+                ActivateIntent: ActivateLinkAction(context, _onPressed),
+              },
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(512),
+                  boxShadow: axShadow(10),
                 ),
-              ),
-            );
-          },
-          child: child,
-        );
-      },
-      child: FlyoutTarget(
-        key: _contextAttachKey,
-        controller: _contextController,
-        child: FocusableActionDetector(
-          focusNode: _focusNode,
-          onShowFocusHighlight: _handleFocusHighlight,
-          onShowHoverHighlight: _handleHoverHighlight,
-          actions: {
-            ActivateIntent: ActivateLinkAction(context, _onPressed),
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(512),
-              boxShadow: axShadow(10),
-            ),
-            child: SizedBox(
-              width: size,
-              height: size,
-              child: AspectRatio(
-                aspectRatio: 1,
-                child: AxPressure(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(512),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(
-                        sigmaX: 5.0,
-                        sigmaY: 5.0,
-                      ),
-                      child: AnimatedContainer(
-                        duration: theme.fastAnimationDuration,
-                        width: double.infinity,
-                        height: double.infinity,
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: borderColor,
-                            width: 5,
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: AspectRatio(
+                    aspectRatio: 1,
+                    child: AxPressure(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(512),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(
+                            sigmaX: 5.0,
+                            sigmaY: 5.0,
                           ),
-                          borderRadius: BorderRadius.circular(512),
-                          boxShadow: _isFocused ? boxShadow : null,
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(radius - 1),
-                          child: CoverArt(
-                            size: size,
-                            path: _currentPath,
-                            hint: (
-                              status.album,
-                              status.artist,
-                              'Total Time ${formatTime(status.duration)}'
+                          child: AnimatedContainer(
+                            duration: theme.fastAnimationDuration,
+                            width: double.infinity,
+                            height: double.infinity,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: borderColor,
+                                width: 5,
+                              ),
+                              borderRadius: BorderRadius.circular(512),
+                              boxShadow: _isFocused ? boxShadow : null,
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(radius - 1),
+                              child: CoverArt(
+                                size: size,
+                                path: _currentPath,
+                                hint: (
+                                  status.album,
+                                  status.artist,
+                                  'Total Time ${formatTime(status.duration)}'
+                                ),
+                              ),
                             ),
                           ),
                         ),
