@@ -113,9 +113,15 @@ class CoverArtDiskState extends State<CoverArtDisk>
       }
 
       setState(() {
-        // Use lerp to smoothly transition to the target angle
+        // Use lerp to smoothly transition to the target angle and offset
         _currentRotation =
             _lerpAngle(_currentRotation, _targetRotation, lerpFactor);
+
+        _dragOffset = Offset.lerp(
+          _dragOffset,
+          _targetDragOffset,
+          dragLerpFactor,
+        )!;
       });
     }
     _lastUpdateTime = now;
@@ -162,8 +168,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
   bool _isDragging = false;
   Offset _dragOffset = Offset.zero;
+  Offset _targetDragOffset = Offset.zero;
   Offset? _startPosition;
   static const double _dragThreshold = 10.0;
+  static const double dragLerpFactor = 0.1;
 
   _onPressed() {
     showCoverArtWall();
@@ -200,9 +208,9 @@ class CoverArtDiskState extends State<CoverArtDisk>
             .smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
-          _dragOffset = Offset(0, delta.dy); // Allow only vertical direction
+          _targetDragOffset = Offset(0, delta.dy); // Allow only vertical direction
         } else {
-          _dragOffset = Offset(delta.dx, 0);
+          _targetDragOffset = Offset(delta.dx, 0);
         }
       });
     }
@@ -220,18 +228,18 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
         if (isCar) {
           _onSwitch(
-            _dragOffset.dy > 0 ? DragDirection.up : DragDirection.down,
+            _targetDragOffset.dy > 0 ? DragDirection.up : DragDirection.down,
           );
         } else {
           _onSwitch(
-            _dragOffset.dx > 0 ? DragDirection.left : DragDirection.right,
+            _targetDragOffset.dx > 0 ? DragDirection.left : DragDirection.right,
           );
         }
       }
 
       setState(() {
         _isDragging = false;
-        _dragOffset = Offset.zero;
+        _targetDragOffset = Offset.zero;
       });
     } else if (_pointerDownButton == kPrimaryButton) {
       showCoverArtWall();
