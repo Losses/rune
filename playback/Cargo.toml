@@ -20,7 +20,7 @@ tokio = { version = "1.40.0", features = [
 ] }
 rodio = { version = "0.20.1", default-features = false, features = [
     "vorbis",
-    "wav",
+    "symphonia-wav",
     "symphonia-mp3",
     "symphonia-aac",
     "symphonia-aiff",
