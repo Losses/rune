@@ -19,6 +19,13 @@ import './constants/playback_controller_height.dart';
 
 import 'cover_wall_button.dart';
 
+enum DragDirection {
+  up,
+  right,
+  down,
+  left,
+}
+
 class CoverArtDisk extends StatefulWidget {
   const CoverArtDisk({super.key});
 
@@ -151,11 +158,84 @@ class CoverArtDiskState extends State<CoverArtDisk>
     super.dispose();
   }
 
-  onPressed() {
+  bool _isDragging = false;
+  Offset _dragOffset = Offset.zero;
+  Offset? _startPosition;
+  static const double _dragThreshold = 10.0;
+
+  _onPressed() {
     showCoverArtWall();
   }
 
-  showContextMenu(PointerUpEvent event) {
+  void _onSwitch(DragDirection direction) {
+    print('Swiped $direction');
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _pointerDownButton = event.buttons;
+    _startPosition = event.localPosition;
+    _dragOffset = Offset.zero;
+    _isDragging = false;
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (_startPosition == null) return;
+
+    final delta = _startPosition! - event.localPosition;
+
+    // If dragging hasn't started yet, check if it exceeds the threshold
+    if (!_isDragging && delta.distance > _dragThreshold) {
+      _isDragging = true;
+    }
+
+    if (_isDragging) {
+      setState(() {
+        final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
+            .smallerOrEqualTo(DeviceType.car, false);
+
+        if (isCar) {
+          _dragOffset = Offset(0, delta.dy); // Allow only vertical direction
+        } else {
+          _dragOffset = Offset(delta.dx, 0);
+        }
+      });
+    }
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    if (_isDragging) {
+      // Check if the switch is triggered
+      final size = min(MediaQuery.of(context).size.height,
+          MediaQuery.of(context).size.width);
+
+      if (_dragOffset.distance > size / 4) {
+        final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
+            .smallerOrEqualTo(DeviceType.car, false);
+
+        if (isCar) {
+          _onSwitch(
+            _dragOffset.dy > 0 ? DragDirection.up : DragDirection.down,
+          );
+        } else {
+          _onSwitch(
+            _dragOffset.dx > 0 ? DragDirection.left : DragDirection.right,
+          );
+        }
+      }
+
+      setState(() {
+        _isDragging = false;
+        _dragOffset = Offset.zero;
+      });
+    } else if (_pointerDownButton == kPrimaryButton) {
+      showCoverArtWall();
+    } else if (_pointerDownButton == kSecondaryButton) {
+      _showContextMenu(event);
+    }
+    _startPosition = null;
+  }
+
+  _showContextMenu(PointerUpEvent event) {
     // This calculates the position of the flyout according to the parent navigator
     final targetContext = _contextAttachKey.currentContext;
     if (targetContext == null) return;
@@ -245,24 +325,19 @@ class CoverArtDiskState extends State<CoverArtDisk>
           curve: Curves.easeInOut,
           builder: (context, animatedTranslateX, child) {
             return Positioned(
-              right: 0 - animatedTranslateX,
-              bottom: 0 - animatedTranslateY,
+              right:
+                  0 - animatedTranslateX + (_isDragging ? _dragOffset.dx : 0),
+              bottom:
+                  0 - animatedTranslateY + (_isDragging ? _dragOffset.dy : 0),
               child: Transform(
                 transform: Matrix4.identity()
                   ..scale(0.9)
                   ..rotateZ(_currentRotation),
                 alignment: Alignment.center,
                 child: Listener(
-                  onPointerDown: (event) {
-                    _pointerDownButton = event.buttons;
-                  },
-                  onPointerUp: (event) {
-                    if (_pointerDownButton == kPrimaryButton) {
-                      showCoverArtWall();
-                    } else if (_pointerDownButton == kSecondaryButton) {
-                      showContextMenu(event);
-                    }
-                  },
+                  onPointerDown: _handlePointerDown,
+                  onPointerMove: _handlePointerMove,
+                  onPointerUp: _handlePointerUp,
                   child: child,
                 ),
               ),
@@ -279,7 +354,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoverHighlight,
           actions: {
-            ActivateIntent: ActivateLinkAction(context, onPressed),
+            ActivateIntent: ActivateLinkAction(context, _onPressed),
           },
           child: Container(
             decoration: BoxDecoration(
