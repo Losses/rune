@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>ci.not.Rune</id>
+  <id>rune</id>
 
   <name>Rune</name>
   <summary>Experience timeless melodies with a music player that blends classic design with modern
@@ -26,7 +26,7 @@
 
   <content_rating type="oars-1.1" />
 
-  <launchable type="desktop-id">ci.not.Rune.desktop</launchable>
+  <launchable type="desktop-id">rune</launchable>
 
   <screenshots>
     <screenshot type="default">
