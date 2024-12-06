@@ -956,5 +956,13 @@
   "importM3u8": "Import Playlist",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adaptive Switching",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "Restarts from the beginning if you switch back after the current track has played for more than three seconds.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
   }
 }

@@ -19,6 +19,7 @@ use crate::LoadRequest;
 use crate::OperatePlaybackWithMixQueryRequest;
 use crate::OperatePlaybackWithMixQueryResponse;
 use crate::PlaylistOperateMode;
+use crate::SetAdaptiveSwitchingEnabledRequest;
 use crate::SetRealtimeFftEnabledRequest;
 use crate::VolumeRequest;
 use crate::VolumeResponse;
@@ -191,6 +192,18 @@ pub async fn set_realtime_fft_enabled_request(
     let enabled = request.enabled;
 
     player.lock().await.set_realtime_fft_enabled(enabled);
+
+    Ok(())
+}
+
+pub async fn set_adaptive_switching_enabled_request(
+    player: Arc<Mutex<Player>>,
+    dart_signal: DartSignal<SetAdaptiveSwitchingEnabledRequest>,
+) -> Result<()> {
+    let request = dart_signal.message;
+    let enabled = request.enabled;
+
+    player.lock().await.set_adaptive_switching_enabled(enabled);
 
     Ok(())
 }

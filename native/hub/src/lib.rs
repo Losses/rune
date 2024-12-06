@@ -149,6 +149,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             SetPlaybackModeRequest => (player),
             MovePlaylistItemRequest => (player),
             SetRealtimeFftEnabledRequest => (player),
+            SetAdaptiveSwitchingEnabledRequest => (player),
 
             SfxPlayRequest => (sfx_player),
 

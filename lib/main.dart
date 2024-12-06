@@ -26,6 +26,7 @@ import 'utils/settings_manager.dart';
 import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
+import 'utils/api/set_adaptive_switching_enabled.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
 
@@ -203,6 +204,8 @@ void main(List<String> arguments) async {
       windowSize = windowSize / firstView.devicePixelRatio;
     }
   }
+
+  setAdaptiveSwitchingEnabled();
 
   mainLoop(licenseProvider);
   if (isDesktop && !Platform.isMacOS) {

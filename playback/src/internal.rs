@@ -78,6 +78,7 @@ pub enum PlayerCommand {
     SetPlaybackMode(PlaybackMode),
     SetVolume(f32),
     SetRealtimeFFTEnabled(bool),
+    SetAdaptiveSwitchingEnabled(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -191,6 +192,7 @@ pub(crate) struct PlayerInternal {
     stream_error_sender: mpsc::UnboundedSender<String>,
     stream_error_receiver: mpsc::UnboundedReceiver<String>,
     stream_retry_count: usize,
+    adaptive_switching: bool,
 }
 
 impl PlayerInternal {
@@ -220,6 +222,7 @@ impl PlayerInternal {
             stream_error_sender,
             stream_error_receiver,
             stream_retry_count: 0,
+            adaptive_switching: false,
         }
     }
 
@@ -265,6 +268,7 @@ impl PlayerInternal {
                         PlayerCommand::SetPlaybackMode(mode) => self.set_playback_mode(mode),
                         PlayerCommand::SetVolume(volume) => self.set_volume(volume),
                         PlayerCommand::SetRealtimeFFTEnabled(enabled) => self.set_realtime_fft_enabled(enabled),
+                        PlayerCommand::SetAdaptiveSwitchingEnabled(enabled) => self.set_adaptive_switching(enabled),
                     }?;
                 },
                 Ok(fft_data) = fft_receiver.recv() => {
@@ -534,13 +538,32 @@ impl PlayerInternal {
         Ok(())
     }
 
+    fn do_switch_back(&mut self, index: usize) -> Result<()> {
+        if let Some(prev_index) = self.playback_strategy.previous(index, self.playlist.len()) {
+            self.load(Some(prev_index), true, true)
+                .with_context(|| "Failed to load previous track")?;
+        } else {
+            info!("Beginning of playlist reached");
+        }
+
+        Ok(())
+    }
+
     fn previous(&mut self) -> Result<()> {
         if let Some(index) = self.current_track_index {
-            if let Some(prev_index) = self.playback_strategy.previous(index, self.playlist.len()) {
-                self.load(Some(prev_index), true, true)
-                    .with_context(|| "Failed to load previous track")?;
-            } else {
-                info!("Beginning of playlist reached");
+            match &self.sink {
+                Some(sink) => {
+                    let need_adaptive = sink.get_pos() > Duration::from_secs(3);
+
+                    if self.adaptive_switching && need_adaptive {
+                        self.load(Some(index), true, true)
+                            .with_context(|| "Failed to reload track")?;
+                    } else {
+                        return self.do_switch_back(index);
+                    }
+                    return Ok(());
+                }
+                None => return self.do_switch_back(index),
             }
         }
 
@@ -822,6 +845,14 @@ impl PlayerInternal {
         if let Ok(mut enabled) = self.fft_enabled.lock() {
             *enabled = x;
         }
+
+        Ok(())
+    }
+
+    fn set_adaptive_switching(&mut self, x: bool) -> Result<()> {
+        self.adaptive_switching = x;
+
+        info!("Adaptive switching status changed: {:#?}", x);
 
         Ok(())
     }

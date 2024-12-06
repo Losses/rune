@@ -357,4 +357,8 @@ impl Player {
     pub fn set_realtime_fft_enabled(&mut self, enabled: bool) {
         self.command(PlayerCommand::SetRealtimeFFTEnabled(enabled));
     }
+
+    pub fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
+        self.command(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled));
+    }
 }

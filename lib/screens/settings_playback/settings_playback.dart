@@ -1,18 +1,21 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/get_non_replace_operate_mode.dart';
+import '../../utils/api/set_adaptive_switching_enabled.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_block_title.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
-import '../../utils/l10n.dart';
 
 const disabledPlaybackModesKey = 'disabled_playback_modes';
 const middleClickActionKey = 'middle_click_action';
+const adaptiveSwitchingKey = 'adaptive_switching';
 
 class SettingsPlayback extends StatefulWidget {
   const SettingsPlayback({super.key});
@@ -25,6 +28,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
   List<PlaybackMode> disabledModes = [];
   String queueMode = "AddToEnd";
   String middleClickAction = "StartPlaying";
+  bool adaptiveSwitching = false;
 
   @override
   void initState() {
@@ -61,6 +65,15 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
         middleClickAction = storedMiddleClickAction;
       });
     }
+
+    // Load adaptive switching setting
+    bool? storedAdaptiveSwitching =
+        await SettingsManager().getValue<bool>(adaptiveSwitchingKey);
+    if (storedAdaptiveSwitching != null) {
+      setState(() {
+        adaptiveSwitching = storedAdaptiveSwitching;
+      });
+    }
   }
 
   Future<void> _updateDisabledModes(PlaybackMode mode, bool isDisabled) async {
@@ -88,6 +101,14 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
       middleClickAction = newAction;
     });
     await SettingsManager().setValue(middleClickActionKey, newAction);
+  }
+
+  Future<void> _updateAdaptiveSwitching(bool newSetting) async {
+    setState(() {
+      adaptiveSwitching = newSetting;
+    });
+    await SettingsManager().setValue(adaptiveSwitchingKey, newSetting);
+    setAdaptiveSwitchingEnabled();
   }
 
   @override
@@ -171,7 +192,13 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                       }).toList(),
                     ),
                   ),
-                )
+                ),
+                SettingsBoxToggle(
+                  title: S.of(context).adaptiveSwitching,
+                  subtitle: S.of(context).adaptiveSwitchingSubtitle,
+                  value: adaptiveSwitching,
+                  onChanged: _updateAdaptiveSwitching,
+                ),
               ],
             ),
           ),
