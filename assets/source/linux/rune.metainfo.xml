@@ -37,8 +37,186 @@
   </screenshots>
 
   <releases>
+    <release version="1.0.0-beta.4" date="2024-12-06">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implemented track switching by sliding left or right on the disc.</li>
+          <li>Implemented Adaptive Switching.</li>
+          <li>Hide window control buttons in band and dock sizes by @XMLHexagram in #182</li>
+          <li>Added necessary files for Flatpak support by @Fei1Yang in #181</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed an issue where non-square album covers were not rendering correctly.</li>
+          <li>Fixed problems preventing the Android version of the app from starting properly by
+            @Rachel030219 in #183</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.3" date="2024-12-05">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Tweak the icon size of the playback buttons</li>
+          <li>Add Reveal highlight to some new buttons</li>
+          <li>Add a context menu to the rotating cover art disk</li>
+          <li>Improve the rotating effect to the rotating cover art disk</li>
+          <li>エクスペリメンタルのかなローカリゼーションをアップロード by @NovaDNG in #176, #177</li>
+          <li>Simplify artifact naming in CircleCI configuration by @Ovler-Young in #178</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Seeking is not working</li>
+          <li>Language parsing is not always working</li>
+          <li>Rune stack is not working properly</li>
+          <li>Improve the dragging widget style</li>
+          <li>Some entries in the playback controller context menu are not available on small screen</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.2" date="2024-12-04">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implement force scan for database version updating</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Tweak the sorting behavior of the library settings page</li>
+          <li>License check not working</li>
+          <li>Remove unused network.server entitlement. by @laosb in #174</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.0.0-beta.1" date="2024-12-04">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Adding single instance support for Windows</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>The player crashes while playing a non-exist track file</li>
+          <li>App store validation is not working</li>
+          <li>Album title is not aligned properly by @XMLHexagram in #170</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.23" date="2024-12-04">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Unable to popup library mode modal</li>
+          <li>Router redirect unexpectedly after clicking the initializing button</li>
+          <li>Move cleanup step to the correct position in the build workflow by @Ovler-Young in
+            #164</li>
+          <li>Replace core-graphics to prevent private api usage by @XMLHexagram in #165</li>
+          <li>Ablum title offset on macOS by @XMLHexagram in #166</li>
+          <li>Window controls reset after showing file seletor by @XMLHexagram in #168</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.22" date="2024-12-03">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update Japanese translation by @NovaDNG in #161</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Dynamic theme not working</li>
+          <li>Resolve filename conflict and remove nested ZIP structure for DMG by @Ovler-Young in
+            #160</li>
+          <li>Exit button in tray menu not working on macOS by @XMLHexagram in #158</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.21" date="2024-12-03">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update LZH Translation</li>
+          <li>Optimize artifact handling to avoid redundant operations by @Ovler-Young in #153</li>
+          <li>Delivering build to App Store and making build for Steam by @XMLHexagram in #154, #157</li>
+          <li>Add linter CI and lint all codes by @XMLHexagram in #156</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Samples missed while playing audio</li>
+          <li>Crash happens while generating the recommendation list</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.20" date="2024-12-02">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>New cover art style for the album view</li>
+          <li>Notarized build use Developer ID by @laosb in #142, #146</li>
+          <li>Support license check for App Store by @XMLHexagram in #143, #144</li>
+          <li>Normalize archive naming conventions for tag and manual builds by @Ovler-Young in #147</li>
+          <li>Only run build-and-release-mac-app-store if releasing new version by @Ovler-Young in
+            #149</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Window control not working correctly on Windows while switching the full screen status</li>
+          <li>Avoid BSOD on decoding failed</li>
+          <li>Tray menu not working correctly on Windows</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.19" date="2024-12-01">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Publish to Mac App Store via GitHub Actions by @laosb in #139</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon is not working correctly on Windows</li>
+          <li>Tray item is not rendered correctly on macOS by @XMLHexagram in #140</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.18" date="2024-12-01">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Better disk number and track number parsing method</li>
+          <li>Update LLM translated entries for various languages</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Navigation bar was broken in release mode by @XMLHexagram in #136</li>
+          <li>Window control buttons isn’t vertical in first time open by @XMLHexagram in #137</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.0.0-alpha.17" date="2024-11-30">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Support importing M3U8 format playlists</li>
+          <li>Integrate Microsoft Store's official verification system</li>
+          <li>Add a bubble prompt when closing the window for the first time, informing the user
+            that the software is running in the background</li>
+          <li>Implement an verification system for open-source software repositories</li>
+          <li>Playlist now sorts according to the order of addition</li>
+          <li>Updated translations (Japanese, Traditional Chinese, and Simplified Chinese) by
+            @NovaDNG in #130 #133, @123Duo3 in #134</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed dragging and moving window issues on macOS by @XMLHexagram in #131</li>
+          <li>Fixed the position of window control buttons (Traffic Light) after exiting fullscreen
+            on macOS by @XMLHexagram in #132</li>
+          <li>Corrected typography issues in some prompt texts</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.0.0-alpha.16" date="2024-11-28">
-      <url type="details">https://example.org/changelog.html#v0.0.0-alpha.16</url>
       <description>
         <p>Features</p>
         <ul>
@@ -54,7 +232,6 @@
       </description>
     </release>
     <release version="0.0.0-alpha.15" date="2024-11-27">
-      <url type="details">https://example.org/changelog.html#v0.0.0-alpha.15</url>
       <description>
         <p>Features</p>
         <ul>
@@ -71,7 +248,6 @@
       </description>
     </release>
     <release version="0.0.0-alpha.14" date="2024-11-27">
-      <url type="details">https://example.org/changelog.html#v0.0.0-alpha.14</url>
       <description>
         <p>Features</p>
         <ul>
@@ -89,7 +265,6 @@
       </description>
     </release>
     <release version="0.0.0-alpha.13" date="2024-11-26">
-      <url type="details">https://example.org/changelog.html#v0.0.0-alpha.13</url>
       <description>
         <p>Features</p>
         <ul>
