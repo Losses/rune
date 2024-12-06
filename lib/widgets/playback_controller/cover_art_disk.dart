@@ -208,7 +208,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
             .smallerOrEqualTo(DeviceType.car, false);
 
         if (isCar) {
-          _targetDragOffset = Offset(0, delta.dy); // Allow only vertical direction
+          _targetDragOffset =
+              Offset(0, delta.dy); // Allow only vertical direction
         } else {
           _targetDragOffset = Offset(delta.dx, 0);
         }
@@ -219,8 +220,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
   void _handlePointerUp(PointerUpEvent event) {
     if (_isDragging) {
       // Check if the switch is triggered
-      final size = min(MediaQuery.of(context).size.height,
-          MediaQuery.of(context).size.width);
+      final size = min(
+        MediaQuery.of(context).size.height,
+        MediaQuery.of(context).size.width,
+      );
 
       if (_dragOffset.distance > size / 4) {
         final isCar = Provider.of<ResponsiveProvider>(context, listen: false)
@@ -339,10 +342,8 @@ class CoverArtDiskState extends State<CoverArtDisk>
           curve: Curves.easeInOut,
           builder: (context, animatedTranslateX, child) {
             return Positioned(
-              right:
-                  0 - animatedTranslateX + (_isDragging ? _dragOffset.dx : 0),
-              bottom:
-                  0 - animatedTranslateY + (_isDragging ? _dragOffset.dy : 0),
+              right: 0 - animatedTranslateX + _dragOffset.dx,
+              bottom: 0 - animatedTranslateY + _dragOffset.dy,
               child: Transform(
                 transform: Matrix4.identity()
                   ..scale(0.9)
