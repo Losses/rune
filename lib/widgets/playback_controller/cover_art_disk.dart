@@ -28,6 +28,10 @@ class CoverArtDisk extends StatefulWidget {
 
 class CoverArtDiskState extends State<CoverArtDisk>
     with SingleTickerProviderStateMixin {
+  final FocusNode _focusNode = FocusNode(debugLabel: 'Cover Art Disk');
+  final _contextController = FlyoutController();
+  final _contextAttachKey = GlobalKey();
+
   late final Ticker _ticker;
 
   // Current actual rotation angle
@@ -47,9 +51,10 @@ class CoverArtDiskState extends State<CoverArtDisk>
   bool _isHovered = false;
   bool _isFocused = false;
 
-  final FocusNode _focusNode = FocusNode(debugLabel: 'Cover Art Disk');
-  final _contextController = FlyoutController();
-  final _contextAttachKey = GlobalKey();
+  String? _currentPath;
+  bool _isSwitching = false;
+
+  static const Duration switchDuration = Duration(milliseconds: 300);
 
   void _handleFocusHighlight(bool value) {
     setState(() {
@@ -107,6 +112,37 @@ class CoverArtDiskState extends State<CoverArtDisk>
     _lastUpdateTime = now;
   }
 
+  Future<void> _handlePathChange(
+    String? newPath,
+    double size,
+    bool isCar,
+    Duration duration,
+  ) async {
+    if (_currentPath == newPath || _isSwitching) return;
+
+    if (!context.mounted) return;
+
+    setState(() {
+      _isSwitching = true;
+    });
+
+    await Future.delayed(duration);
+
+    if (!context.mounted) return;
+
+    setState(() {
+      _currentPath = newPath;
+    });
+
+    await Future.delayed(duration);
+
+    if (!context.mounted) return;
+
+    setState(() {
+      _isSwitching = false;
+    });
+  }
+
   @override
   void dispose() {
     _ticker.dispose();
@@ -155,6 +191,11 @@ class CoverArtDiskState extends State<CoverArtDisk>
     final isCar = r.smallerOrEqualTo(DeviceType.car, false);
     final isWatch = smallerThanWatch(screen);
 
+    if (_currentPath != status.coverArtPath) {
+      _handlePathChange(
+          status.coverArtPath, size, isCar, theme.fastAnimationDuration);
+    }
+
     if (isWatch) return Container();
 
     final duration = notReady
@@ -163,13 +204,13 @@ class CoverArtDiskState extends State<CoverArtDisk>
 
     final translateY = isCar
         ? 0.0
-        : notReady
+        : notReady || _isSwitching
             ? size * 1.2
             : max(size / 5 * 3, size - playbackControllerHeight + 8);
 
     final translateX = !isCar
         ? 0.0
-        : notReady
+        : notReady || _isSwitching
             ? screen.height / 2 + size * 1.2
             : (screen.height / 2) + screen.height / 6;
 
@@ -274,7 +315,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
                           borderRadius: BorderRadius.circular(radius - 1),
                           child: CoverArt(
                             size: size,
-                            path: status.coverArtPath,
+                            path: _currentPath,
                             hint: (
                               status.album,
                               status.artist,
