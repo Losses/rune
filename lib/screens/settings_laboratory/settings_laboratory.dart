@@ -1,17 +1,19 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
-import '../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../widgets/rune_icon_button.dart';
-import '../../widgets/settings/settings_container.dart';
 import '../../widgets/router/rune_stack.dart';
+import '../../widgets/settings/settings_container.dart';
+import '../../widgets/banding_animation/branding_animation.dart';
+import '../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../providers/responsive_providers.dart';
 
+import 'constants/branding_sfx.dart';
 import 'constants/cover_wall_item_count.dart';
 
 class SettingsLaboratory extends StatefulWidget {
@@ -23,6 +25,7 @@ class SettingsLaboratory extends StatefulWidget {
 
 class _SettingsLaboratoryState extends State<SettingsLaboratory> {
   String? randomCoverWallCount = '40';
+  String? bandingSfx = 'fantasy';
 
   final SettingsManager _settingsManager = SettingsManager();
 
@@ -36,9 +39,15 @@ class _SettingsLaboratoryState extends State<SettingsLaboratory> {
     final String? storedRandomCoverWallCount =
         await _settingsManager.getValue<String>(randomCoverWallCountKey);
 
+    final String? storedSfxConfig =
+        await _settingsManager.getValue<String>(bandingSfxKey);
+
     setState(() {
       if (storedRandomCoverWallCount != null) {
         randomCoverWallCount = storedRandomCoverWallCount;
+      }
+      if (storedSfxConfig != null) {
+        bandingSfx = storedSfxConfig;
       }
     });
   }
@@ -158,6 +167,52 @@ class _SettingsLaboratoryState extends State<SettingsLaboratory> {
                             },
                             child: Text("Getting Started"),
                           )
+                        ],
+                      ),
+                    ),
+                    SettingsContainer(
+                      margin: EdgeInsets.all(0),
+                      padding: EdgeInsets.all(8),
+                      child: Column(
+                        children: [
+                          Text(
+                            "Branding Animation SFX",
+                            style: typography.subtitle,
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            "Customize the sound effects for your branding animation. Choose from two unique styles designed by our collaborator, musician Sh4-RA.",
+                            style: TextStyle(height: 1.4),
+                          ),
+                          SizedBox(height: 16),
+                          ComboBox<String>(
+                            value: bandingSfx,
+                            items: bandingSfxConfig(context).map((e) {
+                              return ComboBoxItem(
+                                value: e.value,
+                                child: Row(
+                                  children: [
+                                    Icon(e.icon),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      e.title,
+                                      textAlign: TextAlign.start,
+                                      overflow: TextOverflow.ellipsis,
+                                    )
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (x) => setState(() {
+                              if (x == null) return;
+
+                              bandingSfx = x;
+                              _settingsManager.setValue<String>(
+                                bandingSfxKey,
+                                x,
+                              );
+                            }),
+                          ),
                         ],
                       ),
                     ),

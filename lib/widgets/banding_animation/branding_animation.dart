@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
@@ -6,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/asset_helper.dart';
 import '../../utils/api/sfx_play.dart';
 
+import '../../utils/settings_manager.dart';
 import 'branding_animation_implementation.dart';
 
 class BrandingAnimation extends StatefulWidget {
@@ -15,8 +15,25 @@ class BrandingAnimation extends StatefulWidget {
   State<BrandingAnimation> createState() => _BrandingAnimationState();
 }
 
-Future<File> startSfxFile =
-    AssetHelper.instance.getAudioFileFromAssets('assets/startup_1.ogg');
+const bandingSfxKey = 'branding_sfx';
+
+Future<String?> getStartUpSfxPath() async {
+  final config = await SettingsManager().getValue<String?>(bandingSfxKey);
+
+  if (config == null) {
+    return 'assets/startup_1.ogg';
+  }
+
+  if (config == 'mute') {
+    return null;
+  }
+
+  if (config == 'fantasy') {
+    return 'assets/startup_0.ogg';
+  }
+
+  return 'assets/startup_1.ogg';
+}
 
 class _BrandingAnimationState extends State<BrandingAnimation>
     with TickerProviderStateMixin {
@@ -53,7 +70,13 @@ class _BrandingAnimationState extends State<BrandingAnimation>
   Future<void> _playAnimation() async {
     try {
       _controller.reset();
-      sfxPlay((await startSfxFile).path);
+      final sfxPath = await getStartUpSfxPath();
+
+      if (sfxPath != null) {
+        sfxPlay(
+          (await AssetHelper.instance.getAudioFileFromAssets(sfxPath)).path,
+        );
+      }
       await _controller.forward().orCancel;
     } on TickerCanceled {
       // The animation got canceled, probably because we were disposed.
