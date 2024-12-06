@@ -1,7 +1,7 @@
-import 'dart:async';
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/api/seek.dart';
 import '../../utils/format_time.dart';
 import '../../widgets/playback_controller/like_button.dart';
 import '../../messages/playback.pb.dart';
@@ -27,17 +27,6 @@ class ControllerProgressBar extends StatelessWidget {
     final entries = controllerProvider.entries;
     final hiddenIndex = entries.indexWhere((entry) => entry.id == 'hidden');
     final reduceCount = (hiddenIndex - 6).clamp(0, 5);
-
-    Timer? debounceTimer;
-
-    void onSeek(double value) {
-      if (debounceTimer?.isActive ?? false) debounceTimer!.cancel();
-      debounceTimer = Timer(const Duration(milliseconds: 42), () {
-        SeekRequest(
-          positionSeconds: (value / 100) * (status?.duration ?? 0),
-        ).sendSignalToRust();
-      });
-    }
 
     return SmallerOrEqualTo(
       deviceType: DeviceType.tablet,
@@ -72,7 +61,11 @@ class ControllerProgressBar extends StatelessWidget {
                 value: status != null
                     ? (status?.progressPercentage ?? 0) * 100
                     : 0,
-                onChanged: status != null && !notReady ? onSeek : null,
+                onChanged: (value) {
+                  if (status != null && !notReady) {
+                    seek(value, status);
+                  }
+                },
                 style: const SliderThemeData(useThumbBall: false),
               ),
               Padding(

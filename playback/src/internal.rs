@@ -595,22 +595,37 @@ impl PlayerInternal {
                     if let Some(track_index) = self.current_track_index {
                         let track_index = self.get_mapped_track_index(track_index);
 
-                        self.event_sender
-                            .send(PlayerEvent::Playing {
-                                id: self
-                                    .current_track_id
-                                    .ok_or(anyhow!("Current track id unavailable"))?,
-                                index: track_index,
-                                path: self
-                                    .current_track_path
-                                    .clone()
-                                    .ok_or(anyhow!("Current track path unavailable"))?,
-                                playback_mode: self.playback_mode,
-                                position,
-                            })
-                            .with_context(|| "Failed to send Playing event")?;
-
-                        self.state = InternalPlaybackState::Playing;
+                        if self.state == InternalPlaybackState::Playing {
+                            self.event_sender
+                                .send(PlayerEvent::Playing {
+                                    id: self
+                                        .current_track_id
+                                        .ok_or(anyhow!("Current track id unavailable"))?,
+                                    index: track_index,
+                                    path: self
+                                        .current_track_path
+                                        .clone()
+                                        .ok_or(anyhow!("Current track path unavailable"))?,
+                                    playback_mode: self.playback_mode,
+                                    position,
+                                })
+                                .with_context(|| "Failed to send Playing event")?;
+                        } else {
+                            self.event_sender
+                                .send(PlayerEvent::Paused {
+                                    id: self
+                                        .current_track_id
+                                        .ok_or(anyhow!("Current track id unavailable"))?,
+                                    index: track_index,
+                                    path: self
+                                        .current_track_path
+                                        .clone()
+                                        .ok_or(anyhow!("Current track path unavailable"))?,
+                                    playback_mode: self.playback_mode,
+                                    position,
+                                })
+                                .with_context(|| "Failed to send Paused event")?;
+                        }
                     }
                 }
                 Err(e) => {

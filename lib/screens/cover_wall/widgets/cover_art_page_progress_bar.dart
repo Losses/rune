@@ -1,9 +1,8 @@
-import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/format_time.dart';
-import '../../../messages/playback.pb.dart';
+import '../../../utils/api/seek.dart';
 import '../../../providers/status.dart';
 
 class CoverArtPageProgressBar extends StatefulWidget {
@@ -18,22 +17,6 @@ class CoverArtPageProgressBar extends StatefulWidget {
 }
 
 class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
-  Timer? _debounceTimer;
-
-  void _onSeek(double value, PlaybackStatus? status) {
-    if (_debounceTimer?.isActive ?? false) {
-      _debounceTimer?.cancel();
-    }
-
-    _debounceTimer = Timer(const Duration(milliseconds: 42), () {
-      if (status != null) {
-        SeekRequest(
-          positionSeconds: (value / 100) * status.duration,
-        ).sendSignalToRust();
-      }
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
@@ -49,7 +32,7 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
         Expanded(
           child: Slider(
             value: status.progressPercentage * 100,
-            onChanged: !notReady ? (v) => _onSeek(v, status) : null,
+            onChanged: !notReady ? (v) => seek(v, status) : null,
             style: const SliderThemeData(useThumbBall: false),
           ),
         ),
@@ -76,11 +59,5 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
         ),
       ],
     );
-  }
-
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    super.dispose();
   }
 }
