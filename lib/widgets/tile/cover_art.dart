@@ -79,7 +79,6 @@ class CoverArt extends StatelessWidget {
             height: size ?? double.infinity,
             fit: BoxFit.cover,
             cacheHeight: cachedSize,
-            cacheWidth: cachedSize,
           );
   }
 }
