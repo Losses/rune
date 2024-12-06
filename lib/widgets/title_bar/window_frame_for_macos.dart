@@ -45,7 +45,13 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
   }
 
   void updateWindowControlButtons() {
-    setState(() => {});
+    if (_responsiveProvider.currentDeviceType == DeviceType.band ||
+        _responsiveProvider.currentDeviceType == DeviceType.dock) {
+      MacOSWindowControlButtonManager.shared.setHide();
+    } else {
+      MacOSWindowControlButtonManager.shared.setShow();
+      MacOSWindowControlButtonManager.shared.setVertical();
+    }
   }
 
   @override
@@ -71,13 +77,6 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
             DeviceType.tv
           ],
           builder: (context, activeBreakpoint) {
-            if (activeBreakpoint == DeviceType.band ||
-                activeBreakpoint == DeviceType.dock) {
-              MacOSWindowControlButtonManager.shared.setHide();
-            } else {
-              MacOSWindowControlButtonManager.shared.setShow();
-            }
-
             if (activeBreakpoint == DeviceType.band ||
                 activeBreakpoint == DeviceType.dock ||
                 path == '/' ||
