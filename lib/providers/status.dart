@@ -35,10 +35,8 @@ class PlaybackStatusProvider with ChangeNotifier {
     if (!_hasPendingNotification) {
       _hasPendingNotification = true;
       SchedulerBinding.instance.addPostFrameCallback((_) {
-        if (_hasPendingNotification) {
-          notifyListeners();
-          _hasPendingNotification = false;
-        }
+        notifyListeners();
+        _hasPendingNotification = false;
       });
     }
   }
