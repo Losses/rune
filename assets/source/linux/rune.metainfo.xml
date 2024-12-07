@@ -26,7 +26,7 @@
 
   <content_rating type="oars-1.1" />
 
-  <launchable type="desktop-id">rune</launchable>
+  <launchable type="desktop-id">rune.desktop</launchable>
 
   <screenshots>
     <screenshot type="default">
