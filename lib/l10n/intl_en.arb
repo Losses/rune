@@ -964,5 +964,9 @@
   "adaptiveSwitchingSubtitle": "Restarts from the beginning if you switch back after the current track has played for more than three seconds.",
   "@adaptiveSwitchingSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "Please consider purchasing a genuine license.",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }

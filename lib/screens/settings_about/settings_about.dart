@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
@@ -8,12 +9,14 @@ import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/dialogs/register/show_register_dialog.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/no_shortcuts.dart';
 import '../../widgets/tile/fancy_cover.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/system.pb.dart';
+import '../../providers/license.dart';
 import '../../providers/responsive_providers.dart';
 import '../../utils/l10n.dart';
 
@@ -318,6 +321,9 @@ class _InfoTable extends StatelessWidget {
 class _ActivationInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final license = Provider.of<LicenseProvider>(context);
+    final theme = FluentTheme.of(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -325,17 +331,36 @@ class _ActivationInfo extends StatelessWidget {
         Text(S.of(context).activation,
             style: FluentTheme.of(context).typography.subtitle),
         const SizedBox(height: 4),
-        Text(S.of(context).runeIsActivated),
-        const SizedBox(height: 4),
-        Row(
-          children: [
-            Text(S.of(context).productId),
-            const SizedBox(width: 12),
-            Text("DG8FV-B9TKY-FRT9J-6CRCC-XPQ4G"),
-          ],
+        Text(
+          license.isPro
+              ? S.of(context).runeIsActivated
+              : S.of(context).evaluationMode,
         ),
         const SizedBox(height: 4),
-        Text(S.of(context).youMayBeAVictimOfGenuineSoftware),
+        license.isPro
+            ? Text(S.of(context).youMayBeAVictimOfGenuineSoftware)
+            : HyperlinkButton(
+                style: ButtonStyle(
+                  padding: WidgetStateProperty.all(EdgeInsets.all(0)),
+                  backgroundColor: WidgetStateProperty.all(Colors.transparent),
+                  textStyle: WidgetStateProperty.resolveWith(
+                    (states) {
+                      if (states.isHovered) {
+                        return TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: theme.resources.textOnAccentFillColorPrimary,
+                        );
+                      }
+                      return TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: theme.resources.textOnAccentFillColorSecondary,
+                      );
+                    },
+                  ),
+                ),
+                child: Text(S.of(context).considerPurchase),
+                onPressed: () => showRegisterDialog(context),
+              ),
         const SizedBox(height: 12),
       ],
     );
