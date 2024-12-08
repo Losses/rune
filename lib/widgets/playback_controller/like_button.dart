@@ -3,7 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/get_liked.dart';
 import '../../utils/api/set_liked.dart';
-import '../../widgets/tiny_icon_button.dart';
+import '../rune_icon_button.dart';
 
 class LikeButton extends StatefulWidget {
   final int? fileId;
@@ -59,7 +59,7 @@ class _LikeButtonState extends State<LikeButton> {
 
   @override
   Widget build(BuildContext context) {
-    return TinyIconButton(
+    return RuneIconButton(
       onPressed: fileId == null
           ? null
           : () {
@@ -69,6 +69,9 @@ class _LikeButtonState extends State<LikeButton> {
         Symbols.favorite,
         fill: liked ? 1 : 0,
       ),
+      iconSize: 13,
+      padding: 0,
+      isTiny: true,
     );
   }
 }

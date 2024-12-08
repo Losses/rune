@@ -10,6 +10,7 @@ class RuneIconButton extends StatefulWidget {
     this.focusable = true,
     this.padding = 8.0,
     this.iconSize = 16.0,
+    this.isTiny = false,
   });
 
   final Widget icon;
@@ -19,6 +20,7 @@ class RuneIconButton extends StatefulWidget {
   final bool focusable;
   final double padding;
   final double iconSize;
+  final bool isTiny;
 
   @override
   State<RuneIconButton> createState() => _RuneIconButtonState();
@@ -43,12 +45,19 @@ class _RuneIconButtonState extends State<RuneIconButton> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final iconColor = theme.resources.textFillColorPrimary;
-    final fillColor = _isFocused
-        ? theme.resources.solidBackgroundFillColorBase
-        : _isHovered
-            ? theme.resources.subtleFillColorSecondary
-            : Colors.transparent;
+    final iconColor = widget.isTiny
+        ? _isHovered
+            ? theme.resources.textFillColorPrimary.withAlpha(160)
+            : theme.resources.textFillColorPrimary
+        : theme.resources.textFillColorPrimary;
+
+    final fillColor = widget.isTiny
+        ? Colors.transparent
+        : _isFocused
+            ? theme.resources.solidBackgroundFillColorBase
+            : _isHovered
+                ? theme.resources.subtleFillColorSecondary
+                : Colors.transparent;
 
     Color borderColor;
     List<BoxShadow>? boxShadow;
