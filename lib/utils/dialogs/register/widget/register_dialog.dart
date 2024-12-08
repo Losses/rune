@@ -1,6 +1,7 @@
+import 'package:flutter_svg/svg.dart';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter_svg/svg.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:file_selector/file_selector.dart';
 
 import '../../../../widgets/no_shortcuts.dart';
@@ -61,7 +62,13 @@ class _RegisterDialogState extends State<RegisterDialog> {
             ),
             SizedBox(height: 16),
             Button(
-              onPressed: _loading ? null : () => {},
+              onPressed: _loading
+                  ? null
+                  : _loading
+                      ? null
+                      : () => launchUrl(
+                            Uri.parse('https://nodewave.bandcamp.com/album/rune'),
+                          ),
               child: Row(
                 children: [
                   SvgPicture.asset(
@@ -79,7 +86,11 @@ class _RegisterDialogState extends State<RegisterDialog> {
             ),
             SizedBox(height: 4),
             Button(
-              onPressed: _loading ? null : () => {},
+              onPressed: _loading
+                  ? null
+                  : () => launchUrl(
+                        Uri.parse('https://not-ci.itch.io/rune'),
+                      ),
               child: Row(
                 children: [
                   SvgPicture.asset(
