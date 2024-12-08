@@ -75,7 +75,7 @@ class CoverWallLayoutState extends State<CoverWallLayout> {
           alignment: isMini ? Alignment.centerLeft : Alignment.bottomCenter,
           children: [
             Container(
-              color: isDark ? null : theme.accentColor.lightest.lighten(0.2),
+              color: isDark ? Colors.black : theme.accentColor.lightest.lighten(0.2),
             ),
             coverArtWall,
             Container(
