@@ -956,5 +956,17 @@
   "importM3u8": "プレイリストをインポート",
   "@importM3u8": {
     "description": "ユーザーが新しいプレイリストをインポートするように案内するコンテキストメニューアイテム。"
+  },
+  "adaptiveSwitching": "アダプティブスイッチング",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "カレントトラックが 3 セカンドオーバープレイサレタアフターにリワインドしたケース、ビギニングからプレイがリスタートされます。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "ジェニュインライセンスのパーチェスをコンシダーください。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }

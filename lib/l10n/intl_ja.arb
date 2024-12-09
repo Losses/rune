@@ -956,5 +956,17 @@
   "importM3u8": "再生一覧表を導入",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "自適応切替え",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "現在の曲が三秒以上再生された後に戻ると、最初から再生が始まります。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "ぜひ正銘の許可をお求めください。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }
