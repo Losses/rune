@@ -24,8 +24,8 @@ class _WindowIconButtonState extends State<WindowIconButton> {
     return MouseRegion(
       onEnter: (_) => setState(() => isHovered = true),
       onExit: (_) => setState(() => isHovered = false),
-      child: GestureDetector(
-        onTap: widget.onPressed,
+      child: Listener(
+        onPointerUp: (_) => widget.onPressed(),
         child: Container(
           width: 46,
           height: 30,
