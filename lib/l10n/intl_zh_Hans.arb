@@ -964,5 +964,9 @@
   "adaptiveSwitchingSubtitle": "切换上一首时，若已播放超过 3 秒，则从头播放当前曲目。",
   "@adaptiveSwitchingSubtitle": {
     "description": "播放设置页面中条目的设置描述"
+  },
+  "considerPurchase": "请考虑购买正版许可证。",
+  "@considerPurchase": {
+    "description": "关于页面中的通知，引导用户购买许可证"
   }
 }

@@ -964,5 +964,9 @@
   "adaptiveSwitchingSubtitle": "逾三息则擊前復始。",
   "@adaptiveSwitchingSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "望君購執。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }
