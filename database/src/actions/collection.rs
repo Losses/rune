@@ -77,18 +77,21 @@ pub struct UnifiedCollection {
     pub name: String,
     pub queries: Vec<(String, String)>,
     pub collection_type: CollectionQueryType,
+    pub readonly: bool,
 }
 
 impl UnifiedCollection {
     pub async fn from_model<T: CollectionQuery>(
         main_db: &MainDbConnection,
         model: T,
+        readonly: bool,
     ) -> Result<Self> {
         let collection: UnifiedCollection = UnifiedCollection {
             id: model.id(),
             name: model.name().to_owned(),
             queries: T::query_builder(main_db, model.id()).await?,
             collection_type: T::collection_type(),
+            readonly: readonly,
         };
 
         Ok(collection)
@@ -148,6 +151,7 @@ pub trait CollectionQuery: Send + Sync + 'static {
         Self: std::marker::Sized;
     fn id(&self) -> i32;
     fn name(&self) -> &str;
+    fn readonly(&self) -> bool;
 }
 
 #[macro_export]
@@ -325,6 +329,10 @@ macro_rules! collection_query {
 
             fn name(&self) -> &str {
                 &self.name
+            }
+
+            fn readonly(&self) -> bool {
+                false
             }
         }
     };

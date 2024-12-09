@@ -175,6 +175,10 @@ impl CollectionQuery for mixes::Model {
     fn name(&self) -> &str {
         &self.name
     }
+
+    fn readonly(&self) -> bool {
+        self.locked
+    }
 }
 
 pub async fn create_mix(
