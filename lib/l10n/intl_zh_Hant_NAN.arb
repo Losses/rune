@@ -958,5 +958,17 @@
   "importM3u8": "匯入播放清單",
   "@importM3u8": {
     "description": "選單項目，指導使用者匯入新播放清單。"
+  },
+  "adaptiveSwitching": "自適調整切換",
+  "@adaptiveSwitching": {
+    "description": "播放設定頁面中某項設定的標題"
+  },
+  "adaptiveSwitchingSubtitle": "若這首歌已經放超過三秒，欲切轉去前一首的時陣，會對頭開始放。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "請考慮買正版授權。",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }

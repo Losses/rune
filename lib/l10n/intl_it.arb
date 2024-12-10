@@ -958,5 +958,17 @@
   "importM3u8": "Importa Playlist",
   "@importM3u8": {
     "description": "Voce del menu contestuale che guida gli utenti a importare una nuova playlist."
+  },
+  "adaptiveSwitching": "Commutazione Adattiva",
+  "@adaptiveSwitching": {
+    "description": "Titolo delle impostazioni di un'opzione nella pagina delle impostazioni di riproduzione"
+  },
+  "adaptiveSwitchingSubtitle": "Ricominci dall'inizio se torni indietro dopo che il brano corrente è stato riprodotto per più di tre secondi.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Descrizione delle impostazioni di un'opzione nella pagina delle impostazioni di riproduzione"
+  },
+  "considerPurchase": "Si prega di considerare l'acquisto di una licenza originale.",
+  "@considerPurchase": {
+    "description": "Avviso nella pagina delle informazioni, che guida l'utente all'acquisto di una licenza"
   }
 }

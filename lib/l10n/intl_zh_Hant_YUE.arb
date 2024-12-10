@@ -956,5 +956,17 @@
   "importM3u8": "導入播放清單",
   "@importM3u8": {
     "description": "上下文選單項，指導用戶導入新播放清單。"
+  },
+  "adaptiveSwitching": "自適應轉換",
+  "@adaptiveSwitching": {
+    "description": "播放設定版面嘅其中一個選項標題"
+  },
+  "adaptiveSwitchingSubtitle": "如果而家播緊嘅歌曲已經播咗超過三秒，返回上一首歌嘅時候會由頭開始播放。",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "喺播放設定版面入面嘅一個選項說明"
+  },
+  "considerPurchase": "煩請考慮購買正版授權。",
+  "@considerPurchase": {
+    "description": "喺關於版面入面嘅提示，建議用戶購買正版授權"
   }
 }

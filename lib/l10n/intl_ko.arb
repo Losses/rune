@@ -958,5 +958,17 @@
   "importM3u8": "재생목록 가져오기",
   "@importM3u8": {
     "description": "새 재생목록을 가져오도록 안내하는 컨텍스트 메뉴 항목입니다."
+  },
+  "adaptiveSwitching": "적응형 전환",
+  "@adaptiveSwitching": {
+    "description": "재생 설정 페이지의 항목 설정 제목"
+  },
+  "adaptiveSwitchingSubtitle": "현재 트랙이 3초 이상 재생된 후 다시 전환하면 처음부터 재시작됩니다.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "재생 설정 페이지의 항목 설정 설명"
+  },
+  "considerPurchase": "정품 라이선스를 구매해 주시기 바랍니다.",
+  "@considerPurchase": {
+    "description": "라이선스 구매를 안내하는 정보 페이지의 공지"
   }
 }

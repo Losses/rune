@@ -956,5 +956,17 @@
   "importM3u8": "Playlist importieren",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adaptives Umschalten",
+  "@adaptiveSwitching": {
+    "description": "Einstellungstitel eines Eintrags auf der Wiedergabeeinstellungsseite"
+  },
+  "adaptiveSwitchingSubtitle": "Startet von vorne, wenn Sie nach mehr als drei Sekunden Wiedergabe des aktuellen Titels zurückschalten.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Einstellungsbeschreibung eines Eintrags auf der Wiedergabeeinstellungsseite"
+  },
+  "considerPurchase": "Bitte ziehen Sie den Kauf einer echten Lizenz in Betracht.",
+  "@considerPurchase": {
+    "description": "Hinweis auf der Informationsseite, der den Benutzer zum Kauf einer Lizenz auffordert"
   }
 }
