@@ -331,7 +331,7 @@ class _RuneState extends State<Rune> {
 
         return FluentApp(
           title: appTitle,
-          initialRoute: "/", //initialPath == null ? "/" : "/library",
+          initialRoute: initialPath == null ? "/" : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
