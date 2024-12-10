@@ -68,7 +68,7 @@ where
         let models = T::list(main_db, self.limit.into(), self.mode).await?;
         let requests = models
             .into_iter()
-            .map(|model| UnifiedCollection::from_model(main_db, model));
+            .map(|model| UnifiedCollection::from_model(main_db, model, false));
 
         try_join_all(requests).await
     }
@@ -115,6 +115,7 @@ fn create_track_collection(
         name: metadata.title,
         queries,
         collection_type: CollectionQueryType::Track,
+        readonly: false,
     }
 }
 

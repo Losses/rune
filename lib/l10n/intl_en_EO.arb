@@ -958,5 +958,17 @@
   "importM3u8": "Importi Ludliston",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
+  },
+  "adaptiveSwitching": "Adapta Ŝanĝo",
+  "@adaptiveSwitching": {
+    "description": "Agorda titolo de ero en la paĝo de reproduktaj agordoj"
+  },
+  "adaptiveSwitchingSubtitle": "Rekomencas de la komenco se vi ŝanĝas reen post kiam la nuna trako ludis dum pli ol tri sekundoj.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Agorda priskribo de ero en la paĝo de reproduktaj agordoj"
+  },
+  "considerPurchase": "Bonvolu konsideri aĉeti originalan licencon.",
+  "@considerPurchase": {
+    "description": "Averto en la pri-paĝo, gvidante uzanton por aĉeti licencon"
   }
 }

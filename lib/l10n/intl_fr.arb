@@ -958,5 +958,17 @@
   "importM3u8": "Importer une playlist",
   "@importM3u8": {
     "description": "Élément de menu contextuel guidant les utilisateurs pour importer une nouvelle playlist."
+  },
+  "adaptiveSwitching": "Commutation Adaptative",
+  "@adaptiveSwitching": {
+    "description": "Titre des paramètres d'une entrée dans la page des paramètres de lecture"
+  },
+  "adaptiveSwitchingSubtitle": "Redémarre depuis le début si vous revenez après que la piste actuelle a été lue pendant plus de trois secondes.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Description des paramètres d'une entrée dans la page des paramètres de lecture"
+  },
+  "considerPurchase": "Veuillez envisager d'acheter une licence authentique.",
+  "@considerPurchase": {
+    "description": "Avis dans la page à propos, guidant l'utilisateur à acheter une licence"
   }
 }

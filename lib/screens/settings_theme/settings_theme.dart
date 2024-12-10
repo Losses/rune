@@ -72,7 +72,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
       if (storedColorMode != null) {
         colorMode = storedColorMode;
       }
-      if (disableBrandingAnimation != null) {
+      if (storedDisableBrandingAnimation != null) {
         disableBrandingAnimation = storedDisableBrandingAnimation;
       }
       if (storedEnableDynamicColors != null) {

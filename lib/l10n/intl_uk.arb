@@ -956,5 +956,17 @@
   "importM3u8": "Імпортувати плейлист",
   "@importM3u8": {
     "description": "Елемент контекстного меню для імпортування нового плейлисту."
+  },
+  "adaptiveSwitching": "Адаптивне перемикання",
+  "@adaptiveSwitching": {
+    "description": "Settings title of an entry in the playback settings page"
+  },
+  "adaptiveSwitchingSubtitle": "Відтворення починається спочатку, якщо ви перемикаєтесь назад після того, як поточний трек відтворювався більше трьох секунд.",
+  "@adaptiveSwitchingSubtitle": {
+    "description": "Settings description of an entry in the playback settings page"
+  },
+  "considerPurchase": "Будь ласка, розгляньте можливість придбання ліцензійної версії.",
+  "@considerPurchase": {
+    "description": "Notice in the about page, guiding user to purchase a license"
   }
 }

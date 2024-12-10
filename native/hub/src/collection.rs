@@ -189,7 +189,7 @@ impl Collection {
                 .collect(),
             collection_type: T::collection_type().into(),
             cover_art_map: HashMap::new(),
-            readonly: false,
+            readonly: model.readonly(),
         };
 
         Ok(collection)
@@ -209,7 +209,7 @@ impl Collection {
                 .collect(),
             collection_type: x.collection_type.into(),
             cover_art_map: HashMap::new(),
-            readonly: false,
+            readonly: x.readonly,
         }
     }
 
