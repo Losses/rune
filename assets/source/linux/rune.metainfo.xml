@@ -55,6 +55,20 @@
         </ul>
       </description>
     </release>
+    <release version="1.0.0-beta.5" date="2024-12-07">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Optimized the drag-and-drop animation for rotating disks.</li>
+          <li>Updated LZH and Hans translations.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed the issue with misaligned window control buttons.</li>
+          <li>Resolved the lag problem when dragging the progress bar in pause mode.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0-beta.4" date="2024-12-06">
       <description>
         <p>Features</p>
