@@ -19,19 +19,21 @@ class SettingsLaboratory extends StatelessWidget {
   Widget build(BuildContext context) {
     final typography = FluentTheme.of(context).typography;
 
+    final viewPadding = MediaQuery.of(context).viewPadding;
+
     return RuneStack(
       children: [
-        _buildBackButton(),
-        _buildTitle(context, typography),
-        _buildSettingsGrid(context),
+        _buildBackButton(viewPadding),
+        _buildTitle(context, typography, viewPadding),
+        _buildSettingsGrid(context, viewPadding),
       ],
     );
   }
 
-  Widget _buildBackButton() {
+  Widget _buildBackButton(EdgeInsets viewPadding) {
     return Positioned(
-      top: 16,
-      left: 16,
+      top: 16 + viewPadding.top,
+      left: 16 + viewPadding.left,
       child: RuneIconButton(
         icon: Icon(Symbols.arrow_back, size: 24),
         onPressed: () => $pop(),
@@ -39,11 +41,15 @@ class SettingsLaboratory extends StatelessWidget {
     );
   }
 
-  Widget _buildTitle(BuildContext context, Typography typography) {
+  Widget _buildTitle(
+    BuildContext context,
+    Typography typography,
+    EdgeInsets viewPadding,
+  ) {
     return Align(
       alignment: Alignment.topCenter,
       child: Padding(
-        padding: EdgeInsets.only(top: 20),
+        padding: EdgeInsets.only(top: 20 + viewPadding.top),
         child: Text(
           S.of(context).laboratory,
           style: typography.title,
@@ -52,14 +58,17 @@ class SettingsLaboratory extends StatelessWidget {
     );
   }
 
-  Widget _buildSettingsGrid(BuildContext context) {
+  Widget _buildSettingsGrid(
+    BuildContext context,
+    EdgeInsets viewPadding,
+  ) {
     return Align(
       alignment: Alignment.topCenter,
       child: Container(
         padding: EdgeInsets.symmetric(horizontal: 8.0),
         constraints: BoxConstraints(maxWidth: 800),
         child: Padding(
-          padding: EdgeInsets.only(top: 68),
+          padding: EdgeInsets.only(top: 68 + viewPadding.top),
           child: _ResponsiveSettingsGrid(),
         ),
       ),
