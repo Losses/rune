@@ -37,17 +37,21 @@
   </screenshots>
 
   <releases>
-    <release version="1.0.0-beta.5" date="2024-12-07">
+    <release version="1.0.0-rc.1" date="2024-12-10">
       <description>
         <p>Features</p>
         <ul>
-          <li>Optimized the drag-and-drop animation for rotating disks.</li>
-          <li>Updated LZH and Hans translations.</li>
+          <li>Make cover art wall background black</li>
+          <li>Add activation instruction</li>
+          <li>Polish the design of the welcome screen</li>
+          <li>Update translation files</li>
         </ul>
         <p>Bugs</p>
         <ul>
-          <li>Fixed the issue with misaligned window control buttons.</li>
-          <li>Resolved the lag problem when dragging the progress bar in pause mode.</li>
+          <li>Fixed the like button not being clickable</li>
+          <li>Resolved window control buttons not working on Windows</li>
+          <li>Fixed readonly mode breaking</li>
+          <li>Corrected branding animation config initialization</li>
         </ul>
       </description>
     </release>
