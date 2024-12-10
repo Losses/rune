@@ -193,7 +193,10 @@ class NavigationBarState extends State<NavigationBar> {
           children: [
             if (isZune || !isSearch)
               Transform.translate(
-                offset: Offset(0 + viewPadding.top, -40 + viewPadding.left),
+                offset: Offset(
+                  0 + viewPadding.left,
+                  -40 + viewPadding.top,
+                ),
                 child: Padding(
                   padding: Platform.isMacOS
                       ? const EdgeInsets.only(left: 24)
