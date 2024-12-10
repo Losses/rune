@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../widgets/band_screen_fallback_button.dart';
 import '../../providers/responsive_providers.dart';
 
 class RemoveDialogOnBand extends StatelessWidget {
@@ -37,7 +38,7 @@ class RemoveDialogOnBand extends StatelessWidget {
               final size = min(constraint.maxWidth, constraint.maxHeight);
 
               final children = [
-                IconButton(
+                BandScreenFallbackButton(
                   icon: Icon(
                     icon ?? Symbols.delete,
                     color: Colors.warningPrimaryColor,
@@ -46,7 +47,7 @@ class RemoveDialogOnBand extends StatelessWidget {
                   onPressed: onConfirm,
                 ),
                 SizedBox(height: size * 0.2, width: size * 0.2),
-                IconButton(
+                BandScreenFallbackButton(
                   icon: Icon(
                     icon ?? Symbols.close,
                     size: (size * 0.2).clamp(0, 32),
