@@ -9,6 +9,7 @@ import '../../widgets/router/rune_stack.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'widgets/settings/branding_animation_settings.dart';
+import 'widgets/settings/cafe_mode_settings.dart';
 import 'widgets/settings/cover_wall_richness_settings.dart';
 import 'widgets/settings/library_cover_wallpaper_settings.dart';
 
@@ -92,6 +93,7 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
           CoverWallRichnessSettings(),
           LibraryCoverWallpaperSettings(),
           BrandingAnimationSettings(),
+          CafeModeSettings(),
         ],
       ),
     );
