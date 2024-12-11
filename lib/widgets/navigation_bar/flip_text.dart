@@ -133,6 +133,7 @@ class FlipTextState extends State<FlipText> {
                         child: Text(
                           widget.text,
                           style: TextStyle(
+                            fontSize: 17,
                             fontVariations: <FontVariation>[
                               FontVariation('wght', widget.fontWeight ?? 400),
                             ],

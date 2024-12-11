@@ -65,7 +65,7 @@ class ParentLinkState extends State<ParentLink> {
               key: Key(widget.titleFlipKey),
               flipKey: widget.titleFlipKey,
               text: widget.text,
-              scale: 6,
+              scale: 5,
               alpha: _isFocus ? 255 : _alpha,
               color: _isFocus ? accentColor : null,
               glowColor: accentColor,

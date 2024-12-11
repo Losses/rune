@@ -82,7 +82,7 @@ class _SlibingLinkState extends State<SlibingLink> {
         : theme.accentColor.darker;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 24),
+      padding: const EdgeInsets.only(right: 14),
       child: Listener(
         onPointerUp: (_) => widget.onTap(),
         child: FocusableActionDetector(
@@ -102,7 +102,7 @@ class _SlibingLinkState extends State<SlibingLink> {
                 key: Key(childFlipKey),
                 flipKey: childFlipKey,
                 text: widget.route.titleBuilder(context),
-                scale: 1.2,
+                scale: 1,
                 color: _isFocus ? contentColor : null,
                 glowColor: contentColor,
                 glowRadius: _isFocus ? 10 : 0,

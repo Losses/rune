@@ -195,7 +195,7 @@ class NavigationBarState extends State<NavigationBar> {
               Transform.translate(
                 offset: Offset(
                   0 + viewPadding.left,
-                  -40 + viewPadding.top,
+                  -44 + viewPadding.top,
                 ),
                 child: Padding(
                   padding: Platform.isMacOS
