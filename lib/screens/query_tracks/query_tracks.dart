@@ -32,6 +32,7 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
   @override
   Widget build(BuildContext context) {
     final FluentThemeData theme = FluentTheme.of(context);
+    final viewPadding = MediaQuery.of(context).viewPadding;
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
@@ -51,7 +52,12 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
                         // The left offset on macOS should be the same as the NavigationBar's parent title left offset
                         // But due to font and typography reasons(#166), we need to add 2px to visually align them.
                         ? const EdgeInsets.fromLTRB(26, 54, 24, 12)
-                        : const EdgeInsets.fromLTRB(20, 54, 24, 12),
+                        : EdgeInsets.fromLTRB(
+                            20 + viewPadding.left,
+                            54 + viewPadding.top,
+                            24 + viewPadding.right,
+                            12 + viewPadding.bottom,
+                          ),
                     child: Transform.scale(
                       scale: 1.2,
                       alignment: Alignment.centerLeft,
