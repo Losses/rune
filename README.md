@@ -53,6 +53,12 @@ However, we offer a WinRAR-style trial mechanism, allowing you to try the softwa
 
 Please note that we do not accept feature requests from unpaid users.
 
+<div style="display: flex; justify-cotent: center; align-items: center;">
+  <a href="#"><img src="assets/available_steam.png" style="max-width: 180px" alt="Available on Steam"/></a>
+  <a href="#"><img src="assets/available_ms_store.png" style="max-width: 180px" alt="Available on Microsoft Store"/></a>
+  <a href="#"><img src="assets/available_app_store.png" style="max-width: 180px" alt="Available on App Store"/></a>
+</div>
+
 ## Installation and Running
 
 Rune offers [CI builds](https://github.com/Losses/rune/actions) for Linux (including SteamOS), Windows, and macOS. You can find the latest versions on the Release page.
@@ -64,7 +70,6 @@ Alternatively, you can compile your own binary package. The [documentation](http
 Rune is divided into two release queues: the Production Queue and the Cutting Edge Queue. These queues release independently.
 
 - **Production Queue**: Maintained by the Rune development team, ensuring no critical issues affect user experience before being pushed to stores. We only address software defects here, and no new features are introduced. Fixes go through Dev, Alpha, Beta, and RC stages before release.
-  
 - **Cutting Edge Queue**: Offers experimental features and is maintained by the community. Software packages from this queue may be available in community repositories, but Rune will never officially push these to users.
 
 If a version in the Cutting Edge Queue reaches production quality after the RC stage, it will replace the version in the Production Queue and be pushed to users.
