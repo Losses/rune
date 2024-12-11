@@ -16,9 +16,12 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
 
+import 'screens/settings_laboratory/widgets/settings/cafe_mode_settings.dart';
+import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
+import 'utils/query_list.dart';
 import 'utils/rune_log.dart';
 import 'utils/tray_manager.dart';
 import 'utils/close_manager.dart';
@@ -65,6 +68,7 @@ import 'theme.dart';
 late bool disableBrandingAnimation;
 late String? initialPath;
 late bool isWindows11;
+late bool cafeMode;
 
 void main(List<String> arguments) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -119,6 +123,8 @@ void main(List<String> arguments) async {
   disableBrandingAnimation =
       await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
           false;
+
+  cafeMode = (await settingsManager.getValue<String>(cafeModeKey)) == "true";
 
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -331,7 +337,11 @@ class _RuneState extends State<Rune> {
 
         return FluentApp(
           title: appTitle,
-          initialRoute: initialPath == null ? "/" : "/library",
+          initialRoute: initialPath == null
+              ? "/"
+              : cafeMode
+                  ? "/cover_wall"
+                  : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
             final routeName = settings.name!;
@@ -417,6 +427,25 @@ class RuneLifecycleState extends State<RuneLifecycle> {
   @override
   void initState() {
     super.initState();
+
+    if (cafeMode && initialPath != null) {
+      Future.delayed(
+              Duration(seconds: disableBrandingAnimation == true ? 1 : 4))
+          .then((_) {
+        operatePlaybackWithMixQuery(
+            queries: const QueryList([
+              ("lib::random", "1"),
+              ("filter::analyzed", "true"),
+              ("pipe::recommend", "-1")
+            ]),
+            playbackMode: 99,
+            hintPosition: -1,
+            initialPlaybackId: -1,
+            instantlyPlay: true,
+            operateMode: PlaylistOperateMode.Replace,
+            fallbackFileIds: []);
+      });
+    }
   }
 
   @override

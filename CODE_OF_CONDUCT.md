@@ -12,8 +12,6 @@
 
 2.1.2. If you're not confident in your English, you MAY use any large language model to assist you.
 
-2.1.3. We do not accept pull requests for translating the README or any development documentation.
-
 ### 2.2 Precise Communication
 
 2.2.1. All contributions SHOULD NOT using adjectives, as they can be abstract and lead to unclear expression.
@@ -118,6 +116,8 @@ All feature proposals MUST align with these core principles:
 ## 5. Pull Request Standards
 
 5.1. All commits MUST follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification with clear and descriptive messages.
+
+5.2. We do not accept pull requests for translating the README or any development documentation.
 
 ## 6. Conduct and Enforcement
 

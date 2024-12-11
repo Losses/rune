@@ -220,6 +220,8 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
       deviceType: widget.deviceType,
     );
 
+    final viewPadding = MediaQuery.of(context).viewPadding;
+
     if (widget.deviceType == DeviceType.tablet) {
       return PageContentFrame(
         top: false,
@@ -229,7 +231,12 @@ class _SearchPageImplementationState extends State<SearchPageImplementation> {
             children: [
               if (Platform.isWindows) SizedBox(height: 20),
               Padding(
-                padding: const EdgeInsets.fromLTRB(32, 18, 32, 20),
+                padding: EdgeInsets.fromLTRB(
+                  32 + viewPadding.left,
+                  20 + viewPadding.top,
+                  60 + viewPadding.right,
+                  20 + viewPadding.bottom,
+                ),
                 child: autoSuggestBox,
               ),
               Expanded(

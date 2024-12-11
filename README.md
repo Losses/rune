@@ -53,6 +53,12 @@ However, we offer a WinRAR-style trial mechanism, allowing you to try the softwa
 
 Please note that we do not accept feature requests from unpaid users.
 
+<p align="center">
+  <a href="https://partner.steamgames.com/apps/landing/3343500"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
+  <a href="https://apps.microsoft.com/detail/9N52TW1F5348"><img src="assets/available_ms_store.png" width=180 alt="Available on Microsoft Store"/></a>
+  <a href="#"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
+</p>
+
 ## Installation and Running
 
 Rune offers [CI builds](https://github.com/Losses/rune/actions) for Linux (including SteamOS), Windows, and macOS. You can find the latest versions on the Release page.
@@ -64,17 +70,16 @@ Alternatively, you can compile your own binary package. The [documentation](http
 Rune is divided into two release queues: the Production Queue and the Cutting Edge Queue. These queues release independently.
 
 - **Production Queue**: Maintained by the Rune development team, ensuring no critical issues affect user experience before being pushed to stores. We only address software defects here, and no new features are introduced. Fixes go through Dev, Alpha, Beta, and RC stages before release.
-  
 - **Cutting Edge Queue**: Offers experimental features and is maintained by the community. Software packages from this queue may be available in community repositories, but Rune will never officially push these to users.
 
 If a version in the Cutting Edge Queue reaches production quality after the RC stage, it will replace the version in the Production Queue and be pushed to users.
 
 ## Contributing
 
-We're thrilled you're interested in contributing. Before you dive in, please take a moment to review these key points to ensure smooth collaboration. For detailed instructions, please refer to the full [Contributing Guide](CONTRIBUTING.md).
+We're thrilled you're interested in contributing. Before you dive in, please take a moment to review these key points to ensure smooth collaboration. For detailed instructions, please refer to the full [Contributing Guide](CODE_OF_CONDUCT.md).
 
 - **Language Requirement**: To facilitate clear communication across all developers, all contributions, including issues and pull requests, must be submitted in English. If you are not confident in your English proficiency, consider using a language model for assistance.
-- **Feature Requests**: As Rune is in the early stages of development, we are currently not accepting feature requests.
+- **Feature Requests**: We do not accept feature requests from unpaid users.
 - **Feature Implementation**: If you have a feature proposal, please reach out to the development team for a preliminary discussion to ensure it aligns with Rune's vision.
 - **Documentation**: Collaboration is conducted exclusively in English. While we do not accept pull requests for translating the README or other development documentation, contributions for translating Rune itself are welcome.
 

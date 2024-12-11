@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../screens/settings_theme/settings_theme.dart';
 import '../utils/settings_manager.dart';
+import '../screens/settings_theme/settings_theme.dart';
 
 enum DeviceOrientation {
   vertical,
@@ -84,6 +84,18 @@ enum DeviceType {
     start: 341,
     end: double.infinity,
   );
+
+  @override
+  toString() {
+    return name;
+  }
+
+  static DeviceType fromString(String x) {
+    return DeviceType.values.firstWhere(
+      (type) => type.name == x,
+      orElse: () => throw ArgumentError('Invalid DeviceType name: $x'),
+    );
+  }
 
   final int priority;
   final DeviceOrientation orientation;
@@ -200,7 +212,10 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 class ResponsiveProvider extends ChangeNotifier {
   DeviceType _currentVerticalDeviceType = DeviceType.desktop;
   DeviceType _currentHorizontalDeviceType = DeviceType.station;
-  DeviceType currentDeviceType = DeviceType.desktop;
+  DeviceType _currentDeviceType = DeviceType.desktop;
+  DeviceType? _forceDeviceType;
+
+  get currentDeviceType => _forceDeviceType ?? _currentDeviceType;
 
   ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
     screenSizeProvider.addListener(_updateDeviceTypes);
@@ -232,7 +247,7 @@ class ResponsiveProvider extends ChangeNotifier {
     _currentVerticalDeviceType = newV;
     _currentHorizontalDeviceType = newH;
 
-    currentDeviceType = newA;
+    _currentDeviceType = newA;
 
     if (oldA != newA || oldV != newV || oldH != newH) {
       notifyListeners();

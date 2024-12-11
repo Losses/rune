@@ -82,7 +82,7 @@ class _SlibingLinkState extends State<SlibingLink> {
         : theme.accentColor.darker;
 
     return Padding(
-      padding: const EdgeInsets.only(right: 24),
+      padding: const EdgeInsets.only(right: 14),
       child: Listener(
         onPointerUp: (_) => widget.onTap(),
         child: FocusableActionDetector(
@@ -96,19 +96,22 @@ class _SlibingLinkState extends State<SlibingLink> {
             key: Key('animation-$childFlipKey'),
             opacity: _entryAnimationOpacity,
             duration: const Duration(milliseconds: 300),
-            child: FlipText(
-              key: Key(childFlipKey),
-              flipKey: childFlipKey,
-              text: widget.route.titleBuilder(context),
-              scale: 1.2,
-              color: _isFocus ? contentColor : null,
-              glowColor: contentColor,
-              glowRadius: _isFocus ? 10 : 0,
-              alpha: widget.isSelected || _isFocus
-                  ? 255
-                  : _isHovered
-                      ? 200
-                      : 100,
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: FlipText(
+                key: Key(childFlipKey),
+                flipKey: childFlipKey,
+                text: widget.route.titleBuilder(context),
+                scale: 1,
+                color: _isFocus ? contentColor : null,
+                glowColor: contentColor,
+                glowRadius: _isFocus ? 10 : 0,
+                alpha: widget.isSelected || _isFocus
+                    ? 255
+                    : _isHovered
+                        ? 200
+                        : 100,
+              ),
             ),
           ),
         ),

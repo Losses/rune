@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -7,13 +6,14 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../../utils/l10n.dart';
 import '../../../utils/ax_shadow.dart';
+import '../../../utils/get_dir_path.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../widgets/band_screen_fallback_button.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/library_manager.dart';
 import '../../../providers/responsive_providers.dart';
-import '../../../utils/get_dir_path.dart';
-import '../../../utils/l10n.dart';
 
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key});
@@ -59,17 +59,9 @@ class WelcomePage extends StatelessWidget {
 
     if (r.smallerOrEqualTo(DeviceType.dock, false)) {
       return Center(
-        child: LayoutBuilder(
-          builder: (context, constraint) {
-            final size = min(constraint.maxWidth, constraint.maxHeight);
-            return IconButton(
-              icon: Icon(
-                Symbols.folder_open,
-                size: (size * 0.8).clamp(0, 48),
-              ),
-              onPressed: () => selectDirectory(context),
-            );
-          },
+        child: BandScreenFallbackButton(
+          icon: Icon(Symbols.folder_open),
+          onPressed: () => selectDirectory(context),
         ),
       );
     }

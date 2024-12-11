@@ -77,7 +77,7 @@
         };
 
         packages.default = pkgs.callPackage ./rune.nix {
-          inherit (masterPkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb flutter324 protobuf_26 protoc-gen-prost buildDartApplication dart;
+          inherit (masterPkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb flutter protobuf_26 protoc-gen-prost buildDartApplication dart;
         };
       }
     );

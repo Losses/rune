@@ -91,7 +91,7 @@ impl UnifiedCollection {
             name: model.name().to_owned(),
             queries: T::query_builder(main_db, model.id()).await?,
             collection_type: T::collection_type(),
-            readonly: readonly,
+            readonly,
         };
 
         Ok(collection)

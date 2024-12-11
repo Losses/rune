@@ -142,8 +142,10 @@ class FlipTextAnimationState extends State<FlipTextAnimation>
         child: Text(
           widget.text,
           style: TextStyle(
+            fontSize: 17,
             fontVariations: <FontVariation>[FontVariation('wght', fontWeight)],
-            color: (widget.toStyles.color ?? widget.fromStyles.color)?.withAlpha(alpha.toInt()),
+            color: (widget.toStyles.color ?? widget.fromStyles.color)
+                ?.withAlpha(alpha.toInt()),
           ),
         ),
       ),
