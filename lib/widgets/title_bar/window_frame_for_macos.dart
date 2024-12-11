@@ -29,7 +29,8 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _fullscreen = Provider.of<FullScreenProvider>(context, listen: false);
-    _responsiveProvider = Provider.of<ResponsiveProvider>(context, listen: false);
+    _responsiveProvider =
+        Provider.of<ResponsiveProvider>(context, listen: false);
 
     _fullscreen.addListener(updateWindowControlButtons);
     _responsiveProvider.addListener(updateWindowControlButtons);
@@ -45,13 +46,24 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
   }
 
   void updateWindowControlButtons() {
-    if (_responsiveProvider.currentDeviceType == DeviceType.band ||
-        _responsiveProvider.currentDeviceType == DeviceType.dock) {
+    var currentDeviceType = _responsiveProvider.currentDeviceType;
+    if (currentDeviceType == DeviceType.band ||
+        currentDeviceType == DeviceType.dock) {
       MacOSWindowControlButtonManager.shared.setHide();
-    } else {
-      MacOSWindowControlButtonManager.shared.setShow();
-      MacOSWindowControlButtonManager.shared.setVertical();
+      return;
     }
+
+    if ((
+            currentDeviceType == DeviceType.zune ||
+            currentDeviceType == DeviceType.phone) &&
+        $router.path == "/cover_wall") {
+      MacOSWindowControlButtonManager.shared.setHide();
+      return;
+    }
+
+    MacOSWindowControlButtonManager.shared.setShow();
+    MacOSWindowControlButtonManager.shared.setVertical();
+    return;
   }
 
   @override
