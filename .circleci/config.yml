@@ -67,9 +67,9 @@ jobs:
     - run:
         name: Package artifact
         command: |
-          cd build/linux/arm64/release/
+          cd build/linux/arm64/release/bundle/
           TAG=${CIRCLE_TAG}
-          zip -r Rune-${TAG}-linux-aarch64.zip bundle/
+          zip -r ../Rune-${TAG}-linux-aarch64.zip .
     - run:
         name: Upload to GitHub Release
         command: |
