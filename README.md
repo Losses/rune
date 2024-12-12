@@ -23,7 +23,16 @@ https://github.com/user-attachments/assets/f363ff5e-d8e5-49b1-81f1-74efa831f83a
 
 ## Introduction
 
-Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience.
+Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience with cross-platform support.
+
+  <p align="center">
+    <img alt="Windows Support" width=120 src="assets/p-windows_support.png" />
+    <img alt="SteamOS Support" width=120 src="assets/p-steamos_support.png" />
+    <img alt="macOS Support" width=120 src="assets/p-macos_support.png" />
+    <img alt="Linux Support" width=120 src="assets/p-linux_support.png" />
+    <img alt="Android Support" width=120 src="assets/p-android_support.png" />
+    <img alt="iOS Support" width=120 src="assets/p-ios_support.png" />
+  </p>
 
 ## Motivation
 
@@ -44,8 +53,6 @@ The motivation behind Rune is to provide a modernized audio listening and manage
   - "Playlists including specific artists"
 
   These mixes automatically update as users listen to and add new tracks.
-
-- **Cross-Platform Support**: Originally for Windows and NixOS, Rune now runs on macOS, general Linux distributions, and even Steam Deck. An Android version is under development.
 
 ## Pricing
 
