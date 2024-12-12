@@ -116,7 +116,7 @@ class _RegisterDialogState extends State<RegisterDialog> {
                   : () async {
                       const XTypeGroup typeGroup = XTypeGroup(
                         label: 'Rune license',
-                        extensions: <String>['flac'],
+                        extensions: <String>['flac', 'mp3', 'm4a', 'ogg', 'wav', 'aiff'],
                       );
                       final XFile? file = await openFile(
                         acceptedTypeGroups: <XTypeGroup>[typeGroup],
