@@ -5,4 +5,4 @@ export PATH="$DIR:$PATH"
 
 chmod +x "$DIR/rune"
 
-exec "$DIR/rune" "$@"
+exec "$DIR/rune --pro" "$@"
