@@ -27,7 +27,7 @@ Rune Player is a music player that offers audio analysis and recommendation feat
 
 ## Motivation
 
-Rune is a UX experiment inspired by the question: What if Zune had continued to evolve? Using a modern tech stack, Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile and Windows Media Center.
+Rune is a UX experiment inspired by the question: What if Zune[^1] had continued to evolve? Using a modern tech stack, Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile[^1] and Windows Media Center[^1].
 
 The motivation behind Rune is to provide a modernized audio listening and management experience. With the rise of streaming services, localized music players have become less common, and many well-known media players have stagnated. Rune aims to offer a clean, consistent, and efficient audio playback experience.
 
@@ -63,9 +63,13 @@ Please note that we do not accept feature requests from unpaid users.
 
 ## Installation and Running
 
-Rune offers [CI builds](https://github.com/Losses/rune/actions) for Linux (including SteamOS), Windows, and macOS. You can find the latest versions on the Release page.
+We encourage you to purchase and use Rune through the official channels available in the software stores mentioned above, as these are maintained by the Rune team.
 
-Alternatively, you can compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
+However, if you have specific needs, you can choose to build your own binary package, download the [CI-provided binary builds](https://github.com/Losses/rune/actions) or use community-maintained packages like Scoop, Homebrew, and Flatpak. Please note that while some of these packages are acknowledged and supported by Rune developers, they are not officially maintained by Rune. We do not guarantee their stability or security.
+
+If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
+
+Additionally, when using these unofficial sources, **you should still purchase a genuine license**.
 
 ## Release Policy
 
