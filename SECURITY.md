@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Rune is currently in the development phase and has not yet reached a stable release. As such, we only provide security updates for the latest development version. We encourage users to keep their installations up-to-date to benefit from the latest security enhancements.
+Only the versions in the Production Queue are supported. The support is limited to the latest minor version.
 
 ## Reporting a Vulnerability
 
