@@ -10,10 +10,9 @@
     The player that blends classic design with modern technology.
   </p>
   <p>
-    <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune" /></a>
+    <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune?color=%233f51b5" /></a>
     <a href="https://github.com/Losses/rune/blob/master/flake.nix"><img alt="Nix Flakes" src="https://img.shields.io/badge/nix-flake-blue?logo=nixos" /></a>
-    <a href="https://github.com/Losses/rune/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/losses/rune" /></a>
-    <a href="https://github.com/Losses/rune/pulls"><img alt="GitHub Pull Requests" src="https://img.shields.io/github/issues-pr/losses/rune" /></a>
+    <a href="https://oss.issuehunt.io/r/Losses/rune"><img alt="Issue Hunt" src="https://img.shields.io/badge/hunt-hunt?logo=cashapp&logoColor=white&label=issue&color=%232cc28c"></a>
     <a href="https://github.com/Losses/rune/actions/workflows/build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/losses/rune/build.yml"></a>
     <a href="https://github.com/losses/rune/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/losses/rune?color=green"></a>
 
@@ -24,11 +23,20 @@ https://github.com/user-attachments/assets/f363ff5e-d8e5-49b1-81f1-74efa831f83a
 
 ## Introduction
 
-Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience.
+Rune Player is a music player that offers audio analysis and recommendation features. It introduces a new, modern music management paradigm to enhance your experience with cross-platform support.
+
+  <p align="center">
+    <img alt="Windows Support" width=120 src="assets/p-windows_support.png" />
+    <img alt="SteamOS Support" width=120 src="assets/p-steamos_support.png" />
+    <img alt="macOS Support" width=120 src="assets/p-macos_support.png" />
+    <img alt="Linux Support" width=120 src="assets/p-linux_support.png" />
+    <img alt="Android Support" width=120 src="assets/p-android_support.png" />
+    <img alt="iOS Support" width=120 src="assets/p-ios_support.png" />
+  </p>
 
 ## Motivation
 
-Rune is a UX experiment inspired by the question: What if Zune had continued to evolve? Using a modern tech stack, Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile and Windows Media Center.
+Rune is a UX experiment inspired by the question: What if Zune[^1] had continued to evolve? Using a modern tech stack, Rune captures the essence of Zune, drawing from the design highlights of various Windows products since the Windows XP era, including Windows Mobile[^1] and Windows Media Center[^1].
 
 The motivation behind Rune is to provide a modernized audio listening and management experience. With the rise of streaming services, localized music players have become less common, and many well-known media players have stagnated. Rune aims to offer a clean, consistent, and efficient audio playback experience.
 
@@ -46,8 +54,6 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
   These mixes automatically update as users listen to and add new tracks.
 
-- **Cross-Platform Support**: Originally for Windows and NixOS, Rune now runs on macOS, general Linux distributions, and even Steam Deck. An Android version is under development.
-
 ## Pricing
 
 **Rune is not a free pint of beer.** To use it legally, you should purchase a license. The price basement is $10 across all platforms, though it may vary due to store policies and regional differences.
@@ -64,9 +70,13 @@ Please note that we do not accept feature requests from unpaid users.
 
 ## Installation and Running
 
-Rune offers [CI builds](https://github.com/Losses/rune/actions) for Linux (including SteamOS), Windows, and macOS. You can find the latest versions on the Release page.
+We encourage you to purchase and use Rune through the official channels available in the software stores mentioned above, as these are maintained by the Rune team.
 
-Alternatively, you can compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
+However, if you have specific needs, you can choose to build your own binary package, download the [CI-provided binary builds](https://github.com/Losses/rune/actions) or use community-maintained packages like Scoop, Homebrew, and Flatpak. Please note that while some of these packages are acknowledged and supported by Rune developers, they are not officially maintained by Rune. We do not guarantee their stability or security.
+
+If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
+
+Additionally, when using these unofficial sources, **you should still purchase a genuine license**.
 
 ## Release Policy
 

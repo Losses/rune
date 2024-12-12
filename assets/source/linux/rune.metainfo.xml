@@ -37,6 +37,25 @@
   </screenshots>
 
   <releases>
+    <release version="1.0.0-rc.2" date="2024-12-12">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added support for Bandcamp platform licensing authentication</li>
+          <li>Hidden window control buttons in the Cover Art Wall interface on macOS by @XMLHexagram</li>
+          <li>Prepare for the unofficial FlatHub release by @Fei1Yang</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed conflict issues between playback control buttons and touch gestures in the
+            library home settings interface</li>
+          <li>Resolved incorrect page margin issues in the search interface on Android</li>
+          <li>Fixed difficulty in triggering navigation bar text on touchscreens</li>
+          <li>Improved margin calculation for icon buttons in Band View</li>
+          <li>Corrected navigation bar positioning issues on Android</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0-rc.1" date="2024-12-10">
       <description>
         <p>Features</p>
