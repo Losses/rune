@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:reorderables/reorderables.dart';
@@ -5,8 +7,9 @@ import 'package:reorderables/reorderables.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/build_draggable_feedback.dart';
-import '../../widgets/settings/settings_box_combo_box.dart';
+import '../../widgets/pointer_type.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_home.dart';
 
@@ -34,37 +37,44 @@ class _SettingsLibraryHomeState extends State<SettingsLibraryHome> {
                 children: [
                   SizedBox(
                     width: double.maxFinite,
-                    child: ReorderableColumn(
-                      needsLongPressDraggable: false,
-                      onReorder: libraryHome.reorder,
-                      buildDraggableFeedback: buildDraggableFeedback,
-                      children: libraryHome.entries
-                          .map(
-                            (item) => SettingsBoxComboBox(
-                              key: ValueKey(item.id),
-                              icon: item.definition.icon(context),
-                              iconColor: item.value == 'disable'
-                                  ? theme.resources.textFillColorDisabled
-                                  : null,
-                              title: item.definition.titleBuilder(context),
-                              subtitle: item.definition.subtitleBuilder(context),
-                              value: item.value ?? item.definition.defaultValue,
-                              items: item.definition
-                                  .optionBuilder(context)
-                                  .map((x) => SettingsBoxComboBoxItem(
-                                        value: x.$2,
-                                        title: x.$1,
-                                      ))
-                                  .toList(),
-                              onChanged: (newValue) {
-                                libraryHome.updateEntryValue(
-                                  item.id,
-                                  newValue,
-                                );
-                              },
-                            ),
-                          )
-                          .toList(),
+                    child: PointerTypeBuilder(
+                      builder: (kind) {
+                        return ReorderableColumn(
+                          needsLongPressDraggable:
+                              kind == PointerDeviceKind.touch,
+                          onReorder: libraryHome.reorder,
+                          buildDraggableFeedback: buildDraggableFeedback,
+                          children: libraryHome.entries
+                              .map(
+                                (item) => SettingsBoxComboBox(
+                                  key: ValueKey(item.id),
+                                  icon: item.definition.icon(context),
+                                  iconColor: item.value == 'disable'
+                                      ? theme.resources.textFillColorDisabled
+                                      : null,
+                                  title: item.definition.titleBuilder(context),
+                                  subtitle:
+                                      item.definition.subtitleBuilder(context),
+                                  value: item.value ??
+                                      item.definition.defaultValue,
+                                  items: item.definition
+                                      .optionBuilder(context)
+                                      .map((x) => SettingsBoxComboBoxItem(
+                                            value: x.$2,
+                                            title: x.$1,
+                                          ))
+                                      .toList(),
+                                  onChanged: (newValue) {
+                                    libraryHome.updateEntryValue(
+                                      item.id,
+                                      newValue,
+                                    );
+                                  },
+                                ),
+                              )
+                              .toList(),
+                        );
+                      },
                     ),
                   ),
                 ],
