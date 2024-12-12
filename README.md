@@ -10,7 +10,8 @@
     The player that blends classic design with modern technology.
   </p>
   <p>
-    <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune" /></a>
+    <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune?color=%233F51B5
+    " /></a>
     <a href="https://github.com/Losses/rune/blob/master/flake.nix"><img alt="Nix Flakes" src="https://img.shields.io/badge/nix-flake-blue?logo=nixos" /></a>
     <a href="https://oss.issuehunt.io/r/Losses/rune"><img alt="Issue Hunt" src="https://img.shields.io/badge/hunt-hunt?logo=cashapp&logoColor=white&label=issue&color=%232cc28c"></a>
     <a href="https://github.com/Losses/rune/actions/workflows/build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/losses/rune/build.yml"></a>
