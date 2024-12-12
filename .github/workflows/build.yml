@@ -278,7 +278,9 @@ jobs:
         run: |
           mkdir -p build/linux/x64/release/bundle/lib/
           cp /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.7 build/linux/x64/release/bundle/lib/
           cp /usr/lib/x86_64-linux-gnu/libdbusmenu-glib.so.4 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-gtk3.so.4 build/linux/x64/release/bundle/lib/
 
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
