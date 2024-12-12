@@ -6,6 +6,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/settings_manager.dart';
 import '../screens/settings_theme/settings_theme.dart';
 
+const forceLayoutModeKey = 'force_layout_mode';
+
 enum DeviceOrientation {
   vertical,
   horizontal,
@@ -220,6 +222,16 @@ class ResponsiveProvider extends ChangeNotifier {
   ResponsiveProvider(ScreenSizeProvider screenSizeProvider) {
     screenSizeProvider.addListener(_updateDeviceTypes);
     _updateDeviceTypes();
+    updateForceLayoutConfig();
+  }
+
+  updateForceLayoutConfig() {
+    SettingsManager().getValue<String>(forceLayoutModeKey).then((x) {
+      if (x == null) return;
+
+      _forceDeviceType = DeviceType.fromString(x);
+      notifyListeners();
+    });
   }
 
   void _updateDeviceTypes() {
@@ -255,6 +267,18 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   DeviceType getActiveDeviceType(List<DeviceType> deviceTypes) {
+    if (_forceDeviceType != null) {
+      deviceTypes = deviceTypes
+          .where((device) =>
+              device.orientation == _forceDeviceType!.orientation &&
+              device.end <= _forceDeviceType!.end)
+          .toList();
+
+      if (deviceTypes.isEmpty) {
+        return _forceDeviceType!;
+      }
+    }
+
     final verticalDeviceTypes = deviceTypes
         .where((bp) => bp.orientation == DeviceOrientation.vertical)
         .toList();
@@ -280,6 +304,9 @@ class ResponsiveProvider extends ChangeNotifier {
     } else if (horizontalActive != null) {
       return horizontalActive;
     } else {
+      if (_forceDeviceType != null) {
+        return _forceDeviceType!;
+      }
       return deviceTypes.last;
     }
   }

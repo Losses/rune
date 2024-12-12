@@ -14,6 +14,9 @@
     <a href="https://github.com/Losses/rune/blob/master/flake.nix"><img alt="Nix Flakes" src="https://img.shields.io/badge/nix-flake-blue?logo=nixos" /></a>
     <a href="https://github.com/Losses/rune/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/losses/rune" /></a>
     <a href="https://github.com/Losses/rune/pulls"><img alt="GitHub Pull Requests" src="https://img.shields.io/github/issues-pr/losses/rune" /></a>
+    <a href="https://github.com/Losses/rune/actions/workflows/build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/losses/rune/build.yml"></a>
+    <a href="https://github.com/losses/rune/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/losses/rune?color=green"></a>
+
   </p>
 </div>
 
