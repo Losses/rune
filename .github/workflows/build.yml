@@ -188,6 +188,12 @@ jobs:
       - name: Build linux
         run: flutter build linux --release --verbose
 
+      - name: Copy required libraries
+        run: |
+          mkdir -p build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libayatana-appindicator3.so.1 build/linux/x64/release/bundle/lib/
+          cp /usr/lib/x86_64-linux-gnu/libdbusmenu-glib.so.4 build/linux/x64/release/bundle/lib/
+
       - uses: benjlevesque/short-sha@v3.0
         id: short-sha
         with:
