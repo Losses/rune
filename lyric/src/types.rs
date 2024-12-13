@@ -6,7 +6,14 @@ use anyhow::{bail, Result};
 pub struct TimeTag {
     pub minutes: u32,
     pub seconds: u32,
-    pub centiseconds: u32,
+    pub milliseconds: u32,
+}
+
+impl From<TimeTag> for i32 {
+    fn from(val: TimeTag) -> Self {
+        let total_milliseconds = val.minutes * 60 * 1000 + val.seconds * 1000 + val.milliseconds;
+        total_milliseconds as i32
+    }
 }
 
 impl fmt::Display for TimeTag {
@@ -14,7 +21,9 @@ impl fmt::Display for TimeTag {
         write!(
             f,
             "[{:02}:{:02}.{:02}]",
-            self.minutes, self.seconds, self.centiseconds
+            self.minutes,
+            self.seconds,
+            self.milliseconds / 10
         )
     }
 }
@@ -45,7 +54,7 @@ impl FromStr for TimeTag {
         Ok(TimeTag {
             minutes,
             seconds,
-            centiseconds,
+            milliseconds: centiseconds * 10,
         })
     }
 }

@@ -70,7 +70,7 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                         TimeTag {
                             minutes: 999999,
                             seconds: 0,
-                            centiseconds: 0,
+                            milliseconds: 0,
                         },
                         text.to_string(),
                     )]
@@ -81,7 +81,7 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                     end_time: TimeTag {
                         minutes: 999999,
                         seconds: 0,
-                        centiseconds: 0,
+                        milliseconds: 0,
                     }, // Temporary, will be updated in next iteration
                     voice_type,
                     text,
@@ -108,7 +108,7 @@ fn parse_enhanced_lrc(content: &str) -> Result<Vec<(TimeTag, TimeTag, String)>> 
             let end_time = TimeTag {
                 minutes: 999999,
                 seconds: 0,
-                centiseconds: 0,
+                milliseconds: 0,
             };
 
             // Update previous line's end_time

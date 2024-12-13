@@ -8,6 +8,7 @@ mod library_home;
 mod library_manage;
 mod license;
 mod logging;
+mod lyric;
 mod media_file;
 mod messages;
 mod mix;
@@ -44,6 +45,7 @@ use crate::library_home::*;
 use crate::library_manage::*;
 use crate::license::*;
 use crate::logging::*;
+use crate::lyric::*;
 use crate::media_file::*;
 use crate::messages::*;
 use crate::mix::*;
@@ -160,6 +162,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             FetchMediaFileByIdsRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
+
+            GetLyricByTrackIdRequest => (lib_path, main_db),
 
             FetchCollectionGroupSummaryRequest => (main_db, recommend_db),
             FetchCollectionGroupsRequest => (main_db, recommend_db),
