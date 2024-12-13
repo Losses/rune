@@ -1,0 +1,12 @@
+[package]
+name = "lyric"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "lyric"
+path = "src/lib.rs"
+
+[dependencies]
+subtp = "0.2.0"
