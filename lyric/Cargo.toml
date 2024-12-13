@@ -9,4 +9,5 @@ name = "lyric"
 path = "src/lib.rs"
 
 [dependencies]
+anyhow = "1.0.94"
 subtp = "0.2.0"
