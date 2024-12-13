@@ -30,7 +30,6 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
             }
 
             let mut voice_type = VoiceType::Default;
-            let mut word_time_tags = Vec::new();
 
             // Parse main time tag
             if let Some(close_bracket) = line[first_bracket..].find(']') {
@@ -40,6 +39,10 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                 // Update previous line's end_time
                 if let Some(last_line) = lrc.lyrics.last_mut() {
                     last_line.end_time = start_time.clone();
+
+                    if let Some(last_detail) = last_line.word_time_tags.last_mut() {
+                        last_detail.1 = start_time.clone();
+                    }
                 }
 
                 let remaining_content = &line[first_bracket + close_bracket + 1..];
@@ -59,9 +62,19 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                 };
 
                 // Parse enhanced format word-level time tags
-                if remaining_content.contains('<') {
-                    word_time_tags = parse_enhanced_lrc(remaining_content)?;
-                }
+                let word_time_tags = if remaining_content.contains('<') {
+                    parse_enhanced_lrc(remaining_content)?
+                } else {
+                    vec![(
+                        start_time.clone(),
+                        TimeTag {
+                            minutes: 999999,
+                            seconds: 0,
+                            centiseconds: 0,
+                        },
+                        text.to_string(),
+                    )]
+                };
 
                 lrc.lyrics.push(LyricLine {
                     start_time: start_time.clone(),
@@ -109,9 +122,7 @@ fn parse_enhanced_lrc(content: &str) -> Result<Vec<(TimeTag, TimeTag, String)>> 
                 .map(|pos| current_pos + start_pos + end_pos + 1 + pos)
                 .unwrap_or(content.len());
 
-            let word = content[current_pos + start_pos + end_pos + 1..next_tag_start]
-                .trim()
-                .to_string();
+            let word = content[current_pos + start_pos + end_pos + 1..next_tag_start].to_string();
             if !word.is_empty() {
                 word_time_tags.push((start_time, end_time, word));
             }
@@ -135,12 +146,10 @@ mod tests {
 [ar:Chubby Checker]
 [00:12.00]First line
 [00:15.30]F: Female line
-[00:21.10]M: Male line
+[00:21.10]M: <00:21.10>Male <00:23.10>line
 [00:24.00]<00:24.00>Word <00:24.50>by <00:25.00>word"#;
 
         let lrc_file = parse_lrc(lrc_content)?;
-
-        println!("{:#?}", lrc_file);
 
         // Test metadata
         assert_eq!(lrc_file.metadata.get("ti").unwrap(), "Let's Twist Again");
@@ -164,14 +173,14 @@ mod tests {
         // Test male line
         let male = &lrc_file.lyrics[2];
         assert_eq!(male.start_time.to_string(), "[00:21.10]");
-        assert_eq!(male.text, "Male line");
+        assert_eq!(male.text, "<00:21.10>Male <00:23.10>line");
         assert_eq!(male.voice_type, VoiceType::Male);
 
         // Test word time tags
         let word_time = &lrc_file.lyrics[3];
         assert_eq!(word_time.word_time_tags.len(), 3);
-        assert_eq!(word_time.word_time_tags[0].2, "Word");
-        assert_eq!(word_time.word_time_tags[1].2, "by");
+        assert_eq!(word_time.word_time_tags[0].2, "Word ");
+        assert_eq!(word_time.word_time_tags[1].2, "by ");
         assert_eq!(word_time.word_time_tags[2].2, "word");
 
         assert_eq!(word_time.word_time_tags[0].0.to_string(), "[00:24.00]");
