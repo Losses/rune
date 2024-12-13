@@ -11,8 +11,7 @@ pub struct TimeTag {
 
 impl From<TimeTag> for i32 {
     fn from(val: TimeTag) -> Self {
-        let total_milliseconds = val.minutes * 60 * 1000 + val.seconds * 1000 + val.milliseconds;
-        total_milliseconds as i32
+        (val.minutes * 60 * 1000 + val.seconds * 1000 + val.milliseconds) as i32
     }
 }
 

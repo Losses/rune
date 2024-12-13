@@ -68,7 +68,7 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                     vec![(
                         start_time.clone(),
                         TimeTag {
-                            minutes: 999999,
+                            minutes: 9999,
                             seconds: 0,
                             milliseconds: 0,
                         },
@@ -79,7 +79,7 @@ pub fn parse_lrc(content: &str) -> Result<LyricFile> {
                 lrc.lyrics.push(LyricLine {
                     start_time: start_time.clone(),
                     end_time: TimeTag {
-                        minutes: 999999,
+                        minutes: 9999,
                         seconds: 0,
                         milliseconds: 0,
                     }, // Temporary, will be updated in next iteration
@@ -106,7 +106,7 @@ fn parse_enhanced_lrc(content: &str) -> Result<Vec<(TimeTag, TimeTag, String)>> 
 
             // Determine end_time using the previous start_time
             let end_time = TimeTag {
-                minutes: 999999,
+                minutes: 9999,
                 seconds: 0,
                 milliseconds: 0,
             };
@@ -123,7 +123,7 @@ fn parse_enhanced_lrc(content: &str) -> Result<Vec<(TimeTag, TimeTag, String)>> 
                 .unwrap_or(content.len());
 
             let word = content[current_pos + start_pos + end_pos + 1..next_tag_start].to_string();
-            if !word.is_empty() {
+            if !word.is_empty() && !word.trim().is_empty() {
                 word_time_tags.push((start_time, end_time, word));
             }
 
