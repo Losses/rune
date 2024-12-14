@@ -7,7 +7,9 @@ use rinf::DartSignal;
 
 use database::{actions::file::get_ordered_files_by_ids, connection::MainDbConnection};
 
-use crate::{GetLyricByTrackIdRequest, GetLyricByTrackIdResponse, LyricContentLine, LyricContentLineSection};
+use crate::{
+    GetLyricByTrackIdRequest, GetLyricByTrackIdResponse, LyricContentLine, LyricContentLineSection,
+};
 
 pub async fn get_lyric_by_track_id_request(
     lib_path: Arc<String>,
@@ -42,13 +44,15 @@ pub async fn get_lyric_by_track_id_request(
                     .lyrics
                     .into_iter()
                     .map(|x| LyricContentLine {
+                        start_time: x.start_time.into(),
+                        end_time: x.end_time.into(),
                         sections: x
                             .word_time_tags
                             .into_iter()
-                            .map(|x| LyricContentLineSection {
-                                start_time: x.0.into(),
-                                end_time: x.1.into(),
-                                content: x.2,
+                            .map(|tag| LyricContentLineSection {
+                                start_time: tag.0.into(),
+                                end_time: tag.1.into(),
+                                content: tag.2,
                             })
                             .collect(),
                     })

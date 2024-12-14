@@ -2,7 +2,9 @@ syntax = "proto3";
 package lyric;
 
 message LyricContentLine {
-    repeated LyricContentLineSection sections = 1;
+    int32 startTime = 1;
+    int32 endTime = 2;
+    repeated LyricContentLineSection sections = 3;
 }
 
 message LyricContentLineSection {
