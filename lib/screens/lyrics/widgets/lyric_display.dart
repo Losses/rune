@@ -29,8 +29,7 @@ class LyricsDisplay extends StatelessWidget {
           sections: line.sections,
           currentTimeMilliseconds: currentTimeMilliseconds,
           isActive: activeLines.contains(index),
-          isPassed:
-              activeLines.isEmpty ? false : index < activeLines.reduce(min),
+          isPassed: line.endTime < currentTimeMilliseconds,
         );
       },
     );
