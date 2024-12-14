@@ -1,6 +1,11 @@
+import 'dart:ui';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../messages/all.dart';
+
+const double fontSize = 24;
+const fontWeight = FontWeight.w600;
 
 class LyricSection extends StatefulWidget {
   final LyricContentLineSection section;
@@ -79,7 +84,8 @@ class _LyricSectionState extends State<LyricSection>
     if (widget.currentTimeMilliseconds >= widget.section.endTime) {
       return 1.0;
     } else if (widget.currentTimeMilliseconds > widget.section.startTime) {
-      return (widget.currentTimeMilliseconds - widget.section.startTime) / duration;
+      return (widget.currentTimeMilliseconds - widget.section.startTime) /
+          duration;
     }
     return 0.0;
   }
@@ -96,7 +102,8 @@ class _LyricSectionState extends State<LyricSection>
             Text(
               widget.section.content,
               style: TextStyle(
-                fontSize: 20,
+                fontSize: fontSize,
+                fontWeight: fontWeight,
                 color: widget.isPassed
                     ? theme.resources.textFillColorPrimary
                     : theme.resources.textFillColorPrimary.withAlpha(160),
@@ -110,8 +117,31 @@ class _LyricSectionState extends State<LyricSection>
                   child: Text(
                     widget.section.content,
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: fontSize,
+                      fontWeight: fontWeight,
                       color: theme.resources.textFillColorPrimary,
+                    ),
+                  ),
+                ),
+              ),
+            if (widget.isActive)
+              ImageFiltered(
+                imageFilter: ImageFilter.blur(
+                  sigmaX: 3,
+                  sigmaY: 3,
+                  tileMode: TileMode.decal,
+                ),
+                child: ClipRect(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    widthFactor: _animation.value,
+                    child: Text(
+                      widget.section.content,
+                      style: TextStyle(
+                        fontSize: fontSize,
+                        fontWeight: fontWeight,
+                        color: theme.resources.textFillColorPrimary,
+                      ),
                     ),
                   ),
                 ),
