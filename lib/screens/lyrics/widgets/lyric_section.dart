@@ -26,51 +26,95 @@ class LyricSection extends StatefulWidget {
 }
 
 class _LyricSectionState extends State<LyricSection>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
+    with TickerProviderStateMixin {
+  late AnimationController _progressAnimationController;
+  late Animation<double> _progressAnimation;
+  late AnimationController _blurAnimationController;
+  late Animation<double> _blurAnimation;
   double _previousProgress = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    _progressAnimationController = AnimationController(
       duration: const Duration(milliseconds: 16),
       vsync: this,
     );
     _previousProgress = calculateProgress();
-    _animation = Tween<double>(
+    _progressAnimation = Tween<double>(
       begin: _previousProgress,
       end: _previousProgress,
-    ).animate(_controller);
+    ).animate(_progressAnimationController);
+
+    // Initialize the blur animation controller
+    _blurAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _blurAnimation = Tween<double>(
+      begin: 0,
+      end: 0,
+    ).animate(CurvedAnimation(
+      parent: _blurAnimationController,
+      curve: Curves.slowMiddle,
+    ));
+  }
+
+  void _updateActiveBlur(double targetBlur) {
+    if (targetBlur == _blurAnimation.value) {
+      // Avoid unnecessary animation updates
+      return;
+    }
+
+    _blurAnimation = Tween<double>(
+      begin: _blurAnimation.value,
+      end: targetBlur,
+    ).animate(CurvedAnimation(
+      parent: _blurAnimationController,
+      curve: Curves.easeInOut,
+    ));
+
+    // Reset the animation controller to its initial state
+    _blurAnimationController.reset();
+    _blurAnimationController.forward(from: 0);
   }
 
   @override
   void didUpdateWidget(LyricSection oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    if (widget.isActive != oldWidget.isActive) {
+      if (!widget.isActive) {
+        _updateActiveBlur(0.0);
+      } else {
+        _updateActiveBlur(3.0);
+      }
+    }
+
     if (widget.currentTimeMilliseconds != oldWidget.currentTimeMilliseconds ||
         widget.isActive != oldWidget.isActive ||
         widget.isPassed != oldWidget.isPassed) {
       final newProgress = calculateProgress();
       if (newProgress != _previousProgress) {
-        _animation = Tween<double>(
+        _progressAnimation = Tween<double>(
           begin: _previousProgress,
           end: newProgress,
         ).animate(
           CurvedAnimation(
-            parent: _controller,
+            parent: _progressAnimationController,
             curve: Curves.linear,
           ),
         );
         _previousProgress = newProgress;
-        _controller.forward(from: 0);
+        _progressAnimationController.forward(from: 0);
       }
     }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _progressAnimationController.dispose();
+    _blurAnimationController.dispose();
     super.dispose();
   }
 
@@ -95,7 +139,7 @@ class _LyricSectionState extends State<LyricSection>
     final theme = FluentTheme.of(context);
 
     return AnimatedBuilder(
-      animation: _animation,
+      animation: _progressAnimation,
       builder: (context, child) {
         return Stack(
           children: [
@@ -113,7 +157,7 @@ class _LyricSectionState extends State<LyricSection>
               ClipRect(
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  widthFactor: _animation.value,
+                  widthFactor: _progressAnimation.value,
                   child: Text(
                     widget.section.content,
                     style: TextStyle(
@@ -124,17 +168,17 @@ class _LyricSectionState extends State<LyricSection>
                   ),
                 ),
               ),
-            if (widget.isActive)
+            if (widget.isActive || !_blurAnimation.isCompleted)
               ImageFiltered(
                 imageFilter: ImageFilter.blur(
-                  sigmaX: 3,
-                  sigmaY: 3,
+                  sigmaX: _blurAnimation.value,
+                  sigmaY: _blurAnimation.value,
                   tileMode: TileMode.decal,
                 ),
                 child: ClipRect(
                   child: Align(
                     alignment: Alignment.centerLeft,
-                    widthFactor: _animation.value,
+                    widthFactor: _progressAnimation.value,
                     child: Text(
                       widget.section.content,
                       style: TextStyle(

@@ -2,9 +2,9 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../messages/all.dart';
-
 import 'lyric_section.dart';
+
+import '../../../messages/all.dart';
 
 class LyricLine extends StatefulWidget {
   final List<LyricContentLineSection> sections;
@@ -34,7 +34,7 @@ class _LyricLineState extends State<LyricLine>
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
     _blurAnimation = Tween<double>(begin: 0.0, end: 0.0).animate(
@@ -82,8 +82,8 @@ class _LyricLineState extends State<LyricLine>
         ? widget.currentTimeMilliseconds - endTime
         : startTime - widget.currentTimeMilliseconds;
 
-    final maxTimeDiff = 5000.0;
-    return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 2.0;
+    final maxTimeDiff = 8000.0;
+    return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
   }
 
   @override
@@ -108,9 +108,10 @@ class _LyricLineState extends State<LyricLine>
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
         child: Wrap(
-          children: widget.sections.map((section) {
+          children: widget.sections.indexed.map((section) {
             return LyricSection(
-              section: section,
+              key: ValueKey(section.$1),
+              section: section.$2,
               currentTimeMilliseconds: widget.currentTimeMilliseconds,
               isActive: widget.isActive,
               isPassed: widget.isPassed,

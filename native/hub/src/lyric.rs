@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use dunce::canonicalize;
 use lyric::parser::parse_audio_lyrics;
 use rinf::DartSignal;
@@ -23,7 +23,12 @@ pub async fn get_lyric_by_track_id_request(
         .with_context(|| format!("Unable to get media file by id={}", track_id))?;
 
     if media_file.is_empty() {
-        bail!("No track found from the given track id");
+        GetLyricByTrackIdResponse {
+            id: track_id,
+            lines: [].to_vec(),
+        }
+        .send_signal_to_dart();
+        return Ok(());
     }
 
     let media_file = media_file[0].clone();
