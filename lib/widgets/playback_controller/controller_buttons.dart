@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/fetch_flyout_items.dart';
+import '../../utils/is_cover_art_wall_layout.dart';
 import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/ax_reveal/ax_reveal.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
@@ -68,7 +69,7 @@ class _ControllerButtonsState extends State<ControllerButtons> {
 
     final coverArtWallLayout = Provider.of<ResponsiveProvider>(context)
             .smallerOrEqualTo(DeviceType.phone) &&
-        path == '/cover_wall';
+        isCoverArtWallLayout(path);
 
     final miniEntries = [controllerItems[1], controllerItems[2]];
 

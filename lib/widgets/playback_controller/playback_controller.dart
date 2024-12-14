@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/is_cover_art_wall_layout.dart';
 import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -23,7 +24,7 @@ class PlaybackControllerState extends State<PlaybackController> {
   @override
   Widget build(BuildContext context) {
     final path = Provider.of<RouterPathProvider>(context).path;
-    final isCoverArtWall = path == '/cover_wall';
+    final isCoverArtWall = isCoverArtWallLayout(path);
 
     final r = Provider.of<ResponsiveProvider>(context);
 

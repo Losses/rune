@@ -968,5 +968,11 @@
   "considerPurchase": "Please consider purchasing a genuine license.",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
-  }
+  },
+  "lyrics": "Lyrics",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Reveal the full lyrics of the song",
+  "@lyricsSubtitle": {}
 }

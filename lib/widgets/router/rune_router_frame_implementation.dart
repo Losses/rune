@@ -3,8 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../main.dart';
 
+import '../../utils/is_cover_art_wall_layout.dart';
 import '../../screens/bsod/bsod.dart';
-
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
@@ -65,6 +65,7 @@ class _RuneRouterFrameImplementationState
     );
 
     final path = Provider.of<RouterPathProvider>(context).path;
+    final isSpecialLayout = isCoverArtWallLayout(path);
 
     return Stack(
       children: [
@@ -84,7 +85,7 @@ class _RuneRouterFrameImplementationState
                     ? Alignment.centerRight
                     : Alignment.bottomCenter,
                 children: [
-                  if (path == '/cover_wall' && !showDisk) mainContent,
+                  if (isSpecialLayout && !showDisk) mainContent,
                   if (!showDisk)
                     const FocusTraversalOrder(
                       order: NumericFocusOrder(3),
@@ -115,7 +116,7 @@ class _RuneRouterFrameImplementationState
                       },
                     ),
                   ),
-                  if (!(path == '/cover_wall' && !showDisk)) mainContent,
+                  if (!(isSpecialLayout && !showDisk)) mainContent,
                   if (showDisk)
                     const BlockHitTestStack(
                       child: FocusTraversalOrder(

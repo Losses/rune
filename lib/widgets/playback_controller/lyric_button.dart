@@ -3,23 +3,23 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
-import '../../utils/navigation/utils/escape_from_cover_art_wall.dart';
+import '../../utils/navigation/utils/escape_from_lyrics.dart';
 
 import '../rune_icon_button.dart';
 
-void showCoverArtWall() {
+void showLyrics() {
   final path = $router.path;
-  if (path == '/cover_wall') {
-    escapeFromCoverArtWall();
+  if (path == "/lyrics") {
+    escapeFromLyrics();
   } else {
-    $push('/cover_wall');
+    $push("/lyrics");
   }
 }
 
-class CoverWallButton extends StatelessWidget {
+class LyricsButton extends StatelessWidget {
   final List<Shadow>? shadows;
 
-  const CoverWallButton({
+  const LyricsButton({
     super.key,
     required this.shadows,
   });
@@ -27,9 +27,9 @@ class CoverWallButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return RuneIconButton(
-      onPressed: () => showCoverArtWall(),
+      onPressed: () => showLyrics(),
       icon: Icon(
-        Symbols.photo_frame,
+        Symbols.lyrics,
         shadows: shadows,
       ),
     );

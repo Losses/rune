@@ -340,7 +340,7 @@ class _RuneState extends State<Rune> {
           initialRoute: initialPath == null
               ? "/"
               : cafeMode
-                  ? "/cover_wall"
+                  ? '/cover_wall'
                   : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
