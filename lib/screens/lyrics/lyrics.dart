@@ -1,7 +1,6 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/rune_log.dart';
 import '../../utils/api/get_lyric_by_track_id.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/all.dart';
@@ -61,10 +60,6 @@ class _LyricsPageState extends State<LyricsPage> {
       future: _lyric,
       builder: (context, snapshot) {
         if (snapshot.data == null) return Container();
-
-        for (final line in snapshot.data!) {
-          info$(line.sections.map((x) => x.content).join(""));
-        }
 
         return Selector<PlaybackStatusProvider, int>(
           selector: _selectProgress,

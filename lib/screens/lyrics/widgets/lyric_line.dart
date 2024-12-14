@@ -6,16 +6,19 @@ class LyricLine extends StatelessWidget {
   final List<LyricContentLineSection> sections;
   final int currentTimeMilliseconds;
   final bool isActive;
+  final bool isPassed;
 
   const LyricLine({
     super.key,
     required this.sections,
     required this.currentTimeMilliseconds,
     required this.isActive,
+    required this.isPassed,
   });
 
   double calculateProgress() {
     if (!isActive) return 0.0;
+    if (isPassed) return 1.0;
 
     double totalDuration = 0;
     double currentProgress = 0;
@@ -44,28 +47,29 @@ class LyricLine extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
       child: Stack(
         children: [
-          // Highlighten text
           Text(
             text,
             style: TextStyle(
               fontSize: 20,
-              color: theme.resources.textFillColorPrimary,
+              color: isPassed
+                  ? theme.resources.textFillColorPrimary
+                  : theme.resources.textFillColorPrimary.withAlpha(160),
             ),
           ),
-          // Non-highlighten text
-          ClipRect(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              widthFactor: progress,
-              child: Text(
-                text,
-                style: TextStyle(
-                  fontSize: 18,
-                  color: theme.resources.textFillColorPrimary.withAlpha(160),
+          if (isActive)
+            ClipRect(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: progress,
+                child: Text(
+                  text,
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: theme.resources.textFillColorPrimary,
+                  ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );

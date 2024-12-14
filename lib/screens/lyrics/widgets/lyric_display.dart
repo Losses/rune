@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../messages/all.dart';
@@ -27,6 +29,8 @@ class LyricsDisplay extends StatelessWidget {
           sections: line.sections,
           currentTimeMilliseconds: currentTimeMilliseconds,
           isActive: activeLines.contains(index),
+          isPassed:
+              activeLines.isEmpty ? false : index < activeLines.reduce(min),
         );
       },
     );
