@@ -968,5 +968,11 @@
   "considerPurchase": "望君購執。",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
-  }
+  },
+  "lyrics": "詞",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "展曲全詞",
+  "@lyricsSubtitle": {}
 }
