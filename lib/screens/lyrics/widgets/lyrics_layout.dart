@@ -7,6 +7,7 @@ import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.d
 import '../../../messages/all.dart';
 import '../../../providers/responsive_providers.dart';
 
+import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../cover_wall/widgets/cover_wall_layout.dart';
 import '../../cover_wall/widgets/gradient_container.dart';
 
@@ -83,11 +84,13 @@ class LyricsLayoutState extends State<LyricsLayout> {
               ),
               height: (mainAxisCount * gridSize).toDouble(),
             ),
-            LyricsDisplay(
-              lyrics: widget.lyrics,
-              currentTimeMilliseconds: widget.currentTimeMilliseconds,
-              activeLines: widget.activeLines,
-            )
+            PageContentFrame(
+              child: LyricsDisplay(
+                lyrics: widget.lyrics,
+                currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                activeLines: widget.activeLines,
+              ),
+            ),
           ],
         );
       },
