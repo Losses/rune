@@ -41,7 +41,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
     final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
 
     final r = Provider.of<ResponsiveProvider>(context);
-    final isMini = r.smallerOrEqualTo(DeviceType.car, false);
+    final isMini = r.smallerOrEqualTo(DeviceType.tablet, false);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -69,7 +69,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
         );
 
         return Stack(
-          alignment: isMini ? Alignment.centerLeft : Alignment.bottomCenter,
+          alignment: Alignment.bottomCenter,
           children: [
             Container(
               color: isDark
@@ -89,26 +89,29 @@ class LyricsLayoutState extends State<LyricsLayout> {
               ),
               height: (mainAxisCount * gridSize).toDouble(),
             ),
-            Positioned(
-              top: 0,
-              left: 0,
-              child: SizedBox(
-                width: constraints.maxWidth / 5 * 2,
-                height: constraints.maxHeight,
-                child: Padding(
-                  padding: EdgeInsets.only(right: 36),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: CoverArtFrame(),
+            if (!isMini)
+              Positioned(
+                top: 0,
+                left: 0,
+                child: SizedBox(
+                  width: constraints.maxWidth / 5 * 2,
+                  height: constraints.maxHeight,
+                  child: Padding(
+                    padding: EdgeInsets.only(right: 36),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: CoverArtFrame(),
+                    ),
                   ),
                 ),
               ),
-            ),
             Positioned(
               top: 0,
               right: 0,
               child: SizedBox(
-                width: constraints.maxWidth / 5 * 3,
+                width: isMini
+                    ? constraints.maxWidth
+                    : constraints.maxWidth / 5 * 3,
                 height: constraints.maxHeight,
                 child: PageContentFrame(
                   child: LyricsDisplay(
