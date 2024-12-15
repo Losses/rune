@@ -65,7 +65,7 @@ Please note that we do not accept feature requests from unpaid users.
 <p align="center">
   <a href="https://partner.steamgames.com/apps/landing/3343500"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
   <a href="https://apps.microsoft.com/detail/9N52TW1F5348"><img src="assets/available_ms_store.png" width=180 alt="Available on Microsoft Store"/></a>
-  <a href="#"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
+  <a href="https://apps.apple.com/us/app/rune-player/id6738841909"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
 </p>
 
 ## Installation and Running
