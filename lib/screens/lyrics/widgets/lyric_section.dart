@@ -4,7 +4,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../messages/all.dart';
 
-const double fontSize = 28;
+const double fontSize = 32;
 const fontWeight = FontWeight.w600;
 
 class LyricSection extends StatefulWidget {

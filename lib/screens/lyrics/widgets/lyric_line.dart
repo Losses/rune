@@ -106,7 +106,7 @@ class _LyricLineState extends State<LyricLine>
         );
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 16.0),
+        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
         child: Wrap(
           children: widget.sections.indexed.map((section) {
             return LyricSection(
