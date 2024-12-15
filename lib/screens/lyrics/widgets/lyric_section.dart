@@ -1,10 +1,11 @@
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../../messages/all.dart';
+import '../../../providers/responsive_providers.dart';
 
-const double fontSize = 32;
 const fontWeight = FontWeight.w600;
 
 class LyricSection extends StatefulWidget {
@@ -222,10 +223,13 @@ class _LyricText extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
 
+    final r = Provider.of<ResponsiveProvider>(context);
+    final isMini = r.smallerOrEqualTo(DeviceType.zune, false);
+
     return Text(
       content,
       style: TextStyle(
-        fontSize: fontSize,
+        fontSize: isMini ? 24 : 32,
         fontWeight: fontWeight,
         color: theme.resources.textFillColorPrimary.withAlpha(alpha),
       ),
