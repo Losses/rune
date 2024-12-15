@@ -1,8 +1,12 @@
-import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/foundation.dart';
 import 'dart:math';
+
+import 'package:flutter/foundation.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+
 import '../../../messages/all.dart';
+
 import 'lyric_line.dart';
+import 'gradient_mask.dart';
 
 class LyricsDisplay extends StatefulWidget {
   final List<LyricContentLine> lyrics;
@@ -93,26 +97,28 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final double paddingSize = constraints.maxHeight / 2;
-        return ListView.builder(
-          controller: _scrollController,
-          itemCount: widget.lyrics.length + 2, // Add 2 for padding items
-          itemBuilder: (context, index) {
-            if (index == 0 || index == widget.lyrics.length + 1) {
-              return SizedBox(height: paddingSize);
-            }
+        return GradientMask(
+          child: ListView.builder(
+            controller: _scrollController,
+            itemCount: widget.lyrics.length + 2, // Add 2 for padding items
+            itemBuilder: (context, index) {
+              if (index == 0 || index == widget.lyrics.length + 1) {
+                return SizedBox(height: paddingSize);
+              }
 
-            final actualIndex = index - 1;
-            final line = widget.lyrics[actualIndex];
-            return RepaintBoundary(
-              key: _lineKeys[actualIndex],
-              child: LyricLine(
-                sections: line.sections,
-                currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                isActive: widget.activeLines.contains(actualIndex),
-                isPassed: line.endTime < widget.currentTimeMilliseconds,
-              ),
-            );
-          },
+              final actualIndex = index - 1;
+              final line = widget.lyrics[actualIndex];
+              return RepaintBoundary(
+                key: _lineKeys[actualIndex],
+                child: LyricLine(
+                  sections: line.sections,
+                  currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                  isActive: widget.activeLines.contains(actualIndex),
+                  isPassed: line.endTime < widget.currentTimeMilliseconds,
+                ),
+              );
+            },
+          ),
         );
       },
     );
