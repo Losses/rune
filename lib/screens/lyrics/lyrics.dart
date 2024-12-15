@@ -83,7 +83,14 @@ class _LyricsPageState extends State<LyricsPage> {
               builder: (context, activeBreakpoint) {
                 if (activeBreakpoint == DeviceType.dock ||
                     activeBreakpoint == DeviceType.band) {
-                  return const PageContentFrame(child: BandScreenLyricsView());
+                  return PageContentFrame(
+                    child: BandScreenLyricsView(
+                      id: _cachedTrackId,
+                      lyrics: snapshot.data!,
+                      currentTimeMilliseconds: currentTimeMilliseconds,
+                      activeLines: activeLines,
+                    ),
+                  );
                 }
 
                 return LyricsLayout(

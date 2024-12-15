@@ -2,9 +2,11 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:provider/provider.dart';
 
 import '../../../messages/all.dart';
 
+import '../../../providers/responsive_providers.dart';
 import 'lyric_line.dart';
 import 'gradient_mask.dart';
 
@@ -110,9 +112,14 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
 
   @override
   Widget build(BuildContext context) {
+    final r = Provider.of<ResponsiveProvider>(context);
+    final isMini = r.smallerOrEqualTo(DeviceType.dock, false);
+
     return LayoutBuilder(
       builder: (context, constraints) {
-        final double paddingSize = constraints.maxHeight / 2;
+        final double paddingSize =
+            (isMini ? constraints.maxWidth : constraints.maxHeight) / 2;
+
         return GradientMask(
           child: ScrollConfiguration(
             behavior:
