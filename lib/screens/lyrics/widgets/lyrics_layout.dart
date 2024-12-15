@@ -79,7 +79,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
               decoration: BoxDecoration(
                 gradient: RadialGradient(
                   colors: [
-                    shadowColor.withAlpha(isDark ? 20 : 140),
+                    shadowColor.withAlpha(isDark ? 132 : 140),
                     shadowColor.withAlpha(isDark ? 255 : 255),
                   ],
                   radius: 1.5,
