@@ -98,26 +98,31 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
       builder: (context, constraints) {
         final double paddingSize = constraints.maxHeight / 2;
         return GradientMask(
-          child: ListView.builder(
-            controller: _scrollController,
-            itemCount: widget.lyrics.length + 2, // Add 2 for padding items
-            itemBuilder: (context, index) {
-              if (index == 0 || index == widget.lyrics.length + 1) {
-                return SizedBox(height: paddingSize);
-              }
+          child: ScrollConfiguration(
+            behavior:
+                ScrollConfiguration.of(context).copyWith(scrollbars: false),
+            child: ListView.builder(
+              physics: NeverScrollableScrollPhysics(),
+              controller: _scrollController,
+              itemCount: widget.lyrics.length + 2, // Add 2 for padding items
+              itemBuilder: (context, index) {
+                if (index == 0 || index == widget.lyrics.length + 1) {
+                  return SizedBox(height: paddingSize);
+                }
 
-              final actualIndex = index - 1;
-              final line = widget.lyrics[actualIndex];
-              return RepaintBoundary(
-                key: _lineKeys[actualIndex],
-                child: LyricLine(
-                  sections: line.sections,
-                  currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                  isActive: widget.activeLines.contains(actualIndex),
-                  isPassed: line.endTime < widget.currentTimeMilliseconds,
-                ),
-              );
-            },
+                final actualIndex = index - 1;
+                final line = widget.lyrics[actualIndex];
+                return RepaintBoundary(
+                  key: _lineKeys[actualIndex],
+                  child: LyricLine(
+                    sections: line.sections,
+                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                    isActive: widget.activeLines.contains(actualIndex),
+                    isPassed: line.endTime < widget.currentTimeMilliseconds,
+                  ),
+                );
+              },
+            ),
           ),
         );
       },
