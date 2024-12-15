@@ -1,13 +1,16 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../utils/ax_shadow.dart';
 import '../../../utils/color_brightness.dart';
+import '../../../widgets/tile/cover_art.dart';
+import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../messages/all.dart';
+import '../../../providers/status.dart';
 import '../../../providers/responsive_providers.dart';
 
-import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../cover_wall/widgets/cover_wall_layout.dart';
 import '../../cover_wall/widgets/gradient_container.dart';
 
@@ -84,16 +87,64 @@ class LyricsLayoutState extends State<LyricsLayout> {
               ),
               height: (mainAxisCount * gridSize).toDouble(),
             ),
-            PageContentFrame(
-              child: LyricsDisplay(
-                lyrics: widget.lyrics,
-                currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                activeLines: widget.activeLines,
+            Positioned(
+              top: 0,
+              left: 0,
+              child: SizedBox(
+                width: constraints.maxWidth / 5 * 2,
+                height: constraints.maxHeight,
+                child: Padding(
+                  padding: EdgeInsets.only(right: 36),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: CoverArtFrame(),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: SizedBox(
+                width: constraints.maxWidth / 5 * 3,
+                height: constraints.maxHeight,
+                child: PageContentFrame(
+                  child: LyricsDisplay(
+                    lyrics: widget.lyrics,
+                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                    activeLines: widget.activeLines,
+                  ),
+                ),
               ),
             ),
           ],
         );
       },
+    );
+  }
+}
+
+class CoverArtFrame extends StatelessWidget {
+  const CoverArtFrame({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.white, width: 4),
+        boxShadow: axShadow(9),
+      ),
+      child: Selector<PlaybackStatusProvider, String>(
+        selector: (context, playbackStatusProvider) =>
+            playbackStatusProvider.playbackStatus.coverArtPath,
+        builder: (context, p, child) {
+          return CoverArt(
+            key: p.isNotEmpty ? Key(p.toString()) : null,
+            path: p,
+            size: 220,
+          );
+        },
+      ),
     );
   }
 }
