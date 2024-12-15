@@ -17,11 +17,13 @@ import '../../cover_wall/widgets/gradient_container.dart';
 import 'lyric_display.dart';
 
 class LyricsLayout extends StatefulWidget {
+  final int id;
   final List<LyricContentLine> lyrics;
   final int currentTimeMilliseconds;
   final List<int> activeLines;
   const LyricsLayout({
     super.key,
+    required this.id,
     required this.lyrics,
     required this.currentTimeMilliseconds,
     required this.activeLines,
@@ -110,6 +112,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
                 height: constraints.maxHeight,
                 child: PageContentFrame(
                   child: LyricsDisplay(
+                    key: ValueKey(widget.id),
                     lyrics: widget.lyrics,
                     currentTimeMilliseconds: widget.currentTimeMilliseconds,
                     activeLines: widget.activeLines,

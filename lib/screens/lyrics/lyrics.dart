@@ -87,6 +87,7 @@ class _LyricsPageState extends State<LyricsPage> {
                 }
 
                 return LyricsLayout(
+                  id: _cachedTrackId,
                   lyrics: snapshot.data!,
                   currentTimeMilliseconds: currentTimeMilliseconds,
                   activeLines: activeLines,
