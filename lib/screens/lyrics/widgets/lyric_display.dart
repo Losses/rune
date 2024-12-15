@@ -28,6 +28,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _lineKeys = {};
 
+  bool _needsScroll = false;
+
   @override
   void initState() {
     super.initState();
@@ -50,8 +52,13 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   void didUpdateWidget(LyricsDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.activeLines, widget.activeLines)) {
+      _needsScroll = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _scrollToActiveLines();
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_needsScroll) {
+            _scrollToActiveLines();
+          }
+        });
       });
     }
   }
@@ -59,17 +66,24 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   void _scrollToActiveLines() {
     if (widget.activeLines.isEmpty || !_scrollController.hasClients) return;
 
-    // Calculate the average position of active lines
     double totalOffset = 0;
     int count = 0;
 
     for (int index in widget.activeLines) {
       final RenderBox? renderBox =
           _lineKeys[index]?.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox == null) continue;
+
+      if (renderBox == null) {
+        // If it is not found, retry in the next frame
+        _needsScroll = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _scrollToActiveLines();
+        });
+        return;
+      }
 
       final RenderBox? listRenderBox = context.findRenderObject() as RenderBox?;
-      if (listRenderBox == null) continue;
+      if (listRenderBox == null) return;
 
       final Offset offset =
           renderBox.localToGlobal(Offset.zero, ancestor: listRenderBox);
@@ -78,6 +92,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     }
 
     if (count == 0) return;
+
+    _needsScroll = false; // Scrolling success
 
     final double averagePosition = totalOffset / count;
     final double containerMiddle =
