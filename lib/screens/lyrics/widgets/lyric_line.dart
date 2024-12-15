@@ -82,9 +82,8 @@ class _LyricLineState extends State<LyricLine>
         ? widget.currentTimeMilliseconds - endTime
         : startTime - widget.currentTimeMilliseconds;
 
-    final maxTimeDiff = 8000.0;
-    return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 0.0;
-    // return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
+    final maxTimeDiff = 9000.0;
+    return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 4.0;
   }
 
   @override
