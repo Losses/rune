@@ -2,15 +2,17 @@ import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'lyric_section.dart';
-
 import '../../../messages/all.dart';
+
+import 'lyric_section.dart';
+import 'simple_lyric_section.dart';
 
 class LyricLine extends StatefulWidget {
   final List<LyricContentLineSection> sections;
   final int currentTimeMilliseconds;
   final bool isActive;
   final bool isPassed;
+  final bool isStatic;
 
   const LyricLine({
     super.key,
@@ -18,6 +20,7 @@ class LyricLine extends StatefulWidget {
     required this.currentTimeMilliseconds,
     required this.isActive,
     required this.isPassed,
+    required this.isStatic,
   });
 
   @override
@@ -49,8 +52,7 @@ class _LyricLineState extends State<LyricLine>
   @override
   void didUpdateWidget(LyricLine oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.currentTimeMilliseconds != widget.currentTimeMilliseconds ||
-        oldWidget.isActive != widget.isActive ||
+    if (oldWidget.isActive != widget.isActive ||
         oldWidget.isPassed != widget.isPassed) {
       _updateBlurAnimation();
     }
@@ -107,17 +109,27 @@ class _LyricLineState extends State<LyricLine>
       },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
-        child: Wrap(
-          children: widget.sections.indexed.map((section) {
-            return LyricSection(
-              key: ValueKey(section.$1),
-              section: section.$2,
-              currentTimeMilliseconds: widget.currentTimeMilliseconds,
-              isActive: widget.isActive,
-              isPassed: widget.isPassed,
-            );
-          }).toList(),
-        ),
+        child: widget.isStatic
+            ? Wrap(
+                children: widget.sections.indexed.map((section) {
+                  return SimpleLyricSection(
+                    key: ValueKey(section.$1),
+                    section: section.$2,
+                    isPassed: widget.isPassed,
+                  );
+                }).toList(),
+              )
+            : Wrap(
+                children: widget.sections.indexed.map((section) {
+                  return LyricSection(
+                    key: ValueKey(section.$1),
+                    section: section.$2,
+                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                    isActive: widget.isActive,
+                    isPassed: widget.isPassed,
+                  );
+                }).toList(),
+              ),
       ),
     );
   }

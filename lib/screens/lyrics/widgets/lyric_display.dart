@@ -165,12 +165,18 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
 
                 final actualIndex = index - 1;
                 final line = widget.lyrics[actualIndex];
+
+                final eT = line.endTime;
+                final sT = line.startTime;
+                final cT = widget.currentTimeMilliseconds;
+
                 return RepaintBoundary(
                   child: LyricLine(
                     sections: line.sections,
-                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
+                    currentTimeMilliseconds: cT,
                     isActive: widget.activeLines.contains(actualIndex),
-                    isPassed: line.endTime < widget.currentTimeMilliseconds,
+                    isPassed: eT < cT,
+                    isStatic: eT + 500 < cT || sT - 500 > cT,
                   ),
                 );
               },
