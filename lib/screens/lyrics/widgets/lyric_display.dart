@@ -81,7 +81,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
       index: averageId.round(),
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.5,
+      edgeAlignment: 0.5,
+      viewportAlignment: 0.5,
     );
   }
 

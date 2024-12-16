@@ -1063,8 +1063,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: a19ffbbb705c00b7bb68745f6f8e43e58b4b23f3
-      resolved-ref: a19ffbbb705c00b7bb68745f6f8e43e58b4b23f3
+      ref: "0ec616519c68ff004c014a6907ff04d2cba43b7f"
+      resolved-ref: "0ec616519c68ff004c014a6907ff04d2cba43b7f"
       url: "https://github.com/Losses/scrollable_positioned_list.git"
     source: git
     version: "0.3.8"
