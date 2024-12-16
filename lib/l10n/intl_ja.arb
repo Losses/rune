@@ -160,11 +160,11 @@
   "@addToEnd": {
     "description": "An action that queues a track or album to the end of the playlist."
   },
-  "middleClickAction": "中クリック操作",
+  "middleClickAction": "中押操作",
   "@middleClickAction": {
     "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
   },
-  "middleClickActionSubtitle": "曲や選集まりを中クリックした際の実行動作。",
+  "middleClickActionSubtitle": "曲や選集まりを中押した際の実行動作。",
   "@middleClickActionSubtitle": {},
   "startPlaying": "再生開始",
   "@startPlaying": {
