@@ -52,7 +52,8 @@ class _LyricLineState extends State<LyricLine>
   @override
   void didUpdateWidget(LyricLine oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.isActive != widget.isActive ||
+    if (oldWidget.currentTimeMilliseconds != widget.currentTimeMilliseconds ||
+        oldWidget.isActive != widget.isActive ||
         oldWidget.isPassed != widget.isPassed) {
       _updateBlurAnimation();
     }
