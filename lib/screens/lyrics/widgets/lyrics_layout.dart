@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/color_brightness.dart';
-import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
