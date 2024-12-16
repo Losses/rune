@@ -1,12 +1,13 @@
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
-import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../messages/all.dart';
-
 import '../../../providers/responsive_providers.dart';
+
 import 'lyric_line.dart';
 import 'gradient_mask.dart';
 
@@ -27,84 +28,111 @@ class LyricsDisplay extends StatefulWidget {
 }
 
 class _LyricsDisplayState extends State<LyricsDisplay> {
-  final ScrollController _scrollController = ScrollController();
-  final Map<int, GlobalKey> _lineKeys = {};
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  final ScrollOffsetController _scrollOffsetController =
+      ScrollOffsetController();
 
-  bool _needsScroll = false;
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
+  final Map<int, (double, double)> _lineOffsets = {};
 
   @override
   void initState() {
     super.initState();
-    _initLineKeys();
-  }
-
-  void _initLineKeys() {
-    for (int i = 0; i < widget.lyrics.length; i++) {
-      _lineKeys[i] = GlobalKey();
-    }
+    _itemPositionsListener.itemPositions.addListener(_offsetListener);
   }
 
   @override
   void dispose() {
-    _scrollController.dispose();
     super.dispose();
+    _itemPositionsListener.itemPositions.removeListener(_offsetListener);
   }
 
   @override
   void didUpdateWidget(LyricsDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.activeLines, widget.activeLines)) {
-      _needsScroll = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_needsScroll) {
-            _scrollToActiveLines();
-          }
-        });
+        _scrollToActiveLines();
       });
     }
   }
 
-  void _scrollToActiveLines() {
-    if (widget.activeLines.isEmpty || !_scrollController.hasClients) return;
+  void _offsetListener() {
+    for (final item in _itemPositionsListener.itemPositions.value) {
+      _lineOffsets[item.index] =
+          (item.offset.dy + item.itemSize, item.itemSize);
+    }
+  }
 
-    double totalOffset = 0;
+  void _scrollToActiveLinesById() {
+    double totalId = 0;
     int count = 0;
 
     for (int index in widget.activeLines) {
-      final RenderBox? renderBox =
-          _lineKeys[index]?.currentContext?.findRenderObject() as RenderBox?;
-
-      if (renderBox == null) {
-        // If it is not found, retry in the next frame
-        _needsScroll = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _scrollToActiveLines();
-        });
-        return;
-      }
-
-      final RenderBox? listRenderBox = context.findRenderObject() as RenderBox?;
-      if (listRenderBox == null) return;
-
-      final Offset offset =
-          renderBox.localToGlobal(Offset.zero, ancestor: listRenderBox);
-      totalOffset += offset.dy + renderBox.size.height / 2;
+      totalId += totalId + index;
       count++;
     }
 
     if (count == 0) return;
 
-    _needsScroll = false; // Scrolling success
+    final double averageId = totalId / count;
+    _itemScrollController.scrollTo(
+      index: averageId.round(),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      alignment: 0.5,
+    );
+  }
 
-    final double averagePosition = totalOffset / count;
-    final double containerMiddle =
-        _scrollController.position.viewportDimension / 2;
+  void _scrollToActiveLines() {
+    double totalOffset = 0;
+    int count = 0;
+
+    for (int index in widget.activeLines) {
+      final renderBox = _lineOffsets[index];
+
+      if (renderBox == null) {
+        _scrollToActiveLinesById();
+        return;
+      }
+
+      totalOffset += renderBox.$1 + renderBox.$2 / 2;
+      count += 1;
+    }
+
+    if (count == 0) {
+      _scrollToActiveLinesById();
+      return;
+    }
+
+    final scrollController = _itemScrollController.scrollController;
+
+    if (scrollController == null) {
+      _scrollToActiveLinesById();
+      return;
+    }
+
+    if (widget.activeLines.length == 1 && widget.activeLines[0] == 0) {
+      scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+
+      return;
+    }
+
+    final viewportDimension = scrollController.position.viewportDimension;
+    final maxScrollExtent = scrollController.position.maxScrollExtent;
+
+    final averageOffset = totalOffset / count;
+    final containerMiddle = viewportDimension / 2;
     final double scrollOffset =
-        _scrollController.offset + (averagePosition - containerMiddle);
+        scrollController.offset + (averageOffset - containerMiddle);
 
-    _scrollController.animateTo(
-      max(0, min(scrollOffset, _scrollController.position.maxScrollExtent)),
+    scrollController.animateTo(
+      max(0, min(scrollOffset, maxScrollExtent)),
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
     );
@@ -124,9 +152,11 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
           child: ScrollConfiguration(
             behavior:
                 ScrollConfiguration.of(context).copyWith(scrollbars: false),
-            child: ListView.builder(
+            child: ScrollablePositionedList.builder(
               physics: NeverScrollableScrollPhysics(),
-              controller: _scrollController,
+              itemScrollController: _itemScrollController,
+              itemPositionsListener: _itemPositionsListener,
+              scrollOffsetController: _scrollOffsetController,
               itemCount: widget.lyrics.length + 2, // Add 2 for padding items
               itemBuilder: (context, index) {
                 if (index == 0 || index == widget.lyrics.length + 1) {
@@ -136,7 +166,6 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
                 final actualIndex = index - 1;
                 final line = widget.lyrics[actualIndex];
                 return RepaintBoundary(
-                  key: _lineKeys[actualIndex],
                   child: LyricLine(
                     sections: line.sections,
                     currentTimeMilliseconds: widget.currentTimeMilliseconds,
