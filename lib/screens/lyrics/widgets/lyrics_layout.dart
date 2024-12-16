@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/color_brightness.dart';
+import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
@@ -38,7 +39,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
     final isDark = theme.brightness.isDark;
-    final shadowColor = isDark ? Colors.black : theme.accentColor.lightest;
+    final shadowColor = isDark ? Colors.black : theme.accentColor;
 
     final r = Provider.of<ResponsiveProvider>(context);
     final isMini = r.smallerOrEqualTo(DeviceType.tablet, false);
@@ -89,6 +90,20 @@ class LyricsLayoutState extends State<LyricsLayout> {
               ),
               height: (mainAxisCount * gridSize).toDouble(),
             ),
+            if (!isMini && !isDark)
+              Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: const Alignment(0.0, -1.0),
+                    end: const Alignment(0.0, 1.0),
+                    colors: [
+                      shadowColor.withAlpha(0),
+                      shadowColor.lighten(0.8).withAlpha(220),
+                    ],
+                  ),
+                ),
+                height: constraints.maxHeight * 0.6,
+              ),
             if (!isMini)
               Positioned(
                 top: 0,

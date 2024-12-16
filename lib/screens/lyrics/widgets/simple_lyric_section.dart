@@ -39,8 +39,6 @@ class _LyricText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-
     final r = Provider.of<ResponsiveProvider>(context);
     final isMini = r.smallerOrEqualTo(DeviceType.zune, false);
 
@@ -49,7 +47,7 @@ class _LyricText extends StatelessWidget {
       style: TextStyle(
         fontSize: isMini ? 24 : 32,
         fontWeight: fontWeight,
-        color: theme.resources.textFillColorPrimary.withAlpha(alpha),
+        color: Colors.white.withAlpha(alpha),
       ),
     );
   }
