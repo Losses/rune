@@ -78,6 +78,10 @@ dependencies:
     git:
       url: https://github.com/Losses/system_tray.git
       ref: e0fd539785d2f656a8efd76376c6f2225848b9be
+  scrollable_positioned_list:
+    git:
+      url: https://github.com/Losses/scrollable_positioned_list.git
+      ref: 0ec616519c68ff004c014a6907ff04d2cba43b7f
 
 dev_dependencies:
   build_runner: ^2.4.11

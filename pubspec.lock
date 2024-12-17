@@ -1059,6 +1059,15 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.5.0"
+  scrollable_positioned_list:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "0ec616519c68ff004c014a6907ff04d2cba43b7f"
+      resolved-ref: "0ec616519c68ff004c014a6907ff04d2cba43b7f"
+      url: "https://github.com/Losses/scrollable_positioned_list.git"
+    source: git
+    version: "0.3.8"
   shelf:
     dependency: transitive
     description:
