@@ -591,7 +591,7 @@
   "@about": {
     "description": "Title of the about interface."
   },
-  "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、すべての曲を検査および解析します。",
+  "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、全ての曲を検査および解析します。",
   "@selectLibraryDirectorySubtitle": {},
   "resetLibrary": "資料集を初期化",
   "@resetLibrary": {
@@ -905,7 +905,7 @@
   "@register": {
     "description": "Title of the register tile in the settings page"
   },
-  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を触れて、認証済み使用者であることを確認してください。",
+  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を押れて、認証済み使用者であることを確認してください。",
   "@evaluationModeContent4" : {
     "description": "Content of the evaluation mode modal"
   },

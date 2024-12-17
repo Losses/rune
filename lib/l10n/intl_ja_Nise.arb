@@ -497,19 +497,19 @@
   "@playPause": {
     "description": "Button prompt text for controlling playback, used to toggle between play and pause states."
   },
-  "playPauseSubtitle": "再生同一時停止を切り替え",
+  "playPauseSubtitle": "再生同一時停止切替",
   "@playPauseSubtitle": {},
   "next": "次へ",
   "@next": {
     "description": "Button prompt text for controlling playback, used to skip to the next track."
   },
-  "nextSubtitle": "次の曲に移動",
+  "nextSubtitle": "次曲移動",
   "@nextSubtitle": {},
   "volume": "音量",
   "@volume": {
     "description": "Button prompt text for controlling playback, used to adjust the volume."
   },
-  "volumeSubtitle": "音量を調整",
+  "volumeSubtitle": "音量調整",
   "@volumeSubtitle": {},
   "playlist": "再生一覧表",
   "@playlist": {
@@ -527,13 +527,13 @@
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
-  "coverWallSubtitle": "表紙画像を表示して、特別な雰囲気を楽しめます",
+  "coverWallSubtitle": "表紙画像表示、特別雰囲気楽増",
   "@coverWallSubtitle": {},
   "fullscreen": "全画面",
   "@fullscreen": {
     "description": "Button prompt text for controlling playback, used to toggle fullscreen mode."
   },
-  "fullscreenSubtitle": "全画面にする／解除する",
+  "fullscreenSubtitle": "全画面入／解除",
   "@fullscreenSubtitle": {},
   "pause": "一時停止",
   "@pause": {
@@ -543,29 +543,29 @@
   "@play": {
     "description": "Button prompt text for controlling playback, used to resume playing from a paused state."
   },
-  "enable": "有効にする",
+  "enable": "有効",
   "@enable": {
     "description": "Radio button prompt text in the settings interface, indicating a feature is enabled."
   },
-  "disable": "無効にする",
+  "disable": "無効",
   "@disable": {
     "description": "Radio button prompt text in the settings interface, indicating a feature is not enabled."
   },
-  "noTracksFound": "曲が見つかりません",
+  "noTracksFound": "曲見狩未然",
   "@noTracksFound": {},
   "library": "資料集",
   "@library": {
     "description": "Title of the media library settings interface."
   },
-  "artistQuery": "芸人の照会",
+  "artistQuery": "芸人照会",
   "@artistQuery": {},
-  "playlistQuery": "再生一覧表の照会",
+  "playlistQuery": "再生一覧表照会",
   "@playlistQuery": {},
   "mixes": "調和構成",
   "@mixes": {
     "description": "Title of the Mix interface, referring to a type of smart playlist. Do not confuse with 'remix'."
   },
-  "mixQuery": "調和構成の照会",
+  "mixQuery": "調和構成照会",
   "@mixQuery": {},
   "settings": "設定",
   "@settings": {
@@ -591,49 +591,49 @@
   "@about": {
     "description": "Title of the about interface."
   },
-  "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、すべての曲を検査および解析します。",
+  "selectLibraryDirectorySubtitle": "資料集格納場所選択、全曲検査及解析。",
   "@selectLibraryDirectorySubtitle": {},
-  "resetLibrary": "資料集を初期化",
+  "resetLibrary": "資料集初期化",
   "@resetLibrary": {
     "description": "Action button text in the modal, indicating the user wants to reset the library."
   },
-  "resetLibraryQuestion": "資料集を初期化",
+  "resetLibraryQuestion": "資料集初期化",
   "@resetLibraryQuestion": {
     "description": "Modal title asking users if they want to reset the library."
   },
-  "resetLibrarySubtitle": "資料集を初期化すると、履歴が消去されます。既存の資料には影響はありません。実行しますか？",
+  "resetLibrarySubtitle": "資料集初期化為、履歴消去。既存資料影響無。実行可？",
   "@resetLibrarySubtitle": {},
   "unavailable": "利用不可",
   "@unavailable": {
     "description": "Context menu element that is unavailable, appearing only when there is a bug."
   },
-  "goToArtist": "芸人に移動",
+  "goToArtist": "芸人移動",
   "@goToArtist": {
     "description": "Context menu item guiding users to the artist's page."
   },
-  "goToAlbum": "歌集に移動",
+  "goToAlbum": "歌集移動",
   "@goToAlbum": {
     "description": "Context menu item guiding users to the album's page."
   },
-  "addToPlaylist": "再生一覧表に追加",
+  "addToPlaylist": "再生一覧表追加",
   "@addToPlaylist": {
     "description": "Context menu item guiding users to add a track or album to a playlist."
   },
-  "newPlaylist": "新しい再生一覧表",
+  "newPlaylist": "新再生一覧表",
   "@newPlaylist": {
     "description": "Context menu item guiding users to create a new playlist."
   },
-  "unableToOpenLibrary": "資料集を開けません",
+  "unableToOpenLibrary": "資料集開不可",
   "@unableToOpenLibrary": {
     "description": "Modal title informing users that the library cannot be opened."
   },
-  "unableToOpenLibrarySubtitle": "資料集を開けませんでした。原因は以下の通りです：",
+  "unableToOpenLibrarySubtitle": "資料集開不可。原因以下通：",
   "@unableToOpenLibrarySubtitle": {},
-  "unknownError": "不明な原因",
+  "unknownError": "不明原因",
   "@unknownError": {
     "description": "Modal error content indicating an unknown error."
   },
-  "close": "閉じる",
+  "close": "閉",
   "@close": {
     "description": "Action button in the modal guiding users to close it."
   },
@@ -641,33 +641,33 @@
   "@queue": {
     "description": "Title of the playlist modal."
   },
-  "createMix": "調和を構成",
+  "createMix": "調和構成",
   "@createMix": {
     "description": "Context menu item guiding users to create a new Mix, a type of smart playlist. Do not confuse with 'remix'."
   },
-  "removeMixTitle": "調和構成を削除",
+  "removeMixTitle": "調和構成削除",
   "@removeMixTitle": {
     "description": "Modal title informing users they are about to delete a Mix, a type of smart playlist. Do not confuse with 'remix'."
   },
-  "removeMixSubtitle": "この調和構成を削除すると、復元できません。削除しますか？",
+  "removeMixSubtitle": "此調和構成削除済、復元不可。削除可？",
   "@removeMixSubtitle": {},
   "delete": "削除",
   "@delete": {
     "description": "Action button text in the modal indicating that pressing it will delete information."
   },
-  "removePlaylistTitle": "再生一覧表を削除",
+  "removePlaylistTitle": "再生一覧表削除",
   "@removePlaylistTitle": {
     "description": "Modal title informing users they are about to delete a playlist."
   },
-  "removePlaylistSubtitle": "この再生一覧表を削除すると、復元できません。削除しますか？",
+  "removePlaylistSubtitle": "此再生一覧表削除済、復元できません。削除しますか？",
   "@removePlaylistSubtitle": {},
-  "cancelTaskTitle": "作業を中止",
+  "cancelTaskTitle": "作業中止",
   "@cancelTaskTitle": {
     "description": "Modal title informing users they are about to cancel a task."
   },
-  "cancelTaskSubtitle": "この作業を中止すると、現在の進行状態で停止します。本当に中止しますか",
+  "cancelTaskSubtitle": "此作業中止為、現在進行状態停止。本当中止？",
   "@cancelTaskSubtitle": {},
-  "cancelTask": "作業を中止",
+  "cancelTask": "作業中止",
   "@cancelTask": {
     "description": "Action button text in the modal indicating that pressing it will cancel the task."
   },
@@ -679,7 +679,7 @@
   "@refresh": {
     "description": "Context menu item guiding users to refresh the current page's information."
   },
-  "explore": "探す",
+  "explore": "探",
   "@explore": {
     "description": "Title of a functional area."
   },
@@ -691,13 +691,13 @@
   "@followSystemLanguage": {
     "description": "Action button text in settings, which indicating that the language of Rune should follow the operating system."
   },
-  "followSystemLanguageSubtitle": "特別な設定なしで、系統言語設定に従います。",
+  "followSystemLanguageSubtitle": "特別設定無、系統言語設定従。",
   "@followSystemLanguageSubtitle": {},
-  "windowSize": "表示領域の寸法",
+  "windowSize": "表示領域寸法",
   "@windowSize": {
     "description": "Prompt text for setting the window size in the theme page."
   },
-  "windowSizeSubtitle": "本再生機の表示領域の寸法を選択してください。",
+  "windowSizeSubtitle": "本再生機表示領域寸法選択。",
   "@windowSizeSubtitle": {
     "description": "Subtitle explaining the window size options."
   },
@@ -709,7 +709,7 @@
   "@slimWindowSize": {
     "description": "Option for a narrower window size."
   },
-  "stockyWindowSize": "横太り",
+  "stockyWindowSize": "横太",
   "@stockyWindowSize": {
     "description": "Option for a wider window size."
   },
@@ -717,7 +717,7 @@
   "@log": {
     "description": "Title of a the logging page in the settings section, this page contains errors and warning happened while the program is running."
   },
-  "viewLogDetail": "詳細の記録",
+  "viewLogDetail": "詳細記録",
   "@viewLogDetail": {
     "description": "An entry in the context menu. Pressing this entry will show the log detail modal."
   },
@@ -725,19 +725,19 @@
   "@removeLogTitle": {
     "description": "Modal title informing users they are about to delete a log."
   },
-  "removeLogSubtitle": "この記録を削除すると、復元できなくなります。本当に削除しますか？",
+  "removeLogSubtitle": "此記録削除済、復元出来不可。本当削除？",
   "@removeLogSubtitle": {},
-  "clearLogTitle": "全部の記録を削除します",
+  "clearLogTitle": "全部記録削除",
   "@clearLogTitle": {
     "description": "Modal title informing users they are about to delete all logs."
   },
-  "clearLogSubtitle": "全部の記録を削除すると、復元できなくなります。本当に削除しますか？",
+  "clearLogSubtitle": "全部記録削除済、復元出来不可。本当削除？",
   "@clearLogSubtitle": {},
   "deleteAll": "全部削除",
   "@deleteAll": {
     "description": "An entry in the context menu. Pressing this entry will remove all items available."
   },
-  "noLogsAvailable": "記録がありません",
+  "noLogsAvailable": "記録無",
   "@noLogsAvailable": {
     "description": "The title of empty state icon in the logs settings page."
   },
@@ -753,7 +753,7 @@
   "@oldest": {
     "description": "An entry in the library home setting dropdown."
   },
-  "random": "お任せ",
+  "random": "御任",
   "@random": {
     "description": "An entry in the library home setting dropdown."
   },
@@ -765,31 +765,31 @@
   "@personalize": {
     "description": "Entry in the context menu of the library home page."
   },
-  "artistsLibraryHomeSubtitle": "お気に入りの芸人の世界を発見し、探検しましょう。",
+  "artistsLibraryHomeSubtitle": "気入芸人世界発見、探検行。",
   "@artistsLibraryHomeSubtitle": {
     "description": "Subtitle for the artists section in the library home."
   },
-  "albumsLibraryHomeSubtitle": "才能ある芸人たちが手がけた歌集の世界に浸りましょう。",
+  "albumsLibraryHomeSubtitle": "才能有芸人達手桁歌集世界浸行。",
   "@albumsLibraryHomeSubtitle": {
     "description": "Subtitle for the albums section in the library home."
   },
-  "playlistsLibraryHomeSubtitle": "貴方だけの個性化された音楽の旅を作り上げましょう",
+  "playlistsLibraryHomeSubtitle": "貴方丈個性化去音楽旅作上",
   "@playlistsLibraryHomeSubtitle": {
     "description": "Subtitle for the playlists section in the library home."
   },
-  "tracksLibraryHomeSubtitle": "知っている曲や愛している曲に深く浸りましょう",
+  "tracksLibraryHomeSubtitle": "知入曲愛入曲深浸行",
   "@tracksLibraryHomeSubtitle": {
     "description": "Subtitle for the tracks section in the library home."
   },
-  "likedLibraryHomeSubtitle": "最も大切にしている曲をもう一度楽しみましょう",
+  "likedLibraryHomeSubtitle": "最大切入曲追体験楽行",
   "@likedLibraryHomeSubtitle": {
     "description": "Subtitle for the liked section in the library home."
   },
-  "mostLibraryHomeSubtitle": "何度も心を惹きつける旋律を再び楽しみましょう。",
+  "mostLibraryHomeSubtitle": "何度心惹旋律再楽行。",
   "@mostLibraryHomeSubtitle": {
     "description": "Subtitle for the most played section in the library home."
   },
-  "showRune": "Rune を顕明",
+  "showRune": "Rune 顕明",
   "@showRune": {
     "description": "Entry in the tray menu."
   },
@@ -797,11 +797,11 @@
   "@exit": {
     "description": "Entry in the tray menu."
   },
-  "back": "戻る",
+  "back": "戻",
   "@back": {
     "description": "Tool tip for the top left icon of the Windows title bar."
   },
-  "exportTracks": "書き出す",
+  "exportTracks": "書出",
   "@exportTracks": {
     "description": "An entry in the context menu that allows users to export a Collection"
   },
@@ -809,7 +809,7 @@
   "@exportM3u8": {
     "description": "An entry in the context menu that allows users to export collection in the M3U8 format"
   },
-  "exportCoverWall": "表紙画像の寄せ集め",
+  "exportCoverWall": "表紙画像寄集",
   "@exportCoverWall": {
     "description": "An entry in the context menu that allows users to export a cover art wall"
   },
@@ -829,31 +829,31 @@
   "@evaluationMode": {
     "description": "Title of the evaluation mode modal"
   },
-  "evaluationModeContent1": "Rune は無料ではありません。正銘の許可を各商店からご購入いただくようお願いいたします。",
+  "evaluationModeContent1": "Rune 無料麦酒否。正銘許可各商店購入行御願致。",
   "@evaluationModeContent1": {
     "description": "Content of the evaluation mode modal"
   },
-  "evaluationModeContent2": "認証済み使用者は商店を通じて自動更新を受けることができ、さらに開発者に直接新機能の提案を行う特権があります。",
+  "evaluationModeContent2": "認証済使用者商店通自動更新受卦事、更開発者直接新機能提案行特権有。",
   "@evaluationModeContent2": {
     "description": "Content of the evaluation mode modal"
   },
-  "evaluationModeContent3": "この通知を 180 日間非表示にすることができます。その後、再度お知らせします。",
+  "evaluationModeContent3": "此通知 180 日間非表示。其後、再度通知。",
   "@evaluationModeContent3": {
     "description": "Content of the evaluation mode modal"
   },
-  "remindMeLater": "後で思い出す",
+  "remindMeLater": "後日思出",
   "@remindMeLater": {
     "description": "Action button of the evaluation mode modal"
   },
-  "mysteriousButton": "謎の鍵",
+  "mysteriousButton": "謎鍵",
   "@mysteriousButton": {
     "description": "A context menu item"
   },
-  "mysteriousModalTitle": "きし",
+  "mysteriousModalTitle": "鬼支",
   "@mysteriousModalTitle": {
     "description": "The title of a modal"
   },
-  "mysteriousModalContent": "何やら不思議な仕掛けを作動させたようです。部屋の構造が変化し、新たに探索できる場所が現れたようです。",
+  "mysteriousModalContent": "何不思議仕掛作動差様。部屋構造変化、新探索可場所現様。",
   "@mysteriousModalContent": {
     "description": "The content of a modal"
   },
@@ -865,39 +865,39 @@
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "libraryModeSubtitle": "資料集についてもう少し詳しく教えてください。あなたの資料保存先は雲上に保存されていますか？",
+  "libraryModeSubtitle": "資料集付少詳教下。貴方資料保存先雲上保存去在？",
   "@libraryModeSubtitle": {
     "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
-  "portableMode": "本機の記憶装置",
+  "portableMode": "本機記憶装置",
   "@portableMode": {
     "description": "One candidate library mode for users"
   },
-  "portableModeSubtitle": "あなたの資料索引を資料保管場所と同じ場所に保存します。",
+  "portableModeSubtitle": "貴方資料索引資料保管場所同場所保存了承。",
   "@portableModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   },
-  "localMode": "雲上へ",
+  "localMode": "雲上",
   "@localMode": {
     "description": "One candidate library mode for users"
   },
-  "localModeSubtitle": "あなたの資料索引を Rune の設定保存先に保存します。",
+  "localModeSubtitle": "貴方資料索引 Rune 設定保存先保存了承。",
   "@localModeSubtitle": {
     "description": "The subtitle of the candidate library mode for users"
   },
-  "rememberWindowSize": "窓の形態を記憶する",
+  "rememberWindowSize": "窓形態記憶",
   "@rememberWindowSize": {
     "description": "Title of a setting option in the theme page"
   },
-  "rememberWindowSizeSubtitle": "調整した窓の形態を保存し、次回は同じ形態で Rune を起動します。",
+  "rememberWindowSizeSubtitle": "調整済窓形態保存、次回同形態 Rune 起動。",
   "@rememberWindowSizeSubtitle": {
     "description": "The subtitle of a setting option in the theme page"
   },
-  "closeNotification": "Rune はまだ運行中",
+  "closeNotification": "Rune 現在運行中",
   "@closeNotification": {
     "description": "The notification is popped up while user closed the window"
   },
-  "closeNotificationSubtitle": "Rune は現在裏で動作しています。系統の通知領域で簡単に見つけることができます。",
+  "closeNotificationSubtitle": "Rune 現在裏動作中。系統通知領域簡単見付。",
   "@closeNotificationSubtitle": {
     "description": ""
   },
@@ -905,7 +905,7 @@
   "@register": {
     "description": "Title of the register tile in the settings page"
   },
-  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を触れて、認証済み使用者であることを確認してください。",
+  "evaluationModeContent4": "下記商店中鍵音楽購入為事出、登録証明使用出来。「登録」押、認証済使用者確認仕手下。",
   "@evaluationModeContent4" : {
     "description": "Content of the evaluation mode modal"
   },
@@ -913,27 +913,27 @@
   "@registerAction": {
     "description": "The label of the register button in a modal"
   },
-  "registerFailed": "失敗しました",
+  "registerFailed": "失敗",
   "@registerFailed": {
     "description": "The title of the register failed modal"
   },
-  "registerFailedSubtitle": "確認過程で不具合が発生しました。",
+  "registerFailedSubtitle": "確認過程不具合発生。",
   "@registerFailedSubtitle": {
     "description": "The content of the register failed modal"
   },
-  "registerSuccess": "完成しました",
+  "registerSuccess": "完成",
   "@registerSuccess": {
     "description": "The title of the register success modal"
   },
-  "registerSuccessSubtitle": "おめでとうございます！登録が無事に完了しました。Rune をお選びいただき、ありがとうございます。",
+  "registerSuccessSubtitle": "御目出度御座！登録無事完了。Rune 選頂、有難御座。",
   "@registerSuccessSubtitle": {
     "description": "The content of the register success modal"
   },
-  "registerInvalid": "無効な鍵",
+  "registerInvalid": "鍵無効",
   "@registerInvalid": {
     "description": "The title of the invalid register key modal"
   },
-  "registerInvalidSubtitle": "提供された鍵音楽は無効です。鍵音楽を確認し、再度お試しください。",
+  "registerInvalidSubtitle": "提供去鍵音楽無効。鍵音楽確認、再度試下。",
   "@registerInvalidSubtitle": {
     "description": "The content of the invalid register key modal"
   },
@@ -941,7 +941,7 @@
   "@importM3u8Success": {
     "description": "The title of the partially import success modal"
   },
-  "importM3u8SuccessSubtitle": "曲の取り込みが完了しましたが、一部の曲が見つかりませんでした。",
+  "importM3u8SuccessSubtitle": "曲取込完了、一部曲見狩無。",
   "@importM3u8SuccessSubtitle": {
     "description": "The content of the partially import success modal"
   },
@@ -949,23 +949,23 @@
   "@importM3u8Failed": {
     "description": "The title of the import failed modal"
   },
-  "importM3u8FailedSubtitle": "導入過程で誤りが発生しました。",
+  "importM3u8FailedSubtitle": "導入過程誤発生。",
   "@importM3u8FailedSubtitle": {
     "description": "The content of the import failed modal"
   },
-  "importM3u8": "再生一覧表を導入",
+  "importM3u8": "再生一覧表導入",
   "@importM3u8": {
     "description": "Context menu item guiding users to import a new playlist."
   },
-  "adaptiveSwitching": "自適応切替え",
+  "adaptiveSwitching": "自適応切替",
   "@adaptiveSwitching": {
     "description": "Settings title of an entry in the playback settings page"
   },
-  "adaptiveSwitchingSubtitle": "現在の曲が三秒以上再生された後に戻ると、最初から再生が始まります。",
+  "adaptiveSwitchingSubtitle": "現在曲三秒以上再生済後戻、最初再生始。",
   "@adaptiveSwitchingSubtitle": {
     "description": "Settings description of an entry in the playback settings page"
   },
-  "considerPurchase": "ぜひ正銘の許可をお求めください。",
+  "considerPurchase": "是非正銘許可御求下。",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
   },
