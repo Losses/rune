@@ -2,6 +2,7 @@ syntax = "proto3";
 package cover_art;
 
 import "mix.proto";
+import "playback.proto";
 
 message GetCoverArtIdsByMixQueriesRequestUnit {
   int32 id = 1;
@@ -26,11 +27,11 @@ message GetCoverArtIdsByMixQueriesResponse {
 
 // [DART-SIGNAL]
 message GetPrimaryColorByTrackIdRequest {
-  int32 id = 1;
+  playback.PlayingItemRequest item = 1;
 }
 
 // [RUST-SIGNAL]
 message GetPrimaryColorByTrackIdResponse {
-  int32 id = 1;
+  playback.PlayingItemRequest item = 1;
   optional int32 primary_color = 2;
 }

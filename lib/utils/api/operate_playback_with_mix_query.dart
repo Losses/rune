@@ -4,8 +4,9 @@ import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
 import '../../messages/all.dart';
+import '../playing_item.dart';
 
-Future<List<int>> operatePlaybackWithMixQuery({
+Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required QueryList queries,
   required int playbackMode,
   required int hintPosition,
@@ -18,20 +19,22 @@ Future<List<int>> operatePlaybackWithMixQuery({
     queries: queries.toQueryList(),
     playbackMode: playbackMode,
     hintPosition: hintPosition,
-    initialPlaybackId: initialPlaybackId,
+    initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
     instantlyPlay: instantlyPlay,
     operateMode: operateMode,
-    fallbackMediaFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds
+        .map((x) => PlayingItem.inLibrary(x).toRequest())
+        .toList(),
   ).sendSignalToRust();
 
   final rustSignal =
       await OperatePlaybackWithMixQueryResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
-  return response.fileIds;
+  return response.playingItems.map(PlayingItem.fromRequest).toList();
 }
 
-Future<List<int>> safeOperatePlaybackWithMixQuery({
+Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
   required BuildContext context,
   required QueryList queries,
   required int playbackMode,

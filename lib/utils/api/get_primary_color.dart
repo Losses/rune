@@ -1,13 +1,17 @@
 import '../../messages/all.dart';
 
-Future<int?> getPrimaryColor(int trackId) async {
-  GetPrimaryColorByTrackIdRequest(id: trackId).sendSignalToRust();
+import '../playing_item.dart';
+
+Future<int?> getPrimaryColor(PlayingItem playingItem) async {
+  GetPrimaryColorByTrackIdRequest(item: playingItem.toRequest())
+      .sendSignalToRust();
 
   while (true) {
     final rustSignal =
         await GetPrimaryColorByTrackIdResponse.rustSignalStream.first;
 
-    if (rustSignal.message.id == trackId) {
+    final newItem = PlayingItem.fromRequest(rustSignal.message.item);
+    if (newItem == playingItem) {
       final color = rustSignal.message.primaryColor;
       if (color == 0) return null;
       return color;

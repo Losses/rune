@@ -3,44 +3,80 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use database::playing_item::MediaFileHandle;
+use database::playing_item::PlayingItemActionDispatcher;
 use dunce::canonicalize;
-use playback::strategies::AddMode;
 use rinf::DartSignal;
 use tokio::sync::Mutex;
 
-use database::actions::file::get_files_by_ids;
 use database::actions::mixes::query_mix_media_files;
 use database::actions::stats::increase_skipped;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use playback::player::Player;
+use playback::player::PlayingItem;
+use playback::strategies::AddMode;
 
-use crate::LoadRequest;
-use crate::OperatePlaybackWithMixQueryRequest;
-use crate::OperatePlaybackWithMixQueryResponse;
-use crate::PlaylistOperateMode;
-use crate::SetAdaptiveSwitchingEnabledRequest;
-use crate::SetRealtimeFftEnabledRequest;
-use crate::VolumeRequest;
-use crate::VolumeResponse;
 use crate::{
-    MovePlaylistItemRequest, NextRequest, PauseRequest, PlayRequest, PreviousRequest,
-    RemoveRequest, SeekRequest, SetPlaybackModeRequest, SwitchRequest,
+    InLibraryPlayingItem, IndependentFilePlayingItem, LoadRequest, MovePlaylistItemRequest,
+    NextRequest, OperatePlaybackWithMixQueryRequest, OperatePlaybackWithMixQueryResponse,
+    PauseRequest, PlayRequest, PlayingItemRequest, PlaylistOperateMode, PreviousRequest,
+    RemoveRequest, SeekRequest, SetAdaptiveSwitchingEnabledRequest, SetPlaybackModeRequest,
+    SetRealtimeFftEnabledRequest, SwitchRequest, VolumeRequest, VolumeResponse,
 };
+
+impl From<PlayingItem> for PlayingItemRequest {
+    fn from(x: PlayingItem) -> Self {
+        match x {
+            PlayingItem::InLibrary(x) => PlayingItemRequest {
+                in_library: Some(InLibraryPlayingItem { file_id: x }),
+                independent_file: None,
+            },
+            PlayingItem::IndependentFile(path_buf) => PlayingItemRequest {
+                in_library: None,
+                independent_file: Some(IndependentFilePlayingItem {
+                    path: path_buf.to_string_lossy().to_string(),
+                }),
+            },
+            PlayingItem::Unknown => PlayingItemRequest {
+                in_library: None,
+                independent_file: None,
+            },
+        }
+    }
+}
+
+impl From<PlayingItemRequest> for PlayingItem {
+    fn from(x: PlayingItemRequest) -> Self {
+        if let Some(in_library) = x.in_library {
+            return PlayingItem::InLibrary(in_library.file_id);
+        }
+
+        if let Some(independent_file) = x.independent_file {
+            return PlayingItem::IndependentFile(PathBuf::from(independent_file.path));
+        }
+
+        PlayingItem::Unknown
+    }
+}
 
 pub fn files_to_playback_request(
     lib_path: &String,
-    files: &[database::entities::media_files::Model],
-) -> Vec<(i32, PathBuf)> {
+    files: &[MediaFileHandle],
+) -> Vec<(PlayingItem, PathBuf)> {
     files
         .iter()
         .filter_map(|file| {
-            let file_path = Path::new(lib_path)
-                .join(&file.directory)
-                .join(&file.file_name);
+            let file_path = match &file.item {
+                PlayingItem::InLibrary(_) => Path::new(lib_path)
+                    .join(&file.directory)
+                    .join(&file.file_name),
+                PlayingItem::IndependentFile(path_buf) => path_buf.to_path_buf(),
+                PlayingItem::Unknown => Path::new("/").to_path_buf(),
+            };
 
             match canonicalize(&file_path) {
-                Ok(canonical_path) => Some((file.id, canonical_path)),
+                Ok(canonical_path) => Some((file.item.clone(), canonical_path)),
                 Err(_) => None,
             }
         })
@@ -71,12 +107,18 @@ pub async fn next_request(
     player: Arc<Mutex<Player>>,
     _: DartSignal<NextRequest>,
 ) -> Result<()> {
-    let file_id = player.lock().await.get_status().id;
+    let item = player.lock().await.get_status().item;
 
-    if let Some(file_id) = file_id {
-        increase_skipped(&main_db, file_id)
-            .await
-            .context("Unable to increase skipped count")?;
+    if let Some(item) = item {
+        match item {
+            playback::player::PlayingItem::InLibrary(file_id) => {
+                increase_skipped(&main_db, file_id)
+                    .await
+                    .context("Unable to increase skipped count")?;
+            }
+            playback::player::PlayingItem::IndependentFile(_) => {}
+            playback::player::PlayingItem::Unknown => {}
+        };
     }
 
     player.lock().await.next();
@@ -89,12 +131,18 @@ pub async fn previous_request(
     player: Arc<Mutex<Player>>,
     _: DartSignal<PreviousRequest>,
 ) -> Result<()> {
-    let file_id = player.lock().await.get_status().id;
+    let item = player.lock().await.get_status().item;
 
-    if let Some(file_id) = file_id {
-        increase_skipped(&main_db, file_id)
-            .await
-            .context("Unable to increase skipped count")?;
+    if let Some(item) = item {
+        match item {
+            playback::player::PlayingItem::InLibrary(file_id) => {
+                increase_skipped(&main_db, file_id)
+                    .await
+                    .context("Unable to increase skipped count")?;
+            }
+            playback::player::PlayingItem::IndependentFile(_) => {}
+            playback::player::PlayingItem::Unknown => {}
+        };
     }
     player.lock().await.previous();
 
@@ -116,12 +164,18 @@ pub async fn switch_request(
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<SwitchRequest>,
 ) -> Result<()> {
-    let file_id = player.lock().await.get_status().id;
+    let item = player.lock().await.get_status().item;
 
-    if let Some(file_id) = file_id {
-        increase_skipped(&main_db, file_id)
-            .await
-            .context("Unable to increase skipped count")?;
+    if let Some(item) = item {
+        match item {
+            playback::player::PlayingItem::InLibrary(file_id) => {
+                increase_skipped(&main_db, file_id)
+                    .await
+                    .context("Unable to increase skipped count")?;
+            }
+            playback::player::PlayingItem::IndependentFile(_) => {}
+            playback::player::PlayingItem::Unknown => {}
+        };
     }
 
     player
@@ -252,9 +306,18 @@ pub async fn operate_playback_with_mix_query_request(
 ) -> Result<()> {
     let request = dart_signal.message;
 
+    let items: Vec<PlayingItem> = request
+        .fallback_playing_items
+        .clone()
+        .into_iter()
+        .map(|x| x.into())
+        .collect();
+
     // Retrieve tracks
     let tracks = if request.queries.is_empty() {
-        get_files_by_ids(&main_db, &request.fallback_media_file_ids).await?
+        PlayingItemActionDispatcher::new()
+            .get_file_handle(&main_db, &items)
+            .await?
     } else {
         query_mix_media_files(
             &main_db,
@@ -269,6 +332,9 @@ pub async fn operate_playback_with_mix_query_request(
         )
         .await
         .with_context(|| format!("Failed to query tracks: {:?}", request.queries))?
+        .into_iter()
+        .map(|x| x.into())
+        .collect()
     };
 
     let mut player = player.lock().await;
@@ -291,12 +357,15 @@ pub async fn operate_playback_with_mix_query_request(
         player.get_playlist().len()
     };
 
-    let mut file_ids: Vec<i32> = tracks.iter().map(|x| x.id).collect();
+    let mut items: Vec<PlayingItem> = tracks.iter().map(|x| x.clone().item).collect();
 
     // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
         player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
-        OperatePlaybackWithMixQueryResponse { file_ids }.send_signal_to_dart();
+        OperatePlaybackWithMixQueryResponse {
+            playing_items: items.into_iter().map(|x| x.into()).collect(),
+        }
+        .send_signal_to_dart();
         return Ok(());
     }
 
@@ -304,14 +373,22 @@ pub async fn operate_playback_with_mix_query_request(
     let nearest_index: Option<usize> = if request.hint_position < 0 {
         Some(0)
     } else {
-        find_nearest_index(&file_ids, request.hint_position.try_into().unwrap(), |x| {
-            *x == request.initial_playback_id
+        find_nearest_index(&items, request.hint_position.try_into().unwrap(), |x| {
+            if let Some(initial_item) = &request.initial_playback_item {
+                *x == PlayingItem::from(initial_item.clone())
+            } else {
+                false
+            }
         })
     };
 
     // If no suitable index found, use fallback_media_file_ids
     if nearest_index.is_none() {
-        file_ids = request.fallback_media_file_ids.clone();
+        items = request
+            .fallback_playing_items
+            .into_iter()
+            .map(|x| x.into())
+            .collect();
     }
 
     let nearest_index = nearest_index.unwrap_or(request.hint_position.try_into().unwrap_or(0));
@@ -321,7 +398,7 @@ pub async fn operate_playback_with_mix_query_request(
         player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
     }
     OperatePlaybackWithMixQueryResponse {
-        file_ids: file_ids.clone(),
+        playing_items: items.into_iter().map(|x| x.into()).collect(),
     }
     .send_signal_to_dart();
 

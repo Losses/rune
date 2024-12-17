@@ -832,7 +832,7 @@ where
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(file.path(), lib_path))
+            .map(|file| describe_file(&file.path().to_path_buf(), &Some(lib_path.to_path_buf())))
             .map(|result| result.ok())
             .collect();
 
@@ -881,7 +881,7 @@ where
     Ok(processed_files)
 }
 
-fn extract_number(s: &str) -> Option<i32> {
+pub fn extract_number(s: &str) -> Option<i32> {
     let re = Regex::new(r"\d+").unwrap();
     re.find(s).and_then(|mat| mat.as_str().parse::<i32>().ok())
 }

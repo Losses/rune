@@ -1,6 +1,8 @@
 syntax = "proto3";
 package lyric;
 
+import "playback.proto";
+
 message LyricContentLine {
     int32 startTime = 1;
     int32 endTime = 2;
@@ -15,11 +17,11 @@ message LyricContentLineSection {
 
 // [DART-SIGNAL]
 message GetLyricByTrackIdRequest {
-  int32 id = 1;
+  playback.PlayingItemRequest item = 1;
 }
 
 // [RUST-SIGNAL]
 message GetLyricByTrackIdResponse {
-  int32 id = 1;
+  playback.PlayingItemRequest item = 1;
   repeated LyricContentLine lines = 2;
 }

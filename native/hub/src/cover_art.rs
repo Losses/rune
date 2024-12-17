@@ -4,12 +4,11 @@ use anyhow::Result;
 use futures::future::join_all;
 use rinf::DartSignal;
 
-use database::actions::cover_art::get_cover_art_id_by_track_id;
-use database::actions::cover_art::get_primary_color_by_cover_art_id;
 use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use database::entities::media_files;
+use database::playing_item::PlayingItemActionDispatcher;
 use tokio::task;
 
 use crate::messages::*;
@@ -89,33 +88,33 @@ pub async fn get_primary_color_by_track_id_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetPrimaryColorByTrackIdRequest>,
 ) -> Result<()> {
-    let track_id = dart_signal.message.id;
+    let item = dart_signal.message.item;
     let main_db = main_db.clone();
 
-    task::spawn_blocking(move || {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async move {
-            if let Some(id) = get_cover_art_id_by_track_id(&main_db, track_id)
-                .await
-                .ok()
-                .flatten()
-            {
-                let primary_color = get_primary_color_by_cover_art_id(&main_db, id).await.ok();
+    if let Some(item) = item {
+        task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            runtime.block_on(async move {
+                let dispatcher = PlayingItemActionDispatcher::new();
+                let primary_color = dispatcher
+                    .get_cover_art_primary_color(&main_db, &item.clone().into())
+                    .await;
 
-                GetPrimaryColorByTrackIdResponse {
-                    id: track_id,
-                    primary_color,
+                match primary_color {
+                    Some(x) => GetPrimaryColorByTrackIdResponse {
+                        item: Some(item),
+                        primary_color: Some(x),
+                    }
+                    .send_signal_to_dart(),
+                    None => GetPrimaryColorByTrackIdResponse {
+                        item: Some(item),
+                        primary_color: None,
+                    }
+                    .send_signal_to_dart(),
                 }
-                .send_signal_to_dart();
-            } else {
-                GetPrimaryColorByTrackIdResponse {
-                    id: track_id,
-                    primary_color: None,
-                }
-                .send_signal_to_dart();
-            }
-        })
-    });
+            })
+        });
+    }
 
     Ok(())
 }

@@ -4,6 +4,7 @@ import 'package:rinf/rinf.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/playing_item.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
 import '../messages/all.dart';
@@ -13,8 +14,10 @@ const lastQueueIndexKey = 'last_queue_index';
 class PlaybackStatusProvider with ChangeNotifier {
   final PlaybackStatus _playbackStatus =
       PlaybackStatus(state: "Stopped", ready: false);
+  PlayingItem? _playingItem;
 
   PlaybackStatus get playbackStatus => _playbackStatus;
+  PlayingItem? get playingItem => _playingItem;
 
   late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
 
@@ -44,7 +47,7 @@ class PlaybackStatusProvider with ChangeNotifier {
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
     final newStatus = signal.message;
     if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
-      final bool isNewTrack = _playbackStatus.id != newStatus.id;
+      final bool isNewTrack = _playbackStatus.item != newStatus.item;
 
       _playbackStatus.state = newStatus.state;
       _playbackStatus.progressSeconds = newStatus.progressSeconds;
@@ -54,13 +57,15 @@ class PlaybackStatusProvider with ChangeNotifier {
       _playbackStatus.title = newStatus.title;
       _playbackStatus.duration = newStatus.duration;
       _playbackStatus.index = newStatus.index;
-      _playbackStatus.id = newStatus.id;
+      _playbackStatus.item = newStatus.item;
       _playbackStatus.playbackMode = newStatus.playbackMode;
       _playbackStatus.ready = newStatus.ready;
       _playbackStatus.coverArtPath = newStatus.coverArtPath;
+      final newPlayingItem = PlayingItem.fromString(newStatus.item);
+      _playingItem = newPlayingItem;
 
       if (isNewTrack) {
-        ThemeColorManager().handleCoverArtColorChange(newStatus.id);
+        ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
         SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }
 
@@ -78,7 +83,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         oldStatus.title == newStatus.title &&
         oldStatus.duration == newStatus.duration &&
         oldStatus.index == newStatus.index &&
-        oldStatus.id == newStatus.id &&
+        oldStatus.item == newStatus.item &&
         oldStatus.playbackMode == newStatus.playbackMode &&
         oldStatus.ready == newStatus.ready &&
         oldStatus.coverArtPath == newStatus.coverArtPath;

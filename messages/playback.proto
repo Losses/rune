@@ -13,7 +13,7 @@ message PlaybackStatus {
   optional string title = 6;
   optional double duration = 7;
   optional int32 index = 8;
-  optional int32 id = 9;
+  optional string item = 9;
   uint32 playback_mode = 10;
   bool ready = 11;
   string cover_art_path = 12;
@@ -63,7 +63,7 @@ message MovePlaylistItemRequest {
 }
 
 message PlaylistItem {
-  int32 id = 1;
+  PlayingItemRequest item = 1;
   string artist = 2;
   string album = 3;
   string title = 4;
@@ -106,18 +106,31 @@ enum PlaylistOperateMode {
   Replace = 2;
 }
 
+message InLibraryPlayingItem {
+  int32 file_id = 1;
+}
+
+message IndependentFilePlayingItem {
+  string path = 2;
+}
+
+message PlayingItemRequest {
+  optional InLibraryPlayingItem in_library = 1;
+  optional IndependentFilePlayingItem independent_file = 2;
+}
+
 // [DART-SIGNAL]
 message OperatePlaybackWithMixQueryRequest {
     repeated mix.MixQuery queries = 1;
     uint32 playback_mode = 2;
     int32 hint_position = 3;
-    int32 initial_playback_id = 4;
+    PlayingItemRequest initial_playback_item = 4;
     bool instantly_play = 5;
     PlaylistOperateMode operate_mode = 6;
-    repeated int32 fallback_media_file_ids = 7;
+    repeated PlayingItemRequest fallback_playing_items = 7;
 }
 
 // [RUST-SIGNAL]
 message OperatePlaybackWithMixQueryResponse {
-    repeated int32 file_ids = 1;
+    repeated PlayingItemRequest playing_items = 1;
 }
