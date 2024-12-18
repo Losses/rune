@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize)]
 struct AuthResponse {
-    session: SessionInfo,
+    session: Option<SessionInfo>,
+    error: Option<i32>,
+    message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

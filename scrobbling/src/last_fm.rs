@@ -65,8 +65,22 @@ impl ScrobblingClient for LastFmClient {
 
         if response.status().is_success() {
             let auth_response: AuthResponse = response.json().await?;
-            self.session_key = Some(auth_response.session.key);
-            Ok(())
+
+            if auth_response.error.is_some() {
+                bail!(
+                    "Authentication failed: {}",
+                    auth_response
+                        .message
+                        .unwrap_or_else(|| "Unknown error".to_string())
+                );
+            }
+
+            if let Some(session) = auth_response.session {
+                self.session_key = Some(session.key);
+                Ok(())
+            } else {
+                bail!("Authentication failed: No session key returned");
+            }
         } else {
             bail!("Authentication failed")
         }

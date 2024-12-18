@@ -17,34 +17,32 @@ async fn main() -> Result<()> {
                 .index(1),
         )
         .arg(
-            Arg::new("api_key")
-                .help("API Key for the service")
-                .required(true)
-                .index(2),
-        )
-        .arg(
-            Arg::new("api_secret")
-                .help("API Secret for Last.fm (ignored for Libre.fm)")
-                .required(false)
-                .index(3),
-        )
-        .arg(
             Arg::new("username")
                 .help("Username for the service")
                 .required(true)
-                .index(4),
+                .index(2),
         )
         .arg(
             Arg::new("password")
                 .help("Password for the service")
                 .required(true)
-                .index(5),
+                .index(3),
+        )
+        .arg(
+            Arg::new("api_key")
+                .help("API Key for the service")
+                .long("api_key"),
+        )
+        .arg(
+            Arg::new("api_secret")
+                .help("API Secret for Last.fm (ignored for Libre.fm)")
+                .long("api_secret"),
         )
         .get_matches();
 
     let binding = "".to_string();
     let service = matches.get_one::<String>("service").unwrap();
-    let api_key = matches.get_one::<String>("api_key").unwrap();
+    let api_key = matches.get_one::<String>("api_key").unwrap_or(&binding);
     let api_secret = matches.get_one::<String>("api_secret").unwrap_or(&binding);
     let username = matches.get_one::<String>("username").unwrap();
     let password = matches.get_one::<String>("password").unwrap();
