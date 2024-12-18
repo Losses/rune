@@ -1,0 +1,18 @@
+[package]
+name = "scrobbling"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "scrobbling"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.94"
+async-trait = "0.1.83"
+md5 = "0.7.0"
+reqwest = { version = "0.12.9", features = ["blocking", "json", "socks"] }
+serde = "1.0.216"
+serde_json = "1.0.133"
+tokio = { version = "1.42.0" }
