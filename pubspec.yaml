@@ -82,6 +82,7 @@ dependencies:
     git:
       url: https://github.com/Losses/scrollable_positioned_list.git
       ref: 0ec616519c68ff004c014a6907ff04d2cba43b7f
+  desktop_drop: ^0.5.0
 
 dev_dependencies:
   build_runner: ^2.4.11
