@@ -5,7 +5,9 @@ use lyric::parser::parse_audio_lyrics;
 use playback::player::PlayingItem;
 use rinf::DartSignal;
 
-use database::{connection::MainDbConnection, playing_item::PlayingItemActionDispatcher};
+use database::{
+    connection::MainDbConnection, playing_item::dispatcher::PlayingItemActionDispatcher,
+};
 
 use crate::{
     GetLyricByTrackIdRequest, GetLyricByTrackIdResponse, LyricContentLine, LyricContentLineSection,

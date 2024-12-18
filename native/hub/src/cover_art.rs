@@ -8,7 +8,7 @@ use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use database::entities::media_files;
-use database::playing_item::PlayingItemActionDispatcher;
+use database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use tokio::task;
 
 use crate::messages::*;

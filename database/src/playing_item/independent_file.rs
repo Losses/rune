@@ -155,14 +155,14 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 let color_file: PathBuf = COVER_TEMP_DIR.clone().join(color_file_name);
 
                 if !image_file.exists() {
-                    fs::write(path.clone(), cover_art.data)?;
+                    fs::write(image_file, cover_art.data)?;
                 }
 
                 if !color_file.exists() {
-                    fs::write(path.clone(), format!("{:?}", cover_art.primary_color))?;
+                    fs::write(color_file, format!("{:?}", cover_art.primary_color))?;
                 }
 
-                result_map.insert(PlayingItem::IndependentFile(path.clone()), image_file);
+                result_map.insert(PlayingItem::IndependentFile(path.clone()), path);
             }
         }
 
