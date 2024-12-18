@@ -129,7 +129,6 @@ impl PlayingItemActionDispatcher {
         main_db: &DatabaseConnection,
         items: &[PlayingItem],
     ) -> Result<HashMap<PlayingItem, String>> {
-        println!("{:#?}", items);
         let in_library_results = self
             .in_library_processor
             .bake_cover_art(main_db, items)
