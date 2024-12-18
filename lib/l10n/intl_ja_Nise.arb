@@ -106,7 +106,7 @@
   "@computingDevice": {
     "description": "A settings entry title that allows users to select the hardware device responsible for performing audio analysis tasks."
   },
-  "computingDeviceSubtitle": "高速亦効率的処理為画像処理装置亦中央処理装置選択。",
+  "computingDeviceSubtitle": "高速或効率的処理為画像処理装置亦中央処理装置選択。",
   "@computingDeviceSubtitle": {},
   "gpu": "画像処理装置",
   "@gpu": {},
@@ -228,7 +228,7 @@
   "@tracksFound": {
     "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
   },
-  "albumCoversCollected": " 歌集表紙画像収集去増",
+  "albumCoversCollected": " 表紙画像収集完了",
   "@albumCoversCollected": {
     "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
   },
@@ -443,7 +443,7 @@
       "baseMessage": {}
     }
   },
-  "notReady": "準備出来未然",
+  "notReady": "準備未然",
   "@notReady": {
     "description": "Modal title indicating that tracks haven't been analyzed and recommendations can't be made."
   },
@@ -481,11 +481,11 @@
   },
   "theseActionsMayHelp": "以下行動問題解決役立可能性有",
   "@theseActionsMayHelp": {},
-  "tryScanningNewFiles": "新資料検査仕手見下",
+  "tryScanningNewFiles": "新資料検査試見下",
   "@tryScanningNewFiles": {},
   "noCollectionFound": "選集見狩未然",
   "@noCollectionFound": {},
-  "noItemsInPlaylist": "再生一覧表項目未然有",
+  "noItemsInPlaylist": "再生一覧表項目無",
   "@noItemsInPlaylist": {},
   "previous": "前",
   "@previous": {
@@ -499,7 +499,7 @@
   },
   "playPauseSubtitle": "再生同一時停止切替",
   "@playPauseSubtitle": {},
-  "next": "次へ",
+  "next": "次",
   "@next": {
     "description": "Button prompt text for controlling playback, used to skip to the next track."
   },
@@ -527,7 +527,7 @@
   "@coverWall": {
     "description": "Button prompt text for controlling playback, used to switch to the cover wall page, a decorative page composed of album covers."
   },
-  "coverWallSubtitle": "表紙画像表示、特別雰囲気楽増",
+  "coverWallSubtitle": "表紙画像表示、特別雰囲気、楽増",
   "@coverWallSubtitle": {},
   "fullscreen": "全画面",
   "@fullscreen": {
@@ -659,7 +659,7 @@
   "@removePlaylistTitle": {
     "description": "Modal title informing users they are about to delete a playlist."
   },
-  "removePlaylistSubtitle": "此再生一覧表削除済、復元できません。削除しますか？",
+  "removePlaylistSubtitle": "此再生一覧表削除済、復元出来不可。本当削除？",
   "@removePlaylistSubtitle": {},
   "cancelTaskTitle": "作業中止",
   "@cancelTaskTitle": {
@@ -765,11 +765,11 @@
   "@personalize": {
     "description": "Entry in the context menu of the library home page."
   },
-  "artistsLibraryHomeSubtitle": "気入芸人世界発見、探検行。",
+  "artistsLibraryHomeSubtitle": "気入芸人世界発見、探検行",
   "@artistsLibraryHomeSubtitle": {
     "description": "Subtitle for the artists section in the library home."
   },
-  "albumsLibraryHomeSubtitle": "才能有芸人達手桁歌集世界浸行。",
+  "albumsLibraryHomeSubtitle": "才能有芸人達手桁歌集世界浸行",
   "@albumsLibraryHomeSubtitle": {
     "description": "Subtitle for the albums section in the library home."
   },
@@ -785,7 +785,7 @@
   "@likedLibraryHomeSubtitle": {
     "description": "Subtitle for the liked section in the library home."
   },
-  "mostLibraryHomeSubtitle": "何度心惹旋律再楽行。",
+  "mostLibraryHomeSubtitle": "何度心惹旋律再楽行",
   "@mostLibraryHomeSubtitle": {
     "description": "Subtitle for the most played section in the library home."
   },
@@ -837,7 +837,7 @@
   "@evaluationModeContent2": {
     "description": "Content of the evaluation mode modal"
   },
-  "evaluationModeContent3": "此通知 180 日間非表示。其後、再度通知。",
+  "evaluationModeContent3": "此通知百八十日間非表示。其後、再度通知。",
   "@evaluationModeContent3": {
     "description": "Content of the evaluation mode modal"
   },
@@ -853,7 +853,7 @@
   "@mysteriousModalTitle": {
     "description": "The title of a modal"
   },
-  "mysteriousModalContent": "何不思議仕掛作動差様。部屋構造変化、新探索可場所現様。",
+  "mysteriousModalContent": "何不思議仕掛作動差様。部屋構造変化、新探索可場所現。",
   "@mysteriousModalContent": {
     "description": "The content of a modal"
   },
@@ -865,7 +865,7 @@
   "@libraryMode": {
     "description": "The title of a modal, which guides user to select where to store the database"
   },
-  "libraryModeSubtitle": "資料集付少詳教下。貴方資料保存先雲上保存去在？",
+  "libraryModeSubtitle": "資料集付少詳教下。貴方資料保存先何処？",
   "@libraryModeSubtitle": {
     "description": "The subtitle of a modal, which guides user to select where to store the database"
   },
