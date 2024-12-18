@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/execute_middle_click_action.dart';
+import '../../../utils/playing_item.dart';
 import '../../../utils/query_list.dart';
 import '../../../utils/format_time.dart';
 import '../../../utils/api/operate_playback_with_mix_query.dart';
@@ -54,7 +55,8 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
       initialPlaybackId: widget.item.id,
       operateMode: PlaylistOperateMode.Replace,
       instantlyPlay: true,
-      fallbackFileIds: widget.fallbackFileIds,
+      fallbackPlayingItems:
+          widget.fallbackFileIds.map(PlayingItem.inLibrary).toList(),
     );
   }
 

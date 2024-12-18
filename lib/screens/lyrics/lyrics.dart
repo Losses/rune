@@ -1,6 +1,7 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/playing_item.dart';
 import '../../utils/api/get_lyric_by_track_id.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/all.dart';
@@ -18,7 +19,7 @@ class LyricsPage extends StatefulWidget {
 }
 
 class _LyricsPageState extends State<LyricsPage> {
-  int _cachedTrackId = -1;
+  PlayingItem? _cachedPlayingItem;
   Future<List<LyricContentLine>>? _lyric;
 
   late PlaybackStatusProvider playbackStatus;
@@ -41,11 +42,11 @@ class _LyricsPageState extends State<LyricsPage> {
   }
 
   _handlePlaybackStatusUpdate() {
-    if (_cachedTrackId != playbackStatus.playbackStatus.id) {
+    if (_cachedPlayingItem != playbackStatus.playingItem) {
       setState(() {
-        final id = playbackStatus.playbackStatus.id;
-        _cachedTrackId = id;
-        _lyric = getLyricByTrackId(id);
+        final item = playbackStatus.playingItem;
+        _cachedPlayingItem = item;
+        _lyric = getLyricByTrackId(item);
       });
     }
   }
@@ -85,7 +86,7 @@ class _LyricsPageState extends State<LyricsPage> {
                     activeBreakpoint == DeviceType.band) {
                   return PageContentFrame(
                     child: BandScreenLyricsView(
-                      id: _cachedTrackId,
+                      item: _cachedPlayingItem,
                       lyrics: snapshot.data!,
                       currentTimeMilliseconds: currentTimeMilliseconds,
                       activeLines: activeLines,
@@ -94,7 +95,7 @@ class _LyricsPageState extends State<LyricsPage> {
                 }
 
                 return LyricsLayout(
-                  id: _cachedTrackId,
+                  item: _cachedPlayingItem,
                   lyrics: snapshot.data!,
                   currentTimeMilliseconds: currentTimeMilliseconds,
                   activeLines: activeLines,

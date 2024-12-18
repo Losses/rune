@@ -1,14 +1,16 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/playing_item.dart';
 import '../../utils/api/get_liked.dart';
 import '../../utils/api/set_liked.dart';
+
 import '../rune_icon_button.dart';
 
 class LikeButton extends StatefulWidget {
-  final int? fileId;
+  final PlayingItem? item;
 
-  const LikeButton({required this.fileId, super.key});
+  const LikeButton({required this.item, super.key});
 
   @override
   State<LikeButton> createState() => _LikeButtonState();
@@ -16,28 +18,28 @@ class LikeButton extends StatefulWidget {
 
 class _LikeButtonState extends State<LikeButton> {
   bool liked = false;
-  late int? fileId;
+  late PlayingItem? item;
 
   @override
   void initState() {
     super.initState();
-    fileId = widget.fileId;
+    item = widget.item;
     _fetchLikedStatus();
   }
 
   @override
   void didUpdateWidget(covariant LikeButton oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.fileId != widget.fileId) {
-      fileId = widget.fileId;
+    if (oldWidget.item != widget.item) {
+      item = widget.item;
       _fetchLikedStatus();
     }
   }
 
   Future<void> _fetchLikedStatus() async {
-    if (fileId == null) return;
+    if (item == null) return;
 
-    final isLiked = await getLiked(fileId!);
+    final isLiked = await getLiked(item!);
     if (mounted) {
       setState(() {
         liked = isLiked;
@@ -46,10 +48,10 @@ class _LikeButtonState extends State<LikeButton> {
   }
 
   Future<void> _toggleLikedStatus() async {
-    if (fileId == null) return;
+    if (item == null) return;
 
     final newLikedStatus = !liked;
-    final success = await setLiked(fileId!, newLikedStatus);
+    final success = await setLiked(item!, newLikedStatus);
     if (success != null && mounted) {
       setState(() {
         liked = newLikedStatus;
@@ -60,7 +62,7 @@ class _LikeButtonState extends State<LikeButton> {
   @override
   Widget build(BuildContext context) {
     return RuneIconButton(
-      onPressed: fileId == null
+      onPressed: item == null
           ? null
           : () {
               _toggleLikedStatus();

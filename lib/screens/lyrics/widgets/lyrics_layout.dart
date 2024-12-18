@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../utils/color_brightness.dart';
+import '../../../utils/playing_item.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
@@ -17,13 +18,13 @@ import '../../cover_wall/widgets/gradient_container.dart';
 import 'lyric_display.dart';
 
 class LyricsLayout extends StatefulWidget {
-  final int id;
+  final PlayingItem? item;
   final List<LyricContentLine> lyrics;
   final int currentTimeMilliseconds;
   final List<int> activeLines;
   const LyricsLayout({
     super.key,
-    required this.id,
+    required this.item,
     required this.lyrics,
     required this.currentTimeMilliseconds,
     required this.activeLines,
@@ -129,7 +130,7 @@ class LyricsLayoutState extends State<LyricsLayout> {
                 height: constraints.maxHeight,
                 child: PageContentFrame(
                   child: LyricsDisplay(
-                    key: ValueKey(widget.id),
+                    key: ValueKey(widget.item),
                     lyrics: widget.lyrics,
                     currentTimeMilliseconds: widget.currentTimeMilliseconds,
                     activeLines: widget.activeLines,

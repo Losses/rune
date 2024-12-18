@@ -5,6 +5,7 @@ import '../screens/settings_playback/settings_playback.dart';
 import 'api/operate_playback_with_mix_query.dart';
 import 'build_query.dart';
 import 'get_non_replace_operate_mode.dart';
+import 'playing_item.dart';
 import 'query_list.dart';
 import 'settings_manager.dart';
 
@@ -47,7 +48,7 @@ Future<void> startPlaying(
     initialPlaybackId: 0,
     instantlyPlay: true,
     operateMode: PlaylistOperateMode.Replace,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
 
@@ -64,7 +65,7 @@ Future<void> addToQueue(
     initialPlaybackId: 0,
     instantlyPlay: false,
     operateMode: await getNonReplaceOperateMode(),
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
 
@@ -93,6 +94,6 @@ Future<void> startRoaming(
     initialPlaybackId: 0,
     instantlyPlay: true,
     operateMode: PlaylistOperateMode.Replace,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }

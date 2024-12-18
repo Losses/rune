@@ -8,19 +8,17 @@ use sea_orm::DatabaseConnection;
 use tokio::sync::Mutex;
 use tokio::task;
 
-use database::actions::cover_art::bake_cover_art_by_cover_art_ids;
-use database::actions::cover_art::bake_cover_art_by_file_ids;
-use database::actions::metadata::get_metadata_summary_by_file_id;
-use database::actions::metadata::get_metadata_summary_by_file_ids;
-use database::actions::metadata::MetadataSummary;
 use database::actions::playback_queue::replace_playback_queue;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
+use database::playing_item::dispatcher::PlayingItemActionDispatcher;
+use database::playing_item::library_item::extract_in_library_ids;
+use database::playing_item::PlayingItemMetadataSummary;
 use playback::controller::get_default_cover_art_path;
 use playback::controller::handle_media_control_event;
 use playback::controller::MediaControlManager;
-use playback::player::Player;
 use playback::player::PlaylistStatus;
+use playback::player::{Player, PlayingItem};
 use playback::MediaMetadata;
 use playback::MediaPlayback;
 use playback::MediaPosition;
@@ -45,87 +43,79 @@ pub async fn initialize_player(
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
     let os_controller_receiver = manager.lock().await.subscribe_controller_events();
+    let dispatcher = PlayingItemActionDispatcher::new();
 
     manager.lock().await.initialize()?;
 
     info!("Initializing event listeners");
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_status);
-        let mut cached_meta: Option<MetadataSummary> = None;
+        let mut cached_meta: Option<PlayingItemMetadataSummary> = None;
         let mut cached_cover_art: Option<String> = None;
-        let mut last_status_id: Option<i32> = None;
+        let mut last_status_item: Option<PlayingItem> = None;
 
         while let Ok(status) = status_receiver.recv().await {
             debug!("Player status updated: {:?}", status);
 
-            let meta = match status.id {
-                Some(id) => {
-                    if last_status_id != Some(id) {
+            let item = status.item.clone();
+
+            let meta = match item {
+                Some(item) => {
+                    let item_clone = item.clone();
+
+                    if last_status_item != Some(item) {
+                        let item_clone_for_status = item_clone.clone();
+                        let item_vec = &[item_clone].to_vec();
+
                         // Update the cached metadata if the index has changed
-                        match bake_cover_art_by_file_ids(&main_db, [id].to_vec()).await {
+                        let cover_art = match dispatcher.bake_cover_art(&main_db, item_vec).await {
                             Ok(data) => {
                                 let parsed_data = data.values().collect::<Vec<_>>();
                                 cached_cover_art = if parsed_data.is_empty() {
                                     None
                                 } else {
                                     Some(parsed_data[0].to_string())
-                                }
+                                };
+
+                                cached_cover_art.clone()
                             }
-                            Err(_) => todo!(),
+                            Err(_) => None,
                         };
 
-                        match get_metadata_summary_by_file_id(&main_db, id).await {
-                            Ok(metadata) => {
-                                cached_meta = Some(metadata.clone());
-                                last_status_id = Some(id);
+                        match dispatcher.get_metadata_summary(&main_db, item_vec).await {
+                            Ok(metadata) => match metadata.first() {
+                                Some(metadata) => {
+                                    cached_meta = Some(metadata.clone());
+                                    last_status_item = Some(item_clone_for_status);
 
-                                let cover_art: Result<Option<String>> = match metadata.cover_art_id
-                                {
-                                    Some(cover_art_id) => {
-                                        match bake_cover_art_by_cover_art_ids(
-                                            &main_db,
-                                            [cover_art_id].to_vec(),
-                                        )
-                                        .await
-                                        {
-                                            Ok(cover_art_map) => {
-                                                let values: Vec<&String> =
-                                                    cover_art_map.values().collect();
-
-                                                if values.is_empty() {
-                                                    Ok(None)
-                                                } else {
-                                                    Ok(Some(values[0].clone()))
-                                                }
-                                            }
-                                            Err(_) => Ok(None),
+                                    let manager = Arc::clone(&manager);
+                                    match update_media_controls_metadata(
+                                        manager,
+                                        metadata,
+                                        cover_art.as_ref(),
+                                    )
+                                    .await
+                                    {
+                                        Ok(_) => {}
+                                        Err(e) => {
+                                            error!(
+                                                "Error updating OS media controller metadata: {:?}",
+                                                e
+                                            );
                                         }
-                                    }
-                                    _none => Ok(None),
-                                };
-
-                                let manager = Arc::clone(&manager);
-                                match update_media_controls_metadata(
-                                    manager,
-                                    &metadata,
-                                    cover_art.unwrap_or(None).as_deref(),
-                                )
-                                .await
-                                {
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        error!(
-                                            "Error updating OS media controller metadata: {:?}",
-                                            e
-                                        );
-                                    }
-                                };
-                            }
+                                    };
+                                }
+                                None => {
+                                    error!("No metadata found for: {:?}", item_clone_for_status);
+                                    cached_meta = None;
+                                    last_status_item = Some(item_clone_for_status);
+                                }
+                            },
                             Err(e) => {
                                 // Print the error if get_metadata_summary_by_file_id returns an error
                                 error!("Error fetching metadata: {:?}", e);
                                 cached_meta = None;
-                                last_status_id = Some(id);
+                                last_status_item = Some(item_clone_for_status);
                             }
                         }
                     }
@@ -134,8 +124,8 @@ pub async fn initialize_player(
                 }
                 none => {
                     // If the index is None, send empty metadata
-                    last_status_id = none;
-                    MetadataSummary::default()
+                    last_status_item = none;
+                    PlayingItemMetadataSummary::default()
                 }
             };
 
@@ -155,7 +145,7 @@ pub async fn initialize_player(
                 album: Some(meta.album.clone()),
                 title: Some(meta.title.clone()),
                 duration: Some(meta.duration),
-                id: status.id,
+                item: status.item.map(Into::into),
                 index: status.index.map(|i| i as i32),
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
@@ -182,7 +172,7 @@ pub async fn initialize_player(
 
         while let Ok(playlist) = playlist_receiver.recv().await {
             send_playlist_update(&main_db, &playlist).await;
-            match replace_playback_queue(&main_db, playlist.items).await {
+            match replace_playback_queue(&main_db, extract_in_library_ids(playlist.items)).await {
                 Ok(_) => {}
                 Err(e) => error!("Failed to update playback queue record: {:#?}", e),
             };
@@ -192,13 +182,19 @@ pub async fn initialize_player(
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_played_throudh);
 
-        while let Ok(index) = played_through_receiver.recv().await {
-            if let Err(e) = increase_played_through(&main_db, index)
-                .await
-                .with_context(|| "Unable to update played through count")
-            {
-                error!("{:?}", e);
-            };
+        while let Ok(item) = played_through_receiver.recv().await {
+            match item {
+                PlayingItem::InLibrary(id) => {
+                    if let Err(e) = increase_played_through(&main_db, id)
+                        .await
+                        .with_context(|| "Unable to update played through count")
+                    {
+                        error!("{:?}", e);
+                    }
+                }
+                PlayingItem::IndependentFile(_) => {}
+                PlayingItem::Unknown => {}
+            }
         }
     });
 
@@ -233,24 +229,28 @@ pub async fn initialize_player(
 }
 
 pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistStatus) {
-    let file_ids: Vec<i32> = playlist.items.clone();
+    let items: Vec<PlayingItem> = playlist.items.clone();
 
-    match get_metadata_summary_by_file_ids(db, file_ids.clone()).await {
+    let dispatcher = PlayingItemActionDispatcher::new();
+
+    match dispatcher.get_metadata_summary(db, &items.clone()).await {
         Ok(summaries) => {
             // Create a HashMap to store summaries by their id
-            let summary_map: HashMap<i32, _> =
-                summaries.into_iter().map(|item| (item.id, item)).collect();
+            let summary_map: HashMap<PlayingItem, _> = summaries
+                .into_iter()
+                .map(|summary| (summary.item.clone(), summary))
+                .collect();
 
             // Reorder items according to file_ids
-            let items: Vec<PlaylistItem> = file_ids
+            let items: Vec<PlaylistItem> = items
                 .into_iter()
                 .filter_map(|id| summary_map.get(&id))
-                .map(|item| PlaylistItem {
-                    id: item.id,
-                    artist: item.artist.clone(),
-                    album: item.album.clone(),
-                    title: item.title.clone(),
-                    duration: item.duration,
+                .map(|summary| PlaylistItem {
+                    item: Some(summary.item.clone().into()),
+                    artist: summary.artist.clone(),
+                    album: summary.album.clone(),
+                    title: summary.title.clone(),
+                    duration: summary.duration,
                 })
                 .collect();
 
@@ -268,15 +268,15 @@ pub async fn send_realtime_fft(value: Vec<f32>) {
 
 async fn update_media_controls_metadata(
     manager: Arc<Mutex<MediaControlManager>>,
-    status: &MetadataSummary,
-    cover_art_path: Option<&str>,
+    status: &PlayingItemMetadataSummary,
+    cover_art_path: Option<&String>,
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
     let cover_url = if cover_art_path.is_none() {
         get_default_cover_art_path().to_str()
     } else {
-        cover_art_path
+        cover_art_path.map(|x| x.as_str())
     };
 
     let metadata = MediaMetadata {

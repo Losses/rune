@@ -3,6 +3,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
 import '../../../providers/status.dart';
+import '../../../utils/format_time.dart';
+import '../../../utils/playing_item.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
 import '../../../utils/l10n.dart';
@@ -23,15 +25,18 @@ class LargeScreenPlayingTrack extends StatelessWidget {
 
     final Typography typography = theme.typography;
 
-    return Selector<PlaybackStatusProvider, (String, String, String, String)>(
+    return Selector<PlaybackStatusProvider,
+        (String, String, String, String, double, PlayingItem?)>(
       selector: (context, playbackStatusProvider) => (
         playbackStatusProvider.playbackStatus.coverArtPath,
         playbackStatusProvider.playbackStatus.artist,
         playbackStatusProvider.playbackStatus.album,
         playbackStatusProvider.playbackStatus.title,
+        playbackStatusProvider.playbackStatus.duration,
+        playbackStatusProvider.playingItem,
       ),
       builder: (context, p, child) {
-        if (p.$1 == "") return Container();
+        if (p.$6 == null) return Container();
         return Container(
           padding: const EdgeInsets.fromLTRB(
               48, 48, 48, playbackControllerHeight + 48),
@@ -45,6 +50,7 @@ class LargeScreenPlayingTrack extends StatelessWidget {
                   boxShadow: axShadow(9),
                 ),
                 child: CoverArt(
+                  hint: (p.$3, p.$2, 'Total Time ${formatTime(p.$5)}'),
                   key: p.$1.isNotEmpty ? Key(p.$1.toString()) : null,
                   path: p.$1,
                   size: 120,

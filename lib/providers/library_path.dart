@@ -97,7 +97,7 @@ class LibraryPathProvider with ChangeNotifier {
         initialPlaybackId: 0,
         instantlyPlay: false,
         operateMode: PlaylistOperateMode.Replace,
-        fallbackFileIds: [],
+        fallbackPlayingItems: [],
       );
 
       final lastQueueIndex =

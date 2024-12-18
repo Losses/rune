@@ -1,7 +1,10 @@
 import '../../messages/all.dart';
+import '../playing_item.dart';
 
-Future<List<LyricContentLine>> getLyricByTrackId(int fileId) async {
-  final updateRequest = GetLyricByTrackIdRequest(id: fileId);
+Future<List<LyricContentLine>> getLyricByTrackId(PlayingItem? item) async {
+  if (item == null) return [];
+
+  final updateRequest = GetLyricByTrackIdRequest(item: item.toRequest());
   updateRequest.sendSignalToRust(); // GENERATED
 
   final rustSignal = await GetLyricByTrackIdResponse.rustSignalStream.first;

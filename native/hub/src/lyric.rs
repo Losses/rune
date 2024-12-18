@@ -1,11 +1,13 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Context, Result};
-use dunce::canonicalize;
+use anyhow::Result;
 use lyric::parser::parse_audio_lyrics;
+use playback::player::PlayingItem;
 use rinf::DartSignal;
 
-use database::{actions::file::get_ordered_files_by_ids, connection::MainDbConnection};
+use database::{
+    connection::MainDbConnection, playing_item::dispatcher::PlayingItemActionDispatcher,
+};
 
 use crate::{
     GetLyricByTrackIdRequest, GetLyricByTrackIdResponse, LyricContentLine, LyricContentLineSection,
@@ -16,61 +18,68 @@ pub async fn get_lyric_by_track_id_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetLyricByTrackIdRequest>,
 ) -> Result<()> {
-    let track_id = dart_signal.message.id;
+    let item = dart_signal.message.item;
 
-    let media_file = get_ordered_files_by_ids(&main_db, &[track_id])
-        .await
-        .with_context(|| format!("Unable to get media file by id={}", track_id))?;
+    if let Some(item) = item {
+        let parsed_item: PlayingItem = item.clone().into();
+        let dispatcher = PlayingItemActionDispatcher::new();
 
-    if media_file.is_empty() {
-        GetLyricByTrackIdResponse {
-            id: track_id,
-            lines: [].to_vec(),
-        }
-        .send_signal_to_dart();
-        return Ok(());
-    }
+        let path = dispatcher
+            .get_file_path(
+                Path::new(lib_path.as_ref()),
+                &main_db,
+                [parsed_item.clone()].as_ref(),
+            )
+            .await?;
 
-    let media_file = media_file[0].clone();
+        let path = path.get(&parsed_item);
 
-    let path = canonicalize(
-        Path::new(lib_path.as_ref())
-            .join(&media_file.directory)
-            .join(&media_file.file_name),
-    )?;
+        match path {
+            Some(path) => {
+                let lyric = parse_audio_lyrics(path.to_path_buf());
 
-    let lyric = parse_audio_lyrics(path);
-
-    match lyric {
-        Some(lyric) => match lyric {
-            Ok(lyric) => GetLyricByTrackIdResponse {
-                id: track_id,
-                lines: lyric
-                    .lyrics
-                    .into_iter()
-                    .map(|x| LyricContentLine {
-                        start_time: x.start_time.into(),
-                        end_time: x.end_time.into(),
-                        sections: x
-                            .word_time_tags
-                            .into_iter()
-                            .map(|tag| LyricContentLineSection {
-                                start_time: tag.0.into(),
-                                end_time: tag.1.into(),
-                                content: tag.2,
-                            })
-                            .collect(),
-                    })
-                    .collect(),
+                match lyric {
+                    Some(lyric) => match lyric {
+                        Ok(lyric) => GetLyricByTrackIdResponse {
+                            item: Some(item),
+                            lines: lyric
+                                .lyrics
+                                .into_iter()
+                                .map(|x| LyricContentLine {
+                                    start_time: x.start_time.into(),
+                                    end_time: x.end_time.into(),
+                                    sections: x
+                                        .word_time_tags
+                                        .into_iter()
+                                        .map(|tag| LyricContentLineSection {
+                                            start_time: tag.0.into(),
+                                            end_time: tag.1.into(),
+                                            content: tag.2,
+                                        })
+                                        .collect(),
+                                })
+                                .collect(),
+                        }
+                        .send_signal_to_dart(),
+                        Err(err) => {
+                            return Err(
+                                err.context(format!("Unable to parse lyric: item={:#?}", item))
+                            )
+                        }
+                    },
+                    None => GetLyricByTrackIdResponse {
+                        item: Some(item),
+                        lines: [].to_vec(),
+                    }
+                    .send_signal_to_dart(),
+                }
+            }
+            None => GetLyricByTrackIdResponse {
+                item: Some(item),
+                lines: [].to_vec(),
             }
             .send_signal_to_dart(),
-            Err(err) => return Err(err.context(format!("Unable to parse lyric: id={}", track_id))),
-        },
-        None => GetLyricByTrackIdResponse {
-            id: track_id,
-            lines: [].to_vec(),
         }
-        .send_signal_to_dart(),
     }
 
     Ok(())

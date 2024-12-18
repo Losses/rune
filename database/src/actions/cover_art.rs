@@ -74,7 +74,7 @@ pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection) -> Result<i
     Ok(magic_cover_art.id)
 }
 
-static COVER_TEMP_DIR: Lazy<PathBuf> =
+pub static COVER_TEMP_DIR: Lazy<PathBuf> =
     Lazy::new(|| env::temp_dir().join("rune").join("cover_arts"));
 
 fn bake_cover_art_by_cover_arts(
