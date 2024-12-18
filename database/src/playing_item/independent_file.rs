@@ -139,7 +139,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
     ) -> Result<HashMap<PlayingItem, String>> {
         let independent_paths = extract_independent_file_paths(items.to_vec());
 
-        let mut result_map = HashMap::new();
+        let mut result_map: HashMap<PlayingItem, String> = HashMap::new();
 
         for path in independent_paths {
             let cover_art_option = extract_cover_art_binary(&path);
@@ -148,25 +148,28 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
 
-                let file_name = format!("{:08x}", crc32);
-                let color_file_name = format!("{}.color", file_name);
+                let image_file_name = format!("{:08x}", crc32);
+                let color_file_name = format!("{}.color", image_file_name);
 
-                let image_file: PathBuf = COVER_TEMP_DIR.clone().join(file_name);
+                let image_file: PathBuf = COVER_TEMP_DIR.clone().join(image_file_name);
                 let color_file: PathBuf = COVER_TEMP_DIR.clone().join(color_file_name);
 
                 if !image_file.exists() {
-                    fs::write(image_file, cover_art.data)?;
+                    fs::write(image_file.clone(), cover_art.data)?;
                 }
 
                 if !color_file.exists() {
                     fs::write(color_file, format!("{:?}", cover_art.primary_color))?;
                 }
 
-                result_map.insert(PlayingItem::IndependentFile(path.clone()), path);
+                result_map.insert(
+                    PlayingItem::IndependentFile(path.clone()),
+                    image_file.to_string_lossy().to_string(),
+                );
             }
         }
 
-        Ok(HashMap::new())
+        Ok(result_map)
     }
 
     async fn get_cover_art_primary_color(
@@ -179,8 +182,8 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 // Calculate the CRC32 for the file path
                 let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
-                let file_name = format!("{:08x}", crc32);
-                let color_file_name = format!("{}.color", file_name);
+                let image_file_name = format!("{:08x}", crc32);
+                let color_file_name = format!("{}.color", image_file_name);
                 let color_file: PathBuf = COVER_TEMP_DIR.clone().join(color_file_name);
 
                 // Check if the color file exists
