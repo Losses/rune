@@ -1,0 +1,112 @@
+use anyhow::{bail, Result};
+use async_trait::async_trait;
+use reqwest::{header::HeaderValue, Client, Response};
+use serde_json::{Map, Value};
+use std::{
+    collections::HashMap,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use crate::{ScrobblingClient, ScrobblingTrack};
+
+pub struct ListenBrainzClient {
+    client: Client,
+    base_url: String,
+    token: Option<String>,
+}
+
+impl ListenBrainzClient {
+    pub fn new() -> Result<Self> {
+        let client = Client::builder().build()?;
+        Ok(ListenBrainzClient {
+            client,
+            base_url: "https://api.listenbrainz.org".to_string(),
+            token: None,
+        })
+    }
+
+    async fn post_request(
+        &self,
+        endpoint: &str,
+        body: &HashMap<&str, serde_json::Value>,
+    ) -> Result<Response> {
+        if let Some(token) = &self.token {
+            let response = self
+                .client
+                .post(format!("{}/{}", self.base_url, endpoint))
+                .json(body)
+                .header(
+                    "Authorization",
+                    HeaderValue::from_str(&format!("Token {}", token))?,
+                )
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                Ok(response)
+            } else {
+                bail!("Request failed: {:?}", response.text().await?)
+            }
+        } else {
+            bail!("Client is not authenticated.")
+        }
+    }
+}
+
+#[async_trait]
+impl ScrobblingClient for ListenBrainzClient {
+    async fn authenticate(&mut self, _username: &str, password: &str) -> Result<()> {
+        self.token = Some(password.to_string());
+        Ok(())
+    }
+
+    async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response> {
+        let mut body = HashMap::new();
+        body.insert(
+            "listen_type",
+            serde_json::Value::String("playing_now".to_string()),
+        );
+        body.insert("payload", serde_json::json!([track]));
+
+        self.post_request("1/submit-listens", &body).await
+    }
+
+    async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
+        let mut track_metadata = Map::new();
+        track_metadata.insert(
+            "artist_name".to_string(),
+            Value::String(track.artist.clone()),
+        );
+        track_metadata.insert("track_name".to_string(), Value::String(track.track.clone()));
+
+        if let Some(album) = &track.album {
+            track_metadata.insert("release_name".to_string(), Value::String(album.clone()));
+        }
+
+        let mut additional_info = Map::new();
+        if let Some(duration) = track.duration {
+            additional_info.insert("duration".to_string(), Value::Number(duration.into()));
+        }
+
+        additional_info.insert(
+            "media_player".to_string(),
+            Value::String("rune".to_string()),
+        );
+
+        let mut payload = Map::new();
+        let timestamp = track.timestamp.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        });
+        payload.insert("listened_at".to_string(), Value::Number(timestamp.into()));
+        payload.insert("track_metadata".to_string(), Value::Object(track_metadata));
+
+        let mut body = HashMap::new();
+        body.insert("listen_type", Value::String("single".to_string()));
+        body.insert("payload", Value::Array(vec![Value::Object(payload)]));
+
+        self.post_request("1/submit-listens", &body).await
+    }
+}

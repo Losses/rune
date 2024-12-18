@@ -1,5 +1,6 @@
 pub mod last_fm;
 pub mod libre_fm;
+pub mod listen_brainz;
 
 use anyhow::Result;
 use async_trait::async_trait;

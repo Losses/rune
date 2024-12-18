@@ -2,14 +2,15 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use rand::Rng;
 use scrobbling::{
-    last_fm::LastFmClient, libre_fm::LibreFmClient, ScrobblingClient, ScrobblingTrack,
+    last_fm::LastFmClient, libre_fm::LibreFmClient, listen_brainz::ListenBrainzClient,
+    ScrobblingClient, ScrobblingTrack,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let matches = Command::new("Scrobbling Testing CLI")
         .version("1.0")
-        .about("Test scrobbling to Last.fm or Libre.fm")
+        .about("Test scrobbling to Last.fm, Libre.fm or ListenBrainz")
         .arg(
             Arg::new("service")
                 .help("The service to use (lastfm or librefm)")
@@ -64,6 +65,11 @@ async fn main() -> Result<()> {
         }
         "librefm" => {
             let mut client = LibreFmClient::new()?;
+            client.authenticate(username, password).await?;
+            client.scrobble(&track).await?
+        }
+        "listenbrainz" => {
+            let mut client = ListenBrainzClient::new()?;
             client.authenticate(username, password).await?;
             client.scrobble(&track).await?
         }
