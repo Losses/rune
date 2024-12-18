@@ -4374,7 +4374,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "clap",
  "md5",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",

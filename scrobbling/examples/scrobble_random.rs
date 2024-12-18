@@ -1,0 +1,81 @@
+use anyhow::Result;
+use clap::{Arg, Command};
+use rand::Rng;
+use scrobbling::{
+    last_fm::LastFmClient, libre_fm::LibreFmClient, ScrobblingClient, ScrobblingTrack,
+};
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let matches = Command::new("Scrobbling Testing CLI")
+        .version("1.0")
+        .about("Test scrobbling to Last.fm or Libre.fm")
+        .arg(
+            Arg::new("service")
+                .help("The service to use (lastfm or librefm)")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::new("api_key")
+                .help("API Key for the service")
+                .required(true)
+                .index(2),
+        )
+        .arg(
+            Arg::new("api_secret")
+                .help("API Secret for Last.fm (ignored for Libre.fm)")
+                .required(false)
+                .index(3),
+        )
+        .arg(
+            Arg::new("username")
+                .help("Username for the service")
+                .required(true)
+                .index(4),
+        )
+        .arg(
+            Arg::new("password")
+                .help("Password for the service")
+                .required(true)
+                .index(5),
+        )
+        .get_matches();
+
+    let binding = "".to_string();
+    let service = matches.get_one::<String>("service").unwrap();
+    let api_key = matches.get_one::<String>("api_key").unwrap();
+    let api_secret = matches.get_one::<String>("api_secret").unwrap_or(&binding);
+    let username = matches.get_one::<String>("username").unwrap();
+    let password = matches.get_one::<String>("password").unwrap();
+
+    let track = ScrobblingTrack {
+        artist: "Random Artist".to_string(),
+        track: "Random Track".to_string(),
+        album: Some("Random Album".to_string()),
+        album_artist: Some("Random Album Artist".to_string()),
+        duration: Some(rand::thread_rng().gen_range(180..300)),
+        timestamp: None,
+    };
+
+    let response = match service.as_str() {
+        "lastfm" => {
+            let mut client = LastFmClient::new(api_key.to_string(), api_secret.to_string())?;
+            client.authenticate(username, password).await?;
+            client.scrobble(&track).await?
+        }
+        "librefm" => {
+            let mut client = LibreFmClient::new()?;
+            client.authenticate(username, password).await?;
+            client.scrobble(&track).await?
+        }
+        _ => {
+            eprintln!("Unsupported service: {}", service);
+            return Ok(());
+        }
+    };
+
+    println!("Response: {:?}", response.text().await?);
+
+    Ok(())
+}
