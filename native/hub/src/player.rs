@@ -43,6 +43,7 @@ pub async fn initialize_player(
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
     let os_controller_receiver = manager.lock().await.subscribe_controller_events();
+    let dispatcher = PlayingItemActionDispatcher::new();
 
     manager.lock().await.initialize()?;
 
@@ -60,7 +61,6 @@ pub async fn initialize_player(
 
             let meta = match item {
                 Some(item) => {
-                    let dispatcher = PlayingItemActionDispatcher::new();
                     let item_clone = item.clone();
 
                     if last_status_item != Some(item) {
@@ -68,16 +68,18 @@ pub async fn initialize_player(
                         let item_vec = &[item_clone].to_vec();
 
                         // Update the cached metadata if the index has changed
-                        match dispatcher.bake_cover_art(&main_db, item_vec).await {
+                        let cover_art = match dispatcher.bake_cover_art(&main_db, item_vec).await {
                             Ok(data) => {
                                 let parsed_data = data.values().collect::<Vec<_>>();
                                 cached_cover_art = if parsed_data.is_empty() {
                                     None
                                 } else {
                                     Some(parsed_data[0].to_string())
-                                }
+                                };
+
+                                cached_cover_art.clone()
                             }
-                            Err(_) => todo!(),
+                            Err(_) => None,
                         };
 
                         match dispatcher.get_metadata_summary(&main_db, item_vec).await {
@@ -86,26 +88,11 @@ pub async fn initialize_player(
                                     cached_meta = Some(metadata.clone());
                                     last_status_item = Some(item_clone_for_status);
 
-                                    let cover_art: Result<Option<String>> =
-                                        match dispatcher.bake_cover_art(&main_db, item_vec).await {
-                                            Ok(cover_art_map) => {
-                                                let values: Vec<&String> =
-                                                    cover_art_map.values().collect();
-
-                                                if values.is_empty() {
-                                                    Ok(None)
-                                                } else {
-                                                    Ok(Some(values[0].clone()))
-                                                }
-                                            }
-                                            Err(_) => Ok(None),
-                                        };
-
                                     let manager = Arc::clone(&manager);
                                     match update_media_controls_metadata(
                                         manager,
                                         metadata,
-                                        cover_art.unwrap_or(None).as_deref(),
+                                        cover_art.as_ref(),
                                     )
                                     .await
                                     {
@@ -282,14 +269,14 @@ pub async fn send_realtime_fft(value: Vec<f32>) {
 async fn update_media_controls_metadata(
     manager: Arc<Mutex<MediaControlManager>>,
     status: &PlayingItemMetadataSummary,
-    cover_art_path: Option<&str>,
+    cover_art_path: Option<&String>,
 ) -> Result<()> {
     let mut manager = manager.lock().await;
 
     let cover_url = if cover_art_path.is_none() {
         get_default_cover_art_path().to_str()
     } else {
-        cover_art_path
+        cover_art_path.map(|x| x.as_str())
     };
 
     let metadata = MediaMetadata {
