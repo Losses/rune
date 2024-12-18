@@ -56,6 +56,29 @@ impl ListenBrainzClient {
 #[async_trait]
 impl ScrobblingClient for ListenBrainzClient {
     async fn authenticate(&mut self, _username: &str, password: &str) -> Result<()> {
+        let response = self
+            .client
+            .get(format!("{}/1/validate-token", self.base_url))
+            .header(
+                "Authorization",
+                HeaderValue::from_str(&format!("Token {}", password))?,
+            )
+            .send()
+            .await?;
+
+        if response.status().is_success() {
+            let json: Value = response.json().await?;
+            if json["valid"].as_bool().unwrap_or(false) {
+            } else {
+                bail!(
+                    "Token invalid: {:?}",
+                    json["message"].as_str().unwrap_or("Unknown error")
+                )
+            }
+        } else {
+            bail!("Failed to validate token: {:?}", response.text().await?)
+        }
+
         self.token = Some(password.to_string());
         Ok(())
     }
