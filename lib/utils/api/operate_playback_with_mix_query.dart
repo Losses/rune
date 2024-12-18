@@ -13,7 +13,7 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required int initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
-  required List<int> fallbackFileIds,
+  required List<PlayingItem> fallbackPlayingItems,
 }) async {
   OperatePlaybackWithMixQueryRequest(
     queries: queries.toQueryList(),
@@ -22,9 +22,8 @@ Future<List<PlayingItem>> operatePlaybackWithMixQuery({
     initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
     instantlyPlay: instantlyPlay,
     operateMode: operateMode,
-    fallbackPlayingItems: fallbackFileIds
-        .map((x) => PlayingItem.inLibrary(x).toRequest())
-        .toList(),
+    fallbackPlayingItems:
+        fallbackPlayingItems.map((x) => x.toRequest()).toList(),
   ).sendSignalToRust();
 
   final rustSignal =
@@ -42,7 +41,7 @@ Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
   required int initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
-  required List<int> fallbackFileIds,
+  required List<PlayingItem> fallbackPlayingItems,
 }) async {
   final hasRecommendation = queriesHasRecommendation(queries);
 
@@ -53,7 +52,7 @@ Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
     initialPlaybackId: initialPlaybackId,
     instantlyPlay: instantlyPlay,
     operateMode: operateMode,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackPlayingItems,
   );
 
   if (result.isEmpty && hasRecommendation && context.mounted) {

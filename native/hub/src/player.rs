@@ -11,9 +11,8 @@ use tokio::task;
 use database::actions::playback_queue::replace_playback_queue;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
-use database::playing_item::{
-    extract_in_library_ids, PlayingItemActionDispatcher, PlayingItemMetadataSummary,
-};
+use database::playing_item::library_item::extract_in_library_ids;
+use database::playing_item::{PlayingItemActionDispatcher, PlayingItemMetadataSummary};
 use playback::controller::get_default_cover_art_path;
 use playback::controller::handle_media_control_event;
 use playback::controller::MediaControlManager;

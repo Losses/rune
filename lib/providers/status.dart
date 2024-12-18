@@ -61,11 +61,15 @@ class PlaybackStatusProvider with ChangeNotifier {
       _playbackStatus.playbackMode = newStatus.playbackMode;
       _playbackStatus.ready = newStatus.ready;
       _playbackStatus.coverArtPath = newStatus.coverArtPath;
-      final newPlayingItem = PlayingItem.fromString(newStatus.item);
+      final newPlayingItem = newStatus.item.isEmpty
+          ? null
+          : PlayingItem.fromString(newStatus.item);
       _playingItem = newPlayingItem;
 
       if (isNewTrack) {
-        ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+        if (newPlayingItem != null) {
+          ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+        }
         SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }
 

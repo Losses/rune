@@ -443,7 +443,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             initialPlaybackId: -1,
             instantlyPlay: true,
             operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: []);
+            fallbackPlayingItems: []);
       });
     }
   }

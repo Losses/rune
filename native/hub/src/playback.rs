@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use database::playing_item::MediaFileHandle;
-use database::playing_item::PlayingItemActionDispatcher;
 use dunce::canonicalize;
 use rinf::DartSignal;
 use tokio::sync::Mutex;
@@ -13,6 +11,8 @@ use database::actions::mixes::query_mix_media_files;
 use database::actions::stats::increase_skipped;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
+use database::playing_item::MediaFileHandle;
+use database::playing_item::PlayingItemActionDispatcher;
 use playback::player::Player;
 use playback::player::PlayingItem;
 use playback::strategies::AddMode;
@@ -49,11 +49,15 @@ impl From<PlayingItem> for PlayingItemRequest {
 impl From<PlayingItemRequest> for PlayingItem {
     fn from(x: PlayingItemRequest) -> Self {
         if let Some(in_library) = x.in_library {
-            return PlayingItem::InLibrary(in_library.file_id);
+            if in_library.file_id != 0 {
+                return PlayingItem::InLibrary(in_library.file_id);
+            }
         }
 
         if let Some(independent_file) = x.independent_file {
-            return PlayingItem::IndependentFile(PathBuf::from(independent_file.path));
+            if !independent_file.path.is_empty() {
+                return PlayingItem::IndependentFile(PathBuf::from(independent_file.path));
+            }
         }
 
         PlayingItem::Unknown
