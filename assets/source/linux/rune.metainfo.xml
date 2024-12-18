@@ -34,9 +34,45 @@
         https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/00.png</image>
       <caption>Main window</caption>
     </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/01.png</image>
+      <caption>Track list</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/02.png</image>
+      <caption>Cover Art Wall</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/03.png</image>
+      <caption>Search</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/04.png</image>
+      <caption>About Page</caption>
+    </screenshot>
   </screenshots>
 
   <releases>
+      <release version="1.1.0-alpha.1" date="2024-12-18">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implemented lyrics display interface</li>
+          <li>Added lyrics viewing capability for the music player</li>
+          <li>Introduced file drag-and-drop functionality for window playback</li>
+          <li>Implemented pseudo Chinese translation support  by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed compilation errors on the Steam Sniper platform</li>
+          <li>Add ja, zh-Hans and lzh to xcodeproj by @laosb</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0-rc.2" date="2024-12-12">
       <description>
         <p>Features</p>
