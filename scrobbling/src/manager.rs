@@ -23,6 +23,14 @@ pub struct ScrobblingManager {
     retry_delay: Duration,
 }
 
+pub struct Credentials {
+    pub service: ScrobblingService,
+    pub username: String,
+    pub password: String,
+    pub api_key: Option<String>,
+    pub api_secret: Option<String>,
+}
+
 impl ScrobblingManager {
     pub fn new(max_retries: u32, retry_delay: Duration) -> Self {
         Self {
@@ -84,6 +92,29 @@ impl ScrobblingManager {
             }
         }
         Ok(())
+    }
+
+    pub async fn authenticate_all(
+        &mut self,
+        credentials_list: Vec<Credentials>,
+    ) -> HashMap<ScrobblingService, Result<()>> {
+        let mut results = HashMap::new();
+
+        for credentials in credentials_list {
+            let result = self
+                .authenticate(
+                    &credentials.service,
+                    &credentials.username,
+                    &credentials.password,
+                    credentials.api_key.clone(),
+                    credentials.api_secret.clone(),
+                )
+                .await;
+
+            results.insert(credentials.service, result);
+        }
+
+        results
     }
 
     pub fn restore_session(
