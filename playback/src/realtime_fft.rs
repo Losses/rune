@@ -3,7 +3,7 @@ use std::thread;
 
 use rustfft::{num_complex::Complex, FftPlanner};
 
-use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 
 pub struct RealTimeFFT {
     window_size: usize,

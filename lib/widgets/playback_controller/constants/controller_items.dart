@@ -19,6 +19,7 @@ import '../../../providers/status.dart';
 import '../../../providers/volume.dart';
 import '../../../providers/full_screen.dart';
 
+import '../lyric_button.dart';
 import '../next_button.dart';
 import '../volume_button.dart';
 import '../queue_button.dart';
@@ -310,8 +311,7 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      final currentMode =
-          PlaybackModeExtension.fromValue(status.playbackMode);
+      final currentMode = PlaybackModeExtension.fromValue(status.playbackMode);
 
       return modeToLabel(context, currentMode);
     },
@@ -331,8 +331,7 @@ List<ControllerEntry> controllerItems = [
           Provider.of<PlaybackStatusProvider>(context, listen: false);
       final status = statusProvider.playbackStatus;
 
-      final currentMode =
-          PlaybackModeExtension.fromValue(status.playbackMode);
+      final currentMode = PlaybackModeExtension.fromValue(status.playbackMode);
 
       // Retrieve disabled modes
       List<dynamic>? storedDisabledModes = await SettingsManager()
@@ -450,14 +449,42 @@ List<ControllerEntry> controllerItems = [
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(S.of(context).coverWall),
-            ShortcutText(
-              Platform.isMacOS ? '⌥+N' : 'Alt+N'
-            ),
+            ShortcutText(Platform.isMacOS ? '⌥+N' : 'Alt+N'),
           ],
         ),
         onPressed: () {
           Navigator.pop(context);
           showCoverArtWall();
+        },
+      );
+    },
+  ),
+  ControllerEntry(
+    id: 'lyric',
+    icon: (context) => Symbols.lyrics,
+    titleBuilder: (context) => S.of(context).lyrics,
+    subtitleBuilder: (context) => S.of(context).lyricsSubtitle,
+    shortcuts: [const SingleActivator(LogicalKeyboardKey.keyL, alt: true)],
+    onShortcut: (context) {
+      showLyrics();
+    },
+    tooltipBuilder: (context) => S.of(context).lyrics,
+    controllerButtonBuilder: (context, shadows) => LyricsButton(
+      shadows: shadows,
+    ),
+    flyoutEntryBuilder: (context) async {
+      return MenuFlyoutItem(
+        leading: const Icon(Symbols.lyrics),
+        text: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(S.of(context).lyrics),
+            ShortcutText(Platform.isMacOS ? '⌥+L' : 'Alt+L'),
+          ],
+        ),
+        onPressed: () {
+          Navigator.pop(context);
+          showLyrics();
         },
       );
     },

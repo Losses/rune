@@ -1,8 +1,9 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/api/seek.dart';
 import '../../utils/format_time.dart';
+import '../../utils/playing_item.dart';
+import '../../utils/api/seek.dart';
 import '../../widgets/playback_controller/like_button.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playback_controller.dart';
@@ -11,10 +12,12 @@ import '../../providers/responsive_providers.dart';
 class ControllerProgressBar extends StatelessWidget {
   const ControllerProgressBar({
     super.key,
+    required this.item,
     required this.status,
     required this.notReady,
   });
 
+  final PlayingItem? item;
   final PlaybackStatus? status;
   final bool notReady;
 
@@ -52,7 +55,7 @@ class ControllerProgressBar extends StatelessWidget {
                     ),
                     Padding(
                       padding: const EdgeInsetsDirectional.only(start: 16),
-                      child: LikeButton(fileId: status?.id),
+                      child: LikeButton(item: item),
                     )
                   ],
                 ),

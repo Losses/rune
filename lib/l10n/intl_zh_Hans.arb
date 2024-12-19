@@ -968,5 +968,11 @@
   "considerPurchase": "请考虑购买正版许可证。",
   "@considerPurchase": {
     "description": "关于页面中的通知，引导用户购买许可证"
-  }
+  },
+  "lyrics": "歌词",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "展示曲目的完整歌词",
+  "@lyricsSubtitle": {}
 }

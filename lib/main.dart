@@ -16,8 +16,7 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
 
-import 'screens/settings_laboratory/widgets/settings/cafe_mode_settings.dart';
-import 'utils/api/operate_playback_with_mix_query.dart';
+import 'providers/scrobble.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
@@ -30,6 +29,7 @@ import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/api/set_adaptive_switching_enabled.dart';
+import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
 
@@ -42,6 +42,7 @@ import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
+import 'screens/settings_laboratory/widgets/settings/cafe_mode_settings.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/settings_theme.dart';
@@ -252,6 +253,10 @@ void mainLoop(LicenseProvider licenseProvider) {
         ),
         ChangeNotifierProvider(
           lazy: false,
+          create: (_) => ScrobbleProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
           create: (_) => PlaylistProvider(),
         ),
         ChangeNotifierProvider(
@@ -340,7 +345,7 @@ class _RuneState extends State<Rune> {
           initialRoute: initialPath == null
               ? "/"
               : cafeMode
-                  ? "/cover_wall"
+                  ? '/cover_wall'
                   : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
@@ -443,7 +448,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             initialPlaybackId: -1,
             instantlyPlay: true,
             operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: []);
+            fallbackPlayingItems: []);
       });
     }
   }

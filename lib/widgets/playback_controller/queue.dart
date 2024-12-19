@@ -4,6 +4,7 @@ import 'package:reorderables/reorderables.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/playing_item.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playlist.dart';
 import '../../providers/status.dart';
@@ -27,10 +28,10 @@ class _QueueState extends State<Queue> {
 
   @override
   Widget build(BuildContext context) {
-    return Selector<PlaybackStatusProvider, (int?, int?)>(
+    return Selector<PlaybackStatusProvider, (int?, PlayingItem?)>(
       selector: (context, playbackStatusProvider) => (
         playbackStatusProvider.playbackStatus.index,
-        playbackStatusProvider.playbackStatus.id
+        playbackStatusProvider.playingItem
       ),
       builder: (context, playbackStatusProvider, child) {
         Typography typography = FluentTheme.of(context).typography;
@@ -59,14 +60,14 @@ class _QueueState extends State<Queue> {
                         onReorder: onReorder,
                         delegate: ReorderableSliverChildBuilderDelegate(
                           (BuildContext context, int index) {
-                            final item = playlistProvider.items[index];
+                            final x = playlistProvider.items[index];
                             final isCurrent =
-                                playbackStatusProvider.$1 == item.index &&
-                                    playbackStatusProvider.$2 == item.entry.id;
+                                playbackStatusProvider.$1 == x.index &&
+                                    playbackStatusProvider.$2 == x.item;
                             final color = isCurrent ? accentColor : null;
 
                             return ListTile.selectable(
-                              key: ValueKey(item.entry.id),
+                              key: ValueKey(x.entry.item),
                               title: Transform.translate(
                                 offset: const Offset(-8, 0),
                                 child: Row(
@@ -86,7 +87,7 @@ class _QueueState extends State<Queue> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            item.entry.title,
+                                            x.entry.title,
                                             overflow: TextOverflow.ellipsis,
                                             style: typography.body
                                                 ?.apply(color: color),
@@ -94,7 +95,7 @@ class _QueueState extends State<Queue> {
                                           Opacity(
                                             opacity: isCurrent ? 0.8 : 0.46,
                                             child: Text(
-                                              item.entry.artist,
+                                              x.entry.artist,
                                               overflow: TextOverflow.ellipsis,
                                               style: typography.caption
                                                   ?.apply(color: color),
@@ -106,7 +107,7 @@ class _QueueState extends State<Queue> {
                                   ],
                                 ),
                               ),
-                              onPressed: () => SwitchRequest(index: item.index)
+                              onPressed: () => SwitchRequest(index: x.index)
                                   .sendSignalToRust(),
                             );
                           },

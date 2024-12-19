@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use log::{debug, error, info};
+use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use sea_orm::entity::prelude::*;
@@ -832,7 +833,7 @@ where
         let mut descriptions: Vec<Option<FileDescription>> = files
             .clone()
             .into_iter()
-            .map(|file| describe_file(file.path(), lib_path))
+            .map(|file| describe_file(&file.path().to_path_buf(), &Some(lib_path.to_path_buf())))
             .map(|result| result.ok())
             .collect();
 
@@ -881,9 +882,10 @@ where
     Ok(processed_files)
 }
 
-fn extract_number(s: &str) -> Option<i32> {
-    let re = Regex::new(r"\d+").unwrap();
-    re.find(s).and_then(|mat| mat.as_str().parse::<i32>().ok())
+static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d+").unwrap());
+
+pub fn extract_number(s: &str) -> Option<i32> {
+    RE.find(s).and_then(|mat| mat.as_str().parse::<i32>().ok())
 }
 
 #[derive(Debug, Clone, Default)]

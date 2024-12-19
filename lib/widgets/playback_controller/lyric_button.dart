@@ -1,0 +1,37 @@
+import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
+
+import '../../providers/router_path.dart';
+import '../../utils/router/navigation.dart';
+import '../../utils/navigation/utils/escape_from_lyrics.dart';
+
+import '../rune_icon_button.dart';
+
+void showLyrics() {
+  final path = $router.path;
+  if (path == "/lyrics") {
+    escapeFromLyrics();
+  } else {
+    $push("/lyrics");
+  }
+}
+
+class LyricsButton extends StatelessWidget {
+  final List<Shadow>? shadows;
+
+  const LyricsButton({
+    super.key,
+    required this.shadows,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return RuneIconButton(
+      onPressed: () => showLyrics(),
+      icon: Icon(
+        Symbols.lyrics,
+        shadows: shadows,
+      ),
+    );
+  }
+}

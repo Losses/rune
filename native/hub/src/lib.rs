@@ -9,12 +9,14 @@ mod library_home;
 mod library_manage;
 mod license;
 mod logging;
+mod lyric;
 mod media_file;
 mod messages;
 mod mix;
 mod playback;
 mod player;
 mod playlist;
+mod scrobble;
 mod search;
 mod sfx;
 mod stat;
@@ -22,6 +24,7 @@ mod system;
 mod utils;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
 use license::validate_license_request;
@@ -35,6 +38,7 @@ pub use tokio;
 
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
+use ::scrobbling::manager::ScrobblingManager;
 
 use crate::analyze::*;
 use crate::collection::*;
@@ -45,12 +49,14 @@ use crate::library_home::*;
 use crate::library_manage::*;
 use crate::license::*;
 use crate::logging::*;
+use crate::lyric::*;
 use crate::media_file::*;
 use crate::messages::*;
 use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
+use crate::scrobble::*;
 use crate::search::*;
 use crate::sfx::*;
 use crate::stat::*;
@@ -120,13 +126,20 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
         let player = Player::new(Some(main_cancel_token.clone()));
         let player = Arc::new(Mutex::new(player));
 
+        let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
+        let scrobbler = Arc::new(Mutex::new(scrobbler));
+
         let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
         let sfx_player = Arc::new(Mutex::new(sfx_player));
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
         info!("Initializing Player events");
-        tokio::spawn(initialize_player(main_db.clone(), player.clone()));
+        tokio::spawn(initialize_player(
+            main_db.clone(),
+            player.clone(),
+            scrobbler.clone(),
+        ));
 
         info!("Initializing UI events");
         select_signal!(
@@ -162,6 +175,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
 
+            GetLyricByTrackIdRequest => (lib_path, main_db),
+
             FetchCollectionGroupSummaryRequest => (main_db, recommend_db),
             FetchCollectionGroupsRequest => (main_db, recommend_db),
             FetchCollectionByIdsRequest => (main_db, recommend_db),
@@ -196,6 +211,9 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
+
+            AuthenticateSingleServiceRequest => (scrobbler),
+            AuthenticateMultipleServiceRequest => (scrobbler),
 
             ListLogRequest => (main_db),
             ClearLogRequest => (main_db),

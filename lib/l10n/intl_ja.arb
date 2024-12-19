@@ -12,7 +12,7 @@
   "@copyright": {
     "description": "This is the title of an entry that appears in the settings interface under the copyright section."
   },
-  "copyrightAnnouncement": "Copyright © 2024 Rune Player 開発者。",
+  "copyrightAnnouncement": "著作權 © 2024 Rune 再生機開発者。",
   "@copyrightAnnouncement": {
     "description": "The complete copyright statement."
   },
@@ -160,11 +160,11 @@
   "@addToEnd": {
     "description": "An action that queues a track or album to the end of the playlist."
   },
-  "middleClickAction": "中クリック操作",
+  "middleClickAction": "中押操作",
   "@middleClickAction": {
     "description": "A title in the settings interface controlling the behavior when the user middle-clicks a track or album."
   },
-  "middleClickActionSubtitle": "曲や選集まりを中クリックした際の実行動作。",
+  "middleClickActionSubtitle": "曲や選集まりを中押した際の実行動作。",
   "@middleClickActionSubtitle": {},
   "startPlaying": "再生開始",
   "@startPlaying": {
@@ -272,7 +272,7 @@
   "@likedOnly": {
     "description": "An entry in the Mix edit interface, a checkbox option to filter and keep only tracks that the user has 'liked.'"
   },
-  "allTracks": "すべての曲",
+  "allTracks": "全ての曲",
   "@allTracks": {
     "description": "An entry in the Mix edit interface, a checkbox option to filter and keep all tracks, not just those the user has 'liked.'"
   },
@@ -320,7 +320,7 @@
   "@noRecommendation": {
     "description": "An entry in the Mix edit modal dropdown. Selecting this option indicates the user's intent not to base recommendations on query results."
   },
-  "basedOnAll": "すべてに基づく",
+  "basedOnAll": "全てに基づく",
   "@basedOnAll": {
     "description": "An entry in the Mix edit modal dropdown. Selecting this option recommends similar tracks based on the entire set of query results."
   },
@@ -389,7 +389,7 @@
   "@directories": {
     "description": "A title for an entry in the modal settings options, informing users that the following options are for filtering tracks by folder."
   },
-  "allDirectories": "すべての格納場所",
+  "allDirectories": "全ての格納場所",
   "@allDirectories": {
     "description": "Prompt indicating that all directories have been selected."
   },
@@ -591,7 +591,7 @@
   "@about": {
     "description": "Title of the about interface."
   },
-  "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、すべての曲を検査および解析します。",
+  "selectLibraryDirectorySubtitle": "資料集の格納場所を選択し、全ての曲を検査および解析します。",
   "@selectLibraryDirectorySubtitle": {},
   "resetLibrary": "資料集を初期化",
   "@resetLibrary": {
@@ -905,7 +905,7 @@
   "@register": {
     "description": "Title of the register tile in the settings page"
   },
-  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を触れて、認証済み使用者であることを確認してください。",
+  "evaluationModeContent4": "下記の商店から鍵音楽を購入することで、登録の証明として使用できます。「登録」を押れて、認証済み使用者であることを確認してください。",
   "@evaluationModeContent4" : {
     "description": "Content of the evaluation mode modal"
   },
@@ -968,5 +968,11 @@
   "considerPurchase": "ぜひ正銘の許可をお求めください。",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
-  }
+  },
+  "lyrics": "歌詞",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "歌詞の全容を掲載する",
+  "@lyricsSubtitle": {}
 }

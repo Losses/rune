@@ -1,7 +1,8 @@
 import '../../messages/all.dart';
+import '../playing_item.dart';
 
-Future<bool> getLiked(int fileId) async {
-  final updateRequest = GetLikedRequest(fileId: fileId);
+Future<bool> getLiked(PlayingItem item) async {
+  final updateRequest = GetLikedRequest(item: item.toRequest());
   updateRequest.sendSignalToRust(); // GENERATED
 
   final rustSignal = await GetLikedResponse.rustSignalStream.first;

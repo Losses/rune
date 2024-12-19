@@ -1,32 +1,61 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::Duration;
+use std::{fmt, thread};
 
 use log::{debug, error};
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
-use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
 pub struct PlayerStatus {
-    pub id: Option<i32>,
+    pub item: Option<PlayingItem>,
     pub index: Option<usize>,
     pub path: Option<PathBuf>,
     pub position: Duration,
     pub state: PlaybackState,
-    pub playlist: Vec<i32>,
+    pub playlist: Vec<PlayingItem>,
     pub playback_mode: PlaybackMode,
     pub ready: bool,
     pub volume: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PlayingItem {
+    InLibrary(i32),
+    IndependentFile(PathBuf),
+    Unknown,
+}
+
+impl fmt::Display for PlayingItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PlayingItem::InLibrary(id) => write!(f, "PlayingItem::InLibrary({})", id),
+            PlayingItem::IndependentFile(path) => {
+                write!(
+                    f,
+                    "PlayingItem::IndependentFile({})",
+                    path.to_string_lossy()
+                )
+            }
+            PlayingItem::Unknown => write!(f, "PlayingItem::Unknown()"),
+        }
+    }
+}
+
+impl From<PlayingItem> for String {
+    fn from(item: PlayingItem) -> Self {
+        item.to_string()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlaylistStatus {
-    pub items: Vec<i32>,
+    pub items: Vec<PlayingItem>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +82,7 @@ pub struct Player {
     pub current_status: Arc<Mutex<PlayerStatus>>,
     status_sender: SimpleSender<PlayerStatus>,
     playlist_sender: SimpleSender<PlaylistStatus>,
-    played_through_sender: SimpleSender<i32>,
+    played_through_sender: SimpleSender<PlayingItem>,
     realtime_fft_sender: SimpleSender<Vec<f32>>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
@@ -88,7 +117,7 @@ impl Player {
 
         // Create internal status for the whole player
         let current_status = Arc::new(Mutex::new(PlayerStatus {
-            id: None,
+            item: None,
             index: None,
             path: None,
             position: Duration::new(0, 0),
@@ -138,13 +167,13 @@ impl Player {
                 let mut status = status_clone.lock().unwrap();
                 match event {
                     PlayerEvent::Loaded {
-                        id,
+                        item,
                         index,
                         path,
                         playback_mode,
                         position,
                     } => {
-                        status.id = Some(id);
+                        status.item = Some(item);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
@@ -153,13 +182,13 @@ impl Player {
                         status.state = PlaybackState::Paused;
                     }
                     PlayerEvent::Playing {
-                        id,
+                        item,
                         index,
                         path,
                         playback_mode,
                         position,
                     } => {
-                        status.id = Some(id);
+                        status.item = Some(item);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
@@ -167,13 +196,13 @@ impl Player {
                         status.state = PlaybackState::Playing;
                     }
                     PlayerEvent::Paused {
-                        id,
+                        item,
                         index,
                         path,
                         playback_mode,
                         position,
                     } => {
-                        status.id = Some(id);
+                        status.item = Some(item);
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
@@ -181,21 +210,21 @@ impl Player {
                         status.state = PlaybackState::Paused;
                     }
                     PlayerEvent::Stopped {} => {
-                        status.id = None;
+                        status.item = None;
                         status.index = None;
                         status.path = None;
                         status.position = Duration::new(0, 0);
                         status.state = PlaybackState::Stopped;
                     }
                     PlayerEvent::Progress {
-                        id,
+                        item,
                         index,
                         path,
                         playback_mode,
                         position,
                         ready,
                     } => {
-                        status.id = id;
+                        status.item = item;
                         status.index = index;
                         status.path = path;
                         status.playback_mode = playback_mode;
@@ -209,24 +238,27 @@ impl Player {
                         status.state = PlaybackState::Stopped;
                     }
                     PlayerEvent::EndOfTrack {
-                        id,
+                        item,
                         index,
                         path,
                         playback_mode,
                     } => {
-                        status.id = Some(id);
+                        status.item = Some(item.clone());
                         status.index = Some(index);
                         status.path = Some(path);
                         status.playback_mode = playback_mode;
-                        played_through_sender.send(id);
+                        played_through_sender.send(item);
                     }
                     PlayerEvent::Error {
-                        id,
+                        item,
                         index,
                         path,
                         error,
                     } => {
-                        error!("Error at index {}({}): {:?} - {}", index, id, path, error);
+                        error!(
+                            "Error at index {}({:?}): {:?} - {}",
+                            index, item, path, error
+                        );
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.playlist = playlist.clone();
@@ -253,7 +285,7 @@ impl Player {
         self.current_status.lock().unwrap().clone()
     }
 
-    pub fn get_playlist(&self) -> Vec<i32> {
+    pub fn get_playlist(&self) -> Vec<PlayingItem> {
         self.current_status.lock().unwrap().playlist.clone()
     }
 
@@ -261,7 +293,7 @@ impl Player {
         self.status_sender.subscribe()
     }
 
-    pub fn subscribe_played_through(&self) -> SimpleReceiver<i32> {
+    pub fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
         self.played_through_sender.subscribe()
     }
 
@@ -327,7 +359,7 @@ impl Player {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, tracks: Vec<(i32, PathBuf)>, mode: AddMode) {
+    pub fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
         self.command(PlayerCommand::AddToPlaylist { tracks, mode });
     }
 
