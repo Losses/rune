@@ -9,6 +9,38 @@ use std::{
 
 use crate::{ScrobblingClient, ScrobblingTrack};
 
+impl From<&ScrobblingTrack> for Value {
+    fn from(track: &ScrobblingTrack) -> Self {
+        let mut track_metadata: Map<String, Value> = Map::new();
+        track_metadata.insert(
+            "artist_name".to_string(),
+            Value::String(track.artist.clone()),
+        );
+        track_metadata.insert("track_name".to_string(), Value::String(track.track.clone()));
+
+        if let Some(album) = &track.album {
+            track_metadata.insert("release_name".to_string(), Value::String(album.clone()));
+        }
+
+        let mut additional_info = Map::new();
+        if let Some(duration) = track.duration {
+            additional_info.insert("duration".to_string(), Value::Number(duration.into()));
+        }
+
+        additional_info.insert(
+            "media_player".to_string(),
+            Value::String("rune".to_string()),
+        );
+
+        track_metadata.insert(
+            "additional_info".to_string(),
+            Value::Object(additional_info),
+        );
+
+        Value::Object(track_metadata)
+    }
+}
+
 #[derive(Clone)]
 pub struct ListenBrainzClient {
     client: Client,
@@ -85,37 +117,23 @@ impl ScrobblingClient for ListenBrainzClient {
     }
 
     async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response> {
+        let track_metadata: Value = track.into();
+
+        let mut payload = Map::new();
+        payload.insert("track_metadata".to_string(), track_metadata);
+
         let mut body = HashMap::new();
         body.insert(
             "listen_type",
             serde_json::Value::String("playing_now".to_string()),
         );
-        body.insert("payload", serde_json::json!([track]));
+        body.insert("payload", Value::Array(vec![Value::Object(payload)]));
 
         self.post_request("1/submit-listens", &body).await
     }
 
     async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response> {
-        let mut track_metadata = Map::new();
-        track_metadata.insert(
-            "artist_name".to_string(),
-            Value::String(track.artist.clone()),
-        );
-        track_metadata.insert("track_name".to_string(), Value::String(track.track.clone()));
-
-        if let Some(album) = &track.album {
-            track_metadata.insert("release_name".to_string(), Value::String(album.clone()));
-        }
-
-        let mut additional_info = Map::new();
-        if let Some(duration) = track.duration {
-            additional_info.insert("duration".to_string(), Value::Number(duration.into()));
-        }
-
-        additional_info.insert(
-            "media_player".to_string(),
-            Value::String("rune".to_string()),
-        );
+        let track_metadata: Value = track.into();
 
         let mut payload = Map::new();
         let timestamp = track.timestamp.unwrap_or_else(|| {
@@ -125,7 +143,7 @@ impl ScrobblingClient for ListenBrainzClient {
                 .as_secs()
         });
         payload.insert("listened_at".to_string(), Value::Number(timestamp.into()));
-        payload.insert("track_metadata".to_string(), Value::Object(track_metadata));
+        payload.insert("track_metadata".to_string(), track_metadata);
 
         let mut body = HashMap::new();
         body.insert("listen_type", Value::String("single".to_string()));

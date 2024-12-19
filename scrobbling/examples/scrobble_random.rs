@@ -13,7 +13,7 @@ async fn main() -> Result<()> {
         .about("Test scrobbling to Last.fm, Libre.fm or ListenBrainz")
         .arg(
             Arg::new("service")
-                .help("The service to use (lastfm or librefm)")
+                .help("The service to use (lastfm, librefm, or listenbrainz)")
                 .required(true)
                 .index(1),
         )
@@ -39,6 +39,12 @@ async fn main() -> Result<()> {
                 .help("API Secret for Last.fm (ignored for Libre.fm)")
                 .long("api_secret"),
         )
+        .arg(
+            Arg::new("action")
+                .help("Action to perform (nowplaying or scrobble)")
+                .required(true)
+                .index(4),
+        )
         .get_matches();
 
     let binding = "".to_string();
@@ -47,6 +53,7 @@ async fn main() -> Result<()> {
     let api_secret = matches.get_one::<String>("api_secret").unwrap_or(&binding);
     let username = matches.get_one::<String>("username").unwrap();
     let password = matches.get_one::<String>("password").unwrap();
+    let action = matches.get_one::<String>("action").unwrap();
 
     let track = ScrobblingTrack {
         artist: "Random Artist".to_string(),
@@ -61,17 +68,29 @@ async fn main() -> Result<()> {
         "lastfm" => {
             let mut client = LastFmClient::new(api_key.to_string(), api_secret.to_string())?;
             client.authenticate(username, password).await?;
-            client.scrobble(&track).await?
+            if action == "nowplaying" {
+                client.update_now_playing(&track).await?
+            } else {
+                client.scrobble(&track).await?
+            }
         }
         "librefm" => {
             let mut client = LibreFmClient::new()?;
             client.authenticate(username, password).await?;
-            client.scrobble(&track).await?
+            if action == "nowplaying" {
+                client.update_now_playing(&track).await?
+            } else {
+                client.scrobble(&track).await?
+            }
         }
         "listenbrainz" => {
             let mut client = ListenBrainzClient::new()?;
             client.authenticate(username, password).await?;
-            client.scrobble(&track).await?
+            if action == "nowplaying" {
+                client.update_now_playing(&track).await?
+            } else {
+                client.scrobble(&track).await?
+            }
         }
         _ => {
             eprintln!("Unsupported service: {}", service);
