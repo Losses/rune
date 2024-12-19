@@ -27,7 +27,10 @@ use playback::MediaPosition;
 use scrobbling::manager::ScrobblingManager;
 use scrobbling::ScrobblingTrack;
 
-use crate::{CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
+use crate::{
+    CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft,
+    ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+};
 
 pub fn metadata_summary_to_scrobbling_track(
     metadata: &PlayingItemMetadataSummary,
@@ -71,7 +74,9 @@ pub async fn initialize_player(
     let dispatcher_for_played_through = Arc::clone(&dispatcher);
 
     let scrobber_for_played_through = Arc::clone(&scrobbler);
-    let scrobber_for_error_reporter = Arc::clone(&scrobbler);
+
+    let scrobber_error_receiver = scrobbler.lock().await.subscribe_error();
+    let scrobber_status_receiver = scrobbler.lock().await.subscribe_login_status();
 
     manager.lock().await.initialize()?;
 
@@ -259,6 +264,21 @@ pub async fn initialize_player(
     });
 
     task::spawn(async move {
+        while let Ok(value) = scrobber_status_receiver.recv().await {
+            ScrobbleServiceStatusUpdated {
+                services: value
+                    .into_iter()
+                    .map(|x| ScrobbleServiceStatus {
+                        service_id: x.service.to_string(),
+                        is_available: x.is_available,
+                    })
+                    .collect(),
+            }
+            .send_signal_to_dart();
+        }
+    });
+
+    task::spawn(async move {
         while let Ok(value) = realtime_fft_receiver.recv().await {
             send_realtime_fft(value).await;
         }
@@ -267,10 +287,7 @@ pub async fn initialize_player(
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_error_reporter);
 
-        let scrobbler = Arc::clone(&scrobber_for_error_reporter);
-        let error_receiver = scrobbler.lock().await.subscribe_error();
-
-        while let Ok(error) = error_receiver.recv().await {
+        while let Ok(error) = scrobber_error_receiver.recv().await {
             error!(
                 "Scrobbler received error: {:?}::{:?}: {:#?}",
                 error.service, error.action, error.error

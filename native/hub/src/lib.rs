@@ -15,6 +15,7 @@ mod mix;
 mod playback;
 mod player;
 mod playlist;
+mod scrobble;
 mod search;
 mod sfx;
 mod stat;
@@ -54,6 +55,7 @@ use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
+use crate::scrobble::*;
 use crate::search::*;
 use crate::sfx::*;
 use crate::stat::*;
@@ -208,6 +210,9 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             SearchForRequest => (main_db),
 
             FetchDirectoryTreeRequest => (main_db),
+
+            AuthenticateSingleServiceRequest => (scrobbler),
+            AuthenticateMultipleServiceRequest => (scrobbler),
 
             ListLogRequest => (main_db),
             ClearLogRequest => (main_db),

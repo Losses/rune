@@ -25,14 +25,9 @@ message AuthenticateMultipleServiceRequest {
   repeated LoginRequestItem requests = 1;
 }
 
-message AuthenticateMultipleServiceRequest {
-  repeated LoginRequestItem requests = 1;
-}
-
-// [RUST-SIGNAL]
 message ScrobbleServiceStatus {
   string serviceId = 1;
-  bool available = 2;
+  bool isAvailable = 2;
 }
 
 // [RUST-SIGNAL]

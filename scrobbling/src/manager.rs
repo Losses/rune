@@ -1,4 +1,6 @@
 use std::collections::VecDeque;
+use std::fmt;
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +21,38 @@ pub enum ScrobblingService {
     ListenBrainz,
 }
 
+impl fmt::Display for ScrobblingService {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            ScrobblingService::LastFm => "LastFm",
+            ScrobblingService::LibreFm => "LibreFm",
+            ScrobblingService::ListenBrainz => "ListenBrainz",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+impl FromStr for ScrobblingService {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "LastFm" => Ok(ScrobblingService::LastFm),
+            "LibreFm" => Ok(ScrobblingService::LibreFm),
+            "ListenBrainz" => Ok(ScrobblingService::ListenBrainz),
+            _ => Err(()),
+        }
+    }
+}
+
+// Optionally implement From<String> using FromStr
+impl From<String> for ScrobblingService {
+    fn from(s: String) -> Self {
+        ScrobblingService::from_str(&s)
+            .unwrap_or_else(|_| panic!("Invalid string for ScrobblingService: {}", s))
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ActionType {
     Authenticate,
@@ -33,6 +67,12 @@ pub struct ScrobblingError {
     pub error: anyhow::Error,
 }
 
+#[derive(Debug)]
+pub struct LoginStatus {
+    pub service: ScrobblingService,
+    pub is_available: bool,
+}
+
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
@@ -40,13 +80,14 @@ pub struct ScrobblingManager {
     max_retries: u32,
     retry_delay: Duration,
     error_sender: Arc<SimpleSender<ScrobblingError>>,
+    login_status_sender: Arc<SimpleSender<Vec<LoginStatus>>>,
 
     is_authenticating: bool,
     now_playing_cache: VecDeque<ScrobblingTrack>,
     scrobble_cache: VecDeque<ScrobblingTrack>,
 }
 
-pub struct Credentials {
+pub struct ScrobblingCredential {
     pub service: ScrobblingService,
     pub username: String,
     pub password: String,
@@ -57,6 +98,7 @@ pub struct Credentials {
 impl ScrobblingManager {
     pub fn new(max_retries: u32, retry_delay: Duration) -> Self {
         let (error_sender, _) = SimpleChannel::channel(32);
+        let (login_status_sender, _) = SimpleChannel::channel(32);
 
         Self {
             lastfm: None,
@@ -65,11 +107,31 @@ impl ScrobblingManager {
             max_retries,
             retry_delay,
             error_sender: Arc::new(error_sender),
+            login_status_sender: Arc::new(login_status_sender),
 
             is_authenticating: false,
             now_playing_cache: VecDeque::with_capacity(1),
             scrobble_cache: VecDeque::with_capacity(48),
         }
+    }
+
+    pub async fn send_login_status(&self) {
+        let statuses = vec![
+            LoginStatus {
+                service: ScrobblingService::LastFm,
+                is_available: self.lastfm.is_some(),
+            },
+            LoginStatus {
+                service: ScrobblingService::LibreFm,
+                is_available: self.librefm.is_some(),
+            },
+            LoginStatus {
+                service: ScrobblingService::ListenBrainz,
+                is_available: self.listenbrainz.is_some(),
+            },
+        ];
+
+        self.login_status_sender.send(statuses);
     }
 
     pub async fn authenticate(
@@ -115,12 +177,14 @@ impl ScrobblingManager {
                 Ok(_) => {
                     self.is_authenticating = false;
                     self.process_cache().await;
+                    self.send_login_status().await;
                     break;
                 }
                 Err(e) => {
                     attempts += 1;
                     if attempts >= self.max_retries {
                         self.is_authenticating = false;
+                        self.send_login_status().await;
                         return Err(e);
                     }
                     sleep(self.retry_delay).await;
@@ -221,7 +285,7 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<Credentials>) {
+    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
@@ -484,5 +548,9 @@ impl ScrobblingManager {
 
     pub fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
         self.error_sender.subscribe()
+    }
+
+    pub fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
+        self.login_status_sender.subscribe()
     }
 }
