@@ -151,4 +151,8 @@ impl ScrobblingClient for ListenBrainzClient {
 
         self.post_request("1/submit-listens", &body).await
     }
+
+    fn session_key(&self) -> Option<&str> {
+        self.session_key.as_deref()
+    }
 }

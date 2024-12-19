@@ -35,4 +35,5 @@ pub trait ScrobblingClient {
     async fn authenticate(&mut self, username: &str, password: &str) -> Result<()>;
     async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response>;
     async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response>;
+    fn session_key(&self) -> Option<&str>;
 }

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -29,6 +30,10 @@ pub struct ScrobblingManager {
     max_retries: u32,
     retry_delay: Duration,
     sender: mpsc::Sender<ScrobblingError>,
+
+    is_authenticating: bool,
+    now_playing_cache: VecDeque<ScrobblingTrack>,
+    scrobble_cache: VecDeque<ScrobblingTrack>,
 }
 
 pub struct Credentials {
@@ -50,6 +55,10 @@ impl ScrobblingManager {
             max_retries,
             retry_delay,
             sender,
+
+            is_authenticating: false,
+            now_playing_cache: VecDeque::with_capacity(1),
+            scrobble_cache: VecDeque::with_capacity(48),
         }
     }
 
@@ -61,6 +70,7 @@ impl ScrobblingManager {
         api_key: Option<String>,
         api_secret: Option<String>,
     ) -> Result<()> {
+        self.is_authenticating = true;
         let mut attempts = 0;
 
         loop {
@@ -92,10 +102,15 @@ impl ScrobblingManager {
             };
 
             match result {
-                Ok(_) => break,
+                Ok(_) => {
+                    self.is_authenticating = false;
+                    self.process_cache().await;
+                    break;
+                }
                 Err(e) => {
                     attempts += 1;
                     if attempts >= self.max_retries {
+                        self.is_authenticating = false;
                         return Err(e);
                     }
                     sleep(self.retry_delay).await;
@@ -103,6 +118,86 @@ impl ScrobblingManager {
             }
         }
         Ok(())
+    }
+
+    async fn process_cache(&mut self) {
+        while let Some(track) = self.now_playing_cache.pop_front() {
+            self.update_now_playing_all(track).await;
+        }
+
+        while let Some(track) = self.scrobble_cache.pop_front() {
+            self.scrobble_all(track).await;
+        }
+    }
+
+    pub async fn update_now_playing(
+        &mut self,
+        service: &ScrobblingService,
+        track: ScrobblingTrack,
+    ) {
+        let max_retries = self.max_retries;
+        let retry_delay = self.retry_delay;
+        let sender = self.sender.clone();
+
+        let client: Option<&mut dyn ScrobblingClient> = match service {
+            ScrobblingService::LastFm => {
+                self.lastfm.as_mut().map(|c| c as &mut dyn ScrobblingClient)
+            }
+            ScrobblingService::LibreFm => self
+                .librefm
+                .as_mut()
+                .map(|c| c as &mut dyn ScrobblingClient),
+            ScrobblingService::ListenBrainz => self
+                .listenbrainz
+                .as_mut()
+                .map(|c| c as &mut dyn ScrobblingClient),
+        };
+
+        if let Some(client) = client {
+            if client.session_key().is_some() {
+                let result = ScrobblingManager::retry_update_now_playing(
+                    client,
+                    &track,
+                    max_retries,
+                    retry_delay,
+                )
+                .await;
+
+                if let Err(e) = result {
+                    let _ = sender
+                        .send(ScrobblingError {
+                            service: *service,
+                            error: e,
+                        })
+                        .await;
+                }
+            }
+        }
+    }
+
+    async fn retry_update_now_playing<T>(
+        client: &mut T,
+        track: &ScrobblingTrack,
+        max_retries: u32,
+        retry_delay: Duration,
+    ) -> Result<()>
+    where
+        T: ScrobblingClient + ?Sized,
+    {
+        let mut attempts = 0;
+
+        loop {
+            match client.update_now_playing(track).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= max_retries {
+                        return Err(e);
+                    }
+                    sleep(retry_delay).await;
+                }
+            }
+        }
     }
 
     pub fn authenticate_all(&mut self, credentials_list: Vec<Credentials>) {
@@ -124,6 +219,10 @@ impl ScrobblingManager {
                     max_retries,
                     retry_delay,
                     sender: sender.clone(),
+
+                    is_authenticating: false,
+                    now_playing_cache: VecDeque::with_capacity(1),
+                    scrobble_cache: VecDeque::with_capacity(48),
                 };
 
                 let result = manager
@@ -179,7 +278,66 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    pub fn scrobble_all(&mut self, track: ScrobblingTrack) {
+    async fn update_now_playing_all(&self, track: ScrobblingTrack) {
+        let lastfm = self.lastfm.clone();
+        let librefm = self.librefm.clone();
+        let listenbrainz = self.listenbrainz.clone();
+        let sender = self.sender.clone();
+
+        tokio::spawn(async move {
+            if let Some(client) = lastfm {
+                if client.session_key.is_some() {
+                    if let Err(e) = client.update_now_playing(&track).await {
+                        let _ = sender
+                            .send(ScrobblingError {
+                                service: ScrobblingService::LastFm,
+                                error: e,
+                            })
+                            .await;
+                    }
+                }
+            }
+
+            if let Some(client) = librefm {
+                if client.session_key.is_some() {
+                    if let Err(e) = client.update_now_playing(&track).await {
+                        let _ = sender
+                            .send(ScrobblingError {
+                                service: ScrobblingService::LibreFm,
+                                error: e,
+                            })
+                            .await;
+                    }
+                }
+            }
+
+            if let Some(client) = listenbrainz {
+                if client.session_key.is_some() {
+                    if let Err(e) = client.update_now_playing(&track).await {
+                        let _ = sender
+                            .send(ScrobblingError {
+                                service: ScrobblingService::ListenBrainz,
+                                error: e,
+                            })
+                            .await;
+                    }
+                }
+            }
+        });
+    }
+
+    pub async fn scrobble(&mut self, track: ScrobblingTrack) {
+        if self.is_authenticating {
+            self.scrobble_cache.push_back(track);
+            if self.scrobble_cache.len() > 48 {
+                self.scrobble_cache.pop_front();
+            }
+        } else {
+            self.scrobble_all(track).await;
+        }
+    }
+
+    pub async fn scrobble_all(&self, track: ScrobblingTrack) {
         let lastfm = self.lastfm.clone();
         let librefm = self.librefm.clone();
         let listenbrainz = self.listenbrainz.clone();

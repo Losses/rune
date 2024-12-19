@@ -163,4 +163,8 @@ impl ScrobblingClient for LastFmClient {
 
         Ok(response)
     }
+
+    fn session_key(&self) -> Option<&str> {
+        self.session_key.as_deref()
+    }
 }

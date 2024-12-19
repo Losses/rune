@@ -146,4 +146,8 @@ impl ScrobblingClient for LibreFmClient {
 
         Ok(response)
     }
+
+    fn session_key(&self) -> Option<&str> {
+        self.session_key.as_deref()
+    }
 }
