@@ -9,6 +9,7 @@ use std::{
 
 use crate::{ScrobblingClient, ScrobblingTrack};
 
+#[derive(Clone)]
 pub struct ListenBrainzClient {
     client: Client,
     base_url: String,

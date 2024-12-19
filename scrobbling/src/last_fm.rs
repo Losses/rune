@@ -8,6 +8,7 @@ use reqwest::{Client, Response};
 
 use crate::{AuthResponse, ScrobblingClient, ScrobblingTrack};
 
+#[derive(Clone)]
 pub struct LastFmClient {
     api_key: String,
     api_secret: String,

@@ -1,6 +1,7 @@
-use anyhow::Result;
-use std::collections::HashMap;
 use std::time::Duration;
+
+use anyhow::Result;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 use crate::last_fm::LastFmClient;
@@ -21,6 +22,7 @@ pub struct ScrobblingManager {
     listenbrainz: Option<ListenBrainzClient>,
     max_retries: u32,
     retry_delay: Duration,
+    sender: mpsc::Sender<String>,
 }
 
 pub struct Credentials {
@@ -33,12 +35,15 @@ pub struct Credentials {
 
 impl ScrobblingManager {
     pub fn new(max_retries: u32, retry_delay: Duration) -> Self {
+        let (sender, _receiver) = mpsc::channel(100);
+
         Self {
             lastfm: None,
             librefm: None,
             listenbrainz: None,
             max_retries,
             retry_delay,
+            sender,
         }
     }
 
@@ -94,27 +99,47 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    pub async fn authenticate_all(
-        &mut self,
-        credentials_list: Vec<Credentials>,
-    ) -> HashMap<ScrobblingService, Result<()>> {
-        let mut results = HashMap::new();
+    pub fn authenticate_all(&mut self, credentials_list: Vec<Credentials>) {
+        let sender = self.sender.clone();
+        let max_retries = self.max_retries;
+        let retry_delay = self.retry_delay;
 
-        for credentials in credentials_list {
-            let result = self
-                .authenticate(
-                    &credentials.service,
-                    &credentials.username,
-                    &credentials.password,
-                    credentials.api_key.clone(),
-                    credentials.api_secret.clone(),
-                )
-                .await;
+        // Clone the necessary clients if needed
+        let lastfm = self.lastfm.clone();
+        let librefm = self.librefm.clone();
+        let listenbrainz = self.listenbrainz.clone();
 
-            results.insert(credentials.service, result);
-        }
+        tokio::spawn(async move {
+            for credentials in credentials_list {
+                let mut manager = ScrobblingManager {
+                    lastfm: lastfm.clone(),
+                    librefm: librefm.clone(),
+                    listenbrainz: listenbrainz.clone(),
+                    max_retries,
+                    retry_delay,
+                    sender: sender.clone(),
+                };
 
-        results
+                let result = manager
+                    .authenticate(
+                        &credentials.service,
+                        &credentials.username,
+                        &credentials.password,
+                        credentials.api_key.clone(),
+                        credentials.api_secret.clone(),
+                    )
+                    .await;
+
+                if let Err(e) = result {
+                    let _ = sender
+                        .send(format!(
+                            "Error authenticating {:?}: {:#?}",
+                            credentials.service, e
+                        ))
+                        .await;
+                }
+            }
+        });
     }
 
     pub fn restore_session(
@@ -148,40 +173,72 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    pub async fn scrobble_all(
-        &mut self,
-        track: &ScrobblingTrack,
-    ) -> HashMap<ScrobblingService, Result<()>> {
-        let mut results = HashMap::new();
+    pub fn scrobble_all(&mut self, track: ScrobblingTrack) {
+        let lastfm = self.lastfm.clone();
+        let librefm = self.librefm.clone();
+        let listenbrainz = self.listenbrainz.clone();
+        let max_retries = self.max_retries;
+        let retry_delay = self.retry_delay;
+        let sender = self.sender.clone();
 
-        // Handle Last.fm
-        if let Some(client) = &mut self.lastfm {
-            if client.session_key.is_some() {
-                let result =
-                    Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert(ScrobblingService::LastFm, result);
+        tokio::spawn(async move {
+            // Handle Last.fm
+            if let Some(mut client) = lastfm {
+                if client.session_key.is_some() {
+                    let result = ScrobblingManager::retry_scrobble(
+                        &mut client,
+                        &track,
+                        max_retries,
+                        retry_delay,
+                    )
+                    .await;
+
+                    if let Err(e) = result {
+                        let _ = sender
+                            .send(format!("Error scrobbling to Last.fm: {:?}", e))
+                            .await;
+                    }
+                }
             }
-        }
 
-        // Handle Libre.fm
-        if let Some(client) = &mut self.librefm {
-            if client.session_key.is_some() {
-                let result =
-                    Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert(ScrobblingService::LibreFm, result);
+            // Handle Libre.fm
+            if let Some(mut client) = librefm {
+                if client.session_key.is_some() {
+                    let result = ScrobblingManager::retry_scrobble(
+                        &mut client,
+                        &track,
+                        max_retries,
+                        retry_delay,
+                    )
+                    .await;
+
+                    if let Err(e) = result {
+                        let _ = sender
+                            .send(format!("Error scrobbling to Libre.fm: {:?}", e))
+                            .await;
+                    }
+                }
             }
-        }
 
-        // Handle ListenBrainz
-        if let Some(client) = &mut self.listenbrainz {
-            if client.session_key.is_some() {
-                let result =
-                    Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert(ScrobblingService::ListenBrainz, result);
+            // Handle ListenBrainz
+            if let Some(mut client) = listenbrainz {
+                if client.session_key.is_some() {
+                    let result = ScrobblingManager::retry_scrobble(
+                        &mut client,
+                        &track,
+                        max_retries,
+                        retry_delay,
+                    )
+                    .await;
+
+                    if let Err(e) = result {
+                        let _ = sender
+                            .send(format!("Error scrobbling to ListenBrainz: {:?}", e))
+                            .await;
+                    }
+                }
             }
-        }
-
-        results
+        });
     }
 
     async fn retry_scrobble<T>(

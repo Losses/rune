@@ -244,7 +244,7 @@ pub async fn initialize_player(
                 let metadata: PlayingItemMetadataSummary = metadata[0].clone();
                 let track: ScrobblingTrack = metadata_summary_to_scrobbling_track(metadata);
 
-                scrobbler.lock().await.scrobble_all(&track).await;
+                scrobbler.lock().await.scrobble_all(track);
             }
         }
     });

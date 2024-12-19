@@ -7,6 +7,7 @@ use reqwest::{Client, Response};
 
 use crate::{AuthResponse, ScrobblingClient, ScrobblingTrack};
 
+#[derive(Clone)]
 pub struct LibreFmClient {
     pub session_key: Option<String>,
     client: Client,
