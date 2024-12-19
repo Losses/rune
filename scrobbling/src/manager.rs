@@ -16,13 +16,19 @@ pub enum ScrobblingService {
     ListenBrainz,
 }
 
+#[derive(Debug)]
+pub struct ScrobblingError {
+    pub service: ScrobblingService,
+    pub error: anyhow::Error,
+}
+
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
     listenbrainz: Option<ListenBrainzClient>,
     max_retries: u32,
     retry_delay: Duration,
-    sender: mpsc::Sender<String>,
+    sender: mpsc::Sender<ScrobblingError>,
 }
 
 pub struct Credentials {
@@ -132,10 +138,10 @@ impl ScrobblingManager {
 
                 if let Err(e) = result {
                     let _ = sender
-                        .send(format!(
-                            "Error authenticating {:?}: {:#?}",
-                            credentials.service, e
-                        ))
+                        .send(ScrobblingError {
+                            service: credentials.service,
+                            error: e,
+                        })
                         .await;
                 }
             }
@@ -195,7 +201,10 @@ impl ScrobblingManager {
 
                     if let Err(e) = result {
                         let _ = sender
-                            .send(format!("Error scrobbling to Last.fm: {:?}", e))
+                            .send(ScrobblingError {
+                                service: ScrobblingService::LastFm,
+                                error: e,
+                            })
                             .await;
                     }
                 }
@@ -214,7 +223,10 @@ impl ScrobblingManager {
 
                     if let Err(e) = result {
                         let _ = sender
-                            .send(format!("Error scrobbling to Libre.fm: {:?}", e))
+                            .send(ScrobblingError {
+                                service: ScrobblingService::LibreFm,
+                                error: e,
+                            })
                             .await;
                     }
                 }
@@ -233,7 +245,10 @@ impl ScrobblingManager {
 
                     if let Err(e) = result {
                         let _ = sender
-                            .send(format!("Error scrobbling to ListenBrainz: {:?}", e))
+                            .send(ScrobblingError {
+                                service: ScrobblingService::ListenBrainz,
+                                error: e,
+                            })
                             .await;
                     }
                 }
