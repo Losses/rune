@@ -84,6 +84,14 @@ class ScrobbleProvider with ChangeNotifier {
     String encryptedData = _encrypt(jsonEncode(credentials.toMap()));
     await _settingsManager.setValue(_credentialsKey, encryptedData);
     AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
+
+    final rustSignal =
+        await AuthenticateSingleServiceResponse.rustSignalStream.first;
+    final response = rustSignal.message;
+
+    if (!response.success) {
+      throw response.error;
+    }
   }
 
   void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {
