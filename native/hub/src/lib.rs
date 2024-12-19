@@ -1,4 +1,5 @@
 mod analyze;
+#[cfg(target_os = "macos")]
 mod apple_bridge;
 mod collection;
 mod connection;

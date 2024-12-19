@@ -5,11 +5,13 @@ import PackageDescription
 
 let package = Package(
     name: "apple-bridge-library",
+    platforms: [
+        .iOS(.v12)  // Minimum iOS version requirement
+    ],
     products: [
-        .library(name: "apple-bridge-library", type: .static, targets: ["apple-bridge-library"]),
+        .library(name: "apple-bridge-library", type: .static, targets: ["apple-bridge-library"])
     ],
-    dependencies: [
-    ],
+    dependencies: [],
     targets: [
         .target(
             name: "apple-bridge-library",
@@ -17,3 +19,5 @@ let package = Package(
         )
     ]
 )
+
+
