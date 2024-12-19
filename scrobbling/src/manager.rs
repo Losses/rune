@@ -8,6 +8,13 @@ use crate::libre_fm::LibreFmClient;
 use crate::listen_brainz::ListenBrainzClient;
 use crate::{ScrobblingClient, ScrobblingTrack};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ScrobblingService {
+    LastFm,
+    LibreFm,
+    ListenBrainz,
+}
+
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
@@ -29,7 +36,7 @@ impl ScrobblingManager {
 
     pub async fn authenticate(
         &mut self,
-        service: &str,
+        service: &ScrobblingService,
         username: &str,
         password: &str,
         api_key: Option<String>,
@@ -39,7 +46,7 @@ impl ScrobblingManager {
 
         loop {
             let result = match service {
-                "lastfm" => {
+                ScrobblingService::LastFm => {
                     let api_key = api_key
                         .clone()
                         .ok_or_else(|| anyhow::anyhow!("Last.fm requires API key"))?;
@@ -51,19 +58,18 @@ impl ScrobblingManager {
                         self.lastfm = Some(client);
                     })
                 }
-                "librefm" => {
+                ScrobblingService::LibreFm => {
                     let mut client = LibreFmClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.librefm = Some(client);
                     })
                 }
-                "listenbrainz" => {
+                ScrobblingService::ListenBrainz => {
                     let mut client = ListenBrainzClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.listenbrainz = Some(client);
                     })
                 }
-                _ => Err(anyhow::anyhow!("Unsupported service: {}", service)),
             };
 
             match result {
@@ -80,35 +86,41 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    pub fn restore_session(&mut self, service: &str, session_key: String) -> Result<()> {
+    pub fn restore_session(
+        &mut self,
+        service: &ScrobblingService,
+        session_key: String,
+    ) -> Result<()> {
         match service {
-            "lastfm" => {
+            ScrobblingService::LastFm => {
                 if let Some(client) = &mut self.lastfm {
                     client.session_key = Some(session_key);
                 } else {
                     return Err(anyhow::anyhow!("Last.fm client not initialized"));
                 }
             }
-            "librefm" => {
+            ScrobblingService::LibreFm => {
                 if let Some(client) = &mut self.librefm {
                     client.session_key = Some(session_key);
                 } else {
                     return Err(anyhow::anyhow!("Libre.fm client not initialized"));
                 }
             }
-            "listenbrainz" => {
+            ScrobblingService::ListenBrainz => {
                 if let Some(client) = &mut self.listenbrainz {
                     client.session_key = Some(session_key);
                 } else {
                     return Err(anyhow::anyhow!("ListenBrainz client not initialized"));
                 }
             }
-            _ => return Err(anyhow::anyhow!("Unsupported service: {}", service)),
         }
         Ok(())
     }
 
-    pub async fn scrobble_all(&mut self, track: &ScrobblingTrack) -> HashMap<String, Result<()>> {
+    pub async fn scrobble_all(
+        &mut self,
+        track: &ScrobblingTrack,
+    ) -> HashMap<ScrobblingService, Result<()>> {
         let mut results = HashMap::new();
 
         // Handle Last.fm
@@ -116,7 +128,7 @@ impl ScrobblingManager {
             if client.session_key.is_some() {
                 let result =
                     Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert("lastfm".to_string(), result);
+                results.insert(ScrobblingService::LastFm, result);
             }
         }
 
@@ -125,7 +137,7 @@ impl ScrobblingManager {
             if client.session_key.is_some() {
                 let result =
                     Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert("librefm".to_string(), result);
+                results.insert(ScrobblingService::LibreFm, result);
             }
         }
 
@@ -134,7 +146,7 @@ impl ScrobblingManager {
             if client.session_key.is_some() {
                 let result =
                     Self::retry_scrobble(client, track, self.max_retries, self.retry_delay).await;
-                results.insert("listenbrainz".to_string(), result);
+                results.insert(ScrobblingService::ListenBrainz, result);
             }
         }
 
