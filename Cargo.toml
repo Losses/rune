@@ -4,7 +4,7 @@
 # various Rust configurations.
 
 [workspace]
-members = ["./native/*", "./cli", "lyric", "scrobbling"]
+members = ["./native/*", "./cli"]
 resolver = "2"
 
 [patch.crates-io]

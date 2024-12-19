@@ -5,10 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
 use log::{debug, error, info};
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio::sync::Mutex;
 use tokio::task;
 
+use database::actions::logging::insert_log;
 use database::actions::playback_queue::replace_playback_queue;
 use database::actions::stats::increase_played_through;
 use database::connection::MainDbConnection;
@@ -29,12 +30,12 @@ use scrobbling::ScrobblingTrack;
 use crate::{CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
 
 pub fn metadata_summary_to_scrobbling_track(
-    metadata: PlayingItemMetadataSummary,
+    metadata: &PlayingItemMetadataSummary,
 ) -> ScrobblingTrack {
     ScrobblingTrack {
-        artist: metadata.artist,
-        album: Some(metadata.album),
-        track: metadata.title,
+        artist: metadata.artist.clone(),
+        album: Some(metadata.album.clone()),
+        track: metadata.title.clone(),
         duration: Some(metadata.duration.clamp(0.0, u32::MAX as f64) as u32),
         album_artist: None,
         timestamp: Some(
@@ -61,12 +62,16 @@ pub async fn initialize_player(
     let main_db_for_status = Arc::clone(&main_db);
     let main_db_for_played_throudh = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
+    let main_db_for_error_reporter = Arc::clone(&main_db);
 
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
     let os_controller_receiver = manager.lock().await.subscribe_controller_events();
     let dispatcher = Arc::new(Mutex::new(PlayingItemActionDispatcher::new()));
     let dispatcher_for_played_through = Arc::clone(&dispatcher);
+
+    let scrobber_for_played_through = Arc::clone(&scrobbler);
+    let scrobber_for_error_reporter = Arc::clone(&scrobbler);
 
     manager.lock().await.initialize()?;
 
@@ -137,6 +142,9 @@ pub async fn initialize_player(
                                             );
                                         }
                                     };
+
+                                    let track = metadata_summary_to_scrobbling_track(metadata);
+                                    scrobbler.lock().await.update_now_playing_all(track);
                                 }
                                 None => {
                                     error!("No metadata found for: {:?}", item_clone_for_status);
@@ -215,6 +223,7 @@ pub async fn initialize_player(
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_played_throudh);
         let dispatcher = Arc::clone(&dispatcher_for_played_through);
+        let scrobbler = Arc::clone(&scrobber_for_played_through);
 
         while let Ok(item) = played_through_receiver.recv().await {
             match item {
@@ -242,7 +251,7 @@ pub async fn initialize_player(
                 }
 
                 let metadata: PlayingItemMetadataSummary = metadata[0].clone();
-                let track: ScrobblingTrack = metadata_summary_to_scrobbling_track(metadata);
+                let track: ScrobblingTrack = metadata_summary_to_scrobbling_track(&metadata);
 
                 scrobbler.lock().await.scrobble_all(track);
             }
@@ -252,6 +261,41 @@ pub async fn initialize_player(
     task::spawn(async move {
         while let Ok(value) = realtime_fft_receiver.recv().await {
             send_realtime_fft(value).await;
+        }
+    });
+
+    task::spawn(async move {
+        let main_db = Arc::clone(&main_db_for_error_reporter);
+
+        let scrobbler = Arc::clone(&scrobber_for_error_reporter);
+        let error_receiver = scrobbler.lock().await.subscribe_error();
+
+        while let Ok(error) = error_receiver.recv().await {
+            error!(
+                "Scrobbler received error: {:?}::{:?}: {:#?}",
+                error.service, error.action, error.error
+            );
+
+            match main_db.begin().await {
+                Ok(txn) => {
+                    if let Err(e) = insert_log(
+                        &txn,
+                        database::actions::logging::LogLevel::Error,
+                        format!("scrobbler::{:?}::{:?}", error.action, error.service),
+                        format!("{:#?}", error),
+                    )
+                    .await
+                    {
+                        error!("Failed to log scrobbler error: {:#?}", e);
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to start txn while logging scrobbler error: {:#?}",
+                        e
+                    );
+                }
+            }
         }
     });
 

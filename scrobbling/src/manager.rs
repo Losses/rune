@@ -1,8 +1,10 @@
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use tokio::sync::mpsc;
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use crate::last_fm::LastFmClient;
@@ -37,7 +39,7 @@ pub struct ScrobblingManager {
     listenbrainz: Option<ListenBrainzClient>,
     max_retries: u32,
     retry_delay: Duration,
-    sender: mpsc::Sender<ScrobblingError>,
+    error_sender: Arc<SimpleSender<ScrobblingError>>,
 
     is_authenticating: bool,
     now_playing_cache: VecDeque<ScrobblingTrack>,
@@ -54,7 +56,7 @@ pub struct Credentials {
 
 impl ScrobblingManager {
     pub fn new(max_retries: u32, retry_delay: Duration) -> Self {
-        let (sender, _receiver) = mpsc::channel(100);
+        let (error_sender, _) = SimpleChannel::channel(32);
 
         Self {
             lastfm: None,
@@ -62,7 +64,7 @@ impl ScrobblingManager {
             listenbrainz: None,
             max_retries,
             retry_delay,
-            sender,
+            error_sender: Arc::new(error_sender),
 
             is_authenticating: false,
             now_playing_cache: VecDeque::with_capacity(1),
@@ -129,12 +131,16 @@ impl ScrobblingManager {
     }
 
     async fn process_cache(&mut self) {
+        if self.is_authenticating {
+            return;
+        }
+
         while let Some(track) = self.now_playing_cache.pop_front() {
-            self.update_now_playing_all(track).await;
+            self.update_now_playing_all(track);
         }
 
         while let Some(track) = self.scrobble_cache.pop_front() {
-            self.scrobble_all(track).await;
+            self.scrobble_all(track);
         }
     }
 
@@ -154,7 +160,6 @@ impl ScrobblingManager {
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
-        let sender = self.sender.clone();
 
         let client: Option<&mut dyn ScrobblingClient> = match service {
             ScrobblingService::LastFm => {
@@ -181,13 +186,11 @@ impl ScrobblingManager {
                 .await;
 
                 if let Err(e) = result {
-                    let _ = sender
-                        .send(ScrobblingError {
-                            service: *service,
-                            action: ActionType::UpdateNowPlaying,
-                            error: e,
-                        })
-                        .await;
+                    self.error_sender.send(ScrobblingError {
+                        service: *service,
+                        action: ActionType::UpdateNowPlaying,
+                        error: e,
+                    });
                 }
             }
         }
@@ -218,31 +221,10 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(&mut self, credentials_list: Vec<Credentials>) {
-        let sender = self.sender.clone();
-        let max_retries = self.max_retries;
-        let retry_delay = self.retry_delay;
-
-        // Clone the necessary clients if needed
-        let lastfm = self.lastfm.clone();
-        let librefm = self.librefm.clone();
-        let listenbrainz = self.listenbrainz.clone();
-
+    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<Credentials>) {
         tokio::spawn(async move {
             for credentials in credentials_list {
-                let mut manager = ScrobblingManager {
-                    lastfm: lastfm.clone(),
-                    librefm: librefm.clone(),
-                    listenbrainz: listenbrainz.clone(),
-                    max_retries,
-                    retry_delay,
-                    sender: sender.clone(),
-
-                    is_authenticating: false,
-                    now_playing_cache: VecDeque::with_capacity(1),
-                    scrobble_cache: VecDeque::with_capacity(48),
-                };
-
+                let mut manager = manager.lock().await;
                 let result = manager
                     .authenticate(
                         &credentials.service,
@@ -254,13 +236,11 @@ impl ScrobblingManager {
                     .await;
 
                 if let Err(e) = result {
-                    let _ = sender
-                        .send(ScrobblingError {
-                            service: credentials.service,
-                            action: ActionType::Authenticate,
-                            error: e,
-                        })
-                        .await;
+                    manager.error_sender.send(ScrobblingError {
+                        service: credentials.service,
+                        action: ActionType::Authenticate,
+                        error: e,
+                    });
                 }
             }
         });
@@ -297,23 +277,29 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    async fn update_now_playing_all(&self, track: ScrobblingTrack) {
+    pub fn update_now_playing_all(&mut self, track: ScrobblingTrack) {
+        if self.is_authenticating {
+            self.now_playing_cache.push_back(track);
+            if self.now_playing_cache.len() > 1 {
+                self.now_playing_cache.pop_front();
+            }
+            return;
+        }
+
         let lastfm = self.lastfm.clone();
         let librefm = self.librefm.clone();
         let listenbrainz = self.listenbrainz.clone();
-        let sender = self.sender.clone();
+        let error_sender = Arc::clone(&self.error_sender);
 
         tokio::spawn(async move {
             if let Some(client) = lastfm {
                 if client.session_key.is_some() {
                     if let Err(e) = client.update_now_playing(&track).await {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::LastFm,
-                                action: ActionType::UpdateNowPlaying,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::LastFm,
+                            action: ActionType::UpdateNowPlaying,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -321,13 +307,11 @@ impl ScrobblingManager {
             if let Some(client) = librefm {
                 if client.session_key.is_some() {
                     if let Err(e) = client.update_now_playing(&track).await {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::LibreFm,
-                                action: ActionType::UpdateNowPlaying,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::LibreFm,
+                            action: ActionType::UpdateNowPlaying,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -335,13 +319,11 @@ impl ScrobblingManager {
             if let Some(client) = listenbrainz {
                 if client.session_key.is_some() {
                     if let Err(e) = client.update_now_playing(&track).await {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::ListenBrainz,
-                                action: ActionType::UpdateNowPlaying,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::ListenBrainz,
+                            action: ActionType::UpdateNowPlaying,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -360,7 +342,6 @@ impl ScrobblingManager {
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
-        let sender = self.sender.clone();
 
         let client: Option<&mut dyn ScrobblingClient> = match service {
             ScrobblingService::LastFm => {
@@ -383,25 +364,32 @@ impl ScrobblingManager {
                         .await;
 
                 if let Err(e) = result {
-                    let _ = sender
-                        .send(ScrobblingError {
-                            service,
-                            action: ActionType::Scrobbling,
-                            error: e,
-                        })
-                        .await;
+                    self.error_sender.send(ScrobblingError {
+                        service,
+                        action: ActionType::Scrobbling,
+                        error: e,
+                    });
                 }
             }
         }
     }
 
-    pub async fn scrobble_all(&self, track: ScrobblingTrack) {
+    pub fn scrobble_all(&mut self, track: ScrobblingTrack) {
+        if self.is_authenticating {
+            self.scrobble_cache.push_back(track);
+            if self.scrobble_cache.len() > 48 {
+                self.scrobble_cache.pop_front();
+            }
+
+            return;
+        }
+
         let lastfm = self.lastfm.clone();
         let librefm = self.librefm.clone();
         let listenbrainz = self.listenbrainz.clone();
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
-        let sender = self.sender.clone();
+        let error_sender = Arc::clone(&self.error_sender);
 
         tokio::spawn(async move {
             // Handle Last.fm
@@ -416,13 +404,11 @@ impl ScrobblingManager {
                     .await;
 
                     if let Err(e) = result {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::LastFm,
-                                action: ActionType::Scrobbling,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::LastFm,
+                            action: ActionType::Scrobbling,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -439,13 +425,11 @@ impl ScrobblingManager {
                     .await;
 
                     if let Err(e) = result {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::LibreFm,
-                                action: ActionType::Scrobbling,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::LibreFm,
+                            action: ActionType::Scrobbling,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -462,13 +446,11 @@ impl ScrobblingManager {
                     .await;
 
                     if let Err(e) = result {
-                        let _ = sender
-                            .send(ScrobblingError {
-                                service: ScrobblingService::ListenBrainz,
-                                action: ActionType::Scrobbling,
-                                error: e,
-                            })
-                            .await;
+                        error_sender.send(ScrobblingError {
+                            service: ScrobblingService::ListenBrainz,
+                            action: ActionType::Scrobbling,
+                            error: e,
+                        });
                     }
                 }
             }
@@ -498,5 +480,9 @@ impl ScrobblingManager {
                 }
             }
         }
+    }
+
+    pub fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
+        self.error_sender.subscribe()
     }
 }
