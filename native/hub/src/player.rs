@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
@@ -22,12 +23,33 @@ use playback::player::{Player, PlayingItem};
 use playback::MediaMetadata;
 use playback::MediaPlayback;
 use playback::MediaPosition;
+use scrobbling::manager::ScrobblingManager;
+use scrobbling::ScrobblingTrack;
 
 use crate::{CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft};
+
+pub fn metadata_summary_to_scrobbling_track(
+    metadata: PlayingItemMetadataSummary,
+) -> ScrobblingTrack {
+    ScrobblingTrack {
+        artist: metadata.artist,
+        album: Some(metadata.album),
+        track: metadata.title,
+        duration: Some(metadata.duration.clamp(0.0, u32::MAX as f64) as u32),
+        album_artist: None,
+        timestamp: Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        ),
+    }
+}
 
 pub async fn initialize_player(
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
 ) -> Result<()> {
     let status_receiver = player.lock().await.subscribe_status();
     let played_through_receiver = player.lock().await.subscribe_played_through();
@@ -43,7 +65,8 @@ pub async fn initialize_player(
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
     let os_controller_receiver = manager.lock().await.subscribe_controller_events();
-    let dispatcher = PlayingItemActionDispatcher::new();
+    let dispatcher = Arc::new(Mutex::new(PlayingItemActionDispatcher::new()));
+    let dispatcher_for_played_through = Arc::clone(&dispatcher);
 
     manager.lock().await.initialize()?;
 
@@ -68,7 +91,12 @@ pub async fn initialize_player(
                         let item_vec = &[item_clone].to_vec();
 
                         // Update the cached metadata if the index has changed
-                        let cover_art = match dispatcher.bake_cover_art(&main_db, item_vec).await {
+                        let cover_art = match dispatcher
+                            .lock()
+                            .await
+                            .bake_cover_art(&main_db, item_vec)
+                            .await
+                        {
                             Ok(data) => {
                                 let parsed_data = data.values().collect::<Vec<_>>();
                                 cached_cover_art = if parsed_data.is_empty() {
@@ -82,7 +110,12 @@ pub async fn initialize_player(
                             Err(_) => None,
                         };
 
-                        match dispatcher.get_metadata_summary(&main_db, item_vec).await {
+                        match dispatcher
+                            .lock()
+                            .await
+                            .get_metadata_summary(&main_db, item_vec)
+                            .await
+                        {
                             Ok(metadata) => match metadata.first() {
                                 Some(metadata) => {
                                     cached_meta = Some(metadata.clone());
@@ -181,6 +214,7 @@ pub async fn initialize_player(
 
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_played_throudh);
+        let dispatcher = Arc::clone(&dispatcher_for_played_through);
 
         while let Ok(item) = played_through_receiver.recv().await {
             match item {
@@ -194,6 +228,23 @@ pub async fn initialize_player(
                 }
                 PlayingItem::IndependentFile(_) => {}
                 PlayingItem::Unknown => {}
+            }
+
+            let metadata = dispatcher
+                .lock()
+                .await
+                .get_metadata_summary(&main_db, [item].as_ref())
+                .await;
+
+            if let Ok(metadata) = metadata {
+                if metadata.is_empty() {
+                    continue;
+                }
+
+                let metadata: PlayingItemMetadataSummary = metadata[0].clone();
+                let track: ScrobblingTrack = metadata_summary_to_scrobbling_track(metadata);
+
+                scrobbler.lock().await.scrobble_all(&track).await;
             }
         }
     });

@@ -2178,6 +2178,7 @@ dependencies = [
  "playback",
  "prost",
  "rinf",
+ "scrobbling",
  "sea-orm",
  "sha2",
  "swift-bridge",
