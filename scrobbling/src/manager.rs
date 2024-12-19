@@ -17,9 +17,17 @@ pub enum ScrobblingService {
     ListenBrainz,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ActionType {
+    Authenticate,
+    Scrobbling,
+    UpdateNowPlaying,
+}
+
 #[derive(Debug)]
 pub struct ScrobblingError {
     pub service: ScrobblingService,
+    pub action: ActionType,
     pub error: anyhow::Error,
 }
 
@@ -135,6 +143,15 @@ impl ScrobblingManager {
         service: &ScrobblingService,
         track: ScrobblingTrack,
     ) {
+        if self.is_authenticating {
+            self.now_playing_cache.push_back(track);
+            if self.now_playing_cache.len() > 1 {
+                self.now_playing_cache.pop_front();
+            }
+
+            return;
+        }
+
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
         let sender = self.sender.clone();
@@ -167,6 +184,7 @@ impl ScrobblingManager {
                     let _ = sender
                         .send(ScrobblingError {
                             service: *service,
+                            action: ActionType::UpdateNowPlaying,
                             error: e,
                         })
                         .await;
@@ -239,6 +257,7 @@ impl ScrobblingManager {
                     let _ = sender
                         .send(ScrobblingError {
                             service: credentials.service,
+                            action: ActionType::Authenticate,
                             error: e,
                         })
                         .await;
@@ -291,6 +310,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::LastFm,
+                                action: ActionType::UpdateNowPlaying,
                                 error: e,
                             })
                             .await;
@@ -304,6 +324,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::LibreFm,
+                                action: ActionType::UpdateNowPlaying,
                                 error: e,
                             })
                             .await;
@@ -317,6 +338,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::ListenBrainz,
+                                action: ActionType::UpdateNowPlaying,
                                 error: e,
                             })
                             .await;
@@ -326,14 +348,50 @@ impl ScrobblingManager {
         });
     }
 
-    pub async fn scrobble(&mut self, track: ScrobblingTrack) {
+    pub async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack) {
         if self.is_authenticating {
             self.scrobble_cache.push_back(track);
             if self.scrobble_cache.len() > 48 {
                 self.scrobble_cache.pop_front();
             }
-        } else {
-            self.scrobble_all(track).await;
+
+            return;
+        }
+
+        let max_retries = self.max_retries;
+        let retry_delay = self.retry_delay;
+        let sender = self.sender.clone();
+
+        let client: Option<&mut dyn ScrobblingClient> = match service {
+            ScrobblingService::LastFm => {
+                self.lastfm.as_mut().map(|c| c as &mut dyn ScrobblingClient)
+            }
+            ScrobblingService::LibreFm => self
+                .librefm
+                .as_mut()
+                .map(|c| c as &mut dyn ScrobblingClient),
+            ScrobblingService::ListenBrainz => self
+                .listenbrainz
+                .as_mut()
+                .map(|c| c as &mut dyn ScrobblingClient),
+        };
+
+        if let Some(client) = client {
+            if client.session_key().is_some() {
+                let result =
+                    ScrobblingManager::retry_scrobble(client, &track, max_retries, retry_delay)
+                        .await;
+
+                if let Err(e) = result {
+                    let _ = sender
+                        .send(ScrobblingError {
+                            service,
+                            action: ActionType::Scrobbling,
+                            error: e,
+                        })
+                        .await;
+                }
+            }
         }
     }
 
@@ -361,6 +419,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::LastFm,
+                                action: ActionType::Scrobbling,
                                 error: e,
                             })
                             .await;
@@ -383,6 +442,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::LibreFm,
+                                action: ActionType::Scrobbling,
                                 error: e,
                             })
                             .await;
@@ -405,6 +465,7 @@ impl ScrobblingManager {
                         let _ = sender
                             .send(ScrobblingError {
                                 service: ScrobblingService::ListenBrainz,
+                                action: ActionType::Scrobbling,
                                 error: e,
                             })
                             .await;
@@ -421,7 +482,7 @@ impl ScrobblingManager {
         retry_delay: Duration,
     ) -> Result<()>
     where
-        T: ScrobblingClient,
+        T: ScrobblingClient + ?Sized,
     {
         let mut attempts = 0;
 
