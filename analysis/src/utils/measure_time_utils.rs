@@ -4,7 +4,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = $func;
         let duration = start.elapsed();
-        log::info!("Time cost: {:?}", duration);
+        log::debug!("Time cost: {:?}", duration);
         result
     }};
 
@@ -12,7 +12,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = $func;
         let duration = start.elapsed();
-        log::info!("{} Time cost: {:?}", $name, duration);
+        log::debug!("{} time ost: {:?}", $name, duration);
         result
     }};
 
@@ -20,7 +20,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = { $($body)* };
         let duration = start.elapsed();
-        log::info!("Time cost: {:?}", duration);
+        log::debug!("Time cost: {:?}", duration);
         result
     }};
 
@@ -28,7 +28,7 @@ macro_rules! measure_time {
         let start = std::time::Instant::now();
         let result = { $($body)* };
         let duration = start.elapsed();
-        log::info!("{} Time cost: {:?}", $name, duration);
+        log::debug!("{} time cost: {:?}", $name, duration);
         result
     }};
 }

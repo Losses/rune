@@ -2,7 +2,6 @@ mod internal;
 mod realtime_fft;
 mod sfx_internal;
 mod shared_source;
-mod simple_channel;
 
 pub mod buffered;
 pub mod controller;

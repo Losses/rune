@@ -4,11 +4,11 @@ use std::time::Duration;
 use std::{fmt, thread};
 
 use log::{debug, error};
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
-use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
