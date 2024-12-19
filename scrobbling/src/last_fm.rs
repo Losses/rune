@@ -11,7 +11,7 @@ use crate::{AuthResponse, ScrobblingClient, ScrobblingTrack};
 pub struct LastFmClient {
     api_key: String,
     api_secret: String,
-    session_key: Option<String>,
+    pub session_key: Option<String>,
     client: Client,
     base_url: String,
 }

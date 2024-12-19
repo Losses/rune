@@ -12,7 +12,7 @@ use crate::{ScrobblingClient, ScrobblingTrack};
 pub struct ListenBrainzClient {
     client: Client,
     base_url: String,
-    token: Option<String>,
+    pub session_key: Option<String>,
 }
 
 impl ListenBrainzClient {
@@ -21,7 +21,7 @@ impl ListenBrainzClient {
         Ok(ListenBrainzClient {
             client,
             base_url: "https://api.listenbrainz.org".to_string(),
-            token: None,
+            session_key: None,
         })
     }
 
@@ -30,7 +30,7 @@ impl ListenBrainzClient {
         endpoint: &str,
         body: &HashMap<&str, serde_json::Value>,
     ) -> Result<Response> {
-        if let Some(token) = &self.token {
+        if let Some(token) = &self.session_key {
             let response = self
                 .client
                 .post(format!("{}/{}", self.base_url, endpoint))
@@ -79,7 +79,7 @@ impl ScrobblingClient for ListenBrainzClient {
             bail!("Failed to validate token: {:?}", response.text().await?)
         }
 
-        self.token = Some(password.to_string());
+        self.session_key = Some(password.to_string());
         Ok(())
     }
 
