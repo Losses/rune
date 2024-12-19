@@ -7,16 +7,19 @@ import '../../../providers/scrobble.dart';
 import '../../l10n.dart';
 
 import '../information/error.dart';
+
 import 'utils/scrobble_login_controller.dart';
 import 'widgets/scrobble_login_form.dart';
 
 class ScrobbleLoginDialog extends StatefulWidget {
   final String serviceName;
+  final String title;
   final void Function(LoginRequestItem?) $close;
 
   const ScrobbleLoginDialog({
     super.key,
     required this.serviceName,
+    required this.title,
     required this.$close,
   });
 
@@ -46,7 +49,7 @@ class ScrobbleLoginDialogState extends State<ScrobbleLoginDialog> {
     final scrobble = Provider.of<ScrobbleProvider>(context);
 
     return ContentDialog(
-      title: Text('Login to ${widget.serviceName}'),
+      title: Text(widget.title),
       content: ScrobbleLoginForm(
         serviceName: widget.serviceName,
         controller: controller,
