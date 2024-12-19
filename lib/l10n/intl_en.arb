@@ -974,5 +974,9 @@
     "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
   },
   "lyricsSubtitle": "Reveal the full lyrics of the song",
-  "@lyricsSubtitle": {}
+  "@lyricsSubtitle": {},
+  "onlineServices": "Online Services",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  }
 }

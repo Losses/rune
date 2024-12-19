@@ -253,6 +253,10 @@ void mainLoop(LicenseProvider licenseProvider) {
         ),
         ChangeNotifierProvider(
           lazy: false,
+          create: (_) => ScrobbleProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
           create: (_) => PlaylistProvider(),
         ),
         ChangeNotifierProvider(
@@ -275,7 +279,6 @@ void mainLoop(LicenseProvider licenseProvider) {
         ),
         ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => licenseProvider),
-        ChangeNotifierProvider(create: (_) => ScrobbleProvider()),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
