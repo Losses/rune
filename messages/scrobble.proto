@@ -35,3 +35,9 @@ message ScrobbleServiceStatus {
 message ScrobbleServiceStatusUpdated {
   repeated ScrobbleServiceStatus services = 1;
 }
+
+
+// [DART-SIGNAL]
+message LogoutSingleServiceRequest {
+  string serviceId = 1;
+}
