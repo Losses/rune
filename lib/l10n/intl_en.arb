@@ -1006,5 +1006,21 @@
   "fix": "Fix",
   "@fix": {
     "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Confirm Logout",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Are you sure you want to log out? All locally stored login credentials will be deleted.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Retry Login",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Logout",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
   }
 }
