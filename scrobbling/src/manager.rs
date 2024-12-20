@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use log::{error, info, warn};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -160,6 +161,7 @@ impl ScrobblingManager {
         let mut attempts = 0;
 
         loop {
+            info!("Authenticating to {} ({})...", service, attempts);
             let result = match service {
                 ScrobblingService::LastFm => {
                     let api_key = api_key
@@ -195,6 +197,7 @@ impl ScrobblingManager {
                     self.is_authenticating = false;
                     self.process_cache().await;
                     self.send_login_status().await;
+                    info!("Authenticated to {}", service);
                     break;
                 }
                 Err(e) => {
@@ -207,6 +210,8 @@ impl ScrobblingManager {
                             self.listenbrainz_error = Some(error_message)
                         }
                     }
+
+                    error!("Failed to authenticate to {}: {}", service, e);
 
                     if attempts >= self.max_retries {
                         self.is_authenticating = false;
@@ -245,8 +250,12 @@ impl ScrobblingManager {
                 self.now_playing_cache.pop_front();
             }
 
+            info!("Caching now playing update for {}", service);
+
             return;
         }
+
+        info!("Updating now playing for {}", service);
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
@@ -276,6 +285,8 @@ impl ScrobblingManager {
                 .await;
 
                 if let Err(e) = result {
+                    error!("Failed to update now playing for {}: {}", service, e);
+
                     self.error_sender.send(ScrobblingError {
                         service: *service,
                         action: ActionType::UpdateNowPlaying,
@@ -430,6 +441,8 @@ impl ScrobblingManager {
                 self.scrobble_cache.pop_front();
             }
 
+            info!("Caching scrobble for {}", service);
+
             return;
         }
 
@@ -457,12 +470,18 @@ impl ScrobblingManager {
                         .await;
 
                 if let Err(e) = result {
+                    error!("Failed to scrobble to {}: {}", service, e);
+
                     self.error_sender.send(ScrobblingError {
                         service,
                         action: ActionType::Scrobbling,
                         error: e,
                     });
+                } else {
+                    info!("Scrobbled to {}", service);
                 }
+            } else {
+                warn!("Not authenticated to {}", service);
             }
         }
     }
