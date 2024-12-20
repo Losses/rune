@@ -49,7 +49,7 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
               }
             },
       child: Text(
-        isLoggedIn ? s.edit : (hasError ? s.fix : s.login),
+        isLoggedIn ? s.logout : (hasError ? s.fix : s.login),
       ),
     );
   }
