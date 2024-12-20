@@ -4377,6 +4377,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
+ "log",
  "md5",
  "rand",
  "reqwest",

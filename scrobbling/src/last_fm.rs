@@ -83,7 +83,8 @@ impl ScrobblingClient for LastFmClient {
                 bail!("Authentication failed: No session key returned");
             }
         } else {
-            bail!("Authentication failed")
+            let auth_response = response.text().await?;
+            bail!("Authentication failed: {}", auth_response);
         }
     }
 

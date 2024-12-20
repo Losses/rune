@@ -80,10 +80,72 @@ class ScrobbleProvider with ChangeNotifier {
     return decodedList.map((item) => itemFromMap(item)).toList();
   }
 
-  Future<void> login(LoginRequestItem credentials) async {
-    String encryptedData = _encrypt(jsonEncode(credentials.toMap()));
-    await _settingsManager.setValue(_credentialsKey, encryptedData);
+  Future<void> retryLogin(String serviceId) async {
+    // Retrieve stored credentials
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+
+    // Find the credentials for the given serviceId
+    LoginRequestItem? credentials = storedCredentials.firstWhere(
+      (item) => item.serviceId == serviceId,
+      orElse: () =>
+          throw Exception('No credentials found for serviceId: $serviceId'),
+    );
+
+    // Send login request using the found credentials
     AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
+
+    // Wait for the response
+    final rustSignal =
+        await AuthenticateSingleServiceResponse.rustSignalStream.first;
+    final response = rustSignal.message;
+
+    // Handle the response
+    if (!response.success) {
+      throw response.error;
+    }
+  }
+
+  Future<void> login(LoginRequestItem credentials) async {
+    AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
+
+    final rustSignal =
+        await AuthenticateSingleServiceResponse.rustSignalStream.first;
+    final response = rustSignal.message;
+
+    if (!response.success) {
+      throw response.error;
+    }
+
+    // Read existing credentials
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+
+    // Check if the same serviceId already exists, update if it does, otherwise add
+    int existingIndex = storedCredentials
+        .indexWhere((item) => item.serviceId == credentials.serviceId);
+    if (existingIndex != -1) {
+      storedCredentials[existingIndex] = credentials;
+    } else {
+      storedCredentials.add(credentials);
+    }
+
+    // Save the updated list of credentials back
+    String encryptedData = _encrypt(
+        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
+    await _settingsManager.setValue(_credentialsKey, encryptedData);
+  }
+
+  Future<void> logout(String serviceId) async {
+    // Send logout request to the backend
+    LogoutSingleServiceRequest(serviceId: serviceId).sendSignalToRust();
+
+    // Remove the service from stored credentials
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+    storedCredentials.removeWhere((item) => item.serviceId == serviceId);
+
+    // Save the updated list of credentials
+    String encryptedData = _encrypt(
+        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
+    await _settingsManager.setValue(_credentialsKey, encryptedData);
   }
 
   void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {
@@ -99,8 +161,12 @@ class ScrobbleProvider with ChangeNotifier {
     final pc.ParametersWithIV<pc.KeyParameter> params =
         pc.ParametersWithIV(keyParam, iv);
 
+    final pc
+        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
+        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
-    cipher.init(true, params);
+    cipher.init(true, paddedParams);
 
     final Uint8List inputData = Uint8List.fromList(utf8.encode(data));
     final Uint8List encryptedData = cipher.process(inputData);
@@ -116,8 +182,12 @@ class ScrobbleProvider with ChangeNotifier {
     final pc.ParametersWithIV<pc.KeyParameter> params =
         pc.ParametersWithIV(keyParam, iv);
 
+    final pc
+        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
+        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
-    cipher.init(false, params);
+    cipher.init(false, paddedParams);
 
     final Uint8List encryptedBytes = base64Url.decode(encryptedData);
     final Uint8List decryptedData = cipher.process(encryptedBytes);

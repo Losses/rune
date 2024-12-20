@@ -5,8 +5,9 @@ import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/set_adaptive_switching_enabled.dart';
-import '../../widgets/settings/settings_box_toggle.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/settings/settings_box_toggle.dart';
+import '../../widgets/settings/settings_box_scrobble_login.dart';
 import '../../widgets/settings/settings_block_title.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
@@ -204,8 +205,23 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                 ),
                 Padding(
                   padding:
-                      EdgeInsets.only(top: 4, bottom: 2, left: 6, right: 6),
+                      EdgeInsets.only(top: 8, bottom: 2, left: 6, right: 6),
                   child: Text(s.onlineServices),
+                ),
+                SettingsBoxScrobbleLogin(
+                  title: "Last.fm",
+                  subtitle: s.lastFmSubtitle,
+                  serviceId: 'LastFm',
+                ),
+                SettingsBoxScrobbleLogin(
+                  title: "Libre.fm",
+                  subtitle: s.libreFmSubtitle,
+                  serviceId: 'LibreFm',
+                ),
+                SettingsBoxScrobbleLogin(
+                  title: "ListenBrainz",
+                  subtitle: s.listenBrainzSubtitle,
+                  serviceId: 'ListenBrainz',
                 ),
               ],
             ),

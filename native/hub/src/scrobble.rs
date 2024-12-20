@@ -8,7 +8,7 @@ use scrobbling::manager::{ScrobblingCredential, ScrobblingManager};
 
 use crate::{
     AuthenticateMultipleServiceRequest, AuthenticateSingleServiceRequest,
-    AuthenticateSingleServiceResponse,
+    AuthenticateSingleServiceResponse, LogoutSingleServiceRequest,
 };
 
 pub async fn authenticate_single_service_request(
@@ -27,6 +27,7 @@ pub async fn authenticate_single_service_request(
                 &request.password,
                 request.api_key,
                 request.api_secret,
+                false,
             )
             .await;
 
@@ -66,6 +67,17 @@ pub async fn authenticate_multiple_service_request(
             })
             .collect(),
     );
+
+    Ok(())
+}
+
+pub async fn logout_single_service_request(
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    dart_signal: DartSignal<LogoutSingleServiceRequest>,
+) -> Result<()> {
+    let service_id = dart_signal.message.service_id;
+
+    scrobbler.lock().await.logout(service_id.into()).await;
 
     Ok(())
 }

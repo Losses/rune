@@ -57,6 +57,16 @@
   </screenshots>
 
   <releases>
+      <release version="1.1.0-alpha.2" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implementing last.fm, libre.fm, ListenBrainz integration</li>
+          <li>Updated pseudo Chinese translation by @NovaDNG</li>
+          <li>Add actual language placeholder files by @laosb</li>
+        </ul>
+      </description>
+    </release>
       <release version="1.1.0-alpha.1" date="2024-12-18">
       <description>
         <p>Features</p>

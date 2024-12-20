@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use log::{error, info, warn};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -71,12 +72,18 @@ pub struct ScrobblingError {
 pub struct LoginStatus {
     pub service: ScrobblingService,
     pub is_available: bool,
+    pub error_message: Option<String>,
 }
 
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
     listenbrainz: Option<ListenBrainzClient>,
+
+    lastfm_error: Option<String>,
+    librefm_error: Option<String>,
+    listenbrainz_error: Option<String>,
+
     max_retries: u32,
     retry_delay: Duration,
     error_sender: Arc<SimpleSender<ScrobblingError>>,
@@ -104,6 +111,11 @@ impl ScrobblingManager {
             lastfm: None,
             librefm: None,
             listenbrainz: None,
+
+            lastfm_error: None,
+            librefm_error: None,
+            listenbrainz_error: None,
+
             max_retries,
             retry_delay,
             error_sender: Arc::new(error_sender),
@@ -120,14 +132,17 @@ impl ScrobblingManager {
             LoginStatus {
                 service: ScrobblingService::LastFm,
                 is_available: self.lastfm.is_some(),
+                error_message: self.lastfm_error.clone(),
             },
             LoginStatus {
                 service: ScrobblingService::LibreFm,
                 is_available: self.librefm.is_some(),
+                error_message: self.librefm_error.clone(),
             },
             LoginStatus {
                 service: ScrobblingService::ListenBrainz,
                 is_available: self.listenbrainz.is_some(),
+                error_message: self.listenbrainz_error.clone(),
             },
         ];
 
@@ -141,11 +156,13 @@ impl ScrobblingManager {
         password: &str,
         api_key: Option<String>,
         api_secret: Option<String>,
+        enable_retry: bool,
     ) -> Result<()> {
         self.is_authenticating = true;
         let mut attempts = 0;
 
         loop {
+            info!("Authenticating to {} ({})...", service, attempts);
             let result = match service {
                 ScrobblingService::LastFm => {
                     let api_key = api_key
@@ -157,18 +174,21 @@ impl ScrobblingManager {
                     let mut client = LastFmClient::new(api_key, api_secret)?;
                     client.authenticate(username, password).await.map(|_| {
                         self.lastfm = Some(client);
+                        self.lastfm_error = None;
                     })
                 }
                 ScrobblingService::LibreFm => {
                     let mut client = LibreFmClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.librefm = Some(client);
+                        self.librefm_error = None;
                     })
                 }
                 ScrobblingService::ListenBrainz => {
                     let mut client = ListenBrainzClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.listenbrainz = Some(client);
+                        self.listenbrainz_error = None;
                     })
                 }
             };
@@ -178,11 +198,23 @@ impl ScrobblingManager {
                     self.is_authenticating = false;
                     self.process_cache().await;
                     self.send_login_status().await;
+                    info!("Authenticated to {}", service);
                     break;
                 }
                 Err(e) => {
                     attempts += 1;
-                    if attempts >= self.max_retries {
+                    let error_message = e.to_string();
+                    match service {
+                        ScrobblingService::LastFm => self.lastfm_error = Some(error_message),
+                        ScrobblingService::LibreFm => self.librefm_error = Some(error_message),
+                        ScrobblingService::ListenBrainz => {
+                            self.listenbrainz_error = Some(error_message)
+                        }
+                    }
+
+                    error!("Failed to authenticate to {}: {}", service, e);
+
+                    if attempts >= self.max_retries || !enable_retry {
                         self.is_authenticating = false;
                         self.send_login_status().await;
                         return Err(e);
@@ -219,8 +251,12 @@ impl ScrobblingManager {
                 self.now_playing_cache.pop_front();
             }
 
+            info!("Caching now playing update for {}", service);
+
             return;
         }
+
+        info!("Updating now playing for {}", service);
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
@@ -250,6 +286,8 @@ impl ScrobblingManager {
                 .await;
 
                 if let Err(e) = result {
+                    error!("Failed to update now playing for {}: {}", service, e);
+
                     self.error_sender.send(ScrobblingError {
                         service: *service,
                         action: ActionType::UpdateNowPlaying,
@@ -285,7 +323,10 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
+    pub fn authenticate_all(
+        manager: Arc<Mutex<Self>>,
+        credentials_list: Vec<ScrobblingCredential>,
+    ) {
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
@@ -296,6 +337,7 @@ impl ScrobblingManager {
                         &credentials.password,
                         credentials.api_key.clone(),
                         credentials.api_secret.clone(),
+                        true,
                     )
                     .await;
 
@@ -347,8 +389,12 @@ impl ScrobblingManager {
             if self.now_playing_cache.len() > 1 {
                 self.now_playing_cache.pop_front();
             }
+
+            info!("Caching now playing for all services");
             return;
         }
+
+        info!("Updating now playing for all services");
 
         let lastfm = self.lastfm.clone();
         let librefm = self.librefm.clone();
@@ -401,6 +447,8 @@ impl ScrobblingManager {
                 self.scrobble_cache.pop_front();
             }
 
+            info!("Caching scrobble for {}", service);
+
             return;
         }
 
@@ -428,12 +476,18 @@ impl ScrobblingManager {
                         .await;
 
                 if let Err(e) = result {
+                    error!("Failed to scrobble to {}: {}", service, e);
+
                     self.error_sender.send(ScrobblingError {
                         service,
                         action: ActionType::Scrobbling,
                         error: e,
                     });
+                } else {
+                    info!("Scrobbled to {}", service);
                 }
+            } else {
+                warn!("Not authenticated to {}", service);
             }
         }
     }
@@ -544,6 +598,26 @@ impl ScrobblingManager {
                 }
             }
         }
+    }
+
+    pub async fn logout(&mut self, service: ScrobblingService) {
+        match service {
+            ScrobblingService::LastFm => {
+                self.lastfm = None;
+                self.lastfm_error = None;
+            }
+            ScrobblingService::LibreFm => {
+                self.librefm = None;
+                self.librefm_error = None;
+            }
+            ScrobblingService::ListenBrainz => {
+                self.listenbrainz = None;
+                self.listenbrainz_error = None;
+            }
+        }
+
+        info!("Logged out from {}", service);
+        self.send_login_status().await;
     }
 
     pub fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {

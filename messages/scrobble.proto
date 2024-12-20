@@ -28,9 +28,16 @@ message AuthenticateMultipleServiceRequest {
 message ScrobbleServiceStatus {
   string serviceId = 1;
   bool isAvailable = 2;
+  optional string error = 3;
 }
 
 // [RUST-SIGNAL]
 message ScrobbleServiceStatusUpdated {
   repeated ScrobbleServiceStatus services = 1;
+}
+
+
+// [DART-SIGNAL]
+message LogoutSingleServiceRequest {
+  string serviceId = 1;
 }

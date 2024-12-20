@@ -42,6 +42,14 @@ class _LyricSectionState extends State<LyricSection>
     _initBlurAnimation();
   }
 
+  @override
+  didChangeDependencies() {
+    super.didChangeDependencies();
+    if (widget.isActive) {
+      _updateActiveBlur(5.0);
+    }
+  }
+
   void _initProgressAnimation() {
     _progressAnimationController = AnimationController(
       duration: const Duration(milliseconds: 16),

@@ -3,14 +3,14 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../l10n.dart';
 import '../../router/navigation.dart';
 
-Future<void> showInformationDialog({
+Future<bool?> showInformationDialog({
   required BuildContext context,
   required String title,
   required String subtitle,
   bool barrierDismissible = true,
   bool dismissWithEsc = true,
 }) async {
-  await $showModal<bool>(
+  return await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
       title: Text(title),

@@ -271,6 +271,7 @@ pub async fn initialize_player(
                     .map(|x| ScrobbleServiceStatus {
                         service_id: x.service.to_string(),
                         is_available: x.is_available,
+                        error: x.error_message,
                     })
                     .collect(),
             }

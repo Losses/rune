@@ -213,6 +213,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             AuthenticateSingleServiceRequest => (scrobbler),
             AuthenticateMultipleServiceRequest => (scrobbler),
+            LogoutSingleServiceRequest => (scrobbler),
 
             ListLogRequest => (main_db),
             ClearLogRequest => (main_db),
