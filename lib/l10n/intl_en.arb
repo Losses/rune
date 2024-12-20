@@ -1002,5 +1002,9 @@
   "listenBrainzSubtitle": "Contribute to an open-source database while tracking your habits.",
   "@listenBrainzSubtitle": {
     "description": "The service description of the scrobble service."
+  },
+  "fix": "Fix",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
   }
 }
