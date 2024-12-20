@@ -109,6 +109,20 @@ class ScrobbleProvider with ChangeNotifier {
     await _settingsManager.setValue(_credentialsKey, encryptedData);
   }
 
+  Future<void> logout(String serviceId) async {
+    // Send logout request to the backend
+    LogoutSingleServiceRequest(serviceId: serviceId).sendSignalToRust();
+
+    // Remove the service from stored credentials
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+    storedCredentials.removeWhere((item) => item.serviceId == serviceId);
+
+    // Save the updated list of credentials
+    String encryptedData = _encrypt(
+        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
+    await _settingsManager.setValue(_credentialsKey, encryptedData);
+  }
+
   void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {
     _serviceStatuses = signal.message.services;
     notifyListeners();
