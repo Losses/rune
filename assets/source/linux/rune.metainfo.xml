@@ -57,6 +57,20 @@
   </screenshots>
 
   <releases>
+      <release version="1.1.0-alpha.3" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Add config buttons on mobile devices for scrobbling services</li>
+          <li>Update lyric scroll scheduling logic</li>
+          <li>Update JA, JA_Kana and JA_Nise translation by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>macOS build is broken by @laosb</li>
+        </ul>
+      </description>
+    </release>
       <release version="1.1.0-alpha.2" date="2024-12-20">
       <description>
         <p>Features</p>
