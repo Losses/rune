@@ -211,17 +211,17 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
                 SettingsBoxScrobbleLogin(
                   title: "Last.fm",
                   subtitle: s.lastFmSubtitle,
-                  serviceName: 'LastFm',
+                  serviceId: 'LastFm',
                 ),
                 SettingsBoxScrobbleLogin(
                   title: "Libre.fm",
                   subtitle: s.libreFmSubtitle,
-                  serviceName: 'LibreFm',
+                  serviceId: 'LibreFm',
                 ),
                 SettingsBoxScrobbleLogin(
                   title: "ListenBrainz",
                   subtitle: s.listenBrainzSubtitle,
-                  serviceName: 'ListenBrainz',
+                  serviceId: 'ListenBrainz',
                 ),
               ],
             ),
