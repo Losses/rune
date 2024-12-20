@@ -600,6 +600,27 @@ impl ScrobblingManager {
         }
     }
 
+    pub async fn logout(&mut self, service: ScrobblingService) -> Result<()> {
+        match service {
+            ScrobblingService::LastFm => {
+                self.lastfm = None;
+                self.lastfm_error = None;
+            }
+            ScrobblingService::LibreFm => {
+                self.librefm = None;
+                self.librefm_error = None;
+            }
+            ScrobblingService::ListenBrainz => {
+                self.listenbrainz = None;
+                self.listenbrainz_error = None;
+            }
+        }
+
+        info!("Logged out from {}", service);
+        self.send_login_status().await;
+        Ok(())
+    }
+
     pub fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
         self.error_sender.subscribe()
     }
