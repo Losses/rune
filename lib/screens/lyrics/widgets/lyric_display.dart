@@ -6,6 +6,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../../messages/all.dart';
 import '../../../providers/responsive_providers.dart';
+import '../../../utils/rune_log.dart';
 import 'lyric_line.dart';
 import 'gradient_mask.dart';
 
@@ -67,21 +68,26 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     }
   }
 
-  void _scrollToActiveLinesById() {
+  void _scrollToActiveLinesById() async {
     if (widget.activeLines.isEmpty) return;
 
     final double averageId =
         widget.activeLines.reduce((a, b) => a + b) / widget.activeLines.length;
-    _itemScrollController.scrollTo(
+
+    await _itemScrollController.scrollTo(
       index: averageId.round(),
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 1),
       curve: Curves.easeInOut,
       edgeAlignment: 0.5,
       viewportAlignment: 0.5,
     );
+
+    await Future.delayed(Duration(milliseconds: 100));
+
+    _scrollToActiveLines(true);
   }
 
-  void _scrollToActiveLines() {
+  void _scrollToActiveLines([bool disableScrollToLine = false]) {
     if (widget.activeLines.isEmpty) return;
 
     double totalOffset = 0;
@@ -91,7 +97,10 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
       final renderBox = _lineOffsets[index];
 
       if (renderBox == null) {
-        _scrollToActiveLinesById();
+        if (!disableScrollToLine) {
+          _scrollToActiveLinesById();
+        }
+        warn$("No active line found!");
         return;
       }
 
