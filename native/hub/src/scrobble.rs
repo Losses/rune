@@ -27,6 +27,7 @@ pub async fn authenticate_single_service_request(
                 &request.password,
                 request.api_key,
                 request.api_secret,
+                false,
             )
             .await;
 

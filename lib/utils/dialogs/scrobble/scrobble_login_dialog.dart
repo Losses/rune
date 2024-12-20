@@ -71,9 +71,10 @@ class ScrobbleLoginDialogState extends State<ScrobbleLoginDialog> {
                       controller.toLoginRequestItem(widget.serviceName);
 
                   try {
-                    scrobble.login(loginRequestItem);
+                    await scrobble.login(loginRequestItem);
                     widget.$close(loginRequestItem);
                   } catch (e) {
+                    if (!context.mounted) return;
                     showErrorDialog(
                       context: context,
                       title: s.loginFailed,

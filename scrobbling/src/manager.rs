@@ -156,6 +156,7 @@ impl ScrobblingManager {
         password: &str,
         api_key: Option<String>,
         api_secret: Option<String>,
+        enable_retry: bool,
     ) -> Result<()> {
         self.is_authenticating = true;
         let mut attempts = 0;
@@ -213,7 +214,7 @@ impl ScrobblingManager {
 
                     error!("Failed to authenticate to {}: {}", service, e);
 
-                    if attempts >= self.max_retries {
+                    if attempts >= self.max_retries || !enable_retry {
                         self.is_authenticating = false;
                         self.send_login_status().await;
                         return Err(e);
@@ -336,6 +337,7 @@ impl ScrobblingManager {
                         &credentials.password,
                         credentials.api_key.clone(),
                         credentials.api_secret.clone(),
+                        true,
                     )
                     .await;
 
