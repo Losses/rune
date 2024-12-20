@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Error, Result};
+use anyhow::Result;
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::Mutex;
 use tokio::time::sleep;

@@ -28,6 +28,7 @@ message AuthenticateMultipleServiceRequest {
 message ScrobbleServiceStatus {
   string serviceId = 1;
   bool isAvailable = 2;
+  optional string error = 3;
 }
 
 // [RUST-SIGNAL]
