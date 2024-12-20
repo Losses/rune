@@ -122,8 +122,12 @@ class ScrobbleProvider with ChangeNotifier {
     final pc.ParametersWithIV<pc.KeyParameter> params =
         pc.ParametersWithIV(keyParam, iv);
 
+    final pc
+        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
+        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
-    cipher.init(true, params);
+    cipher.init(true, paddedParams);
 
     final Uint8List inputData = Uint8List.fromList(utf8.encode(data));
     final Uint8List encryptedData = cipher.process(inputData);
@@ -139,8 +143,12 @@ class ScrobbleProvider with ChangeNotifier {
     final pc.ParametersWithIV<pc.KeyParameter> params =
         pc.ParametersWithIV(keyParam, iv);
 
+    final pc
+        .PaddedBlockCipherParameters<pc.CipherParameters, pc.CipherParameters>
+        paddedParams = pc.PaddedBlockCipherParameters(params, null);
+
     final pc.BlockCipher cipher = pc.PaddedBlockCipher('AES/CBC/PKCS7');
-    cipher.init(false, params);
+    cipher.init(false, paddedParams);
 
     final Uint8List encryptedBytes = base64Url.decode(encryptedData);
     final Uint8List decryptedData = cipher.process(encryptedBytes);
