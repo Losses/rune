@@ -389,8 +389,12 @@ impl ScrobblingManager {
             if self.now_playing_cache.len() > 1 {
                 self.now_playing_cache.pop_front();
             }
+
+            info!("Caching now playing for all services");
             return;
         }
+
+        info!("Updating now playing for all services");
 
         let lastfm = self.lastfm.clone();
         let librefm = self.librefm.clone();
