@@ -184,7 +184,7 @@
   "@colorMode": {
     "description": "A settings entry that helps users choose the interface color mode, including light and dark modes."
   },
-  "colorModeSubtitle": " Rune に表示される配色を変更します。",
+  "colorModeSubtitle": "Rune に表示される配色を変更します。",
   "@colorModeSubtitle": {},
   "systemColorMode": "作業系統と同期",
   "@systemColorMode": {
@@ -208,7 +208,7 @@
   "@followSystemTheme": {
     "description": "An entry in the theme color settings. When enabled, the software's theme color follows the system settings."
   },
-  "dynamicColors": " 動的配色",
+  "dynamicColors": "動的配色",
   "@dynamicColors": {
     "description": "A color settings entry. When enabled, the software's theme color changes based on the cover art of the currently playing track."
   },
@@ -224,11 +224,11 @@
   "@thisMightTakeAFewMinutes": {
     "description": "Title on the scanning wait screen, reminding users to be patient."
   },
-  "tracksFound": " 曲が見つかりました",
+  "tracksFound": "曲が見つかりました",
   "@tracksFound": {
     "description": "Prompt text on the scanning wait screen, informing users how many tracks have been scanned."
   },
-  "albumCoversCollected": " 歌集表紙画像が収集されました",
+  "albumCoversCollected": "歌集表紙画像が収集されました",
   "@albumCoversCollected": {
     "description": "Prompt text on the scanning wait screen, informing users how many album covers have been scanned."
   },

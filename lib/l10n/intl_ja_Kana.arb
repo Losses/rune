@@ -228,7 +228,7 @@
   "@tracksFound": {
     "description": "スキャン待ち画面のプロンプトテキストで、何曲のトラックがスキャンされたかをユーザーに知らせます。"
   },
-  "albumCoversCollected": " アルバムカバーをコレクトしました",
+  "albumCoversCollected": "アルバムカバーをコレクトしました",
   "@albumCoversCollected": {
     "description": "スキャン待ち画面のプロンプトテキストで、何枚のアルバムカバーがスキャンされたかをユーザーに知らせます。"
   },
