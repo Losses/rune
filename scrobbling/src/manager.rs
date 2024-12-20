@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Error, Result};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -71,12 +71,18 @@ pub struct ScrobblingError {
 pub struct LoginStatus {
     pub service: ScrobblingService,
     pub is_available: bool,
+    pub error_message: Option<String>,
 }
 
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
     listenbrainz: Option<ListenBrainzClient>,
+
+    lastfm_error: Option<String>,
+    librefm_error: Option<String>,
+    listenbrainz_error: Option<String>,
+
     max_retries: u32,
     retry_delay: Duration,
     error_sender: Arc<SimpleSender<ScrobblingError>>,
@@ -104,6 +110,11 @@ impl ScrobblingManager {
             lastfm: None,
             librefm: None,
             listenbrainz: None,
+
+            lastfm_error: None,
+            librefm_error: None,
+            listenbrainz_error: None,
+
             max_retries,
             retry_delay,
             error_sender: Arc::new(error_sender),
@@ -120,14 +131,17 @@ impl ScrobblingManager {
             LoginStatus {
                 service: ScrobblingService::LastFm,
                 is_available: self.lastfm.is_some(),
+                error_message: self.lastfm_error.clone(),
             },
             LoginStatus {
                 service: ScrobblingService::LibreFm,
                 is_available: self.librefm.is_some(),
+                error_message: self.librefm_error.clone(),
             },
             LoginStatus {
                 service: ScrobblingService::ListenBrainz,
                 is_available: self.listenbrainz.is_some(),
+                error_message: self.listenbrainz_error.clone(),
             },
         ];
 
@@ -157,18 +171,21 @@ impl ScrobblingManager {
                     let mut client = LastFmClient::new(api_key, api_secret)?;
                     client.authenticate(username, password).await.map(|_| {
                         self.lastfm = Some(client);
+                        self.lastfm_error = None;
                     })
                 }
                 ScrobblingService::LibreFm => {
                     let mut client = LibreFmClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.librefm = Some(client);
+                        self.librefm_error = None;
                     })
                 }
                 ScrobblingService::ListenBrainz => {
                     let mut client = ListenBrainzClient::new()?;
                     client.authenticate(username, password).await.map(|_| {
                         self.listenbrainz = Some(client);
+                        self.listenbrainz_error = None;
                     })
                 }
             };
@@ -182,6 +199,15 @@ impl ScrobblingManager {
                 }
                 Err(e) => {
                     attempts += 1;
+                    let error_message = e.to_string();
+                    match service {
+                        ScrobblingService::LastFm => self.lastfm_error = Some(error_message),
+                        ScrobblingService::LibreFm => self.librefm_error = Some(error_message),
+                        ScrobblingService::ListenBrainz => {
+                            self.listenbrainz_error = Some(error_message)
+                        }
+                    }
+
                     if attempts >= self.max_retries {
                         self.is_authenticating = false;
                         self.send_login_status().await;
@@ -285,7 +311,10 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
+    pub fn authenticate_all(
+        manager: Arc<Mutex<Self>>,
+        credentials_list: Vec<ScrobblingCredential>,
+    ) {
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
