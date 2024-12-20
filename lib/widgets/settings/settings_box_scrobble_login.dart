@@ -2,10 +2,10 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:collection/collection.dart';
 
-import '../../utils/dialogs/information/error.dart';
-import '../../utils/dialogs/information/information.dart';
 import '../../utils/l10n.dart';
 import '../../utils/dialogs/scrobble/show_scrobble_login_dialog.dart';
+import '../../utils/dialogs/information/error.dart';
+import '../../utils/dialogs/information/information.dart';
 import '../../providers/scrobble.dart';
 
 import 'settings_box_base.dart';
@@ -32,7 +32,7 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
     bool hasError = serviceStatus != null && serviceStatus.error.isNotEmpty;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: isLoggedIn
           ? (hasError)
               ? [
