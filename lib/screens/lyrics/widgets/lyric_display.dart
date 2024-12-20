@@ -4,9 +4,10 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../../utils/rune_log.dart';
 import '../../../messages/all.dart';
 import '../../../providers/responsive_providers.dart';
-import '../../../utils/rune_log.dart';
+
 import 'lyric_line.dart';
 import 'gradient_mask.dart';
 
@@ -55,9 +56,16 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     }
   }
 
+  bool _scrollScheduled = false;
+
   void _scheduleScroll() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (_scrollScheduled) return;
+
+    _scrollScheduled = true;
+
+    Future.delayed(Duration(milliseconds: 50)).then((_) {
       _scrollToActiveLines();
+      _scrollScheduled = false;
     });
   }
 
