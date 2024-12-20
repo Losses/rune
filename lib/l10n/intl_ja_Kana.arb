@@ -974,5 +974,53 @@
     "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
   },
   "lyricsSubtitle": "リリクスのフルをリビルする",
-  "@lyricsSubtitle": {}
+  "@lyricsSubtitle": {},
+  "onlineServices": "オンラインサービス",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "ログイン",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "ログインフェイルド",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "ログインセッションにエラーがハプニングしました",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "このミュージックトラッキングサービスで、リスニングにインサイトをプロバイドしましょう。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "あなたのミュージックのテイストをシェアするための、フリーでオープンなプラットフォーム。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "あなたのライフスタイルをトラッキングしながら、オープンソースのデータベースにコントリビュートする。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "フィックス",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "ログアウトのチェック",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "ログアウトしてよろしいですか？ローカルにセーブされたログインクレデンシャルはすべてデリートされます。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "リトライログイン",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "ログアウト",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  }
 }
