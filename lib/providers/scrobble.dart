@@ -81,8 +81,6 @@ class ScrobbleProvider with ChangeNotifier {
   }
 
   Future<void> login(LoginRequestItem credentials) async {
-    String encryptedData = _encrypt(jsonEncode(credentials.toMap()));
-    await _settingsManager.setValue(_credentialsKey, encryptedData);
     AuthenticateSingleServiceRequest(request: credentials).sendSignalToRust();
 
     final rustSignal =
@@ -92,6 +90,23 @@ class ScrobbleProvider with ChangeNotifier {
     if (!response.success) {
       throw response.error;
     }
+
+    // Read existing credentials
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+
+    // Check if the same serviceId already exists, update if it does, otherwise add
+    int existingIndex = storedCredentials
+        .indexWhere((item) => item.serviceId == credentials.serviceId);
+    if (existingIndex != -1) {
+      storedCredentials[existingIndex] = credentials;
+    } else {
+      storedCredentials.add(credentials);
+    }
+
+    // Save the updated list of credentials back
+    String encryptedData = _encrypt(
+        jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
+    await _settingsManager.setValue(_credentialsKey, encryptedData);
   }
 
   void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {
