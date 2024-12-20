@@ -974,5 +974,53 @@
     "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
   },
   "lyricsSubtitle": "歌詞全容掲載",
-  "@lyricsSubtitle": {}
+  "@lyricsSubtitle": {},
+  "onlineServices": "通信回線通業務",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "登録",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "登録失敗",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "接続中異常発生",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "此音楽追跡業務、視聴関詳細洞察提供。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "貴方音楽趣味共有為、自由開放場所。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "自分習慣追跡乍、開放情報格納庫貢献。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "修復",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "離脱確認",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "本当離脱？本機保存去登録認証情報全削除去。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "登録再試行",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "離脱",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  }
 }
