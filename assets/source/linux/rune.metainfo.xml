@@ -57,20 +57,37 @@
   </screenshots>
 
   <releases>
+      <release version="1.1.0-alpha.4" date="2024-12-21">
+        <description>
+          <p>Features</p>
+          <ul>
+            <li>Enhanced cover art extraction with `cover.png`, `folder.png`</li>
+            <li>Added support for TTML (Timed Text Markup Language) file parsing in audio lyrics</li>
+            <li>Implemented VTT (Web Video Text Tracks) file parsing alongside existing .lrc support</li>
+            <li>Adding Control + O shortcut to open files</li>
+            <li>Updated Japanese and Chinese localization for improved consistency by @NovaDNG and @123Duo3 </li>
+          </ul>
+          <p>Bugs</p>
+          <ul>
+            <li>Updated navigation logic for cover wall and lyrics display</li>
+            <li>Removed experimental flag from Traditional Chinese language option</li>
+          </ul>
+        </description>
+      </release>
       <release version="1.1.0-alpha.3" date="2024-12-20">
-      <description>
-        <p>Features</p>
-        <ul>
-          <li>Add config buttons on mobile devices for scrobbling services</li>
-          <li>Update lyric scroll scheduling logic</li>
-          <li>Update JA, JA_Kana and JA_Nise translation by @NovaDNG</li>
-        </ul>
-        <p>Bugs</p>
-        <ul>
-          <li>macOS build is broken by @laosb</li>
-        </ul>
-      </description>
-    </release>
+        <description>
+          <p>Features</p>
+          <ul>
+            <li>Add config buttons on mobile devices for scrobbling services</li>
+            <li>Update lyric scroll scheduling logic</li>
+            <li>Update JA, JA_Kana and JA_Nise translation by @NovaDNG</li>
+          </ul>
+          <p>Bugs</p>
+          <ul>
+            <li>macOS build is broken by @laosb</li>
+          </ul>
+        </description>
+      </release>
       <release version="1.1.0-alpha.2" date="2024-12-20">
       <description>
         <p>Features</p>
