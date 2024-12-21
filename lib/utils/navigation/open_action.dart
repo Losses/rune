@@ -24,6 +24,13 @@ class OpenAction extends Action<OpenIntent> {
       acceptedTypeGroups: <XTypeGroup>[typeGroup],
     );
 
+    final items =
+        filterAudioFiles(files).map(PlayingItem.independentFile).toList();
+
+    if (items.isEmpty) {
+      return;
+    }
+
     operatePlaybackWithMixQuery(
       queries: QueryList(),
       playbackMode: 99,
@@ -31,8 +38,7 @@ class OpenAction extends Action<OpenIntent> {
       initialPlaybackId: -1,
       instantlyPlay: true,
       operateMode: PlaylistOperateMode.Replace,
-      fallbackPlayingItems:
-          filterAudioFiles(files).map(PlayingItem.independentFile).toList(),
+      fallbackPlayingItems: items,
     );
   }
 }
