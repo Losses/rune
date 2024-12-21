@@ -142,7 +142,7 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
         let mut result_map: HashMap<PlayingItem, String> = HashMap::new();
 
         for path in independent_paths {
-            let cover_art_option = extract_cover_art_binary(&path);
+            let cover_art_option = extract_cover_art_binary(&path, path.parent());
 
             if let Some(cover_art) = cover_art_option {
                 let path_str = path.to_string_lossy();

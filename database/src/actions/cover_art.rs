@@ -185,7 +185,7 @@ pub fn extract_cover_art_by_file_id(
     .unwrap();
 
     // If cover_art_id is empty, it means the file has not been checked before
-    extract_cover_art_binary(&file_path)
+    extract_cover_art_binary(&file_path, Some(lib_path))
 }
 
 pub async fn insert_extract_result(
