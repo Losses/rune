@@ -9,10 +9,14 @@ import '../rune_icon_button.dart';
 
 void showLyrics() {
   final path = $router.path;
-  if (path == "/lyrics") {
+  if (path == '/lyrics') {
     escapeFromLyrics();
   } else {
-    $push("/lyrics");
+    if (path == '/cover_wall') {
+      $replace('/lyrics');
+    } else {
+      $push('/lyrics');
+    }
   }
 }
 
