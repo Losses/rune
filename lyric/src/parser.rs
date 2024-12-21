@@ -6,9 +6,14 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{lrc::parse_lrc, types::LyricFile, vtt::parse_vtt};
+use crate::{lrc::parse_lrc, ttml::parse_ttml, types::LyricFile, vtt::parse_vtt};
 
 pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
+    // Try to find and parse the .ttml file
+    if let Some(lyric) = parse_lyrics_with_extension(&path, "ttml", parse_ttml) {
+        return Some(lyric);
+    }
+
     // Try to find and parse the .lrc file
     if let Some(lyric) = parse_lyrics_with_extension(&path, "lrc", parse_lrc) {
         return Some(lyric);
