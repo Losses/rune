@@ -81,7 +81,6 @@ const List<LanguageOption> supportedLanguages = [
     sampleText: '人人生而自由，在尊嚴與權利上一律平等。人人皆賦有理性與良知，並應以兄弟關係的精神相對待。',
     locale: Locale.fromSubtags(
         languageCode: 'zh', scriptCode: 'Hant', countryCode: 'TW'),
-    experimental: true,
   ),
   LanguageOption(
     title: '閩南語',
