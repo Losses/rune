@@ -6,6 +6,7 @@ import '../../config/navigation.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
 
 import 'back_intent.dart';
+import 'open_intent.dart';
 import 'navigation_item.dart';
 import 'navigation_intent.dart';
 
@@ -14,6 +15,8 @@ Map<SingleActivator, Intent> buildShortcuts() {
     const SingleActivator(LogicalKeyboardKey.goBack): const BackIntent(),
     const SingleActivator(LogicalKeyboardKey.escape): const DismissIntent(),
     const SingleActivator(LogicalKeyboardKey.backspace): const BackIntent(),
+    const SingleActivator(LogicalKeyboardKey.keyO, control: true):
+        const OpenIntent(),
   };
 
   void addNavigationShortcuts(List<NavigationItem> items) {
