@@ -2725,6 +2725,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "log",
+ "once_cell",
+ "regex",
  "subtp",
 ]
 

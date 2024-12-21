@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt, str::FromStr};
 
 use anyhow::{bail, Result};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TimeTag {
     pub minutes: u32,
     pub seconds: u32,
@@ -66,7 +66,7 @@ pub enum VoiceType {
     Default,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LyricLine {
     pub start_time: TimeTag,
     pub end_time: TimeTag,
