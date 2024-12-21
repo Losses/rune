@@ -118,6 +118,12 @@ fn fallback_to_external_cover(file_path: &Path, lib_path: &Path) -> Option<Cover
         "folder.png",
         "folder.jpg",
         "folder.jpeg",
+        "Cover.png",
+        "Cover.jpg",
+        "Cover.jpeg",
+        "Folder.png",
+        "Folder.jpg",
+        "Folder.jpeg",
     ];
 
     let mut current_dir = file_path.parent()?;
