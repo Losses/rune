@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::Result;
 
-use crate::{lrc::parse_lrc, ttml::parse_ttml, types::LyricFile, vtt::parse_vtt};
+use crate::{lrc::parse_lrc, srt::parse_srt, ttml::parse_ttml, types::LyricFile, vtt::parse_vtt};
 
 pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
     // Try to find and parse the .ttml file
@@ -21,6 +21,11 @@ pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
 
     // Try to find and parse the .vtt file
     if let Some(lyric) = parse_lyrics_with_extension(&path, "vtt", parse_vtt) {
+        return Some(lyric);
+    }
+
+    // Try to find and parse the .srt file
+    if let Some(lyric) = parse_lyrics_with_extension(&path, "srt", parse_srt) {
         return Some(lyric);
     }
 
