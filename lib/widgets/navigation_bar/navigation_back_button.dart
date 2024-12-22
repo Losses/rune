@@ -20,8 +20,6 @@ class NavigationBackButton extends StatefulWidget {
 class _NavigationBackButtonState extends State<NavigationBackButton> {
   final FocusNode _focusNode = FocusNode(debugLabel: 'Back Button');
 
-  bool _cancelled = false;
-
   @override
   void dispose() {
     _focusNode.dispose();
@@ -39,25 +37,15 @@ class _NavigationBackButtonState extends State<NavigationBackButton> {
     return AxPressure(
       child: HoverOpacity(
         child: Listener(
-          onPointerUp: (_) {
-            if (_cancelled) {
-              _cancelled = false;
-              return;
-            }
-
-            navigateBackwardWithPop();
-          },
-          child: GestureDetector(
-            onPanStart: (_) => _cancelled = true,
-            child: FocusableActionDetector(
-              focusNode: _focusNode,
-              child: SvgPicture.asset(
-                'assets/arrow-circle-left-solid.svg',
-                width: 56,
-                colorFilter: ColorFilter.mode(
-                  FluentTheme.of(context).inactiveColor,
-                  BlendMode.srcIn,
-                ),
+          onPointerUp: (_) => navigateBackwardWithPop(),
+          child: FocusableActionDetector(
+            focusNode: _focusNode,
+            child: SvgPicture.asset(
+              'assets/arrow-circle-left-solid.svg',
+              width: 56,
+              colorFilter: ColorFilter.mode(
+                FluentTheme.of(context).inactiveColor,
+                BlendMode.srcIn,
               ),
             ),
           ),

@@ -23,8 +23,6 @@ class ParentLinkState extends State<ParentLink> {
   double _alpha = 80;
   bool _isFocus = false;
 
-  bool _cancelled = false;
-
   final FocusNode _focusNode = FocusNode(debugLabel: 'Parent Link');
 
   @override
@@ -52,36 +50,26 @@ class ParentLinkState extends State<ParentLink> {
     return Padding(
       padding: const EdgeInsets.only(right: 12),
       child: Listener(
-        onPointerUp: (_) {
-          if (_cancelled) {
-            _cancelled = false;
-            return;
-          }
-
-          widget.onPressed();
-        },
-        child: GestureDetector(
-          onPanStart: (_) => _cancelled = true,
-          child: FocusableActionDetector(
-            focusNode: _focusNode,
-            onShowFocusHighlight: _handleFocusHighlight,
-            onShowHoverHighlight: _handleHoverHighlight,
-            actions: {
-              ActivateIntent: ActivateLinkAction(context, widget.onPressed),
-            },
-            child: SizedBox(
-              height: 80,
-              width: 320,
-              child: FlipText(
-                key: Key(widget.titleFlipKey),
-                flipKey: widget.titleFlipKey,
-                text: widget.text,
-                scale: 5,
-                alpha: _isFocus ? 255 : _alpha,
-                color: _isFocus ? accentColor : null,
-                glowColor: accentColor,
-                glowRadius: _isFocus ? 10 : 0,
-              ),
+        onPointerUp: (_) => widget.onPressed(),
+        child: FocusableActionDetector(
+          focusNode: _focusNode,
+          onShowFocusHighlight: _handleFocusHighlight,
+          onShowHoverHighlight: _handleHoverHighlight,
+          actions: {
+            ActivateIntent: ActivateLinkAction(context, widget.onPressed),
+          },
+          child: SizedBox(
+            height: 80,
+            width: 320,
+            child: FlipText(
+              key: Key(widget.titleFlipKey),
+              flipKey: widget.titleFlipKey,
+              text: widget.text,
+              scale: 5,
+              alpha: _isFocus ? 255 : _alpha,
+              color: _isFocus ? accentColor : null,
+              glowColor: accentColor,
+              glowRadius: _isFocus ? 10 : 0,
             ),
           ),
         ),
