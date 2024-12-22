@@ -105,7 +105,11 @@ struct TaskTokens {
     analyze_token: Option<CancellationToken>,
 }
 
-async fn player_loop(path: String, db_connections: DatabaseConnections) {
+async fn player_loop(
+    path: String,
+    db_connections: DatabaseConnections,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+) {
     info!("Media Library Received, initialize other receivers");
 
     tokio::spawn(async move {
@@ -124,9 +128,6 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
         info!("Initializing player");
         let player = Player::new(Some(main_cancel_token.clone()));
         let player = Arc::new(Mutex::new(player));
-
-        let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
-        let scrobbler = Arc::new(Mutex::new(scrobbler));
 
         let sfx_player = SfxPlayer::new(Some(main_cancel_token.clone()));
         let sfx_player = Arc::new(Mutex::new(sfx_player));
@@ -233,6 +234,9 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
 
+    let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
+    let scrobbler = Arc::new(Mutex::new(scrobbler));
+
     let _guard = if enable_log {
         let file_filter = EnvFilter::new("debug");
         let now = chrono::Local::now();
@@ -254,7 +258,7 @@ async fn main() {
     };
 
     // Start receiving the media library path
-    if let Err(e) = receive_media_library_path(player_loop).await {
+    if let Err(e) = receive_media_library_path(player_loop, scrobbler).await {
         error!("Failed to receive media library path: {}", e);
     }
 
