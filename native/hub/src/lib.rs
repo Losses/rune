@@ -26,7 +26,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use license::validate_license_request;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -46,6 +45,7 @@ use crate::cover_art::*;
 use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
+use crate::license::validate_license_request;
 use crate::license::*;
 use crate::logging::*;
 use crate::lyric::*;
