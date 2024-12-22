@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.1.2004
+version: 1.1.2005
 
 environment:
   sdk: '>=3.5.1 <4.0.0'
@@ -167,7 +167,7 @@ msix_config:
   publisher_display_name: Losses Don
   identity_name: 23662LossesDon.RunePlayer
   publisher: CN=16FBEDB1-15BD-44BA-B4B4-FF0448A66E6C
-  msix_version: 1.1.2004.0
+  msix_version: 1.1.2005.0
   store: true
   capabilities: removableStorage
   logo_path: ./assets/source/microsoft_store/installer_icon.png
