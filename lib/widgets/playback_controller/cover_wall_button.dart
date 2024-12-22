@@ -12,7 +12,11 @@ void showCoverArtWall() {
   if (path == '/cover_wall') {
     escapeFromCoverArtWall();
   } else {
-    $push('/cover_wall');
+    if (path == '/lyrics') {
+      $replace('/cover_wall');
+    } else {
+      $push('/cover_wall');
+    }
   }
 }
 

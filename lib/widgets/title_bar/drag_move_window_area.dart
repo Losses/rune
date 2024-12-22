@@ -5,9 +5,10 @@ import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 class DragMoveWindowArea extends StatelessWidget {
   final Widget? child;
-  final bool isEnabledDoubleTap;
+  final bool enableDoubleTap;
 
-  const DragMoveWindowArea({super.key, this.child, this.isEnabledDoubleTap = true});
+  const DragMoveWindowArea(
+      {super.key, this.child, this.enableDoubleTap = true});
 
   @override
   Widget build(BuildContext context) {
@@ -28,17 +29,15 @@ class DragMoveWindowArea extends StatelessWidget {
     }
 
     return Listener(
-      onPointerUp: (_) => isEnabledDoubleTap ? handleTap() : null,
-      child: GestureDetector(
-        onPanStart: (_) => appWindow.startDragging(),
-        child: SizedBox(
-          width: double.infinity,
-          height: double.infinity,
-          child: SizedBox.expand(
-            child: Container(
-              color: Colors.transparent,
-              child: child,
-            ),
+      onPointerUp: (_) => enableDoubleTap ? handleTap() : null,
+      onPointerMove: (_) => appWindow.startDragging(),
+      child: SizedBox(
+        width: double.infinity,
+        height: double.infinity,
+        child: SizedBox.expand(
+          child: Container(
+            color: Colors.transparent,
+            child: child,
           ),
         ),
       ),

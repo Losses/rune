@@ -358,11 +358,11 @@
   "@about": {},
   "selectLibraryDirectorySubtitle": "選擇您的音訊資料庫目錄，我們將掃描並分析其中的所有曲目。",
   "@selectLibraryDirectorySubtitle": {},
-  "resetLibrary": "重置資料庫",
+  "resetLibrary": "重設資料庫",
   "@resetLibrary": {},
-  "resetLibraryQuestion": "重置資料庫",
+  "resetLibraryQuestion": "重設資料庫",
   "@resetLibraryQuestion": {},
-  "resetLibrarySubtitle": "重置資料庫將清除您的檔案開啟歷史記錄。現有的媒體資料庫將保持不變。您要繼續嗎？",
+  "resetLibrarySubtitle": "重設資料庫將清除您的檔案開啟歷史記錄。現有的媒體資料庫將保持不變。您要繼續嗎？",
   "@resetLibrarySubtitle": {},
   "unavailable": "不可用",
   "@unavailable": {},
@@ -456,7 +456,7 @@
   },
   "removeLogTitle": "刪除紀錄",
   "@removeLogTitle": {
-    "description": "告知使用者他們即將刪除一筆紀錄的視窗標題。"
+    "description": "告知使用者他們即將刪除一筆記錄的視窗標題。"
   },
   "removeLogSubtitle": "如果刪除此紀錄，您將無法復原。您確定要刪除嗎？",
   "@removeLogSubtitle": {},
@@ -586,7 +586,7 @@
   "@mysteriousModalTitle": {
     "description": "視窗的標題"
   },
-  "mysteriousModalContent": "你似乎觸發了一個神祕的機關。空間的結構好像發生了變化，露出了新的探索區域。",
+  "mysteriousModalContent": "你觸發了一個神秘的機關。空間的結構好像發生了變化，露出了新的探索區域。",
   "@mysteriousModalContent": {
     "description": "視窗的內容"
   },

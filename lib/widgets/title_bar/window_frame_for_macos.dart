@@ -104,7 +104,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                     children: [
                       SizedBox(
                         width: 320,
-                        child: DragMoveWindowArea(isEnabledDoubleTap: false),
+                        child: DragMoveWindowArea(enableDoubleTap: false),
                       ),
                       Expanded(child: DragMoveWindowArea())
                     ],
@@ -115,7 +115,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                   child: Row(
                     children: [
                       Expanded(
-                          child: DragMoveWindowArea(isEnabledDoubleTap: false)),
+                          child: DragMoveWindowArea(enableDoubleTap: false)),
                     ],
                   ),
                 ),
