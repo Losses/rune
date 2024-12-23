@@ -75,7 +75,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-windows-msix:
     runs-on: windows-latest
@@ -142,7 +142,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-linux:
     runs-on: ubuntu-latest
@@ -221,7 +221,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-steam-sniper:
     runs-on: ubuntu-latest
@@ -315,7 +315,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
   build-macos:
     runs-on: macos-latest
@@ -427,7 +427,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
       - name: Release ZIP
         uses: ncipollo/release-action@v1
@@ -437,7 +437,7 @@ jobs:
           allowUpdates: true
           replacesArtifacts: false
           omitBodyDuringUpdate: true
-          makeLatest: true
+          makeLatest: ${{ !(contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta')) }}
 
       - name: Clean up
         if: ${{ always() }}
