@@ -67,7 +67,8 @@ class _RegisterDialogState extends State<RegisterDialog> {
                   : _loading
                       ? null
                       : () => launchUrl(
-                            Uri.parse('https://nodewave.bandcamp.com/album/rune'),
+                            Uri.parse(
+                                'https://nodewave.bandcamp.com/album/rune'),
                           ),
               child: Row(
                 children: [
@@ -116,7 +117,14 @@ class _RegisterDialogState extends State<RegisterDialog> {
                   : () async {
                       const XTypeGroup typeGroup = XTypeGroup(
                         label: 'Rune license',
-                        extensions: <String>['flac', 'mp3', 'm4a', 'ogg', 'wav', 'aiff'],
+                        extensions: <String>[
+                          'flac',
+                          'mp3',
+                          'm4a',
+                          'ogg',
+                          'wav',
+                          'aiff'
+                        ],
                       );
                       final XFile? file = await openFile(
                         acceptedTypeGroups: <XTypeGroup>[typeGroup],
@@ -135,7 +143,10 @@ class _RegisterDialogState extends State<RegisterDialog> {
                       if (!context.mounted) return;
 
                       if (license.success && license.valid) {
-                        SettingsManager().setValue(licenseKey, license.license);
+                        SettingsManager().setValue(
+                          LicenseProvider.licenseKey,
+                          license.license,
+                        );
                         Provider.of<LicenseProvider>(context, listen: false)
                             .revalidateLicense();
                         showRegisterSuccessDialog(context);

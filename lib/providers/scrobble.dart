@@ -33,8 +33,9 @@ LoginRequestItem itemFromMap(Map<String, dynamic> json) {
 }
 
 class ScrobbleProvider with ChangeNotifier {
-  static const String _credentialsKey = 'login_credentials';
-  static const String _encryptionKey = 'encryption_key';
+  static const String encryptionKey = 'encryption_key';
+  static const String credentialsKey = 'login_credentials';
+
   final SettingsManager _settingsManager = SettingsManager();
   late StreamSubscription<RustSignal<ScrobbleServiceStatusUpdated>>
       _statusSubscription;
@@ -58,10 +59,10 @@ class ScrobbleProvider with ChangeNotifier {
   }
 
   Future<String> _getOrGenerateEncryptionKey() async {
-    String? key = await _settingsManager.getValue<String>(_encryptionKey);
+    String? key = await _settingsManager.getValue<String>(encryptionKey);
     if (key == null) {
       key = _generateRandomKey();
-      await _settingsManager.setValue(_encryptionKey, key);
+      await _settingsManager.setValue(encryptionKey, key);
     }
     return key;
   }
@@ -72,7 +73,7 @@ class ScrobbleProvider with ChangeNotifier {
 
   Future<List<LoginRequestItem>> _getStoredCredentials() async {
     String? encryptedData =
-        await _settingsManager.getValue<String>(_credentialsKey);
+        await _settingsManager.getValue<String>(credentialsKey);
     if (encryptedData == null) return [];
 
     String decryptedData = _decrypt(encryptedData);
@@ -131,7 +132,7 @@ class ScrobbleProvider with ChangeNotifier {
     // Save the updated list of credentials back
     String encryptedData = _encrypt(
         jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
-    await _settingsManager.setValue(_credentialsKey, encryptedData);
+    await _settingsManager.setValue(credentialsKey, encryptedData);
   }
 
   Future<void> logout(String serviceId) async {
@@ -145,7 +146,7 @@ class ScrobbleProvider with ChangeNotifier {
     // Save the updated list of credentials
     String encryptedData = _encrypt(
         jsonEncode(storedCredentials.map((item) => item.toMap()).toList()));
-    await _settingsManager.setValue(_credentialsKey, encryptedData);
+    await _settingsManager.setValue(credentialsKey, encryptedData);
   }
 
   void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {

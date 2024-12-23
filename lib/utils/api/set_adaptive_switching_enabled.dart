@@ -1,10 +1,11 @@
 import '../../messages/all.dart';
-import '../../screens/settings_playback/settings_playback.dart';
+import '../../constants/configurations.dart';
+
 import '../settings_manager.dart';
 
 void setAdaptiveSwitchingEnabled() async {
   final enabled =
-      await SettingsManager().getValue<bool?>(adaptiveSwitchingKey) == true;
+      await SettingsManager().getValue<bool?>(kAdaptiveSwitchingKey) == true;
 
   SetAdaptiveSwitchingEnabledRequest(enabled: enabled).sendSignalToRust();
 }

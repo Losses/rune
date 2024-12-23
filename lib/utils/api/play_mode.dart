@@ -1,10 +1,10 @@
 import '../../messages/all.dart';
+import '../../constants/configurations.dart';
+
 import '../settings_manager.dart';
 
-const playbackModeKey = 'playback_mode';
-
 void playMode(int mode) async {
-  await SettingsManager().setValue(playbackModeKey, mode);
+  await SettingsManager().setValue(kPlaybackModeKey, mode);
 
   SetPlaybackModeRequest(mode: mode).sendSignalToRust();
 }

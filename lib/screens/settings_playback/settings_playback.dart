@@ -3,7 +3,6 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
-import '../../utils/get_non_replace_operate_mode.dart';
 import '../../utils/api/set_adaptive_switching_enabled.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_box_toggle.dart';
@@ -13,10 +12,7 @@ import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../widgets/playback_controller/playback_mode_button.dart';
-
-const disabledPlaybackModesKey = 'disabled_playback_modes';
-const middleClickActionKey = 'middle_click_action';
-const adaptiveSwitchingKey = 'adaptive_switching';
+import '../../constants/configurations.dart';
 
 class SettingsPlayback extends StatefulWidget {
   const SettingsPlayback({super.key});
@@ -40,7 +36,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
   Future<void> _loadSettings() async {
     // Load disabled playback modes
     List<dynamic>? storedDisabledModes = await SettingsManager()
-        .getValue<List<dynamic>>(disabledPlaybackModesKey);
+        .getValue<List<dynamic>>(kDisabledPlaybackModesKey);
     if (storedDisabledModes != null) {
       setState(() {
         disabledModes = storedDisabledModes
@@ -51,7 +47,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
 
     // Load queue setting
     String? storedQueueSetting =
-        await SettingsManager().getValue<String>(nonReplaceOperateModeKey);
+        await SettingsManager().getValue<String>(kNonReplaceOperateModeKey);
     if (storedQueueSetting != null) {
       setState(() {
         queueMode = storedQueueSetting;
@@ -60,7 +56,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
 
     // Load middle-click action setting
     String? storedMiddleClickAction =
-        await SettingsManager().getValue<String>(middleClickActionKey);
+        await SettingsManager().getValue<String>(kMiddleClickActionKey);
     if (storedMiddleClickAction != null) {
       setState(() {
         middleClickAction = storedMiddleClickAction;
@@ -69,7 +65,7 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
 
     // Load adaptive switching setting
     bool? storedAdaptiveSwitching =
-        await SettingsManager().getValue<bool>(adaptiveSwitchingKey);
+        await SettingsManager().getValue<bool>(kAdaptiveSwitchingKey);
     if (storedAdaptiveSwitching != null) {
       setState(() {
         adaptiveSwitching = storedAdaptiveSwitching;
@@ -87,28 +83,28 @@ class _SettingsPlaybackState extends State<SettingsPlayback> {
     });
     List<int> modeIndexes =
         disabledModes.map((mode) => modeToInt(mode)).toList();
-    await SettingsManager().setValue(disabledPlaybackModesKey, modeIndexes);
+    await SettingsManager().setValue(kDisabledPlaybackModesKey, modeIndexes);
   }
 
   Future<void> _updateQueueSetting(String newSetting) async {
     setState(() {
       queueMode = newSetting;
     });
-    await SettingsManager().setValue(nonReplaceOperateModeKey, newSetting);
+    await SettingsManager().setValue(kNonReplaceOperateModeKey, newSetting);
   }
 
   Future<void> _updateMiddleClickAction(String newAction) async {
     setState(() {
       middleClickAction = newAction;
     });
-    await SettingsManager().setValue(middleClickActionKey, newAction);
+    await SettingsManager().setValue(kMiddleClickActionKey, newAction);
   }
 
   Future<void> _updateAdaptiveSwitching(bool newSetting) async {
     setState(() {
       adaptiveSwitching = newSetting;
     });
-    await SettingsManager().setValue(adaptiveSwitchingKey, newSetting);
+    await SettingsManager().setValue(kAdaptiveSwitchingKey, newSetting);
     setAdaptiveSwitchingEnabled();
   }
 

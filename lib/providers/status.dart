@@ -8,8 +8,7 @@ import '../utils/playing_item.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
 import '../messages/all.dart';
-
-const lastQueueIndexKey = 'last_queue_index';
+import '../constants/configurations.dart';
 
 class PlaybackStatusProvider with ChangeNotifier {
   final PlaybackStatus _playbackStatus =
@@ -70,7 +69,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         if (newPlayingItem != null) {
           ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
         }
-        SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
+        SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
       }
 
       _scheduleNotification();

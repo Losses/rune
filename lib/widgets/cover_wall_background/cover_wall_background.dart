@@ -3,12 +3,11 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../../utils/query_list.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/api/query_mix_tracks.dart';
+import '../../constants/configurations.dart';
 
 import 'widgets/cover_wall_background_implementation.dart';
 
 const coverCount = '40';
-
-const randomCoverWallCountKey = 'random_cover_wall_count';
 
 class CoverWallBackground extends StatefulWidget {
   final int seed;
@@ -35,7 +34,7 @@ class _CoverWallBackgroundState extends State<CoverWallBackground> {
 
   loadCoverList() async {
     final String count =
-        await SettingsManager().getValue<String?>(randomCoverWallCountKey) ??
+        await SettingsManager().getValue<String?>(kRandomCoverWallCountKey) ??
             coverCount;
 
     final queryResult = await queryMixTracks(

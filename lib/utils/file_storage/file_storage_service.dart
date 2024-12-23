@@ -3,9 +3,9 @@ import '../../utils/file_storage/mac_secure_manager.dart';
 
 final SettingsManager settingsManager = SettingsManager();
 
-const String openedFilesKey = 'library_path';
-
 class FileStorageService {
+  static const openedFilesKey = 'library_path';
+
   // Get the list of opened files
   Future<List<String>> _getOpenedFiles() async {
     return List<String>.from(

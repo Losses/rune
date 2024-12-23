@@ -61,6 +61,7 @@ class LibraryHomeEntryWithValue {
 
 class LibraryHomeProvider extends ChangeNotifier {
   static const String storageKey = 'library_home';
+
   final List<LibraryHomeEntryWithValue> _entries = [];
 
   LibraryHomeProvider() {

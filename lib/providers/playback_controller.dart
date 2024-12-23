@@ -9,6 +9,7 @@ final SettingsManager settingsManager = SettingsManager();
 
 class PlaybackControllerProvider extends ChangeNotifier {
   static const String storageKey = 'controller_order';
+
   final List<ControllerEntry> _entries = List.from(controllerItems);
 
   PlaybackControllerProvider() {

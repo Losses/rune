@@ -16,17 +16,10 @@ import '../../widgets/settings/settings_block_title.dart';
 import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../constants/configurations.dart';
 
 import 'constants/colors.dart';
 import 'constants/window_sizes.dart';
-
-const colorModeKey = 'color_mode';
-const themeColorKey = 'theme_color';
-const disableBrandingAnimationKey = 'disable_branding_animation';
-const enableDynamicColorsKey = 'enable_dynamic_color';
-const windowSizeKey = 'window_size';
-const rememberWindowSizeKey = 'remember_window_size';
-const rememberdWindowSizeKey = 'rememberd_window_size';
 
 final _settingsManager = SettingsManager();
 
@@ -53,17 +46,17 @@ class _SettingsThemeState extends State<SettingsTheme> {
 
   Future<void> _loadSettings() async {
     final int? storedTheme =
-        await _settingsManager.getValue<int>(themeColorKey);
+        await _settingsManager.getValue<int>(kThemeColorKey);
     final String? storedColorMode =
-        await _settingsManager.getValue<String>(colorModeKey);
+        await _settingsManager.getValue<String>(kColorModeKey);
     final bool? storedDisableBrandingAnimation =
-        await _settingsManager.getValue<bool>(disableBrandingAnimationKey);
+        await _settingsManager.getValue<bool>(kDisableBrandingAnimationKey);
     final bool? storedEnableDynamicColors =
-        await _settingsManager.getValue<bool>(enableDynamicColorsKey);
+        await _settingsManager.getValue<bool>(kEnableDynamicColorsKey);
     final String? storedWindowSize =
-        await _settingsManager.getValue<String>(windowSizeKey);
+        await _settingsManager.getValue<String>(kWindowSizeKey);
     final bool? storedRememberWindowSize =
-        await _settingsManager.getValue<bool>(rememberWindowSizeKey);
+        await _settingsManager.getValue<bool>(kRememberWindowSizeKey);
 
     setState(() {
       if (storedTheme != null) {
@@ -94,14 +87,14 @@ class _SettingsThemeState extends State<SettingsTheme> {
     });
 
     if (newThemeColor == null) {
-      await SettingsManager().removeValue(themeColorKey);
+      await SettingsManager().removeValue(kThemeColorKey);
     } else {
-      await SettingsManager().setValue(themeColorKey, newThemeColor.value);
+      await SettingsManager().setValue(kThemeColorKey, newThemeColor.value);
     }
   }
 
   void _handleDynamicColorToggle(bool value) async {
-    await _settingsManager.setValue(enableDynamicColorsKey, value);
+    await _settingsManager.setValue(kEnableDynamicColorsKey, value);
 
     setState(() {
       enableDynamicColors = value;
@@ -116,7 +109,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
 
       updateColorMode(colorMode);
     });
-    await SettingsManager().setValue(colorModeKey, newMode);
+    await SettingsManager().setValue(kColorModeKey, newMode);
   }
 
   void _updateWindowSize(String newWindowSize) async {
@@ -124,7 +117,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
       windowSize = newWindowSize;
     });
 
-    await SettingsManager().setValue(windowSizeKey, newWindowSize);
+    await SettingsManager().setValue(kWindowSizeKey, newWindowSize);
 
     final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
     final size = Platform.isWindows || Platform.isMacOS
@@ -228,7 +221,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   value: enableDynamicColors ?? false,
                   onChanged: (value) {
                     _settingsManager.setValue(
-                      enableDynamicColorsKey,
+                      kEnableDynamicColorsKey,
                       !value,
                     );
 
@@ -241,7 +234,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   value: !(disableBrandingAnimation ?? false),
                   onChanged: (value) {
                     _settingsManager.setValue(
-                      disableBrandingAnimationKey,
+                      kDisableBrandingAnimationKey,
                       !value,
                     );
 
@@ -279,7 +272,7 @@ class _SettingsThemeState extends State<SettingsTheme> {
                   subtitle: S.of(context).rememberWindowSizeSubtitle,
                   value: rememberWindowSize ?? false,
                   onChanged: (value) {
-                    _settingsManager.setValue(rememberWindowSizeKey, value);
+                    _settingsManager.setValue(kRememberWindowSizeKey, value);
 
                     setState(() {
                       rememberWindowSize = value;

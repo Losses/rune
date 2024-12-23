@@ -4,9 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/settings_manager.dart';
-import '../screens/settings_theme/settings_theme.dart';
-
-const forceLayoutModeKey = 'force_layout_mode';
+import '../constants/configurations.dart';
 
 enum DeviceOrientation {
   vertical,
@@ -151,7 +149,7 @@ enum DeviceType {
 
 Future<Size?> getSavedWindowSize() async {
   final savedSize =
-      await SettingsManager().getValue<String>(rememberdWindowSizeKey);
+      await SettingsManager().getValue<String>(kRememberdWindowSizeKey);
 
   if (savedSize == null) return null;
 
@@ -198,7 +196,7 @@ class ScreenSizeProvider extends ChangeNotifier with WidgetsBindingObserver {
 
       _debounceTimer = Timer(const Duration(seconds: 1), () {
         final sizeString = '${size.width},${size.height}';
-        SettingsManager().setValue<String>(rememberdWindowSizeKey, sizeString);
+        SettingsManager().setValue<String>(kRememberdWindowSizeKey, sizeString);
       });
     }
   }
@@ -226,7 +224,7 @@ class ResponsiveProvider extends ChangeNotifier {
   }
 
   updateForceLayoutConfig() {
-    SettingsManager().getValue<String>(forceLayoutModeKey).then((x) {
+    SettingsManager().getValue<String>(kForceLayoutModeKey).then((x) {
       if (x == null) return;
 
       _forceDeviceType = DeviceType.fromString(x);
