@@ -357,7 +357,7 @@ impl PlayerInternal {
                 warn!("Failed to decode file {:?}: {:#?}", item.path, error);
                 self.next()?;
                 self.event_sender.send(PlayerEvent::Log(InternalLog {
-                    domain: "internal::decoder".to_string(),
+                    domain: "player::internal::decoder".to_string(),
                     error: format!("{:#?}", error),
                 }))?;
                 return Ok(());
