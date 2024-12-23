@@ -52,8 +52,8 @@ const List<LanguageOption> supportedLanguages = [
     locale: Locale.fromSubtags(languageCode: 'ja', scriptCode: 'Kana'),
   ),
   LanguageOption(
-    title: '偽中國語',
-    sampleText: '全人間、生自由有、且、尊厳権利付平等有。人間、理性良心授等有、互同胞精神持互行動。',
+    title: '偽中国語',
+    sampleText: '全人間、生自由有、且、尊厳権利付平等有。人間、理性良心授等有、互同胞精神持行動。',
     locale: Locale.fromSubtags(languageCode: 'ja', scriptCode: 'Nise'),
   ),
   LanguageOption(
