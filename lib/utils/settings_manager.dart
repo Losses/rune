@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:get_storage/get_storage.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,6 +24,8 @@ class SettingsManager {
   late GetStorage _storage;
   bool _initialized = false;
   Future<void>? _initFuture;
+
+  final Map<String, StreamController<dynamic>> _controllers = {};
 
   SettingsManager._internal() {
     _initFuture = _init();
@@ -51,11 +54,36 @@ class SettingsManager {
     await _initFuture;
     String storageKey = StorageKeyManager.getStorageKey(key);
     await _storage.write(storageKey, value);
+
+    // Notify listeners if any
+    if (_controllers.containsKey(storageKey)) {
+      _controllers[storageKey]!.add(value);
+    }
   }
 
   Future<void> removeValue<T>(String key) async {
     await _initFuture;
     String storageKey = StorageKeyManager.getStorageKey(key);
     await _storage.remove(storageKey);
+
+    // Notify listeners if any
+    if (_controllers.containsKey(storageKey)) {
+      _controllers[storageKey]!.add(null);
+    }
+  }
+
+  StreamSubscription listenValue<T>(
+    String key,
+    void Function(T? value) callback,
+  ) {
+    String storageKey = StorageKeyManager.getStorageKey(key);
+
+    if (!_controllers.containsKey(storageKey)) {
+      _controllers[storageKey] = StreamController<T?>.broadcast();
+    }
+
+    return (_controllers[storageKey]! as StreamController<T?>)
+        .stream
+        .listen(callback);
   }
 }

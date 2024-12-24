@@ -92,3 +92,7 @@ const kRandomCoverWallCountKey = 'random_cover_wall_count';
 /// seamless audio-visual environment ideal for settings like cafes or public
 /// spaces.
 const kCafeModeKey = 'cafe_mode';
+
+/// This key is used to tweak the animation speed and intensity of the spectrum
+/// visualizer.
+const kMildSpectrumKey = 'mild_spectrum';

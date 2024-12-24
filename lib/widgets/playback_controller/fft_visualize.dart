@@ -1,9 +1,13 @@
+import 'dart:math';
+import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/settings_manager.dart';
 import '../../messages/playback.pb.dart';
+import '../../constants/configurations.dart';
 
 class FFTVisualizerRegistry {
   static final FFTVisualizerRegistry _instance =
@@ -53,6 +57,20 @@ class FFTVisualize extends StatefulWidget {
   FFTVisualizeState createState() => FFTVisualizeState();
 }
 
+double tanh(double angle) {
+  if (angle > 19.1) {
+    return 1.0;
+  }
+
+  if (angle < -19.1) {
+    return -1.0;
+  }
+
+  var e1 = exp(angle);
+  var e2 = exp(-angle);
+  return (e1 - e2) / (e1 + e2);
+}
+
 class FFTVisualizeState extends State<FFTVisualize>
     with TickerProviderStateMixin {
   final radius = 12.0;
@@ -62,6 +80,8 @@ class FFTVisualizeState extends State<FFTVisualize>
   bool _hasData = false;
   int _lastUpdateTime = 0;
   final _registry = FFTVisualizerRegistry();
+  bool _mildSpectrum = false;
+  StreamSubscription? _mildSpectrumSubscription;
 
   @override
   void initState() {
@@ -69,11 +89,32 @@ class FFTVisualizeState extends State<FFTVisualize>
 
     _registry.register(this);
 
+    SettingsManager().getValue<String>(kMildSpectrumKey).then((x) {
+      if (x == 'true') {
+        setState(() {
+          _mildSpectrum = true;
+        });
+      }
+    });
+
+    _mildSpectrumSubscription = SettingsManager().listenValue<String>(
+      kMildSpectrumKey,
+      (x) {
+        setState(
+          () {
+            _mildSpectrum = x == 'true' ? true : false;
+          },
+        );
+      },
+    );
+
     RealtimeFFT.rustSignalStream.listen((rustSignal) {
       if (!mounted) return;
 
       setState(() {
-        _targetFftValues = rustSignal.message.value;
+        _targetFftValues = _mildSpectrum
+            ? rustSignal.message.value.map(tanh).toList()
+            : rustSignal.message.value;
         _lastUpdateTime = DateTime.now().millisecondsSinceEpoch;
         if (!_hasData) {
           _hasData = true;
@@ -105,6 +146,13 @@ class FFTVisualizeState extends State<FFTVisualize>
         _lerpedFftValues();
       });
     });
+  }
+
+  @override
+  dispose() {
+    _mildSpectrumSubscription?.cancel();
+    _registry.dispose();
+    super.dispose();
   }
 
   @override
@@ -150,15 +198,12 @@ class FFTVisualizeState extends State<FFTVisualize>
       if (!current.isFinite) current = 0.0;
       if (!target.isFinite) target = 0.0;
 
-      _currentFftValues[i] = ui.lerpDouble(current, target, 0.2)!;
+      _currentFftValues[i] = ui.lerpDouble(
+        current,
+        target,
+        _mildSpectrum ? 0.08 : 0.2,
+      )!;
     }
-  }
-
-  @override
-  void dispose() {
-    _ticker?.dispose();
-    _registry.unregister(this);
-    super.dispose();
   }
 }
 
