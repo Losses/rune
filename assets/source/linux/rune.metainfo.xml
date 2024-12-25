@@ -57,6 +57,22 @@
   </screenshots>
 
   <releases>
+    <release version="1.1.0-alpha.6" date="2024-12-25">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added logging capability for internal decoder errors.</li>
+          <li>Added support for parsing .lrcx lyric files.</li>
+          <li>Added Mild Spectrum settings and integrate with FFT visualizer.</li>
+          <li>Update translation files by @NovaDNG.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Normalize lyrics based on track duration and improve playback status handling.</li>
+          <li>Update makeLatest condition to exclude alpha and beta branches by @Ovler-Young.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0-alpha.5" date="2024-12-22">
       <description>
         <p>Features</p>
