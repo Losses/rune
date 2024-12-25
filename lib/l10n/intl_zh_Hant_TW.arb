@@ -701,5 +701,59 @@
   "considerPurchase": "請考慮購買正版授權。",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "歌詞",
+  "@lyrics": {
+    "description": "用來切換到歌詞頁面的按鈕提示文字。"
+  },
+  "lyricsSubtitle": "顯示歌曲的完整歌詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "線上服務",
+  "@onlineServices": {
+    "description": "播放設定頁面中的章節標題。"
+  },
+  "login": "登入",
+  "@login": {
+    "description": "登入模態框的動作按鈕。"
+  },
+  "loginFailed": "登入失敗",
+  "@loginFailed": {
+    "description": "登入模態框中登入失敗按鈕的標題。"
+  },
+  "loginFailedSubtitle": "登入時發生錯誤",
+  "@loginFailedSubtitle": {
+    "description": "登入模態框中登入失敗按鈕的副標題。"
+  },
+  "lastFmSubtitle": "透過此音樂追蹤服務提供詳細的聆聽分析。",
+  "@lastFmSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "libreFmSubtitle": "一個免費且開放的平台，分享你的音樂品味。",
+  "@libreFmSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "listenBrainzSubtitle": "在追蹤你的習慣同時貢獻於開源資料庫。",
+  "@listenBrainzSubtitle": {
+    "description": "Scrobble服務的服務描述。"
+  },
+  "fix": "修正",
+  "@fix": {
+    "description": "服務登入失敗設定項的動作按鈕。"
+  },
+  "confirmLogoutTitle": "確認登出",
+  "@confirmLogoutTitle": {
+    "description": "登出確認對話框的標題。"
+  },
+  "confirmLogoutSubtitle": "您確定要登出嗎？所有本地儲存的登入憑證將被刪除。",
+  "@confirmLogoutSubtitle": {
+    "description": "登出確認對話框的副標題。"
+  },
+  "retryLogin": "重試登入",
+  "@retryLogin": {
+    "description": "錯誤選項菜單中重試登入的選項。"
+  },
+  "logout": "登出",
+  "@logout": {
+    "description": "錯誤選項菜單中登出的選項。"
   }
 }
