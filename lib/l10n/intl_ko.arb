@@ -970,5 +970,59 @@
   "considerPurchase": "정품 라이선스를 구매해 주시기 바랍니다.",
   "@considerPurchase": {
     "description": "라이선스 구매를 안내하는 정보 페이지의 공지"
+  },
+  "lyrics": "가사",
+  "@lyrics": {
+    "description": "재생 제어 버튼 텍스트로, 가사 페이지로 전환할 때 사용됩니다."
+  },
+  "lyricsSubtitle": "노래의 전체 가사를 표시합니다",
+  "@lyricsSubtitle": {},
+  "onlineServices": "온라인 서비스",
+  "@onlineServices": {
+    "description": "재생 설정 페이지의 장 제목입니다."
+  },
+  "login": "로그인",
+  "@login": {
+    "description": "로그인 모달의 동작 버튼입니다."
+  },
+  "loginFailed": "로그인 실패",
+  "@loginFailed": {
+    "description": "로그인 모달의 로그인 실패 버튼 제목입니다."
+  },
+  "loginFailedSubtitle": "로그인 시도 중 오류가 발생했습니다",
+  "@loginFailedSubtitle": {
+    "description": "로그인 모달의 로그인 실패 버튼 부제목입니다."
+  },
+  "lastFmSubtitle": "이 음악 추적 서비스를 통해 상세한 청취 통계를 제공합니다.",
+  "@lastFmSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "libreFmSubtitle": "음악 취향을 공유할 수 있는 무료 오픈 플랫폼입니다.",
+  "@libreFmSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "listenBrainzSubtitle": "오픈소스 데이터베이스에 기여하면서 청취 습관을 추적합니다.",
+  "@listenBrainzSubtitle": {
+    "description": "스크로블 서비스의 서비스 설명입니다."
+  },
+  "fix": "수정",
+  "@fix": {
+    "description": "서비스 로그인 실패 설정 항목의 동작 버튼입니다."
+  },
+  "confirmLogoutTitle": "로그아웃 확인",
+  "@confirmLogoutTitle": {
+    "description": "로그아웃 확인 대화 상자의 제목입니다."
+  },
+  "confirmLogoutSubtitle": "로그아웃하시겠습니까? 모든 로컬에 저장된 로그인 정보가 삭제됩니다.",
+  "@confirmLogoutSubtitle": {
+    "description": "로그아웃 확인 대화 상자의 부제목입니다."
+  },
+  "retryLogin": "로그인 재시도",
+  "@retryLogin": {
+    "description": "오류 옵션 메뉴에서 로그인 재시도 옵션입니다."
+  },
+  "logout": "로그아웃",
+  "@logout": {
+    "description": "오류 옵션 메뉴에서 로그아웃 옵션입니다."
   }
 }

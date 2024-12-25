@@ -968,5 +968,59 @@
   "considerPurchase": "Bitte ziehen Sie den Kauf einer echten Lizenz in Betracht.",
   "@considerPurchase": {
     "description": "Hinweis auf der Informationsseite, der den Benutzer zum Kauf einer Lizenz auffordert"
+  },
+  "lyrics": "Songtext",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Zeige den vollständigen Songtext an",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Online-Dienste",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Anmelden",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Anmeldung fehlgeschlagen",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Bei der Anmeldung ist ein Fehler aufgetreten",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Erhalte detaillierte Einblicke in dein Hörverhalten mit diesem Musik-Tracking-Dienst.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Eine kostenlose und offene Plattform zum Teilen deines Musikgeschmacks.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Trage zu einer Open-Source-Datenbank bei, während du deine Hörgewohnheiten verfolgst.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Beheben",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Abmeldung bestätigen",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Bist du sicher, dass du dich abmelden möchtest? Alle lokal gespeicherten Anmeldedaten werden gelöscht.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Anmeldung wiederholen",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Abmelden",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
   }
 }
