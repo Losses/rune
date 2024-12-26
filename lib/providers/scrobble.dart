@@ -32,6 +32,39 @@ LoginRequestItem itemFromMap(Map<String, dynamic> json) {
   );
 }
 
+class ServiceStatus {
+  final String serviceId;
+  final bool isAvailable;
+  final bool hasCredentials;
+  final String error;
+
+  ServiceStatus({
+    required this.serviceId,
+    required this.isAvailable,
+    required this.hasCredentials,
+    required this.error,
+  });
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+
+    return other is ServiceStatus &&
+        other.serviceId == serviceId &&
+        other.isAvailable == isAvailable &&
+        other.hasCredentials == hasCredentials &&
+        other.error == error;
+  }
+
+  @override
+  int get hashCode {
+    return serviceId.hashCode ^
+        isAvailable.hashCode ^
+        hasCredentials.hashCode ^
+        error.hashCode;
+  }
+}
+
 class ScrobbleProvider with ChangeNotifier {
   static const String encryptionKey = 'encryption_key';
   static const String credentialsKey = 'login_credentials';
@@ -39,8 +72,8 @@ class ScrobbleProvider with ChangeNotifier {
   final SettingsManager _settingsManager = SettingsManager();
   late StreamSubscription<RustSignal<ScrobbleServiceStatusUpdated>>
       _statusSubscription;
-  List<ScrobbleServiceStatus> _serviceStatuses = [];
-  List<ScrobbleServiceStatus> get serviceStatuses => _serviceStatuses;
+  List<ServiceStatus> _serviceStatuses = [];
+  List<ServiceStatus> get serviceStatuses => _serviceStatuses;
   String _encryptionKeyValue = '';
 
   ScrobbleProvider() {
@@ -149,8 +182,21 @@ class ScrobbleProvider with ChangeNotifier {
     await _settingsManager.setValue(credentialsKey, encryptedData);
   }
 
-  void _handleStatusUpdate(RustSignal<ScrobbleServiceStatusUpdated> signal) {
-    _serviceStatuses = signal.message.services;
+  Future<void> _handleStatusUpdate(
+      RustSignal<ScrobbleServiceStatusUpdated> signal) async {
+    List<LoginRequestItem> storedCredentials = await _getStoredCredentials();
+    Set<String> credentialServiceIds =
+        storedCredentials.map((c) => c.serviceId).toSet();
+
+    _serviceStatuses = signal.message.services
+        .map((status) => ServiceStatus(
+              serviceId: status.serviceId,
+              isAvailable: status.isAvailable,
+              hasCredentials: credentialServiceIds.contains(status.serviceId),
+              error: status.error,
+            ))
+        .toList();
+
     notifyListeners();
   }
 

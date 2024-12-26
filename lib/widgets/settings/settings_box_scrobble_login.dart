@@ -4,8 +4,8 @@ import 'package:collection/collection.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/dialogs/scrobble/show_scrobble_login_dialog.dart';
+import '../../utils/dialogs/information/confirm.dart';
 import '../../utils/dialogs/information/error.dart';
-import '../../utils/dialogs/information/information.dart';
 import '../../providers/scrobble.dart';
 
 import 'settings_box_base.dart';
@@ -84,7 +84,9 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
         .firstWhereOrNull((status) => status.serviceId == widget.serviceId);
 
     bool isLoggedIn = serviceStatus != null && serviceStatus.isAvailable;
-    bool hasError = serviceStatus != null && serviceStatus.error.isNotEmpty;
+    bool hasError = serviceStatus != null &&
+        serviceStatus.error.isNotEmpty &&
+        serviceStatus.hasCredentials;
 
     return FlyoutTarget(
       controller: _menuController,
@@ -108,7 +110,8 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
 
   void _retryLogin(BuildContext context) async {
     final s = S.of(context);
-    final scrobbleProvider = Provider.of<ScrobbleProvider>(context, listen: false);
+    final scrobbleProvider =
+        Provider.of<ScrobbleProvider>(context, listen: false);
 
     try {
       await scrobbleProvider.retryLogin(widget.serviceId);
@@ -125,10 +128,12 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
 
   void _showLogoutConfirmation(BuildContext context) {
     final s = S.of(context);
-    showInformationDialog(
+    showConfirmDialog(
       context: context,
       title: s.confirmLogoutTitle,
       subtitle: s.confirmLogoutSubtitle,
+      yesLabel: s.confirm,
+      noLabel: s.cancel,
     ).then((confirmed) {
       if (confirmed == true) {
         if (!context.mounted) return;

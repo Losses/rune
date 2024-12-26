@@ -44,10 +44,36 @@ class ScrobbleLoginDialogState extends State<ScrobbleLoginDialog> {
     super.dispose();
   }
 
+  void _login() async {
+    final s = S.of(context);
+    final scrobble = Provider.of<ScrobbleProvider>(context, listen: false);
+    setState(() {
+      isLoading = true;
+    });
+
+    final loginRequestItem = controller.toLoginRequestItem(widget.serviceName);
+
+    try {
+      await scrobble.login(loginRequestItem);
+      widget.$close(loginRequestItem);
+    } catch (e) {
+      if (!mounted) return;
+      showErrorDialog(
+        context: context,
+        title: s.loginFailed,
+        subtitle: s.loginFailedSubtitle,
+        errorMessage: e.toString(),
+      );
+    }
+
+    setState(() {
+      isLoading = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final scrobble = Provider.of<ScrobbleProvider>(context);
 
     return NoShortcuts(
       ContentDialog(
@@ -57,39 +83,13 @@ class ScrobbleLoginDialogState extends State<ScrobbleLoginDialog> {
           controller: controller,
         ),
         actions: [
+          FilledButton(
+            onPressed: isLoading ? null : _login,
+            child: Text(s.login),
+          ),
           Button(
             onPressed: isLoading ? null : () => widget.$close(null),
             child: Text(s.cancel),
-          ),
-          FilledButton(
-            onPressed: isLoading
-                ? null
-                : () async {
-                    setState(() {
-                      isLoading = true;
-                    });
-
-                    final loginRequestItem =
-                        controller.toLoginRequestItem(widget.serviceName);
-
-                    try {
-                      await scrobble.login(loginRequestItem);
-                      widget.$close(loginRequestItem);
-                    } catch (e) {
-                      if (!context.mounted) return;
-                      showErrorDialog(
-                        context: context,
-                        title: s.loginFailed,
-                        subtitle: s.loginFailedSubtitle,
-                        errorMessage: e.toString(),
-                      );
-                    }
-
-                    setState(() {
-                      isLoading = false;
-                    });
-                  },
-            child: Text(s.login),
           ),
         ],
       ),
