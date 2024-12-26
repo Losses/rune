@@ -49,27 +49,30 @@ class PlaybackStatusProvider with ChangeNotifier {
       final bool isNewTrack = _playbackStatus.item != newStatus.item;
 
       _playbackStatus.state = newStatus.state;
-      _playbackStatus.progressSeconds = newStatus.progressSeconds;
-      _playbackStatus.progressPercentage = newStatus.progressPercentage;
-      _playbackStatus.artist = newStatus.artist;
-      _playbackStatus.album = newStatus.album;
-      _playbackStatus.title = newStatus.title;
-      _playbackStatus.duration = newStatus.duration;
-      _playbackStatus.index = newStatus.index;
-      _playbackStatus.item = newStatus.item;
-      _playbackStatus.playbackMode = newStatus.playbackMode;
-      _playbackStatus.ready = newStatus.ready;
-      _playbackStatus.coverArtPath = newStatus.coverArtPath;
-      final newPlayingItem = newStatus.item.isEmpty
-          ? null
-          : PlayingItem.fromString(newStatus.item);
-      _playingItem = newPlayingItem;
 
-      if (isNewTrack) {
-        if (newPlayingItem != null) {
-          ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+      if (newStatus.state != "Stopped") {
+        _playbackStatus.progressSeconds = newStatus.progressSeconds;
+        _playbackStatus.progressPercentage = newStatus.progressPercentage;
+        _playbackStatus.artist = newStatus.artist;
+        _playbackStatus.album = newStatus.album;
+        _playbackStatus.title = newStatus.title;
+        _playbackStatus.duration = newStatus.duration;
+        _playbackStatus.index = newStatus.index;
+        _playbackStatus.item = newStatus.item;
+        _playbackStatus.playbackMode = newStatus.playbackMode;
+        _playbackStatus.ready = newStatus.ready;
+        _playbackStatus.coverArtPath = newStatus.coverArtPath;
+        final newPlayingItem = newStatus.item.isEmpty
+            ? null
+            : PlayingItem.fromString(newStatus.item);
+        _playingItem = newPlayingItem;
+
+        if (isNewTrack) {
+          if (newPlayingItem != null) {
+            ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+          }
+          SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
         }
-        SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
       }
 
       _scheduleNotification();
