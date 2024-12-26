@@ -40,9 +40,10 @@ class _LyricLineState extends State<LyricLine>
   double _targetBlur = 0.0;
   double _targetOpacity = 1.0;
   bool _isHovered = false;
+  bool _contextMenuIsOpen = false;
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
+  final _contextController = FlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void initState() {
@@ -64,6 +65,8 @@ class _LyricLineState extends State<LyricLine>
       ),
     );
     _updateAnimations();
+
+    _contextController.addListener(_handleContextControllerUpdate);
   }
 
   @override
@@ -76,9 +79,14 @@ class _LyricLineState extends State<LyricLine>
     }
   }
 
+  void _handleContextControllerUpdate() {
+    _contextMenuIsOpen = _contextController.isOpen;
+    _updateAnimations();
+  }
+
   void _updateAnimations() {
-    _targetBlur = _isHovered ? 0 : _calculateTargetBlur();
-    _targetOpacity = _isHovered ? 0.9 : 1.0;
+    _targetBlur = _isHovered || _contextMenuIsOpen ? 0 : _calculateTargetBlur();
+    _targetOpacity = _isHovered || _contextMenuIsOpen ? 0.9 : 1.0;
 
     _blurAnimation = Tween<double>(
       begin: _blurAnimation.value,
@@ -121,7 +129,7 @@ class _LyricLineState extends State<LyricLine>
     Offset localPosition,
   ) async {
     if (!context.mounted) return;
-    final targetContext = contextAttachKey.currentContext;
+    final targetContext = _contextAttachKey.currentContext;
 
     if (targetContext == null) return;
     final box = targetContext.findRenderObject() as RenderBox;
@@ -132,7 +140,7 @@ class _LyricLineState extends State<LyricLine>
 
     final s = S.of(context);
 
-    contextController.showFlyout(
+    _contextController.showFlyout(
       position: position,
       builder: (_) {
         return MenuFlyout(
@@ -154,6 +162,8 @@ class _LyricLineState extends State<LyricLine>
   @override
   void dispose() {
     _controller.dispose();
+    _contextController.removeListener(_handleContextControllerUpdate);
+    _contextController.dispose();
     super.dispose();
   }
 
@@ -183,8 +193,8 @@ class _LyricLineState extends State<LyricLine>
           child: ContextMenuWrapper(
               onContextMenu: _openLyricContextMenu,
               onMiddleClick: (_) => {},
-              contextAttachKey: contextAttachKey,
-              contextController: contextController,
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
               child: AnimatedBuilder(
                 animation:
                     Listenable.merge([_blurAnimation, _opacityAnimation]),
