@@ -2,8 +2,9 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/ax_shadow.dart';
-import '../../../utils/color_brightness.dart';
+import '../../../utils/format_time.dart';
 import '../../../utils/playing_item.dart';
+import '../../../utils/color_brightness.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
@@ -155,13 +156,17 @@ class CoverArtFrame extends StatelessWidget {
         border: Border.all(color: Colors.white, width: 4),
         boxShadow: axShadow(9),
       ),
-      child: Selector<PlaybackStatusProvider, String>(
-        selector: (context, playbackStatusProvider) =>
-            playbackStatusProvider.playbackStatus.coverArtPath,
+      child: Selector<PlaybackStatusProvider, (String, String, String, double)>(
+        selector: (context, playbackStatusProvider) {
+          final s = playbackStatusProvider.playbackStatus;
+
+          return (s.coverArtPath, s.album, s.artist, s.duration);
+        },
         builder: (context, p, child) {
           return CoverArt(
-            key: p.isNotEmpty ? Key(p.toString()) : null,
-            path: p,
+            key: p.$1.isNotEmpty ? Key(p.toString()) : null,
+            path: p.$1,
+            hint: (p.$2, p.$3, 'Total Time ${formatTime(p.$4)}'),
             size: 220,
           );
         },
