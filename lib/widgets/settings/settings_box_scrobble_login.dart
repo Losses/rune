@@ -108,7 +108,7 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
 
   void _retryLogin(BuildContext context) async {
     final s = S.of(context);
-    final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
+    final scrobbleProvider = Provider.of<ScrobbleProvider>(context, listen: false);
 
     try {
       await scrobbleProvider.retryLogin(widget.serviceId);
