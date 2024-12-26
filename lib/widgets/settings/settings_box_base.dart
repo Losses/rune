@@ -1,4 +1,3 @@
-
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/responsive_providers.dart';
@@ -6,11 +5,13 @@ import '../../providers/responsive_providers.dart';
 import 'settings_block.dart';
 import 'settings_block_title.dart';
 
-abstract class SettingsBoxBase extends StatelessWidget {
+class SettingsBoxBase extends StatelessWidget {
   const SettingsBoxBase({
     super.key,
     required this.title,
     required this.subtitle,
+    required this.buildExpanderContent,
+    required this.buildDefaultContent,
     this.icon,
     this.iconColor,
   });
@@ -19,9 +20,8 @@ abstract class SettingsBoxBase extends StatelessWidget {
   final String subtitle;
   final IconData? icon;
   final Color? iconColor;
-
-  Widget buildExpanderContent(BuildContext context);
-  Widget buildDefaultContent(BuildContext context);
+  final Widget Function(BuildContext) buildExpanderContent;
+  final Widget Function(BuildContext) buildDefaultContent;
 
   @override
   Widget build(BuildContext context) {

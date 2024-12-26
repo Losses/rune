@@ -12,23 +12,27 @@ class SettingsBoxComboBoxItem<T> {
   });
 }
 
-class SettingsBoxComboBox<T> extends SettingsBoxBase {
+class SettingsBoxComboBox<T> extends StatelessWidget {
   const SettingsBoxComboBox({
     super.key,
-    required super.title,
-    required super.subtitle,
+    required this.title,
+    required this.subtitle,
     required this.value,
     required this.items,
     required this.onChanged,
-    super.icon,
-    super.iconColor,
+    this.icon,
+    this.iconColor,
   });
+
+  final String title;
+  final String subtitle;
+  final IconData? icon;
+  final Color? iconColor;
 
   final T value;
   final List<SettingsBoxComboBoxItem<T>> items;
   final Function(T?)? onChanged;
 
-  @override
   Widget buildExpanderContent(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -51,7 +55,6 @@ class SettingsBoxComboBox<T> extends SettingsBoxBase {
     );
   }
 
-  @override
   Widget buildDefaultContent(BuildContext context) {
     return ComboBox<T>(
       value: value,
@@ -64,6 +67,16 @@ class SettingsBoxComboBox<T> extends SettingsBoxBase {
           )
           .toList(),
       onChanged: onChanged,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsBoxBase(
+      title: title,
+      subtitle: subtitle,
+      buildExpanderContent: buildExpanderContent,
+      buildDefaultContent: buildDefaultContent,
     );
   }
 }

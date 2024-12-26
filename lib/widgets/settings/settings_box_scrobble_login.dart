@@ -10,23 +10,33 @@ import '../../providers/scrobble.dart';
 
 import 'settings_box_base.dart';
 
-class SettingsBoxScrobbleLogin extends SettingsBoxBase {
+class SettingsBoxScrobbleLogin extends StatefulWidget {
   const SettingsBoxScrobbleLogin({
     super.key,
-    required super.title,
-    required super.subtitle,
+    required this.title,
+    required this.subtitle,
     required this.serviceId,
   });
+
+  final String title;
+  final String subtitle;
 
   final String serviceId;
 
   @override
+  State<SettingsBoxScrobbleLogin> createState() =>
+      _SettingsBoxScrobbleLoginState();
+}
+
+class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
+  final _menuController = FlyoutController();
+
   Widget buildExpanderContent(BuildContext context) {
     final s = S.of(context);
     final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
 
     final serviceStatus = scrobbleProvider.serviceStatuses
-        .firstWhereOrNull((status) => status.serviceId == serviceId);
+        .firstWhereOrNull((status) => status.serviceId == widget.serviceId);
 
     bool isLoggedIn = serviceStatus != null && serviceStatus.isAvailable;
     bool hasError = serviceStatus != null && serviceStatus.error.isNotEmpty;
@@ -46,8 +56,8 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
                   ),
                   Button(
                     child: Text(s.edit),
-                    onPressed: () =>
-                        showScrobbleLoginDialog(context, serviceId, title),
+                    onPressed: () => showScrobbleLoginDialog(
+                        context, widget.serviceId, widget.title),
                   ),
                 ]
               : [
@@ -59,36 +69,39 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
           : [
               Button(
                 child: Text(s.login),
-                onPressed: () =>
-                    showScrobbleLoginDialog(context, serviceId, title),
+                onPressed: () => showScrobbleLoginDialog(
+                    context, widget.serviceId, widget.title),
               )
             ],
     );
   }
 
-  @override
   Widget buildDefaultContent(BuildContext context) {
     final s = S.of(context);
     final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
 
     final serviceStatus = scrobbleProvider.serviceStatuses
-        .firstWhereOrNull((status) => status.serviceId == serviceId);
+        .firstWhereOrNull((status) => status.serviceId == widget.serviceId);
 
     bool isLoggedIn = serviceStatus != null && serviceStatus.isAvailable;
     bool hasError = serviceStatus != null && serviceStatus.error.isNotEmpty;
 
-    return Button(
-      onPressed: isLoggedIn
-          ? () => _showLogoutConfirmation(context)
-          : () {
-              if (hasError) {
-                _showErrorOptionsMenu(context);
-              } else {
-                showScrobbleLoginDialog(context, serviceId, title);
-              }
-            },
-      child: Text(
-        isLoggedIn ? s.logout : (hasError ? s.fix : s.login),
+    return FlyoutTarget(
+      controller: _menuController,
+      child: Button(
+        onPressed: isLoggedIn
+            ? () => _showLogoutConfirmation(context)
+            : () {
+                if (hasError) {
+                  _showErrorOptionsMenu(context);
+                } else {
+                  showScrobbleLoginDialog(
+                      context, widget.serviceId, widget.title);
+                }
+              },
+        child: Text(
+          isLoggedIn ? s.logout : (hasError ? s.fix : s.login),
+        ),
       ),
     );
   }
@@ -98,7 +111,7 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
     final scrobbleProvider = Provider.of<ScrobbleProvider>(context);
 
     try {
-      await scrobbleProvider.retryLogin(serviceId);
+      await scrobbleProvider.retryLogin(widget.serviceId);
     } catch (e) {
       if (!context.mounted) return;
       showErrorDialog(
@@ -120,16 +133,22 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
       if (confirmed == true) {
         if (!context.mounted) return;
 
-        Provider.of<ScrobbleProvider>(context, listen: false).logout(serviceId);
+        Provider.of<ScrobbleProvider>(context, listen: false)
+            .logout(widget.serviceId);
       }
     });
   }
 
+  @override
+  dispose() {
+    _menuController.dispose();
+    super.dispose();
+  }
+
   void _showErrorOptionsMenu(BuildContext context) {
     final s = S.of(context);
-    final menuController = FlyoutController();
 
-    menuController.showFlyout(
+    _menuController.showFlyout(
       builder: (context) {
         return MenuFlyout(
           items: [
@@ -151,12 +170,23 @@ class SettingsBoxScrobbleLogin extends SettingsBoxBase {
               text: Text(s.edit),
               onPressed: () {
                 Navigator.pop(context);
-                showScrobbleLoginDialog(context, serviceId, title);
+                showScrobbleLoginDialog(
+                    context, widget.serviceId, widget.title);
               },
             ),
           ],
         );
       },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SettingsBoxBase(
+      title: widget.title,
+      subtitle: widget.subtitle,
+      buildExpanderContent: buildExpanderContent,
+      buildDefaultContent: buildDefaultContent,
     );
   }
 }
