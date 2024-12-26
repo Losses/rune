@@ -1022,5 +1022,9 @@
   "logout": "Logout",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Item in the content context menu."
   }
 }

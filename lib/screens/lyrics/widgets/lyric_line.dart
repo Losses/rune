@@ -1,8 +1,12 @@
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:clipboard/clipboard.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/l10n.dart';
 import '../../../utils/api/seek_absolute.dart';
+import '../../../widgets/context_menu_wrapper.dart';
 import '../../../messages/all.dart';
 
 import 'lyric_section.dart';
@@ -36,6 +40,9 @@ class _LyricLineState extends State<LyricLine>
   double _targetBlur = 0.0;
   double _targetOpacity = 1.0;
   bool _isHovered = false;
+
+  final contextController = FlyoutController();
+  final contextAttachKey = GlobalKey();
 
   @override
   void initState() {
@@ -110,6 +117,40 @@ class _LyricLineState extends State<LyricLine>
     return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
   }
 
+  void _openLyricContextMenu(
+    Offset localPosition,
+  ) async {
+    if (!context.mounted) return;
+    final targetContext = contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    final s = S.of(context);
+
+    contextController.showFlyout(
+      position: position,
+      builder: (_) {
+        return MenuFlyout(
+          items: [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.content_copy),
+              text: Text(s.copy),
+              onPressed: () {
+                FlutterClipboard.copy(
+                    widget.sections.map((s) => s.content).join(''));
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -136,50 +177,56 @@ class _LyricLineState extends State<LyricLine>
         }
       },
       child: GestureDetector(
-        onTap: () {
-          seekAbsolute(widget.sections.first.startTime);
-        },
-        child: AnimatedBuilder(
-          animation: Listenable.merge([_blurAnimation, _opacityAnimation]),
-          builder: (context, child) {
-            return Opacity(
-              opacity: _opacityAnimation.value,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(
-                  sigmaX: _blurAnimation.value,
-                  sigmaY: _blurAnimation.value,
-                ),
-                child: child,
-              ),
-            );
+          onTap: () {
+            seekAbsolute(widget.sections.first.startTime);
           },
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
-            child: widget.isStatic
-                ? Wrap(
-                    children: widget.sections.indexed.map((section) {
-                      return SimpleLyricSection(
-                        key: ValueKey(section.$1),
-                        section: section.$2,
-                        isPassed: widget.isPassed,
-                      );
-                    }).toList(),
-                  )
-                : Wrap(
-                    children: widget.sections.indexed.map((section) {
-                      return LyricSection(
-                        key: ValueKey(section.$1),
-                        section: section.$2,
-                        currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                        isActive: widget.isActive,
-                        isPassed: widget.isPassed,
-                      );
-                    }).toList(),
-                  ),
-          ),
-        ),
-      ),
+          child: ContextMenuWrapper(
+              onContextMenu: _openLyricContextMenu,
+              onMiddleClick: (_) => {},
+              contextAttachKey: contextAttachKey,
+              contextController: contextController,
+              child: AnimatedBuilder(
+                animation:
+                    Listenable.merge([_blurAnimation, _opacityAnimation]),
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _opacityAnimation.value,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(
+                        sigmaX: _blurAnimation.value,
+                        sigmaY: _blurAnimation.value,
+                      ),
+                      child: child,
+                    ),
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10.0, horizontal: 16.0),
+                  child: widget.isStatic
+                      ? Wrap(
+                          children: widget.sections.indexed.map((section) {
+                            return SimpleLyricSection(
+                              key: ValueKey(section.$1),
+                              section: section.$2,
+                              isPassed: widget.isPassed,
+                            );
+                          }).toList(),
+                        )
+                      : Wrap(
+                          children: widget.sections.indexed.map((section) {
+                            return LyricSection(
+                              key: ValueKey(section.$1),
+                              section: section.$2,
+                              currentTimeMilliseconds:
+                                  widget.currentTimeMilliseconds,
+                              isActive: widget.isActive,
+                              isPassed: widget.isPassed,
+                            );
+                          }).toList(),
+                        ),
+                ),
+              ))),
     );
   }
 }
