@@ -30,7 +30,9 @@ class ScrobbleLoginForm extends StatelessWidget {
         InfoLabel(
           label: serviceName == 'ListenBrainz' ? s.userToken : s.password,
           child: TextBox(
-              controller: controller.passwordController, obscureText: true),
+            controller: controller.passwordController,
+            obscureText: true,
+          ),
         ),
         if (serviceName == 'LastFm') ...[
           const SizedBox(height: 16),
