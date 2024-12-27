@@ -26,14 +26,14 @@ pub struct Sampler {
     target_sample_rate: u32, // Target sample rate
 
     // Processing state
-    current_sample_index: usize, // Current index of the sample being processed
+    current_sample_index: usize,     // Current index of the sample being processed
     current_sample_buffer: Vec<f32>, // Buffer for storing current samples
-    samples_per_chunk: usize,    // Number of samples per chunk
-    overlap: usize,              // Overlap between chunks
+    samples_per_chunk: usize,        // Number of samples per chunk
+    overlap: usize,                  // Overlap between chunks
 
     // Cancellation flag
-    fn_is_cancelled: Box<dyn Fn() -> bool>, // Function to check if the process is cancelled
-    is_cancelled: bool,                     // Cancellation status
+    fn_is_cancelled: Box<dyn Fn() -> bool + Send>, // Function to check if the process is cancelled
+    is_cancelled: bool,                            // Cancellation status
 }
 
 impl Sampler {
