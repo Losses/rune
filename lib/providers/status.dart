@@ -18,19 +18,19 @@ class PlaybackStatusProvider with ChangeNotifier {
   PlaybackStatus get playbackStatus => _playbackStatus;
   PlayingItem? get playingItem => _playingItem;
 
-  late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
+  late StreamSubscription<RustSignal<PlaybackStatus>> statusSubscription;
 
   bool _hasPendingNotification = false;
 
   PlaybackStatusProvider() {
-    subscription =
+    statusSubscription =
         PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
   }
 
   @override
   void dispose() {
     super.dispose();
-    subscription.cancel();
+    statusSubscription.cancel();
   }
 
   void _scheduleNotification() {
@@ -50,7 +50,7 @@ class PlaybackStatusProvider with ChangeNotifier {
 
       _playbackStatus.state = newStatus.state;
 
-      if (newStatus.state != "Stopped") {
+      if (newStatus.state != "Stopped" || _playbackStatus.libPath != newStatus.libPath) {
         _playbackStatus.progressSeconds = newStatus.progressSeconds;
         _playbackStatus.progressPercentage = newStatus.progressPercentage;
         _playbackStatus.artist = newStatus.artist;
@@ -62,6 +62,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         _playbackStatus.playbackMode = newStatus.playbackMode;
         _playbackStatus.ready = newStatus.ready;
         _playbackStatus.coverArtPath = newStatus.coverArtPath;
+        _playbackStatus.libPath = newStatus.libPath;
         final newPlayingItem = newStatus.item.isEmpty
             ? null
             : PlayingItem.fromString(newStatus.item);

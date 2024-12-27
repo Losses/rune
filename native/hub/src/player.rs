@@ -51,6 +51,7 @@ pub fn metadata_summary_to_scrobbling_track(
 }
 
 pub async fn initialize_player(
+    lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
@@ -198,6 +199,7 @@ pub async fn initialize_player(
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
                 cover_art_path: cached_cover_art.clone().unwrap_or_default(),
+                lib_path: lib_path.as_str().to_string(),
             };
 
             if let Err(e) =

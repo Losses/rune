@@ -17,6 +17,7 @@ message PlaybackStatus {
   uint32 playback_mode = 10;
   bool ready = 11;
   string cover_art_path = 12;
+  string lib_path = 13;
 }
 
 // [DART-SIGNAL]
