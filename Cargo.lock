@@ -5436,6 +5436,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tag_editor"
+version = "0.1.0"
+dependencies = [
+ "analysis",
+ "anyhow",
+ "log",
+ "rubato",
+ "rustfft",
+ "symphonia",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

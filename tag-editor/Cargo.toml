@@ -1,0 +1,19 @@
+[package]
+name = "tag_editor"
+version = "0.1.0"
+edition = "2021"
+
+
+[lib]
+name = "tag_editor"
+path = "src/lib.rs"
+
+[dependencies]
+analysis = { path = "../analysis" }
+anyhow = {version="1.0.86",  features = ["backtrace"] }
+log = "0.4.22"
+rubato = "0.16.1"
+rustfft = "6.2.0"
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
+tokio-util = "0.7.11"
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
