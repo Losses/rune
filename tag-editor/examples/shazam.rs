@@ -10,7 +10,7 @@ fn main() -> Result<()> {
     // Set up CLI arguments
     let matches = Command::new("Spectrogram CLI")
         .version("1.0")
-        .author("Your Name")
+        .author("Rune Developers")
         .about("Processes audio files and outputs spectrograms")
         .arg(
             Arg::new("INPUT")
@@ -49,7 +49,7 @@ fn main() -> Result<()> {
     for event in receiver.iter() {
         // Initialize SpectrogramProcessor
         let mut spectrogram_processor = SpectrogramProgessor::new(5000.0);
-        let _spectrogram = spectrogram_processor.process_sample_event(event)?;
+        let _spectrogram = spectrogram_processor.pipe_sample_event(event)?;
         // Extract peaks or output spectrogram
         let audio_duration = sample_duration * sample_count as f64;
         let peaks = spectrogram_processor.extract_peaks(audio_duration);
