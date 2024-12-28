@@ -15,7 +15,7 @@ pub struct Peak {
 
 #[derive(Debug)]
 pub struct PeakList {
-    peaks: Vec<Peak>,
+    pub peaks: Vec<Peak>,
 }
 
 impl PeakList {

@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     // Set parameters
     let sample_rate = 16000;
-    let sample_count = 4;
+    let sample_count = 3;
     let sample_duration = 10.0;
 
     // Create a cancellation token (if needed)
@@ -49,9 +49,9 @@ fn main() -> Result<()> {
     for event in receiver.iter() {
         // Initialize SpectrogramProcessor
         let mut spectrogram_processor = SpectrogramProgessor::new(5000.0);
-        let _spectrogram = spectrogram_processor.pipe_sample_event(event)?;
+        let audio_duration = event.duration;
+        spectrogram_processor.pipe_sample_event(event)?;
         // Extract peaks or output spectrogram
-        let audio_duration = sample_duration * sample_count as f64;
         let peaks = spectrogram_processor.extract_peaks(audio_duration);
         println!("{}", peaks);
     }

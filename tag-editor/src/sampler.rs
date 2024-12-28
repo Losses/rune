@@ -18,6 +18,7 @@ pub struct SampleEvent {
     pub total_samples: usize, // Total number of samples
     pub data: Vec<f32>,       // Sample data
     pub sample_rate: u32,     // Sample rate
+    pub duration: f64,
 }
 
 pub struct Sampler {
@@ -126,6 +127,7 @@ impl Sampler {
             total_samples: self.sample_count,
             data: output_buffer[0].clone(),
             sample_rate: self.target_sample_rate,
+            duration: self.sample_duration,
         })?;
 
         self.current_sample_index += 1;
