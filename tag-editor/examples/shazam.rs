@@ -56,8 +56,8 @@ async fn main() -> Result<()> {
         let signature: Signature = compute_signature(event.sample_rate.try_into()?, &event.data);
         println!("{}", signature);
 
-        let identified_result = identify(signature).await;
-        println!("{:?}", identified_result);
+        // let identified_result = identify(signature).await;
+        // println!("{:?}", identified_result);
     }
 
     Ok(())

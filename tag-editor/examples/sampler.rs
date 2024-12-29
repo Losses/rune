@@ -33,7 +33,7 @@ fn main() -> Result<()> {
     let output_file_base = matches.get_one::<String>("OUTPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 16000;
+    let sample_rate = 11025;
     let sample_count = 4;
     let sample_duration = 10.0;
 
