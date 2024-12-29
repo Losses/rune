@@ -1,6 +1,8 @@
 use rustfft::{num_complex::Complex, FftPlanner};
 use std::{cmp, fmt};
 
+use super::hanning::HANNING_MULTIPLIERS;
+
 // Time offsets for peak detection
 const TIME_OFFSETS: [i32; 14] = [
     -53, -45, 165, 172, 179, 186, 193, 200, 214, 221, 228, 235, 242, 249,
@@ -131,10 +133,6 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
     let mut peaks_by_band: [Vec<FrequencyPeak>; 5] = Default::default();
 
     // Hanning window multipliers
-    let hanning: Vec<f64> = (0..2048)
-        .map(|i| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / 2048.0).cos()))
-        .collect();
-
     for i in 0..(samples.len() - 128) / 128 {
         let start = i * 128;
         let end = cmp::min(start + 128, samples.len());
@@ -146,7 +144,10 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
 
         // Apply Hanning window and prepare complex input
         for (j, &sample) in temp.iter().enumerate() {
-            reordered_samples[j] = Complex::new((sample * 1024.0 * 64.0).round() * hanning[j], 0.0);
+            reordered_samples[j] = Complex::new(
+                (sample * 1024.0 * 64.0).round() * HANNING_MULTIPLIERS[j],
+                0.0,
+            );
         }
 
         // Perform FFT

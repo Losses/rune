@@ -11,4 +11,5 @@
 
 pub mod api;
 pub mod signature;
+pub mod hanning;
 pub mod spectrogram;
