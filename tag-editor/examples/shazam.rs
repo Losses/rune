@@ -6,12 +6,13 @@ use tokio_util::sync::CancellationToken;
 use tag_editor::{
     sampler::Sampler,
     shazam::{
-        signature::Signature,
-        spectrogram::{SpectralPeaks, SpectrogramProcessor},
+        api::identify,
+        spectrogram::{compute_signature, Signature},
     },
 };
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Set up CLI arguments
     let matches = Command::new("Spectrogram CLI")
         .version("1.0")
@@ -29,7 +30,7 @@ fn main() -> Result<()> {
     let input_file = matches.get_one::<String>("INPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 16000;
+    let sample_rate = 11025;
     let sample_count = 4;
     let sample_duration = 10.0;
 
@@ -52,20 +53,11 @@ fn main() -> Result<()> {
 
     // Collect and process sample events
     for event in receiver.iter() {
-        // Initialize SpectrogramProcessor
-        let mut spectrogram_processor = SpectrogramProcessor::new(11025.0);
-        spectrogram_processor.process_samples(&event.data)?;
-        // Extract peaks or output spectrogram
-        let peaks: SpectralPeaks = spectrogram_processor.extract_peaks();
-        println!("{}", peaks);
-        let signature: Signature = peaks.into();
-        let encoded_data = signature.encode();
+        let signature: Signature = compute_signature(event.sample_rate.try_into()?, &event.data);
+        println!("{}", signature);
 
-        println!("Encoded signature lengtrh: {:?}", encoded_data.len());
-
-        // let identified_result = identify(peaks).await;
-
-        // println!("{:?}", identified_result);
+        let identified_result = identify(signature).await;
+        println!("{:?}", identified_result);
     }
 
     Ok(())

@@ -6,8 +6,7 @@ use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::signature::Signature;
-use super::spectrogram::SpectralPeaks;
+use super::spectrogram::Signature;
 
 #[derive(Serialize, Debug)]
 struct IdentifyRequest<'a> {
@@ -34,7 +33,7 @@ struct SignatureRequest<'a> {
 #[derive(Deserialize, Debug)]
 struct IdentifyResponse {
     matches: Vec<Match>,
-    track: Track,
+    track: Option<Track>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -75,9 +74,8 @@ pub struct Action {
     pub id: Option<String>,
 }
 
-pub async fn identify(peaks: SpectralPeaks) -> Result<(Vec<Match>, Track)> {
-    let sample_rate: i32 = peaks.sample_rate;
-    let signature: Signature = peaks.into();
+pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>)> {
+    let sample_rate: i32 = signature.sample_rate;
     let signature_data = signature.encode();
 
     let encoded_signature = general_purpose::STANDARD.encode(&signature_data);

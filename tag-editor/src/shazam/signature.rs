@@ -3,21 +3,7 @@ use std::io::Cursor;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crc32fast::hash;
 
-use super::spectrogram::SpectralPeaks;
-
-#[derive(Debug, Clone)]
-pub struct FrequencyPeak {
-    pub pass: i32,
-    pub magnitude: i32,
-    pub bin: i32,
-}
-
-#[derive(Debug)]
-pub struct Signature {
-    sample_rate: i32,
-    num_samples: i32,
-    peaks_by_band: [Vec<FrequencyPeak>; 5],
-}
+use super::spectrogram::{FrequencyPeak, Signature};
 
 fn convert_sample_rate(x: i32) -> i32 {
     match x {
@@ -246,15 +232,5 @@ impl Signature {
             num_samples,
             peaks_by_band,
         })
-    }
-}
-
-impl From<SpectralPeaks> for Signature {
-    fn from(peaks: SpectralPeaks) -> Self {
-        Signature::new(
-            peaks.sample_rate,
-            peaks.num_samples,
-            peaks.peaks_by_band,
-        )
     }
 }

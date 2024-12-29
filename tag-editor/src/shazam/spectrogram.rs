@@ -1,13 +1,5 @@
-use anyhow::Result;
-use rustfft::{num_complex::Complex, num_traits::Float, FftPlanner};
-use std::{f64::consts::PI, fmt};
-
-use super::signature::FrequencyPeak;
-
-// Constants for FFT processing
-const FREQ_BIN_SIZE: usize = 2048; // Size of the frequency bin for FFT
-const HOP_SIZE: usize = 128;       // Number of samples to process per step
-const SAMPLE_OVERLAP: usize = 45;  // Overlap between sample windows
+use rustfft::{num_complex::Complex, FftPlanner};
+use std::{cmp, fmt};
 
 // Time offsets for peak detection
 const TIME_OFFSETS: [i32; 14] = [
@@ -17,19 +9,23 @@ const TIME_OFFSETS: [i32; 14] = [
 // Neighbor offsets for frequency peak detection
 const NEIGHBORS: [i32; 8] = [-10, -7, -4, -3, 1, 2, 5, 8];
 
-// Spread offsets for temporal smoothing
-const SPREAD_OFFSETS: [i32; 3] = [-2, -4, -7];
-
 #[derive(Debug)]
-pub struct SpectralPeaks {
-    pub sample_rate: i32,                       // Sample rate of the audio
-    pub num_samples: i32,                       // Total number of samples processed
-    pub peaks_by_band: [Vec<FrequencyPeak>; 5], // Detected peaks grouped by frequency band
+pub struct FrequencyPeak {
+    pub pass: i32,
+    pub magnitude: i32,
+    pub bin: i32,
 }
 
-impl fmt::Display for SpectralPeaks {
+#[derive(Debug)]
+pub struct Signature {
+    pub sample_rate: i32,
+    pub num_samples: i32,
+    pub peaks_by_band: [Vec<FrequencyPeak>; 5],
+}
+
+impl fmt::Display for Signature {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Spectral Peaks:")?;
+        writeln!(f, "Signature:")?;
         writeln!(f, "= Sample Rate: {} Hz", self.sample_rate)?;
         writeln!(f, "= Total Samples: {}", self.num_samples)?;
 
@@ -42,244 +38,174 @@ impl fmt::Display for SpectralPeaks {
     }
 }
 
-// A circular buffer to store data with a fixed size
-struct Ring<T> {
-    buf: Vec<T>,  // Buffer to hold data
-    index: usize, // Current index for insertion
+// Define a new type for the array
+#[derive(Clone)]
+struct F64Array1025([f64; 1025]);
+
+impl Default for F64Array1025 {
+    fn default() -> Self {
+        F64Array1025([0.0; 1025])
+    }
+}
+
+struct Ring<T: Clone + Default> {
+    buf: Vec<T>,
+    index: usize,
 }
 
 impl<T: Clone + Default> Ring<T> {
     fn new(size: usize) -> Self {
-        Self {
+        Ring {
             buf: vec![T::default(); size],
             index: 0,
         }
     }
 
-    // Calculate the correct index in the circular buffer
     fn mod_index(&self, i: i32) -> usize {
-        let size = self.buf.len() as i32;
-        let mut idx = self.index as i32 + i;
+        let len = self.buf.len() as i32;
+        let mut idx = i;
         while idx < 0 {
-            idx += size;
+            idx += len;
         }
-        (idx % size) as usize
+        (idx as usize) % self.buf.len()
     }
 
-    // Retrieve an item from the buffer at a given offset
-    fn at(&self, offset: i32) -> &T {
-        &self.buf[self.mod_index(offset)]
+    fn at(&self, i: i32) -> &T {
+        let idx = self.mod_index(self.index as i32 + i);
+        &self.buf[idx]
     }
 
-    // Append values to the buffer, overwriting old data as needed
     fn append(&mut self, values: &[T]) {
-        for value in values {
-            self.buf[self.index] = value.clone();
+        for x in values {
+            self.buf[self.index] = x.clone();
             self.index = (self.index + 1) % self.buf.len();
         }
     }
-}
 
-pub struct SpectrogramProcessor {
-    samples_ring: Ring<f64>,        // Circular buffer for storing samples
-    fft_outputs: Ring<Vec<f64>>,    // Circular buffer for FFT outputs
-    spread_outputs: Ring<Vec<f64>>, // Circular buffer for spread outputs
-    window: Vec<f64>,               // Hanning window for FFT
-    fft_planner: FftPlanner<f64>,   // FFT planner for executing FFT
-    sample_rate: f64,               // Sample rate of the audio
-    total_samples: usize,           // Total number of samples processed
-}
-
-impl Default for SpectrogramProcessor {
-    fn default() -> Self {
-        Self::new(44100.0) // Default sample rate
-    }
-}
-
-impl SpectrogramProcessor {
-    pub fn new(sample_rate: f64) -> Self {
-        Self {
-            samples_ring: Ring::new(FREQ_BIN_SIZE),
-            fft_outputs: Ring::new(256),
-            spread_outputs: Ring::new(256),
-            window: Self::generate_hanning_window(),
-            fft_planner: FftPlanner::new(),
-            sample_rate,
-            total_samples: 0,
+    fn slice(&self, offset: i32, dest: &mut [T]) {
+        let mut curr_offset = self.mod_index(offset + self.index as i32);
+        for item in dest.iter_mut() {
+            *item = self.buf[curr_offset].clone();
+            curr_offset = (curr_offset + 1) % self.buf.len();
         }
     }
+}
 
-    // Generate a Hanning window for smoothing the FFT input
-    fn generate_hanning_window() -> Vec<f64> {
-        (0..FREQ_BIN_SIZE)
-            .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f64 / (FREQ_BIN_SIZE as f64 - 1.0)).cos())
-            .collect()
-    }
+pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
+    let max_neighbor = |spread_outputs: &Ring<F64Array1025>, i: usize| {
+        let mut neighbor = 0.0f64;
+        for &off in NEIGHBORS.iter() {
+            let idx = i as isize + off as isize;
+            if (0..1025).contains(&idx) {
+                neighbor = neighbor.max(spread_outputs.at(-49).0[idx as usize]);
+            }
+        }
+        for &off in TIME_OFFSETS.iter() {
+            let idx = i as isize - 1;
+            if (0..1025).contains(&idx) {
+                neighbor = neighbor.max(spread_outputs.at(off).0[idx as usize]);
+            }
+        }
+        neighbor
+    };
 
-    // Normalize the peak value for better readability
-    fn normalize_peak(x: f64) -> f64 {
-        x.max(1.0 / 64.0).ln() * 1477.3 + 6144.0
-    }
+    let normalize_peak = |x: f64| (x.max(1.0 / 64.0)).ln() * 1477.3 + 6144.0;
 
-    // Determine the frequency band for a given frequency bin
-    fn get_peak_band(bin: i32, sample_rate: f64) -> Option<usize> {
-        let hz = (bin as f64 * sample_rate) / (2.0 * 1024.0 * 64.0);
-
+    let peak_band = |bin: i32| -> Option<usize> {
+        let hz = (bin * sample_rate) / (2 * 1024 * 64);
         match hz {
-            hz if (250.0..520.0).contains(&hz) => Some(0),
-            hz if (520.0..1450.0).contains(&hz) => Some(1),
-            hz if (1450.0..3500.0).contains(&hz) => Some(2),
-            hz if (3500.0..=5500.0).contains(&hz) => Some(3),
+            hz if (250..520).contains(&hz) => Some(0),
+            hz if (520..1450).contains(&hz) => Some(1),
+            hz if (1450..3500).contains(&hz) => Some(2),
+            hz if (3500..=5500).contains(&hz) => Some(3),
             _ => None,
         }
+    };
+
+    let mut planner = FftPlanner::new();
+    let fft = planner.plan_fft_forward(2048);
+
+    let mut samples_ring = Ring::<f64>::new(2048);
+    let mut fft_outputs = Ring::<F64Array1025>::new(256);
+    let mut spread_outputs = Ring::<F64Array1025>::new(256);
+    let mut peaks_by_band: [Vec<FrequencyPeak>; 5] = Default::default();
+
+    // Hanning window multipliers
+    let hanning: Vec<f64> = (0..2048)
+        .map(|i| 0.5 * (1.0 - (2.0 * std::f64::consts::PI * i as f64 / 2048.0).cos()))
+        .collect();
+
+    for i in 0..(samples.len() - 128) / 128 {
+        let start = i * 128;
+        let end = cmp::min(start + 128, samples.len());
+        samples_ring.append(&samples[start..end]);
+
+        let mut reordered_samples = vec![Complex::new(0.0f64, 0.0f64); 2048];
+        let mut temp = vec![0.0f64; 2048];
+        samples_ring.slice(0, &mut temp);
+
+        // Apply Hanning window and prepare complex input
+        for (j, &sample) in temp.iter().enumerate() {
+            reordered_samples[j] = Complex::new((sample * 1024.0 * 64.0).round() * hanning[j], 0.0);
+        }
+
+        // Perform FFT
+        fft.process(&mut reordered_samples);
+
+        let mut outputs = [0.0f64; 1025];
+        for j in 0..1025 {
+            outputs[j] = (reordered_samples[j].re * reordered_samples[j].re
+                + reordered_samples[j].im * reordered_samples[j].im)
+                / ((1 << 17) as f64).max(0.0000000001);
+        }
+        fft_outputs.append(&[F64Array1025(outputs)]);
+
+        // Spread peaks in frequency domain
+        let mut spread = outputs;
+        for j in 0..outputs.len() - 2 {
+            spread[j] = outputs[j..=j + 2].iter().fold(0.0f64, |a, &b| a.max(b));
+        }
+        spread_outputs.append(&[F64Array1025(spread)]);
+
+        // Spread in time domain
+        for &off in &[-2, -4, -7] {
+            let prev = spread_outputs.at(off);
+            for (output, &prev_val) in outputs.iter_mut().zip(prev.0.iter()) {
+                *output = output.max(prev_val);
+            }
+        }
+
+        // Skip until we have enough samples
+        if i < 45 {
+            continue;
+        }
+
+        // Recognize peaks
+        let fft_output = fft_outputs.at(-46);
+        for bin in 10..1015 {
+            if fft_output.0[bin] <= max_neighbor(&spread_outputs, bin) {
+                continue;
+            }
+
+            let before = normalize_peak(fft_output.0[bin - 1]);
+            let peak = normalize_peak(fft_output.0[bin]);
+            let after = normalize_peak(fft_output.0[bin + 1]);
+            let variation = ((32.0 * (after - before)) / (2.0 * peak - after - before)) as i32;
+            let peak_bin = bin as i32 * 64 + variation;
+
+            if let Some(band) = peak_band(peak_bin) {
+                peaks_by_band[band].push(FrequencyPeak {
+                    pass: i as i32 - 45,
+                    magnitude: peak as i32,
+                    bin: peak_bin,
+                });
+            }
+        }
     }
 
-    // Process incoming audio samples and perform FFT
-    pub fn process_samples(&mut self, samples: &[f64]) -> Result<()> {
-        for chunk in samples.chunks(HOP_SIZE) {
-            // Add samples to the ring buffer
-            for (i, &sample) in chunk.iter().enumerate() {
-                self.samples_ring.append(&[sample]);
-                if i >= HOP_SIZE {
-                    break;
-                }
-            }
-
-            // Perform FFT when enough samples are available
-            if self.total_samples >= FREQ_BIN_SIZE {
-                let mut fft_input: Vec<Complex<f64>> = (0..FREQ_BIN_SIZE)
-                    .map(|i| {
-                        let sample = self.samples_ring.at(-(FREQ_BIN_SIZE as i32) + i as i32);
-                        // Scale, round, and apply window function
-                        let scaled = (sample * 1024.0 * 64.0).round();
-                        Complex::new(scaled * self.window[i], 0.0)
-                    })
-                    .collect();
-
-                let fft = self.fft_planner.plan_fft_forward(FREQ_BIN_SIZE);
-                fft.process(&mut fft_input);
-
-                // Calculate magnitudes of FFT output
-                let magnitudes: Vec<f64> = fft_input[..1025]
-                    .iter()
-                    .map(|c| {
-                        let mag = (c.re * c.re + c.im * c.im) / (1 << 17) as f64;
-                        mag.max(0.0000000001)
-                    })
-                    .collect();
-
-                self.fft_outputs.append(&[magnitudes.clone()]);
-
-                // Perform frequency domain spreading
-                let mut spread = magnitudes.clone();
-                for i in 0..spread.len() - 2 {
-                    spread[i] = spread[i..=i + 2].iter().copied().fold(0.0, f64::max);
-                }
-
-                // Update spread outputs with temporal smoothing
-                self.spread_outputs.append(&[spread.clone()]);
-                if self.spread_outputs.buf.len() > 7 {
-                    for &offset in &SPREAD_OFFSETS {
-                        let prev_idx = self.spread_outputs.mod_index(offset);
-                        if let Some(prev_spread) = self.spread_outputs.buf.get(prev_idx) {
-                            if !prev_spread.is_empty() {
-                                let mut accumulated = spread.clone();
-                                for i in 0..accumulated.len().min(prev_spread.len()) {
-                                    accumulated[i] = accumulated[i].max(prev_spread[i]);
-                                }
-                                self.spread_outputs.buf[prev_idx] = accumulated;
-                            }
-                        }
-                    }
-                }
-            }
-
-            self.total_samples += chunk.len();
-        }
-
-        Ok(())
-    }
-
-    // Find the maximum value among neighboring frequencies at a given time index
-    fn find_max_neighbor(
-        &self,
-        spread_outputs: &Ring<Vec<f64>>,
-        time_idx: usize,
-        freq_idx: usize,
-    ) -> f64 {
-        let mut max_val = 0.0;
-
-        // Check frequency neighbors at time t-49
-        if let Some(spread_t49) = spread_outputs.at(-49).get(0..) {
-            for &offset in &NEIGHBORS {
-                let neighbor_idx = freq_idx as i32 + offset;
-                if (0..1025).contains(&neighbor_idx) {
-                    if let Some(&val) = spread_t49.get(neighbor_idx as usize) {
-                        max_val = max_val.max(val);
-                    }
-                }
-            }
-        }
-
-        // Check neighboring frequencies at different time offsets
-        for &t_offset in &TIME_OFFSETS {
-            let t = time_idx as i32 + t_offset;
-            if t >= 0 && freq_idx > 0 {
-                if let Some(spread) = spread_outputs.at(t_offset).get(0..) {
-                    if let Some(&val) = spread.get(freq_idx - 1) {
-                        max_val = max_val.max(val);
-                    }
-                }
-            }
-        }
-
-        max_val
-    }
-
-    // Extract frequency peaks from the processed data
-    pub fn extract_peaks(&self) -> SpectralPeaks {
-        let mut peaks_by_band = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
-
-        if self.fft_outputs.buf.len() <= SAMPLE_OVERLAP {
-            return SpectralPeaks {
-                sample_rate: self.sample_rate as i32,
-                num_samples: self.total_samples as i32,
-                peaks_by_band,
-            };
-        }
-
-        for i in SAMPLE_OVERLAP..self.fft_outputs.buf.len() {
-            let fft_output = &self.fft_outputs.at(-(i as i32));
-
-            for bin in 10..1015 {
-                // Skip if the current bin is not a local maximum
-                if fft_output[bin] <= self.find_max_neighbor(&self.spread_outputs, i, bin) {
-                    continue;
-                }
-
-                // Normalize peak values and calculate variation
-                let before = Self::normalize_peak(fft_output[bin - 1]);
-                let peak = Self::normalize_peak(fft_output[bin]);
-                let after = Self::normalize_peak(fft_output[bin + 1]);
-
-                let variation = ((32.0 * (after - before)) / (2.0 * peak - after - before)) as i32;
-                let peak_bin = bin as i32 * 64 + variation;
-
-                // Assign peak to the appropriate frequency band
-                if let Some(band) = Self::get_peak_band(peak_bin, self.sample_rate) {
-                    peaks_by_band[band].push(FrequencyPeak {
-                        pass: (i - SAMPLE_OVERLAP) as i32,
-                        magnitude: peak as i32,
-                        bin: peak_bin,
-                    });
-                }
-            }
-        }
-
-        SpectralPeaks {
-            sample_rate: self.sample_rate as i32,
-            num_samples: self.total_samples as i32,
-            peaks_by_band,
-        }
+    Signature {
+        sample_rate,
+        num_samples: samples.len() as i32,
+        peaks_by_band,
     }
 }
