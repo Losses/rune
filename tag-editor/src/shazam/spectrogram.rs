@@ -1,161 +1,268 @@
-use super::filter::LowPassFilter;
-use crate::sampler::SampleEvent;
 use anyhow::Result;
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{num_complex::Complex, num_traits::Float, FftPlanner};
 use std::{f64::consts::PI, fmt};
 
-const FREQ_BIN_SIZE: usize = 1024;
-const HOP_SIZE: usize = FREQ_BIN_SIZE / 32;
+use super::signature::FrequencyPeak;
+
+const FREQ_BIN_SIZE: usize = 2048;
+const HOP_SIZE: usize = 128;
+const SAMPLE_OVERLAP: usize = 45;
+
+const TIME_OFFSETS: [i32; 14] = [
+    -53, -45, 165, 172, 179, 186, 193, 200, 214, 221, 228, 235, 242, 249,
+];
+
+const NEIGHBORS: [i32; 8] = [-10, -7, -4, -3, 1, 2, 5, 8];
+
+const SPREAD_OFFSETS: [i32; 3] = [-2, -4, -7];
 
 #[derive(Debug)]
-pub struct Peak {
-    pub time: f64,
-    pub freq: Complex<f64>,
+pub struct SpectralPeaks {
+    pub sample_rate: i32,
+    pub num_samples: i32,
+    pub peaks_by_band: [Vec<FrequencyPeak>; 5],
 }
 
-#[derive(Debug)]
-pub struct PeakList {
-    pub peaks: Vec<Peak>,
-}
-
-impl PeakList {
-    pub fn new(peaks: Vec<Peak>) -> Self {
-        Self { peaks }
-    }
-}
-
-impl fmt::Display for PeakList {
+impl fmt::Display for SpectralPeaks {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "Peaks:")?;
-        for peak in &self.peaks {
-            writeln!(
-                f,
-                "t: {:.2}s, Freq: {:.2} + {:.2}i",
-                peak.time, peak.freq.re, peak.freq.im
-            )?;
+        writeln!(f, "Spectral Peaks:")?;
+        writeln!(f, "= Sample Rate: {} Hz", self.sample_rate)?;
+        writeln!(f, "= Total Samples: {}", self.num_samples)?;
+
+        for (band_index, peaks) in self.peaks_by_band.iter().enumerate() {
+            writeln!(f, "= Band {}: {} peaks", band_index, peaks.len())?;
+            for peak in peaks {
+                writeln!(
+                    f,
+                    "== Pass: {}, Magnitude: {}, Bin: {}",
+                    peak.pass, peak.magnitude, peak.bin
+                )?;
+            }
         }
+
         Ok(())
     }
 }
 
-pub struct SpectrogramProgessor {
-    current_spectrogram: Vec<Vec<Complex<f64>>>,
-    window: Vec<f64>,
-    fft_planner: FftPlanner<f64>,
-    cutoff_freq: f64,
-    accumulated_samples: Vec<f64>,
+struct Ring<T> {
+    buf: Vec<T>,
+    index: usize,
 }
 
-impl Default for SpectrogramProgessor {
-    fn default() -> Self {
-        Self::new(5000.0)
-    }
-}
-
-const BANDS: &[(usize, usize)] = &[(0, 10), (10, 20), (20, 40), (40, 80), (80, 160), (160, 512)];
-
-impl SpectrogramProgessor {
-    pub fn new(cutoff_freq: f64) -> Self {
-        let window = Self::generate_hamming_window();
-
+impl<T: Clone + Default> Ring<T> {
+    fn new(size: usize) -> Self {
         Self {
-            current_spectrogram: Vec::new(),
-            window,
-            fft_planner: FftPlanner::new(),
-            cutoff_freq,
-            accumulated_samples: Vec::new(),
+            buf: vec![T::default(); size],
+            index: 0,
         }
     }
 
-    fn generate_hamming_window() -> Vec<f64> {
+    fn mod_index(&self, i: i32) -> usize {
+        let size = self.buf.len() as i32;
+        let mut idx = self.index as i32 + i;
+        while idx < 0 {
+            idx += size;
+        }
+        (idx % size) as usize
+    }
+
+    fn at(&self, offset: i32) -> &T {
+        &self.buf[self.mod_index(offset)]
+    }
+
+    fn at_mut(&mut self, offset: i32) -> &mut T {
+        let idx = self.mod_index(offset);
+        &mut self.buf[idx]
+    }
+
+    fn append(&mut self, values: &[T]) {
+        for value in values {
+            self.buf[self.index] = value.clone();
+            self.index = (self.index + 1) % self.buf.len();
+        }
+    }
+}
+
+pub struct SpectrogramProcessor {
+    samples_ring: Ring<f64>,
+    fft_outputs: Ring<Vec<f64>>,
+    spread_outputs: Ring<Vec<f64>>,
+    window: Vec<f64>,
+    fft_planner: FftPlanner<f64>,
+    sample_rate: f64,
+    total_samples: usize,
+}
+
+impl Default for SpectrogramProcessor {
+    fn default() -> Self {
+        Self::new(44100.0)
+    }
+}
+
+impl SpectrogramProcessor {
+    pub fn new(sample_rate: f64) -> Self {
+        Self {
+            samples_ring: Ring::new(FREQ_BIN_SIZE),
+            fft_outputs: Ring::new(256),
+            spread_outputs: Ring::new(256),
+            window: Self::generate_hanning_window(),
+            fft_planner: FftPlanner::new(),
+            sample_rate,
+            total_samples: 0,
+        }
+    }
+
+    fn generate_hanning_window() -> Vec<f64> {
         (0..FREQ_BIN_SIZE)
-            .map(|i| 0.54 - 0.46 * (2.0 * PI * i as f64 / (FREQ_BIN_SIZE as f64 - 1.0)).cos())
+            .map(|i| 0.5 - 0.5 * (2.0 * PI * i as f64 / (FREQ_BIN_SIZE as f64 - 1.0)).cos())
             .collect()
     }
 
-    pub fn pipe_sample_event(&mut self, event: SampleEvent) -> Result<()> {
-        let mut low_pass_filter = LowPassFilter::new(self.cutoff_freq, event.sample_rate.into());
-        let filtered_samples = low_pass_filter.filter_samples(&event.data);
+    fn normalize_peak(x: f64) -> f64 {
+        x.max(1.0 / 64.0).ln() * 1477.3 + 6144.0
+    }
 
-        // Convert samples to f64
-        let samples: Vec<f64> = filtered_samples.iter().map(|&x| x as f64).collect();
+    fn get_peak_band(bin: i32, sample_rate: f64) -> Option<usize> {
+        let hz = (bin as f64 * sample_rate) / (2.0 * 1024.0 * 64.0);
 
-        // Accumulate samples
-        self.accumulated_samples.extend(samples);
+        match hz {
+            hz if (250.0..520.0).contains(&hz) => Some(0),
+            hz if (520.0..1450.0).contains(&hz) => Some(1),
+            hz if (1450.0..3500.0).contains(&hz) => Some(2),
+            hz if (3500.0..=5500.0).contains(&hz) => Some(3),
+            _ => None,
+        }
+    }
 
-        // Process accumulated samples in overlapping windows
-        if self.accumulated_samples.len() >= FREQ_BIN_SIZE {
-            let num_windows = (self.accumulated_samples.len() - FREQ_BIN_SIZE) / HOP_SIZE + 1;
+    fn find_max_neighbor(
+        &self,
+        spread_outputs: &Ring<Vec<f64>>,
+        time_idx: usize,
+        freq_idx: usize,
+    ) -> f64 {
+        let mut max_val = 0.0;
 
-            for i in 0..num_windows {
-                let start = i * HOP_SIZE;
-                let mut buffer: Vec<Complex<f64>> = self.accumulated_samples
-                    [start..start + FREQ_BIN_SIZE]
-                    .iter()
-                    .zip(self.window.iter())
-                    .map(|(&sample, &window)| Complex::new(sample * window, 0.0))
+        // Check neighboring frequencies at t-49
+        for &offset in &NEIGHBORS {
+            let neighbor_idx = freq_idx as i32 + offset;
+            if (0..1025).contains(&neighbor_idx) {
+                max_val = max_val.max(spread_outputs.at(-49)[neighbor_idx as usize]);
+            }
+        }
+
+        // Check neighboring time frames
+        for &offset in &TIME_OFFSETS {
+            let t_idx = time_idx as i32 + offset;
+            if t_idx >= 0 && t_idx < spread_outputs.buf.len() as i32 && freq_idx > 0 {
+                max_val = max_val.max(spread_outputs.at(offset)[freq_idx - 1]);
+            }
+        }
+
+        max_val
+    }
+
+    pub fn process_samples(&mut self, samples: &[f64]) -> Result<()> {
+        for chunk in samples.chunks(HOP_SIZE) {
+            // Process each chunk of samples
+            for (i, &sample) in chunk.iter().enumerate() {
+                self.samples_ring.append(&[sample]);
+                if i >= HOP_SIZE {
+                    break;
+                }
+            }
+
+            // Perform FFT when we have enough samples
+            if self.total_samples >= FREQ_BIN_SIZE {
+                // Apply scaling and window function
+                let mut fft_input: Vec<Complex<f64>> = (0..FREQ_BIN_SIZE)
+                    .map(|i| {
+                        let sample = self.samples_ring.at(-(FREQ_BIN_SIZE as i32) + i as i32);
+                        let scaled = (sample * 1024.0 * 64.0).round();
+                        Complex::new(scaled * self.window[i], 0.0)
+                    })
                     .collect();
 
                 // Perform FFT
                 let fft = self.fft_planner.plan_fft_forward(FREQ_BIN_SIZE);
-                fft.process(&mut buffer);
+                fft.process(&mut fft_input);
 
-                // Add to spectrogram
-                self.current_spectrogram.push(buffer);
+                // Calculate magnitudes with minimum value protection
+                let magnitudes: Vec<f64> = fft_input[..1025]
+                    .iter()
+                    .map(|c| {
+                        let mag = (c.re * c.re + c.im * c.im) / (1 << 17) as f64;
+                        mag.max(0.0000000001)
+                    })
+                    .collect();
+
+                self.fft_outputs.append(&[magnitudes.clone()]);
+
+                // Frequency domain spreading
+                let mut spread = magnitudes.clone();
+                for i in 0..spread.len() - 2 {
+                    spread[i] = spread[i..=i + 2].iter().copied().fold(0.0, f64::max);
+                }
+                self.spread_outputs.append(&[spread.clone()]);
+
+                // Apply time domain spreading
+                if self.spread_outputs.buf.len() > 7 {
+                    for &offset in &SPREAD_OFFSETS {
+                        let spread_output = self.spread_outputs.at_mut(offset);
+                        for (i, &magnitude) in spread.iter().enumerate() {
+                            if i < spread_output.len() {
+                                spread_output[i] = spread_output[i].max(magnitude);
+                            }
+                        }
+                    }
+                }
             }
 
-            // Keep remaining samples
-            let keep_from = (num_windows - 1) * HOP_SIZE + FREQ_BIN_SIZE;
-            self.accumulated_samples = self.accumulated_samples[keep_from..].to_vec();
+            self.total_samples += chunk.len();
         }
 
         Ok(())
     }
 
-    pub fn extract_peaks(&self, audio_duration: f64) -> PeakList {
-        if self.current_spectrogram.is_empty() {
-            return PeakList::new(Vec::new());
+    pub fn extract_peaks(&self) -> SpectralPeaks {
+        let mut peaks_by_band = [Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+
+        if self.fft_outputs.buf.len() <= SAMPLE_OVERLAP {
+            return SpectralPeaks {
+                sample_rate: self.sample_rate as i32,
+                num_samples: self.total_samples as i32,
+                peaks_by_band,
+            };
         }
 
-        let bin_duration = audio_duration / self.current_spectrogram.len() as f64;
-        let mut peaks = Vec::new();
+        for i in SAMPLE_OVERLAP..self.fft_outputs.buf.len() {
+            let fft_output = &self.fft_outputs.at(-(i as i32));
 
-        for (bin_idx, bin) in self.current_spectrogram.iter().enumerate() {
-            let mut bin_peaks = Vec::new();
-
-            for &(min, max) in BANDS {
-                let mut max_mag = 0.0;
-                let mut max_freq = Complex::new(0.0, 0.0);
-                let mut max_freq_idx = min;
-
-                for (idx, &freq) in bin[min..max].iter().enumerate() {
-                    let magnitude = freq.norm();
-                    if magnitude > max_mag {
-                        max_mag = magnitude;
-                        max_freq = freq;
-                        max_freq_idx = min + idx;
-                    }
+            for bin in 10..1015 {
+                if fft_output[bin] <= self.find_max_neighbor(&self.spread_outputs, i, bin) {
+                    continue;
                 }
 
-                bin_peaks.push((max_mag, max_freq, max_freq_idx));
-            }
+                let before = Self::normalize_peak(fft_output[bin - 1]);
+                let peak = Self::normalize_peak(fft_output[bin]);
+                let after = Self::normalize_peak(fft_output[bin + 1]);
 
-            let avg_magnitude =
-                bin_peaks.iter().map(|&(mag, _, _)| mag).sum::<f64>() / bin_peaks.len() as f64;
+                let variation = ((32.0 * (after - before)) / (2.0 * peak - after - before)) as i32;
+                let peak_bin = bin as i32 * 64 + variation;
 
-            for (mag, freq, freq_idx) in bin_peaks {
-                if mag > avg_magnitude {
-                    let peak_time_in_bin = freq_idx as f64 * bin_duration / bin.len() as f64;
-                    let peak_time = bin_idx as f64 * bin_duration + peak_time_in_bin;
-
-                    peaks.push(Peak {
-                        time: peak_time,
-                        freq,
+                if let Some(band) = Self::get_peak_band(peak_bin, self.sample_rate) {
+                    peaks_by_band[band].push(FrequencyPeak {
+                        pass: (i - SAMPLE_OVERLAP) as i32,
+                        magnitude: peak as i32,
+                        bin: peak_bin,
                     });
                 }
             }
         }
 
-        PeakList::new(peaks)
+        SpectralPeaks {
+            sample_rate: self.sample_rate as i32,
+            num_samples: self.total_samples as i32,
+            peaks_by_band,
+        }
     }
 }

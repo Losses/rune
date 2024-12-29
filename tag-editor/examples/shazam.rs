@@ -3,8 +3,10 @@ use clap::{Arg, Command};
 use std::sync::mpsc::channel;
 use tokio_util::sync::CancellationToken;
 
-use tag_editor::sampler::Sampler;
-use tag_editor::shazam::spectrogram::SpectrogramProgessor;
+use tag_editor::{
+    sampler::Sampler,
+    shazam::{signature::Signature, spectrogram::SpectrogramProcessor},
+};
 
 fn main() -> Result<()> {
     // Set up CLI arguments
@@ -25,7 +27,7 @@ fn main() -> Result<()> {
 
     // Set parameters
     let sample_rate = 16000;
-    let sample_count = 3;
+    let sample_count = 4;
     let sample_duration = 10.0;
 
     // Create a cancellation token (if needed)
@@ -48,12 +50,15 @@ fn main() -> Result<()> {
     // Collect and process sample events
     for event in receiver.iter() {
         // Initialize SpectrogramProcessor
-        let mut spectrogram_processor = SpectrogramProgessor::new(5000.0);
-        let audio_duration = event.duration;
-        spectrogram_processor.pipe_sample_event(event)?;
+        let mut spectrogram_processor = SpectrogramProcessor::new(11025.0);
+        spectrogram_processor.process_samples(&event.data)?;
         // Extract peaks or output spectrogram
-        let peaks = spectrogram_processor.extract_peaks(audio_duration);
+        let peaks = spectrogram_processor.extract_peaks();
         println!("{}", peaks);
+        let signature: Signature = peaks.into();
+        let encoded_data = signature.encode();
+
+        println!("Encoded signature lengtrh: {:?}", encoded_data.len());
     }
 
     Ok(())

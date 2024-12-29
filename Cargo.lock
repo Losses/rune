@@ -5441,7 +5441,9 @@ version = "0.1.0"
 dependencies = [
  "analysis",
  "anyhow",
+ "byteorder",
  "clap",
+ "crc32fast",
  "log",
  "rubato",
  "rustfft",

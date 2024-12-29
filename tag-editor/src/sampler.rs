@@ -16,7 +16,7 @@ use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 pub struct SampleEvent {
     pub sample_index: usize,  // The index of the current sample
     pub total_samples: usize, // Total number of samples
-    pub data: Vec<f32>,       // Sample data
+    pub data: Vec<f64>,       // Sample data
     pub sample_rate: u32,     // Sample rate
     pub duration: f64,
 }
@@ -27,10 +27,10 @@ pub struct Sampler {
     target_sample_rate: u32, // Target sample rate
 
     // Processing state
-    current_sample_index: usize,     // Current index of the sample being processed
-    current_sample_buffer: Vec<f32>, // Buffer for storing current samples
-    samples_per_chunk: usize,        // Number of samples per chunk
-    overlap: usize,                  // Overlap between chunks
+    current_sample_index: usize, // Current index of the sample being processed
+    current_sample_buffer: Vec<f64>, // Buffer for storing current samples
+    samples_per_chunk: usize,    // Number of samples per chunk
+    overlap: usize,              // Overlap between chunks
 
     // Cancellation flag
     fn_is_cancelled: Box<dyn Fn() -> bool + Send>, // Function to check if the process is cancelled
@@ -91,7 +91,7 @@ impl Sampler {
         let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
 
         // Set up the resampler
-        let resampler = FftFixedInOut::<f32>::new(
+        let resampler = FftFixedInOut::<f64>::new(
             sample_rate as usize,
             self.target_sample_rate as usize,
             self.samples_per_chunk,
@@ -113,9 +113,9 @@ impl Sampler {
 
     fn process_audio_chunk(
         &mut self,
-        chunk: &[f32],
-        resampler: &mut FftFixedInOut<f32>,
-        output_buffer: &mut [Vec<f32>],
+        chunk: &[f64],
+        resampler: &mut FftFixedInOut<f64>,
+        output_buffer: &mut [Vec<f64>],
         sender: &Sender<SampleEvent>,
     ) -> Result<()> {
         let input_frames = vec![chunk.to_vec()];
@@ -137,22 +137,21 @@ impl Sampler {
     fn process_audio_buffer<T>(
         &mut self,
         buf: &AudioBuffer<T>,
-        resampler: &mut FftFixedInOut<f32>,
-        output_buffer: &mut [Vec<f32>],
+        resampler: &mut FftFixedInOut<f64>,
+        output_buffer: &mut [Vec<f64>],
         sender: &Sender<SampleEvent>,
     ) -> Result<()>
     where
-        T: Sample + IntoSample<f32>,
+        T: Sample + IntoSample<f64>,
     {
         for plane in buf.planes().planes() {
             for &sample in plane.iter() {
-                let sample: f32 = IntoSample::<f32>::into_sample(sample);
+                let sample = IntoSample::<f64>::into_sample(sample);
                 self.current_sample_buffer.push(sample);
 
                 // Process the chunk if it reaches the required size
                 if self.current_sample_buffer.len() >= self.samples_per_chunk {
-                    let chunk: Vec<f32> =
-                        self.current_sample_buffer[..self.samples_per_chunk].to_vec();
+                    let chunk = self.current_sample_buffer[..self.samples_per_chunk].to_vec();
                     self.process_audio_chunk(&chunk, resampler, output_buffer, sender)?;
 
                     // Remove processed samples, keeping the overlap
@@ -169,8 +168,8 @@ impl Sampler {
         format: &mut Box<dyn FormatReader>,
         decoder: &mut Box<dyn Decoder>,
         track_id: u32,
-        mut resampler: FftFixedInOut<f32>,
-        output_buffer: &mut [Vec<f32>],
+        mut resampler: FftFixedInOut<f64>,
+        output_buffer: &mut [Vec<f64>],
         sender: &Sender<SampleEvent>,
     ) -> Result<()> {
         loop {
