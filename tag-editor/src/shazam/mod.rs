@@ -9,5 +9,6 @@
 // MPL License.
 //
 
+pub mod api;
 pub mod signature;
 pub mod spectrogram;

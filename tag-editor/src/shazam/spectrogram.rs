@@ -31,13 +31,13 @@ impl fmt::Display for SpectralPeaks {
 
         for (band_index, peaks) in self.peaks_by_band.iter().enumerate() {
             writeln!(f, "= Band {}: {} peaks", band_index, peaks.len())?;
-            for peak in peaks {
-                writeln!(
-                    f,
-                    "== Pass: {}, Magnitude: {}, Bin: {}",
-                    peak.pass, peak.magnitude, peak.bin
-                )?;
-            }
+            // for peak in peaks {
+            //     writeln!(
+            //         f,
+            //         "== Pass: {}, Magnitude: {}, Bin: {}",
+            //         peak.pass, peak.magnitude, peak.bin
+            //     )?;
+            // }
         }
 
         Ok(())

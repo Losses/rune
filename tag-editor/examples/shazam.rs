@@ -5,7 +5,10 @@ use tokio_util::sync::CancellationToken;
 
 use tag_editor::{
     sampler::Sampler,
-    shazam::{signature::Signature, spectrogram::SpectrogramProcessor},
+    shazam::{
+        signature::Signature,
+        spectrogram::{SpectralPeaks, SpectrogramProcessor},
+    },
 };
 
 fn main() -> Result<()> {
@@ -53,12 +56,16 @@ fn main() -> Result<()> {
         let mut spectrogram_processor = SpectrogramProcessor::new(11025.0);
         spectrogram_processor.process_samples(&event.data)?;
         // Extract peaks or output spectrogram
-        let peaks = spectrogram_processor.extract_peaks();
+        let peaks: SpectralPeaks = spectrogram_processor.extract_peaks();
         println!("{}", peaks);
         let signature: Signature = peaks.into();
         let encoded_data = signature.encode();
 
         println!("Encoded signature lengtrh: {:?}", encoded_data.len());
+
+        // let identified_result = identify(peaks).await;
+
+        // println!("{:?}", identified_result);
     }
 
     Ok(())
