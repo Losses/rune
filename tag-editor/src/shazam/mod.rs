@@ -10,6 +10,7 @@
 //
 
 pub mod api;
-pub mod signature;
 pub mod hanning;
+pub mod ring;
+pub mod signature;
 pub mod spectrogram;

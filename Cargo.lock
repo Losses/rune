@@ -5447,6 +5447,7 @@ dependencies = [
  "chrono",
  "clap",
  "crc32fast",
+ "lazy_static",
  "log",
  "rand",
  "reqwest",
