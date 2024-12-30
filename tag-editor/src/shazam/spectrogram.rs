@@ -201,23 +201,29 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
             let mut spread = outputs;
             for j in 0..outputs.len() - 2 {
                 spread[j] = outputs[j..=j + 2].iter().fold(0.0f64, |a, &b| a.max(b));
-                log!(
-                    "    spread_outputs.0[{}]: {} (after frequency spreading)",
-                    j,
-                    spread[j]
-                );
+                // log!(
+                //     "    spread_outputs.0[{}]: {} (after frequency spreading)",
+                //     j,
+                //     spread[j]
+                // );
             }
 
             // Spread in time domain
+            let mut prev_spread = spread;
             for &off in &[-2, -4, -7] {
                 let prev = spread_outputs.at(off);
                 log!("    Time spreading with off: {}", off);
                 for j in 0..outputs.len() {
-                    spread[j] = spread[j].max(prev.0[j]);
-                    log!("      spread_outputs.at({}).0[{}]: {}", off, j, spread[j]);
+                    prev_spread[j] = prev_spread[j].max(prev.0[j]);
+                    log!(
+                        "      spread_outputs.at({}).0[{}]: {}",
+                        off,
+                        j,
+                        prev_spread[j]
+                    );
                 }
             }
-            spread_outputs.append(&[F64Array1025(spread)]);
+            spread_outputs.append(&[F64Array1025(prev_spread)]);
             log!(
                 "  spread_outputs appended. New length: {}",
                 spread_outputs.len()
