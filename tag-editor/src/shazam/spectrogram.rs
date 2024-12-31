@@ -1,6 +1,5 @@
-use std::{fmt, fs::File, io::Write, sync::Mutex};
+use std::fmt;
 
-use lazy_static::lazy_static;
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
 
@@ -15,21 +14,6 @@ const TIME_OFFSETS: [i32; 14] = [
 
 // Neighbor offsets for frequency peak detection
 const NEIGHBORS: [i32; 8] = [-10, -7, -4, -3, 1, 2, 5, 8];
-
-lazy_static! {
-    static ref LOG_FILE: Mutex<File> =
-        Mutex::new(File::create("rust_debug.log").expect("Unable to create log file"));
-}
-
-macro_rules! log {
-    ($($arg:tt)*) => {
-        {
-            let mut file = LOG_FILE.lock().unwrap();
-            writeln!(file, $($arg)*).expect("Failed to write to log file");
-            file.flush().expect("Failed to flush log file");
-        }
-    };
-}
 
 #[derive(Debug)]
 pub struct FrequencyPeak {
@@ -71,59 +55,35 @@ impl Default for F64Array1025 {
 }
 
 pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
-    log!("=== Starting Rust ComputeSignature ===");
-    log!("Sample Rate: {}", sample_rate);
-    log!("Number of Samples: {}", samples.len());
-
     let max_neighbor = |spread_outputs: &Ring<F64Array1025>, i: usize| {
-        log!("  maxNeighbor called with i: {}", i);
         let mut neighbor = 0.0f64;
         for &off in NEIGHBORS.iter() {
             let idx = i as isize + off as isize;
             if (0..1025).contains(&idx) {
                 neighbor = neighbor.max(spread_outputs.at(-49).0[idx as usize]);
-            } else {
-                log!("    off: {}, idx: {} out of bounds (0..1025)", off, idx);
             }
         }
         for &off in TIME_OFFSETS.iter() {
             let idx = i as isize - 1;
             if (0..1025).contains(&idx) {
                 neighbor = neighbor.max(spread_outputs.at(off).0[idx as usize]);
-            } else {
-                log!("    off: {}, idx: {} out of bounds (0..1025)", off, idx);
             }
         }
-        log!("  maxNeighbor returning: {:.6}", neighbor);
         neighbor
     };
 
-    let normalize_peak = |x: f64| {
-        let result = (x.max(1.0 / 64.0)).ln() * 1477.3 + 6144.0;
-        log!(
-            "  normalize_peak called with x: {}, returning: {}",
-            x,
-            result
-        );
-        result
-    };
+    let normalize_peak = |x: f64| (x.max(1.0 / 64.0)).ln() * 1477.3 + 6144.0;
 
     let peak_band = |bin: i32| -> Option<usize> {
         let hz = (bin * sample_rate) / (2 * 1024 * 64);
-        let result = match hz {
+
+        match hz {
             hz if (250..520).contains(&hz) => Some(0),
             hz if (520..1450).contains(&hz) => Some(1),
             hz if (1450..3500).contains(&hz) => Some(2),
             hz if (3500..=5500).contains(&hz) => Some(3),
             _ => None,
-        };
-        log!(
-            "  peak_band called with bin: {}, hz: {}, returning: {:?}",
-            bin,
-            hz,
-            result
-        );
-        result
+        }
     };
 
     let mut planner = FftPlanner::new();
