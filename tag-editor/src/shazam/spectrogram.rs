@@ -150,7 +150,7 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
     let mut peaks_by_band: [Vec<FrequencyPeak>; 5] = Default::default();
 
     for i in 0..(samples.len() as i32 - 128) / 128 {
-        log!("Iteration: {}", i);
+        log!("Iteration: {} (Rust)", i);
         let start = i * 128;
         // Corrected the end calculation to ensure we take exactly 128 samples
         let end = start + 128;
@@ -195,7 +195,7 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
                 // );
             }
             fft_outputs.append(&[F64Array1025(outputs)]);
-            log!("  fft_outputs appended. New length: {}", fft_outputs.len());
+            // log!("  fft_outputs appended. New length: {}", fft_outputs.len());
 
             // Spread peaks in frequency domain
             let mut spread = outputs;
@@ -209,21 +209,18 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
             }
 
             // Spread in time domain
-            let mut prev_spread = spread;
+            spread_outputs.append(&[F64Array1025(spread)]);
             for &off in &[-2, -4, -7] {
-                let prev = spread_outputs.at(off);
+                let idx = spread_outputs.mod_index(spread_outputs.index as i32 + off);
+                let mut prev = spread_outputs.buf[idx].0;
                 log!("    Time spreading with off: {}", off);
                 for j in 0..outputs.len() {
-                    prev_spread[j] = prev_spread[j].max(prev.0[j]);
-                    log!(
-                        "      spread_outputs.at({}).0[{}]: {}",
-                        off,
-                        j,
-                        prev_spread[j]
-                    );
+                    prev[j] = prev[j].max(spread[j]);
+                    log!("      spreadOutputs.At({})[{}]: {:.6}", off, j, prev[j]);
                 }
+                spread_outputs.buf[idx] = F64Array1025(prev);
             }
-            spread_outputs.append(&[F64Array1025(prev_spread)]);
+
             log!(
                 "  spread_outputs appended. New length: {}",
                 spread_outputs.len()
