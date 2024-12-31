@@ -1,6 +1,7 @@
+use std::sync::mpsc::channel;
+
 use anyhow::Result;
 use clap::{Arg, Command};
-use std::sync::mpsc::channel;
 use tokio_util::sync::CancellationToken;
 
 use tag_editor::{

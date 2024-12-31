@@ -2,6 +2,7 @@ use std::fmt;
 
 use rustfft::num_complex::Complex;
 use rustfft::FftPlanner;
+use serde::Serialize;
 
 use crate::shazam::ring::Ring;
 
@@ -15,14 +16,14 @@ const TIME_OFFSETS: [i32; 14] = [
 // Neighbor offsets for frequency peak detection
 const NEIGHBORS: [i32; 8] = [-10, -7, -4, -3, 1, 2, 5, 8];
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct FrequencyPeak {
     pub pass: i32,
     pub magnitude: i32,
     pub bin: i32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct Signature {
     pub sample_rate: i32,
     pub num_samples: i32,

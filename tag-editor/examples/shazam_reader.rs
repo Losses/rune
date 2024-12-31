@@ -1,7 +1,8 @@
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+
 use anyhow::Result;
 use clap::{Arg, Command};
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 use tag_editor::shazam::spectrogram::{compute_signature, Signature};
 
@@ -41,20 +42,22 @@ async fn main() -> Result<()> {
     // Compute the signature
     let signature: Signature = compute_signature(sample_rate, &samples);
 
-    // Print the signature (mimicking the Go code's output)
-    for (band, peaks) in signature.peaks_by_band.iter().enumerate() {
-        println!("Band {}: {} peaks", band, peaks.len());
+    // Serialize the signature to JSON
+    let serialized_signature = serde_json::to_string(&signature)?;
 
-        for (i, peak) in peaks.iter().enumerate() {
-            println!(
-                "  Peak {}: {{Pass: {}, Magnitude: {}, Bin: {}}}",
-                i + 1,
-                peak.pass,
-                peak.magnitude,
-                peak.bin
-            );
-        }
-    }
+    // Define the output file name
+    let output_file_base = "output";
+    let counter = 1; // Adjust as needed
+    let output_file = format!("{}_{}.signature.log", output_file_base, counter);
+
+    // Write the serialized signature to a file
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(output_file)?;
+
+    file.write_all(serialized_signature.as_bytes())?;
 
     Ok(())
 }

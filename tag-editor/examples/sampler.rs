@@ -56,7 +56,7 @@ fn main() -> Result<()> {
 
     for (counter, event) in receiver.iter().enumerate() {
         // Create a numbered output file name
-        let output_file = format!("{}_{}.log", output_file_base, counter);
+        let output_file = format!("{}_{}.sample.log", output_file_base, counter);
 
         // Log the output file path
         println!("Writing to output file: {}", output_file);
