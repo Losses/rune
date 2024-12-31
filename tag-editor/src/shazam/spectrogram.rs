@@ -76,19 +76,12 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
     log!("Number of Samples: {}", samples.len());
 
     let max_neighbor = |spread_outputs: &Ring<F64Array1025>, i: usize| {
-        log!("  max_neighbor called with i: {}", i);
+        log!("  maxNeighbor called with i: {}", i);
         let mut neighbor = 0.0f64;
         for &off in NEIGHBORS.iter() {
             let idx = i as isize + off as isize;
             if (0..1025).contains(&idx) {
                 neighbor = neighbor.max(spread_outputs.at(-49).0[idx as usize]);
-                log!(
-                    "    off: {}, neighbor: {}, spread_outputs.at(-49).0[{}]: {}",
-                    off,
-                    neighbor,
-                    idx,
-                    spread_outputs.at(-49).0[idx as usize]
-                );
             } else {
                 log!("    off: {}, idx: {} out of bounds (0..1025)", off, idx);
             }
@@ -97,19 +90,11 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
             let idx = i as isize - 1;
             if (0..1025).contains(&idx) {
                 neighbor = neighbor.max(spread_outputs.at(off).0[idx as usize]);
-                log!(
-                    "    off: {}, neighbor: {}, spread_outputs.at({}).0[{}]: {}",
-                    off,
-                    neighbor,
-                    off,
-                    idx,
-                    spread_outputs.at(off).0[idx as usize]
-                );
             } else {
                 log!("    off: {}, idx: {} out of bounds (0..1025)", off, idx);
             }
         }
-        log!("  max_neighbor returning: {}", neighbor);
+        log!("  maxNeighbor returning: {:.6}", neighbor);
         neighbor
     };
 
@@ -156,25 +141,15 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
         let end = start + 128;
         if end <= samples.len() as i32 {
             samples_ring.append(&samples[start as usize..end as usize]);
-            log!(
-                "  samples_ring appended. New length: {}",
-                samples_ring.len()
-            );
 
             let mut reordered_samples = vec![Complex::new(0.0f64, 0.0f64); 2048];
             let mut temp = vec![0.0f64; 2048];
             samples_ring.slice(&mut temp, 0);
-            log!("  temp sliced from samples_ring");
 
             // Apply Hanning window and prepare complex input
             for j in 0..temp.len() {
                 let normalized = (temp[j] * 1024.0 * 64.0).round();
                 reordered_samples[j] = Complex::new(normalized * HANNING_MULTIPLIERS[j], 0.0);
-                // log!(
-                //     "    reordered_samples[{}]: {} (after hanning)",
-                //     j,
-                //     reordered_samples[j]
-                // );
             }
 
             // Perform FFT
@@ -186,26 +161,13 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
                     + reordered_samples[j].im * reordered_samples[j].im)
                     / (1 << 17) as f64;
                 outputs[j] = outputs[j].max(0.0000000001);
-                // log!(
-                //     "    FFT output[{}]: {} (real: {}, imag: {})",
-                //     j,
-                //     outputs[j],
-                //     reordered_samples[j].re,
-                //     reordered_samples[j].im
-                // );
             }
             fft_outputs.append(&[F64Array1025(outputs)]);
-            // log!("  fft_outputs appended. New length: {}", fft_outputs.len());
 
             // Spread peaks in frequency domain
             let mut spread = outputs;
             for j in 0..outputs.len() - 2 {
                 spread[j] = outputs[j..=j + 2].iter().fold(0.0f64, |a, &b| a.max(b));
-                // log!(
-                //     "    spread_outputs.0[{}]: {} (after frequency spreading)",
-                //     j,
-                //     spread[j]
-                // );
             }
 
             // Spread in time domain
@@ -213,18 +175,11 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
             for &off in &[-2, -4, -7] {
                 let idx = spread_outputs.mod_index(spread_outputs.index as i32 + off);
                 let mut prev = spread_outputs.buf[idx].0;
-                log!("    Time spreading with off: {}", off);
                 for j in 0..outputs.len() {
                     prev[j] = prev[j].max(spread[j]);
-                    log!("      spreadOutputs.At({})[{}]: {:.6}", off, j, prev[j]);
                 }
                 spread_outputs.buf[idx] = F64Array1025(prev);
             }
-
-            log!(
-                "  spread_outputs appended. New length: {}",
-                spread_outputs.len()
-            );
 
             // Skip until we have enough samples
             if i < 45 {
@@ -242,7 +197,7 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
                 let neighbor = max_neighbor(&spread_outputs, bin);
                 if fft_output.0[bin] <= neighbor {
                     log!(
-                        "    bin {}: fft_output.0[{}] ({}) <= max_neighbor ({}). Skipping.",
+                        "    bin {}: fftOutput[{}] ({:.6}) <= maxNeighbor ({:.6}). Skipping.",
                         bin,
                         bin,
                         fft_output.0[bin],
