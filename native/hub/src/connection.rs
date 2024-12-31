@@ -8,6 +8,8 @@ use database::connection::{
     MainDbConnection, RecommendationDbConnection,
 };
 use rinf::DartSignal;
+use scrobbling::manager::ScrobblingManager;
+use tokio::sync::Mutex;
 
 use crate::messages::*;
 
@@ -75,9 +77,12 @@ pub async fn test_library_initialized_request(
     Ok(())
 }
 
-pub async fn receive_media_library_path<F, Fut>(main_loop: F) -> Result<()>
+pub async fn receive_media_library_path<F, Fut>(
+    main_loop: F,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+) -> Result<()>
 where
-    F: Fn(String, DatabaseConnections) -> Fut + Send + Sync,
+    F: Fn(String, DatabaseConnections, Arc<Mutex<ScrobblingManager>>) -> Fut + Send + Sync,
     Fut: std::future::Future<Output = ()> + Send,
 {
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
@@ -146,8 +151,11 @@ where
                     }
                     .send_signal_to_dart();
 
+                    // Clone the Arc for this iteration
+                    let scrobbler_clone = Arc::clone(&scrobbler);
+
                     // Continue with main loop
-                    main_loop(media_library_path, db_connections).await;
+                    main_loop(media_library_path, db_connections, scrobbler_clone).await;
                 }
                 Err(e) => {
                     error!("Database initialization failed: {:#?}", e);

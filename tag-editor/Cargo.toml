@@ -1,0 +1,32 @@
+[package]
+name = "tag_editor"
+version = "0.1.0"
+edition = "2021"
+
+
+[lib]
+name = "tag_editor"
+path = "src/lib.rs"
+
+[dependencies]
+analysis = { path = "../analysis" }
+anyhow = { version = "1.0.86", features = ["backtrace"] }
+log = "0.4.22"
+rubato = "0.16.1"
+rustfft = "6.2.0"
+symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
+tokio-util = "0.7.11"
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
+byteorder = "1.5.0"
+crc32fast = "1.4.2"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
+reqwest = { version = "0.12.11", features = ["json"] }
+base64 = "0.22.1"
+uuid = { version = "1.11.0", features = ["v4"] }
+chrono = "0.4.39"
+rand = "0.8.5"
+lazy_static = "1.5.0"
+
+[dev-dependencies]
+clap = "4.5.9"

@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../utils/settings_manager.dart';
+import '../../../../constants/configurations.dart';
 import '../../../../providers/responsive_providers.dart';
 
 import '../../utils/settings_combo_box_item.dart';
@@ -29,7 +30,7 @@ class ForceZuneSettingsState extends State<ForceZuneSettings> {
 
   Future<void> _loadSettings() async {
     final storedZuneMode =
-        await _settingsManager.getValue<String>(forceLayoutModeKey);
+        await _settingsManager.getValue<String>(kForceLayoutModeKey);
     if (storedZuneMode != null) {
       setState(() => zuneMode = storedZuneMode == 'zune');
     }
@@ -58,9 +59,9 @@ class ForceZuneSettingsState extends State<ForceZuneSettings> {
           if (value == null) return;
           setState(() => zuneMode = value == 'true');
           if (value == 'true') {
-            _settingsManager.setValue<String>(forceLayoutModeKey, 'zune');
+            _settingsManager.setValue<String>(kForceLayoutModeKey, 'zune');
           } else {
-            _settingsManager.removeValue(forceLayoutModeKey);
+            _settingsManager.removeValue(kForceLayoutModeKey);
           }
 
           r.updateForceLayoutConfig();

@@ -11,13 +11,14 @@ use std::{
 use anyhow::{bail, Error, Result};
 use log::{debug, info};
 use once_cell::sync::OnceCell;
+use tokio::sync::Mutex;
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
-use crate::simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(target_os = "android"))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
-use tokio::sync::Mutex;
+
+use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 
 use crate::player::{PlaybackState, Player};
 

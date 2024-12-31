@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_boring_avatars/flutter_boring_avatars.dart';
 
+import '../utils/playing_item.dart';
 import '../utils/execute_middle_click_action.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/router/navigation.dart';
@@ -124,8 +125,9 @@ class _CollectionItemState extends State<CollectionItem> {
                   initialPlaybackId: widget.collection.id,
                   instantlyPlay: true,
                   operateMode: PlaylistOperateMode.Replace,
-                  fallbackFileIds: widget.collection.queries
+                  fallbackPlayingItems: widget.collection.queries
                       .map((x) => int.parse(x.$2))
+                      .map(PlayingItem.inLibrary)
                       .toList(),
                 );
               }

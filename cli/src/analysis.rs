@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use analysis::shared_utils::computing_device::ComputingDevice;
+use analysis::utils::computing_device::ComputingDevice;
 use database::actions::analysis::{analysis_audio_library, empty_progress_callback};
 use database::actions::recommendation::sync_recommendation;
 use database::connection::{MainDbConnection, RecommendationDbConnection};

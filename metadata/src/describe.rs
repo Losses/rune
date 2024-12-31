@@ -8,7 +8,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::{bail, Context, Result};
 use symphonia::core::codecs::CODEC_TYPE_NULL;
 
-use analysis::shared_utils::audio_metadata_reader::{get_codec_information, get_format};
+use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 
 use crate::crc::media_crc32;
 
@@ -19,7 +19,7 @@ fn to_unix_path_string(path_buf: PathBuf) -> Option<String> {
 
 #[derive(Debug)]
 pub struct FileDescription {
-    pub root_path: PathBuf,
+    pub root_path: Option<PathBuf>,
     pub rel_path: PathBuf,
     pub full_path: PathBuf,
     pub file_name: String,
@@ -31,7 +31,10 @@ pub struct FileDescription {
 
 impl FileDescription {
     pub fn get_crc(&mut self) -> Result<String> {
-        let full_path = self.root_path.join(&self.directory).join(&self.file_name);
+        let full_path = match &self.root_path {
+            Some(root_path) => root_path.join(&self.directory).join(&self.file_name),
+            None => Path::new(&self.directory).join(&self.file_name),
+        };
 
         if self.file_hash.is_none() {
             let file = File::open(&full_path)?;
@@ -58,30 +61,36 @@ impl FileDescription {
     }
 
     pub fn get_codec_information(&mut self) -> Result<(u32, f64)> {
-        let full_math = match self.full_path.to_str() {
-            Some(full_path) => full_path,
-            _none => bail!("Failed to convert file path while getting codec information"),
-        };
-
-        let format = get_format(full_math)
-            .with_context(|| format!("No supported format found: {}", full_math))?;
-
-        let track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
-            .with_context(|| "No supported audio tracks")?;
-
-        let codec_information = get_codec_information(track)
-            .with_context(|| format!("Failed to get codec information: {}", full_math))?;
+        let codec_information = get_codec_information_from_path(&self.full_path)?;
 
         Ok(codec_information)
     }
 }
 
+pub fn get_codec_information_from_path(full_path: &Path) -> Result<(u32, f64)> {
+    let full_math = match full_path.to_str() {
+        Some(full_path) => full_path,
+        _none => bail!("Failed to convert file path while getting codec information"),
+    };
+
+    let format = get_format(full_math)
+        .with_context(|| format!("No supported format found: {}", full_math))?;
+
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .with_context(|| "No supported audio tracks")?;
+
+    let codec_information = get_codec_information(track)
+        .with_context(|| format!("Failed to get codec information: {}", full_math))?;
+
+    Ok(codec_information)
+}
+
 const CHUNK_SIZE: usize = 1024 * 400;
 
-pub fn describe_file(file_path: &Path, lib_path: &Path) -> Result<FileDescription> {
+pub fn describe_file(file_path: &PathBuf, lib_path: &Option<PathBuf>) -> Result<FileDescription> {
     // Get file name
     let file_name = match file_path
         .file_name()
@@ -92,7 +101,10 @@ pub fn describe_file(file_path: &Path, lib_path: &Path) -> Result<FileDescriptio
         _none => bail!("Failed to get file name: {:#?}", file_path),
     };
 
-    let rel_path = file_path.strip_prefix(lib_path)?;
+    let rel_path: PathBuf = match lib_path {
+        Some(x) => file_path.strip_prefix(x)?.to_path_buf(),
+        None => file_path.to_path_buf(),
+    };
 
     // Get directory
     let directory = match to_unix_path_string(
@@ -120,7 +132,7 @@ pub fn describe_file(file_path: &Path, lib_path: &Path) -> Result<FileDescriptio
     let last_modified = format!("{}", last_modified);
 
     Ok(FileDescription {
-        root_path: lib_path.to_path_buf(),
+        root_path: lib_path.clone(),
         rel_path: rel_path.to_path_buf(),
         full_path: file_path.to_path_buf(),
         file_name,

@@ -34,9 +34,150 @@
         https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/00.png</image>
       <caption>Main window</caption>
     </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/01.png</image>
+      <caption>Track list</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/02.png</image>
+      <caption>Cover Art Wall</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/03.png</image>
+      <caption>Search</caption>
+    </screenshot>
+    <screenshot>
+      <image type="source" width="2560" height="1514">
+        https://raw.githubusercontent.com/Losses/rune/refs/heads/master/assets/source/steam/screenshot/04.png</image>
+      <caption>About Page</caption>
+    </screenshot>
   </screenshots>
 
   <releases>
+    <release version="1.1.0-beta.2" date="2024-12-31">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Updated translation files by @123Duo3.</li>
+          <li>Improved randomness of the cover art wall.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Enhanced image rendering quality by setting filter quality to high.</li>
+          <li>Fixed issue where switching among playback modes was not possible when there were
+            insufficient enabled modes.</li>
+          <li>Resolved issue where the navigation back text was not clickable on the bottom side.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.1" date="2024-12-26">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Clicking on lyrics now seeks to the corresponding timestamp.</li>
+          <li>Added functionality to copy lyrics.</li>
+          <li>Added new localization entries.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Blank cover art not displaying metadata on the lyrics page.</li>
+          <li>Playback status disappeared after audio finished playing.</li>
+          <li>The online service error recovery menu not appearing.</li>
+          <li>Scrobble login status detection.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.6" date="2024-12-25">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added logging capability for internal decoder errors.</li>
+          <li>Added support for parsing .lrcx lyric files.</li>
+          <li>Added Mild Spectrum settings and integrate with FFT visualizer.</li>
+          <li>Update translation files by @NovaDNG.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Normalize lyrics based on track duration and improve playback status handling.</li>
+          <li>Update makeLatest condition to exclude alpha and beta branches by @Ovler-Young.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.5" date="2024-12-22">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added support for SRT format lyrics files.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Opening files via keyboard shortcuts would cause the UI to freeze.</li>
+          <li>Scrobbling was not possible after switching Libraries.</li>
+          <li>Dragging the main window would incorrectly trigger navigation actions.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.4" date="2024-12-21">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Enhanced cover art extraction with `cover.png`, `folder.png`</li>
+          <li>Added support for TTML (Timed Text Markup Language) file parsing in audio lyrics</li>
+          <li>Implemented VTT (Web Video Text Tracks) file parsing alongside existing .lrc support</li>
+          <li>Adding Control + O shortcut to open files</li>
+          <li>Updated Japanese and Chinese localization for improved consistency by @NovaDNG and
+            @123Duo3 </li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Updated navigation logic for cover wall and lyrics display</li>
+          <li>Removed experimental flag from Traditional Chinese language option</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.3" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Add config buttons on mobile devices for scrobbling services</li>
+          <li>Update lyric scroll scheduling logic</li>
+          <li>Update JA, JA_Kana and JA_Nise translation by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>macOS build is broken by @laosb</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.2" date="2024-12-20">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implementing last.fm, libre.fm, ListenBrainz integration</li>
+          <li>Updated pseudo Chinese translation by @NovaDNG</li>
+          <li>Add actual language placeholder files by @laosb</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.1" date="2024-12-18">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Implemented lyrics display interface</li>
+          <li>Added lyrics viewing capability for the music player</li>
+          <li>Introduced file drag-and-drop functionality for window playback</li>
+          <li>Implemented pseudo Chinese translation support by @NovaDNG</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Fixed compilation errors on the Steam Sniper platform</li>
+          <li>Add ja, zh-Hans and lzh to xcodeproj by @laosb</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0-rc.2" date="2024-12-12">
       <description>
         <p>Features</p>

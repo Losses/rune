@@ -16,8 +16,6 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
 
-import 'screens/settings_laboratory/widgets/settings/cafe_mode_settings.dart';
-import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
@@ -30,6 +28,7 @@ import 'utils/update_color_mode.dart';
 import 'utils/theme_color_manager.dart';
 import 'utils/storage_key_manager.dart';
 import 'utils/api/set_adaptive_switching_enabled.dart';
+import 'utils/api/operate_playback_with_mix_query.dart';
 import 'utils/file_storage/mac_secure_manager.dart';
 import 'utils/macos_window_control_button_manager.dart';
 
@@ -44,17 +43,18 @@ import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
-import 'screens/settings_theme/settings_theme.dart';
 import 'screens/settings_theme/constants/window_sizes.dart';
-import 'screens/settings_language/settings_language.dart';
 
 import 'messages/all.dart';
+
+import 'constants/configurations.dart';
 
 import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/license.dart';
 import 'providers/playlist.dart';
+import 'providers/scrobble.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
@@ -104,27 +104,27 @@ void main(List<String> arguments) async {
   }
 
   final String? colorMode =
-      await settingsManager.getValue<String>(colorModeKey);
+      await settingsManager.getValue<String>(kColorModeKey);
 
   updateColorMode(colorMode);
 
   await ThemeColorManager().initialize();
 
-  final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+  final int? themeColor = await settingsManager.getValue<int>(kThemeColorKey);
 
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));
   }
 
-  final String? locale = await settingsManager.getValue<String>(localeKey);
+  final String? locale = await settingsManager.getValue<String>(kLocaleKey);
 
   appTheme.locale = localeFromString(locale);
 
   disableBrandingAnimation =
-      await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
+      await settingsManager.getValue<bool>(kDisableBrandingAnimationKey) ??
           false;
 
-  cafeMode = (await settingsManager.getValue<String>(cafeModeKey)) == "true";
+  cafeMode = (await settingsManager.getValue<String>(kCafeModeKey)) == "true";
 
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -185,9 +185,9 @@ void main(List<String> arguments) async {
   }
 
   final windowSizeMode =
-      await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+      await settingsManager.getValue<String>(kWindowSizeKey) ?? 'normal';
   final bool? rememberWindowSize =
-      await SettingsManager().getValue<bool>(rememberWindowSizeKey);
+      await SettingsManager().getValue<bool>(kRememberWindowSizeKey);
 
   final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
 
@@ -249,6 +249,10 @@ void mainLoop(LicenseProvider licenseProvider) {
         ChangeNotifierProvider(
           lazy: false,
           create: (_) => VolumeProvider(),
+        ),
+        ChangeNotifierProvider(
+          lazy: false,
+          create: (_) => ScrobbleProvider(),
         ),
         ChangeNotifierProvider(
           lazy: false,
@@ -340,7 +344,7 @@ class _RuneState extends State<Rune> {
           initialRoute: initialPath == null
               ? "/"
               : cafeMode
-                  ? "/cover_wall"
+                  ? '/cover_wall'
                   : "/library",
           navigatorKey: rootNavigatorKey,
           onGenerateRoute: (settings) {
@@ -443,7 +447,7 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             initialPlaybackId: -1,
             instantlyPlay: true,
             operateMode: PlaylistOperateMode.Replace,
-            fallbackFileIds: []);
+            fallbackPlayingItems: []);
       });
     }
   }

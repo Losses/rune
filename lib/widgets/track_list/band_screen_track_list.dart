@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
 import '../../utils/execute_middle_click_action.dart';
+import '../../utils/playing_item.dart';
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
 import '../../utils/queries_has_recommendation.dart';
@@ -171,8 +172,9 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                     initialPlaybackId: widget.item.id,
                     operateMode: PlaylistOperateMode.Replace,
                     instantlyPlay: true,
-                    fallbackFileIds: widget.pagingController.itemList
+                    fallbackPlayingItems: widget.pagingController.itemList
                             ?.map((x) => x.id)
+                            .map(PlayingItem.inLibrary)
                             .toList() ??
                         [],
                   );

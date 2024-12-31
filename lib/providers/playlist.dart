@@ -4,14 +4,17 @@ import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/playback.pb.dart';
+import '../utils/playing_item.dart';
 
 final class PlaylistEntry {
   final int index;
   final PlaylistItem entry;
+  final PlayingItem item;
 
-  const factory PlaylistEntry(int index, PlaylistItem entry) = PlaylistEntry._;
+  factory PlaylistEntry(int index, PlaylistItem entry) = PlaylistEntry._;
 
-  const PlaylistEntry._(this.index, this.entry);
+  PlaylistEntry._(this.index, this.entry)
+      : item = PlayingItem.fromRequest(entry.item);
 
   @override
   String toString() => "PlaylistEntry($index: $entry)";

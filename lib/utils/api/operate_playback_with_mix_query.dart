@@ -4,34 +4,36 @@ import '../../utils/query_list.dart';
 import '../../utils/queries_has_recommendation.dart';
 import '../../utils/dialogs/no_analysis/show_no_analysis_dialog.dart';
 import '../../messages/all.dart';
+import '../playing_item.dart';
 
-Future<List<int>> operatePlaybackWithMixQuery({
+Future<List<PlayingItem>> operatePlaybackWithMixQuery({
   required QueryList queries,
   required int playbackMode,
   required int hintPosition,
   required int initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
-  required List<int> fallbackFileIds,
+  required List<PlayingItem> fallbackPlayingItems,
 }) async {
   OperatePlaybackWithMixQueryRequest(
     queries: queries.toQueryList(),
     playbackMode: playbackMode,
     hintPosition: hintPosition,
-    initialPlaybackId: initialPlaybackId,
+    initialPlaybackItem: PlayingItem.inLibrary(initialPlaybackId).toRequest(),
     instantlyPlay: instantlyPlay,
     operateMode: operateMode,
-    fallbackMediaFileIds: fallbackFileIds,
+    fallbackPlayingItems:
+        fallbackPlayingItems.map((x) => x.toRequest()).toList(),
   ).sendSignalToRust();
 
   final rustSignal =
       await OperatePlaybackWithMixQueryResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
-  return response.fileIds;
+  return response.playingItems.map(PlayingItem.fromRequest).toList();
 }
 
-Future<List<int>> safeOperatePlaybackWithMixQuery({
+Future<List<PlayingItem>> safeOperatePlaybackWithMixQuery({
   required BuildContext context,
   required QueryList queries,
   required int playbackMode,
@@ -39,7 +41,7 @@ Future<List<int>> safeOperatePlaybackWithMixQuery({
   required int initialPlaybackId,
   required bool instantlyPlay,
   required PlaylistOperateMode operateMode,
-  required List<int> fallbackFileIds,
+  required List<PlayingItem> fallbackPlayingItems,
 }) async {
   final hasRecommendation = queriesHasRecommendation(queries);
 
@@ -50,7 +52,7 @@ Future<List<int>> safeOperatePlaybackWithMixQuery({
     initialPlaybackId: initialPlaybackId,
     instantlyPlay: instantlyPlay,
     operateMode: operateMode,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackPlayingItems,
   );
 
   if (result.isEmpty && hasRecommendation && context.mounted) {

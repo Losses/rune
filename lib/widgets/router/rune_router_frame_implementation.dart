@@ -1,10 +1,15 @@
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 
 import '../../main.dart';
 
+import '../../utils/query_list.dart';
+import '../../utils/playing_item.dart';
+import '../../utils/filter_audio_files.dart';
+import '../../utils/is_cover_art_wall_layout.dart';
+import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../screens/bsod/bsod.dart';
-
 import '../../widgets/navigation_bar/flip_animation.dart';
 import '../../widgets/navigation_bar/navigation_bar.dart';
 import '../../widgets/navigation_bar/navigation_back_button.dart';
@@ -16,6 +21,8 @@ import '../../providers/crash.dart';
 import '../../providers/router_path.dart';
 import '../../providers/library_path.dart';
 import '../../providers/responsive_providers.dart';
+
+import '../../messages/playback.pbenum.dart';
 
 import 'rune_stack.dart';
 import 'scale_fade_container.dart';
@@ -65,70 +72,87 @@ class _RuneRouterFrameImplementationState
     );
 
     final path = Provider.of<RouterPathProvider>(context).path;
+    final isSpecialLayout = isCoverArtWallLayout(path);
 
-    return Stack(
-      children: [
-        if (!disableBrandingAnimation) const BrandingAnimation(),
-        ScaleFadeContainer(
-          delay: disableBrandingAnimation
-              ? const Duration(milliseconds: 0)
-              : const Duration(milliseconds: 4350),
-          duration: disableBrandingAnimation
-              ? const Duration(milliseconds: 200)
-              : const Duration(milliseconds: 500),
-          child: FlipAnimationContext(
-            child: FocusTraversalGroup(
-              policy: OrderedTraversalPolicy(),
-              child: RuneStack(
-                alignment: diskOnRight
-                    ? Alignment.centerRight
-                    : Alignment.bottomCenter,
-                children: [
-                  if (path == '/cover_wall' && !showDisk) mainContent,
-                  if (!showDisk)
-                    const FocusTraversalOrder(
-                      order: NumericFocusOrder(3),
-                      child: PlaybackController(),
-                    ),
-                  FocusTraversalOrder(
-                    order: const NumericFocusOrder(1),
-                    child: DeviceTypeBuilder(
-                      deviceType: const [
-                        DeviceType.band,
-                        DeviceType.dock,
-                        DeviceType.tv
-                      ],
-                      builder: (context, activeBreakpoint) {
-                        final isSmallView =
-                            activeBreakpoint == DeviceType.band ||
-                                activeBreakpoint == DeviceType.dock;
+    return DropTarget(
+      onDragDone: (detail) {
+        safeOperatePlaybackWithMixQuery(
+          context: context,
+          queries: QueryList(),
+          playbackMode: 99,
+          hintPosition: -1,
+          initialPlaybackId: -1,
+          instantlyPlay: true,
+          operateMode: PlaylistOperateMode.Replace,
+          fallbackPlayingItems: filterAudioFiles(detail.files)
+              .map(PlayingItem.independentFile)
+              .toList(),
+        );
+      },
+      child: Stack(
+        children: [
+          if (!disableBrandingAnimation) const BrandingAnimation(),
+          ScaleFadeContainer(
+            delay: disableBrandingAnimation
+                ? const Duration(milliseconds: 0)
+                : const Duration(milliseconds: 4350),
+            duration: disableBrandingAnimation
+                ? const Duration(milliseconds: 200)
+                : const Duration(milliseconds: 500),
+            child: FlipAnimationContext(
+              child: FocusTraversalGroup(
+                policy: OrderedTraversalPolicy(),
+                child: RuneStack(
+                  alignment: diskOnRight
+                      ? Alignment.centerRight
+                      : Alignment.bottomCenter,
+                  children: [
+                    if (isSpecialLayout && !showDisk) mainContent,
+                    if (!showDisk)
+                      const FocusTraversalOrder(
+                        order: NumericFocusOrder(3),
+                        child: PlaybackController(),
+                      ),
+                    FocusTraversalOrder(
+                      order: const NumericFocusOrder(1),
+                      child: DeviceTypeBuilder(
+                        deviceType: const [
+                          DeviceType.band,
+                          DeviceType.dock,
+                          DeviceType.tv
+                        ],
+                        builder: (context, activeBreakpoint) {
+                          final isSmallView =
+                              activeBreakpoint == DeviceType.band ||
+                                  activeBreakpoint == DeviceType.dock;
 
-                        if (!isSmallView) {
-                          return NavigationBar(path: path);
-                        }
+                          if (!isSmallView) {
+                            return NavigationBar(path: path);
+                          }
 
-                        return const Positioned(
-                          top: -12,
-                          left: -12,
-                          child: NavigationBackButton(),
-                        );
-                      },
-                    ),
-                  ),
-                  if (!(path == '/cover_wall' && !showDisk)) mainContent,
-                  if (showDisk)
-                    const BlockHitTestStack(
-                      child: FocusTraversalOrder(
-                        order: NumericFocusOrder(4),
-                        child: CoverArtDisk(),
+                          return const Positioned(
+                            top: -12,
+                            left: -12,
+                            child: NavigationBackButton(),
+                          );
+                        },
                       ),
                     ),
-                ],
+                    if (!(isSpecialLayout && !showDisk)) mainContent,
+                    if (showDisk)
+                      const BlockHitTestStack(
+                        child: FocusTraversalOrder(
+                          order: NumericFocusOrder(4),
+                          child: CoverArtDisk(),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

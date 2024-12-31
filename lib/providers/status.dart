@@ -4,31 +4,33 @@ import 'package:rinf/rinf.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../utils/playing_item.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
 import '../messages/all.dart';
-
-const lastQueueIndexKey = 'last_queue_index';
+import '../constants/configurations.dart';
 
 class PlaybackStatusProvider with ChangeNotifier {
   final PlaybackStatus _playbackStatus =
       PlaybackStatus(state: "Stopped", ready: false);
+  PlayingItem? _playingItem;
 
   PlaybackStatus get playbackStatus => _playbackStatus;
+  PlayingItem? get playingItem => _playingItem;
 
-  late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
+  late StreamSubscription<RustSignal<PlaybackStatus>> statusSubscription;
 
   bool _hasPendingNotification = false;
 
   PlaybackStatusProvider() {
-    subscription =
+    statusSubscription =
         PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
   }
 
   @override
   void dispose() {
     super.dispose();
-    subscription.cancel();
+    statusSubscription.cancel();
   }
 
   void _scheduleNotification() {
@@ -44,24 +46,34 @@ class PlaybackStatusProvider with ChangeNotifier {
   void _updatePlaybackStatus(RustSignal<PlaybackStatus> signal) {
     final newStatus = signal.message;
     if (!_isPlaybackStatusEqual(_playbackStatus, newStatus)) {
-      final bool isNewTrack = _playbackStatus.id != newStatus.id;
+      final bool isNewTrack = _playbackStatus.item != newStatus.item;
 
       _playbackStatus.state = newStatus.state;
-      _playbackStatus.progressSeconds = newStatus.progressSeconds;
-      _playbackStatus.progressPercentage = newStatus.progressPercentage;
-      _playbackStatus.artist = newStatus.artist;
-      _playbackStatus.album = newStatus.album;
-      _playbackStatus.title = newStatus.title;
-      _playbackStatus.duration = newStatus.duration;
-      _playbackStatus.index = newStatus.index;
-      _playbackStatus.id = newStatus.id;
-      _playbackStatus.playbackMode = newStatus.playbackMode;
-      _playbackStatus.ready = newStatus.ready;
-      _playbackStatus.coverArtPath = newStatus.coverArtPath;
 
-      if (isNewTrack) {
-        ThemeColorManager().handleCoverArtColorChange(newStatus.id);
-        SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
+      if (newStatus.state != "Stopped" || _playbackStatus.libPath != newStatus.libPath) {
+        _playbackStatus.progressSeconds = newStatus.progressSeconds;
+        _playbackStatus.progressPercentage = newStatus.progressPercentage;
+        _playbackStatus.artist = newStatus.artist;
+        _playbackStatus.album = newStatus.album;
+        _playbackStatus.title = newStatus.title;
+        _playbackStatus.duration = newStatus.duration;
+        _playbackStatus.index = newStatus.index;
+        _playbackStatus.item = newStatus.item;
+        _playbackStatus.playbackMode = newStatus.playbackMode;
+        _playbackStatus.ready = newStatus.ready;
+        _playbackStatus.coverArtPath = newStatus.coverArtPath;
+        _playbackStatus.libPath = newStatus.libPath;
+        final newPlayingItem = newStatus.item.isEmpty
+            ? null
+            : PlayingItem.fromString(newStatus.item);
+        _playingItem = newPlayingItem;
+
+        if (isNewTrack) {
+          if (newPlayingItem != null) {
+            ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+          }
+          SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
+        }
       }
 
       _scheduleNotification();
@@ -78,7 +90,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         oldStatus.title == newStatus.title &&
         oldStatus.duration == newStatus.duration &&
         oldStatus.index == newStatus.index &&
-        oldStatus.id == newStatus.id &&
+        oldStatus.item == newStatus.item &&
         oldStatus.playbackMode == newStatus.playbackMode &&
         oldStatus.ready == newStatus.ready &&
         oldStatus.coverArtPath == newStatus.coverArtPath;

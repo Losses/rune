@@ -4,8 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
-import '../../utils/api/complex_query.dart';
 import '../../utils/l10n.dart';
+import '../../utils/api/complex_query.dart';
 import '../../utils/router/navigation.dart';
 import '../../config/animation.dart';
 import '../../widgets/collection_item.dart';

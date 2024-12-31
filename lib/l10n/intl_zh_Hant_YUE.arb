@@ -968,5 +968,59 @@
   "considerPurchase": "煩請考慮購買正版授權。",
   "@considerPurchase": {
     "description": "喺關於版面入面嘅提示，建議用戶購買正版授權"
+  },
+  "lyrics": "歌詞",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "睇完整歌詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "網上服務",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "登入",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "登入失敗",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "登入時發生錯誤",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "提供詳細嘅音樂收聽分析服務。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "一個免費同開放嘅音樂分享平台。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "一邊記錄你嘅音樂習慣，一邊為開源數據庫出一分力。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "修復",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "確認登出",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "你確定要登出？所有本地儲存嘅登入資料都會被刪除。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "重試登入",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "登出",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
   }
 }

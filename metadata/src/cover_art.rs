@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use image::{GenericImageView, ImageBuffer, Pixel};
 use lofty::file::TaggedFileExt;
+use log::{error, info};
 use palette_extract::{get_palette_rgb, Color};
 
 use crate::crc::media_crc32;
@@ -58,20 +59,92 @@ pub fn color_to_int(color: &Color) -> i32 {
     (alpha << 24) | (r << 16) | (g << 8) | b
 }
 
-pub fn extract_cover_art_binary(file_path: &Path) -> Option<CoverArt> {
+pub fn extract_cover_art_binary(file_path: &Path, lib_path: Option<&Path>) -> Option<CoverArt> {
+    if let Some(cover_art) = extract_from_tagged_file(file_path) {
+        return Some(cover_art);
+    }
+
+    if let Some(lib_path) = lib_path {
+        info!("Falling back to external cover art");
+        return fallback_to_external_cover(file_path, lib_path);
+    }
+
+    None
+}
+
+fn extract_from_tagged_file(file_path: &Path) -> Option<CoverArt> {
     let tagged_file = lofty::read_from_path(file_path).ok()?;
 
     let tag = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag())?;
 
-    let pictures = tag.pictures();
-    if pictures.is_empty() {
+    let picture = tag.pictures().first()?;
+    let cover_data = picture.data().to_vec();
+
+    if cover_data.is_empty() {
         return None;
     }
 
-    let picture = &pictures[0];
-    let cover_data = picture.data().to_vec();
+    let rgb_sequence = decode_image(&cover_data).ok()?;
+
+    // Calculate the CRC
+    let crc = media_crc32(&rgb_sequence, 0, 0, rgb_sequence.len());
+    let primary_color = get_palette_rgb(&rgb_sequence)[0];
+
+    if crc == 0 {
+        return None;
+    }
+
+    let crc_string = format!("{:08x}", crc);
+
+    Some(CoverArt {
+        crc: crc_string,
+        data: cover_data,
+        primary_color: color_to_int(&primary_color),
+    })
+}
+
+fn fallback_to_external_cover(file_path: &Path, lib_path: &Path) -> Option<CoverArt> {
+    if !file_path.starts_with(lib_path) {
+        error!("File path is not within the library path");
+        return None;
+    }
+
+    let cover_names = [
+        "cover.png",
+        "cover.jpg",
+        "cover.jpeg",
+        "folder.png",
+        "folder.jpg",
+        "folder.jpeg",
+        "Cover.png",
+        "Cover.jpg",
+        "Cover.jpeg",
+        "Folder.png",
+        "Folder.jpg",
+        "Folder.jpeg",
+    ];
+
+    let mut current_dir = file_path.parent()?;
+
+    while current_dir.starts_with(lib_path) {
+        for cover_name in &cover_names {
+            let cover_path = current_dir.join(cover_name);
+            if cover_path.exists() {
+                if let Some(cover_art) = process_external_cover(&cover_path) {
+                    return Some(cover_art);
+                }
+            }
+        }
+        current_dir = current_dir.parent()?;
+    }
+
+    None
+}
+
+fn process_external_cover(cover_path: &Path) -> Option<CoverArt> {
+    let cover_data = std::fs::read(cover_path).ok()?;
 
     if cover_data.is_empty() {
         return None;

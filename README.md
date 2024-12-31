@@ -14,7 +14,8 @@
     <a href="https://github.com/Losses/rune/blob/master/flake.nix"><img alt="Nix Flakes" src="https://img.shields.io/badge/nix-flake-blue?logo=nixos" /></a>
     <a href="https://oss.issuehunt.io/r/Losses/rune"><img alt="Issue Hunt" src="https://img.shields.io/badge/hunt-hunt?logo=cashapp&logoColor=white&label=issue&color=%232cc28c"></a>
     <a href="https://github.com/Losses/rune/actions/workflows/build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/losses/rune/build.yml"></a>
-    <a href="https://github.com/losses/rune/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/losses/rune?color=green"></a>
+    <a href="https://github.com/losses/rune/releases/latest"><img alt="Stable Release" src="https://img.shields.io/github/v/release/losses/rune?color=green&label=stable"></a>
+    <a href="https://github.com/Losses/rune/releases"><img alt="Preview Release" src="https://img.shields.io/github/v/release/losses/rune?include_prereleases&label=preview&color=%23FFEB3B"></a>
 
   </p>
 </div>
@@ -63,9 +64,9 @@ However, we offer a WinRAR-style trial mechanism, allowing you to try the softwa
 Please note that we do not accept feature requests from unpaid users.
 
 <p align="center">
-  <a href="https://partner.steamgames.com/apps/landing/3343500"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
+  <a href="https://store.steampowered.com/app/3343500/Rune/"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
   <a href="https://apps.microsoft.com/detail/9N52TW1F5348"><img src="assets/available_ms_store.png" width=180 alt="Available on Microsoft Store"/></a>
-  <a href="#"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
+  <a href="https://apps.apple.com/us/app/rune-player/id6738841909"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
 </p>
 
 ## Installation and Running
@@ -76,7 +77,7 @@ However, if you have specific needs, you can choose to build your own binary pac
 
 If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
 
-Additionally, when using these unofficial sources, **you should still purchase a genuine license**.
+Additionally, when using these unofficial sources, **you still need to purchase a license to become a genuine user**.
 
 ## Release Policy
 

@@ -1,13 +1,12 @@
-use crate::analyzer::core_analyzer::Analyzer;
-use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::utils::hanning_window::build_hanning_window;
-
 use rubato::Resampler;
 use rustfft::num_complex::Complex;
 
+use crate::analyzer::core_analyzer::Analyzer;
+use crate::analyzer::sub_analyzer::SubAnalyzer;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
+use crate::utils::hanning_window::build_hanning_window;
 
 use crate::wgpu_fft::wgpu_radix4;
 
@@ -80,7 +79,7 @@ mod tests {
 
     use crate::legacy::legacy_fft_v2::gpu_fft;
     use crate::measure_time;
-    use crate::shared_utils::computing_device::ComputingDevice;
+    use crate::utils::computing_device::ComputingDevice;
 
     use super::*;
 

@@ -1,26 +1,28 @@
 syntax = "proto3";
 package stat;
 
+import "playback.proto";
+
 // [DART-SIGNAL]
 message SetLikedRequest {
-  int32 file_id = 1;
+  playback.PlayingItemRequest item = 1;
   bool liked = 2;
 }
 
 // [RUST-SIGNAL]
 message SetLikedResponse {
-  int32 file_id = 1;
+  playback.PlayingItemRequest item = 1;
   bool liked = 2;
   bool success = 3;
 }
 
 // [DART-SIGNAL]
 message GetLikedRequest {
-  int32 file_id = 1;
+  playback.PlayingItemRequest item = 1;
 }
 
 // [RUST-SIGNAL]
 message GetLikedResponse {
-  int32 file_id = 1;
+  playback.PlayingItemRequest item = 1;
   bool liked = 2;
 }

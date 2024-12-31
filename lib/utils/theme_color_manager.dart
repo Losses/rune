@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../config/theme.dart';
-import '../screens/settings_theme/settings_theme.dart';
+import '../constants/configurations.dart';
 
 import 'api/get_primary_color.dart';
+
+import 'playing_item.dart';
 import 'settings_manager.dart';
 
 class ThemeColorManager {
@@ -13,18 +15,18 @@ class ThemeColorManager {
 
   bool _isDynamicColorEnabled = false;
   Color? _userSelectedColor;
-  int? _currentCoverArtId;
+  PlayingItem? _currentPlayingItem;
 
   Future<void> initialize() async {
     final settingsManager = SettingsManager();
 
     // 1. Read dynamic color settings
     final bool? enableDynamicColors =
-        await settingsManager.getValue<bool>(enableDynamicColorsKey);
+        await settingsManager.getValue<bool>(kEnableDynamicColorsKey);
     _isDynamicColorEnabled = enableDynamicColors ?? false;
 
     // 2. Read the user's selected theme color
-    final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+    final int? themeColor = await settingsManager.getValue<int>(kThemeColorKey);
     if (themeColor != null) {
       _userSelectedColor = Color(themeColor);
     }
@@ -36,8 +38,8 @@ class ThemeColorManager {
 
     if (enabled) {
       // If dynamic colors are enabled and a song is currently playing, apply the cover color immediately
-      if (_currentCoverArtId != null) {
-        await handleCoverArtColorChange(_currentCoverArtId!);
+      if (_currentPlayingItem != null) {
+        await handleCoverArtColorChange(_currentPlayingItem!);
       } else {
         appTheme.updateThemeColor(_userSelectedColor);
       }
@@ -55,8 +57,8 @@ class ThemeColorManager {
     if (!_isDynamicColorEnabled) {
       appTheme.updateThemeColor(color);
     } else {
-      if (_currentCoverArtId != null) {
-        handleCoverArtColorChange(_currentCoverArtId!);
+      if (_currentPlayingItem != null) {
+        handleCoverArtColorChange(_currentPlayingItem!);
       } else {
         appTheme.updateThemeColor(color);
       }
@@ -64,12 +66,12 @@ class ThemeColorManager {
   }
 
   // Handle cover art color change
-  Future<void> handleCoverArtColorChange(int coverArtId) async {
-    _currentCoverArtId = coverArtId;
+  Future<void> handleCoverArtColorChange(PlayingItem item) async {
+    _currentPlayingItem = item;
 
     if (!_isDynamicColorEnabled) return;
 
-    final primaryColor = await getPrimaryColor(coverArtId);
+    final primaryColor = await getPrimaryColor(item);
     if (primaryColor != null) {
       appTheme.updateThemeColor(Color(primaryColor));
     } else {
@@ -79,8 +81,8 @@ class ThemeColorManager {
 
   // Get the current color that should be used
   Future<void> refreshCurrentColor() async {
-    if (_isDynamicColorEnabled && _currentCoverArtId != null) {
-      await handleCoverArtColorChange(_currentCoverArtId!);
+    if (_isDynamicColorEnabled && _currentPlayingItem != null) {
+      await handleCoverArtColorChange(_currentPlayingItem!);
     } else {
       appTheme.updateThemeColor(_userSelectedColor);
     }

@@ -6,10 +6,10 @@ import 'package:fluent_ui/fluent_ui.dart';
 import '../utils/settings_manager.dart';
 import '../messages/all.dart';
 
-const licenseKey = 'license';
-const licenseValidationKey = 'licenseValidation';
-
 class LicenseProvider with ChangeNotifier {
+  static const licenseKey = 'license';
+  static const licenseValidationKey = 'licenseValidation';
+
   final SettingsManager _settingsManager = SettingsManager();
   bool _isStoreMode = false;
   bool _isPro = false;

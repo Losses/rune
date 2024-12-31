@@ -11,12 +11,12 @@ import '../../widgets/band_screen/band_screen_feature_list.dart';
 import '../../widgets/start_screen/providers/start_screen_layout_manager.dart';
 import '../../providers/responsive_providers.dart';
 
-import '../settings_about/settings_about.dart';
-
 import 'constants/first_column.dart';
 import 'large_screen_settings_home_list.dart';
 
 class SettingsHomePage extends StatefulWidget {
+  static const mysteriousKey = 'mysterious_key';
+
   const SettingsHomePage({super.key});
 
   @override
@@ -32,7 +32,7 @@ class _SettingsHomePageState extends State<SettingsHomePage> {
   void initState() {
     super.initState();
 
-    SettingsManager().getValue<bool>(mysteriousKey).then((x) {
+    SettingsManager().getValue<bool>(SettingsHomePage.mysteriousKey).then((x) {
       if (!context.mounted) return;
 
       setState(() {

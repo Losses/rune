@@ -3,7 +3,7 @@ mod tests {
     use crate::analyzer::core_analyzer::Analyzer;
     use crate::legacy::legacy_fft_v1;
     use crate::measure_time;
-    use crate::shared_utils::computing_device::ComputingDevice;
+    use crate::utils::computing_device::ComputingDevice;
     use log::info;
 
     #[test]

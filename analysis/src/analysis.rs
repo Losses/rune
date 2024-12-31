@@ -3,7 +3,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::analyzer::core_analyzer::Analyzer;
 use crate::measure_time;
-use crate::shared_utils::computing_device::ComputingDevice;
+use crate::utils::computing_device::ComputingDevice;
 use crate::utils::features::*;
 
 #[derive(Debug, Clone, Copy)]

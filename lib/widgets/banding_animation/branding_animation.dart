@@ -3,9 +3,10 @@ import 'dart:math';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/asset_helper.dart';
-import '../../utils/api/sfx_play.dart';
-
 import '../../utils/settings_manager.dart';
+import '../../utils/api/sfx_play.dart';
+import '../../constants/configurations.dart';
+
 import 'branding_animation_implementation.dart';
 
 class BrandingAnimation extends StatefulWidget {
@@ -15,10 +16,8 @@ class BrandingAnimation extends StatefulWidget {
   State<BrandingAnimation> createState() => _BrandingAnimationState();
 }
 
-const bandingSfxKey = 'branding_sfx';
-
 Future<String?> getStartUpSfxPath() async {
-  final config = await SettingsManager().getValue<String?>(bandingSfxKey);
+  final config = await SettingsManager().getValue<String?>(kBandingSfxKey);
 
   if (config == null) {
     return 'assets/startup_1.ogg';

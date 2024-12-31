@@ -2,11 +2,11 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/api/play_mode.dart';
 import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
-import '../../utils/l10n.dart';
 
 import '../rune_icon_button.dart';
 
@@ -80,7 +80,7 @@ class PlaybackModeButton extends StatelessWidget {
         : [];
 
     // Check if all modes are disabled
-    if (disabledModes.length >= PlaybackMode.values.length - 1) {
+    if (disabledModes.length >= PlaybackMode.values.length) {
       return PlaybackMode.sequential; // Default to sequential mode
     }
 

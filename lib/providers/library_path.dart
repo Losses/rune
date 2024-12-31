@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/query_list.dart';
-import '../utils/api/play_mode.dart';
 import '../utils/api/load_request.dart';
 import '../utils/api/set_media_library_path.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
@@ -11,8 +10,7 @@ import '../utils/dialogs/select_library_mode/show_select_library_mode_dialog.dar
 import '../utils/file_storage/file_storage_service.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
 import '../messages/all.dart';
-
-import 'status.dart';
+import '../constants/configurations.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
 
@@ -92,16 +90,16 @@ class LibraryPathProvider with ChangeNotifier {
       await operatePlaybackWithMixQuery(
         queries: const QueryList([("lib::queue", "true")]),
         playbackMode:
-            await SettingsManager().getValue<int>(playbackModeKey) ?? 99,
+            await SettingsManager().getValue<int>(kPlaybackModeKey) ?? 99,
         hintPosition: -1,
         initialPlaybackId: 0,
         instantlyPlay: false,
         operateMode: PlaylistOperateMode.Replace,
-        fallbackFileIds: [],
+        fallbackPlayingItems: [],
       );
 
       final lastQueueIndex =
-          await (SettingsManager().getValue(lastQueueIndexKey));
+          await (SettingsManager().getValue(kLastQueueIndexKey));
       load(lastQueueIndex ?? 0);
     } else {
       removeCurrentPath();

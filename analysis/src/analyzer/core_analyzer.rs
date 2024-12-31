@@ -1,7 +1,3 @@
-use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
-use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
-use crate::analyzer::sub_analyzer::SubAnalyzer;
-use crate::utils::audio_description::AudioDescription;
 use std::sync::{Arc, Mutex};
 
 use log::{debug, info};
@@ -14,9 +10,12 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
-use crate::shared_utils::computing_device::ComputingDevice;
-
-use crate::shared_utils::audio_metadata_reader::*;
+use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
+use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
+use crate::analyzer::sub_analyzer::SubAnalyzer;
+use crate::utils::audio_description::AudioDescription;
+use crate::utils::audio_metadata_reader::*;
+use crate::utils::computing_device::ComputingDevice;
 
 macro_rules! check_cancellation {
     ($self:expr) => {

@@ -8,12 +8,14 @@ mod library_home;
 mod library_manage;
 mod license;
 mod logging;
+mod lyric;
 mod media_file;
 mod messages;
 mod mix;
 mod playback;
 mod player;
 mod playlist;
+mod scrobble;
 mod search;
 mod sfx;
 mod stat;
@@ -21,9 +23,9 @@ mod system;
 mod utils;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Context;
-use license::validate_license_request;
 use log::{debug, error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -34,6 +36,7 @@ pub use tokio;
 
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
+use ::scrobbling::manager::ScrobblingManager;
 
 use crate::analyze::*;
 use crate::collection::*;
@@ -42,14 +45,17 @@ use crate::cover_art::*;
 use crate::directory::*;
 use crate::library_home::*;
 use crate::library_manage::*;
+use crate::license::validate_license_request;
 use crate::license::*;
 use crate::logging::*;
+use crate::lyric::*;
 use crate::media_file::*;
 use crate::messages::*;
 use crate::mix::*;
 use crate::playback::*;
 use crate::player::initialize_player;
 use crate::playlist::*;
+use crate::scrobble::*;
 use crate::search::*;
 use crate::sfx::*;
 use crate::stat::*;
@@ -99,7 +105,11 @@ struct TaskTokens {
     analyze_token: Option<CancellationToken>,
 }
 
-async fn player_loop(path: String, db_connections: DatabaseConnections) {
+async fn player_loop(
+    path: String,
+    db_connections: DatabaseConnections,
+    scrobbler: Arc<Mutex<ScrobblingManager>>,
+) {
     info!("Media Library Received, initialize other receivers");
 
     tokio::spawn(async move {
@@ -110,7 +120,7 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
         let recommend_db: Arc<database::connection::RecommendationDbConnection> =
             db_connections.recommend_db;
 
-        let lib_path = Arc::new(path);
+        let lib_path: Arc<String> = Arc::new(path);
 
         let main_cancel_token = CancellationToken::new();
         let task_tokens = Arc::new(Mutex::new(TaskTokens::default()));
@@ -125,7 +135,12 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
         let main_cancel_token = Arc::new(main_cancel_token);
 
         info!("Initializing Player events");
-        tokio::spawn(initialize_player(main_db.clone(), player.clone()));
+        tokio::spawn(initialize_player(
+            lib_path.clone(),
+            main_db.clone(),
+            player.clone(),
+            scrobbler.clone(),
+        ));
 
         info!("Initializing UI events");
         select_signal!(
@@ -160,6 +175,8 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
             FetchMediaFileByIdsRequest => (main_db, lib_path),
             FetchParsedMediaFileRequest => (main_db, lib_path),
             SearchMediaFileSummaryRequest => (main_db),
+
+            GetLyricByTrackIdRequest => (lib_path, main_db),
 
             FetchCollectionGroupSummaryRequest => (main_db, recommend_db),
             FetchCollectionGroupsRequest => (main_db, recommend_db),
@@ -196,6 +213,10 @@ async fn player_loop(path: String, db_connections: DatabaseConnections) {
 
             FetchDirectoryTreeRequest => (main_db),
 
+            AuthenticateSingleServiceRequest => (scrobbler),
+            AuthenticateMultipleServiceRequest => (scrobbler),
+            LogoutSingleServiceRequest => (scrobbler),
+
             ListLogRequest => (main_db),
             ClearLogRequest => (main_db),
             RemoveLogRequest => (main_db),
@@ -213,6 +234,9 @@ rinf::write_interface!();
 async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
+
+    let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
+    let scrobbler = Arc::new(Mutex::new(scrobbler));
 
     let _guard = if enable_log {
         let file_filter = EnvFilter::new("debug");
@@ -235,7 +259,7 @@ async fn main() {
     };
 
     // Start receiving the media library path
-    if let Err(e) = receive_media_library_path(player_loop).await {
+    if let Err(e) = receive_media_library_path(player_loop, scrobbler).await {
         error!("Failed to receive media library path: {}", e);
     }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../utils/is_cover_art_wall_layout.dart';
 import '../../utils/macos_window_control_button_manager.dart';
 import '../../providers/full_screen.dart';
 import '../../providers/router_path.dart';
@@ -53,10 +54,9 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
       return;
     }
 
-    if ((
-            currentDeviceType == DeviceType.zune ||
+    if ((currentDeviceType == DeviceType.zune ||
             currentDeviceType == DeviceType.phone) &&
-        $router.path == "/cover_wall") {
+        isCoverArtWallLayout($router.path)) {
       MacOSWindowControlButtonManager.shared.setHide();
       return;
     }
@@ -104,7 +104,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                     children: [
                       SizedBox(
                         width: 320,
-                        child: DragMoveWindowArea(isEnabledDoubleTap: false),
+                        child: DragMoveWindowArea(enableDoubleTap: false),
                       ),
                       Expanded(child: DragMoveWindowArea())
                     ],
@@ -115,7 +115,7 @@ class _WindowFrameForMacOSState extends State<WindowFrameForMacOS> {
                   child: Row(
                     children: [
                       Expanded(
-                          child: DragMoveWindowArea(isEnabledDoubleTap: false)),
+                          child: DragMoveWindowArea(enableDoubleTap: false)),
                     ],
                   ),
                 ),

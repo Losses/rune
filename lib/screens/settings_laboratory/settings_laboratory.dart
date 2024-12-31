@@ -8,11 +8,12 @@ import '../../widgets/rune_icon_button.dart';
 import '../../widgets/router/rune_stack.dart';
 import '../../providers/responsive_providers.dart';
 
-import 'widgets/settings/branding_animation_settings.dart';
 import 'widgets/settings/cafe_mode_settings.dart';
-import 'widgets/settings/cover_wall_richness_settings.dart';
 import 'widgets/settings/force_zune_settings.dart';
+import 'widgets/settings/branding_animation_settings.dart';
+import 'widgets/settings/cover_wall_richness_settings.dart';
 import 'widgets/settings/library_cover_wallpaper_settings.dart';
+import 'widgets/settings/mild_spectrum_settings.dart';
 
 class SettingsLaboratory extends StatelessWidget {
   const SettingsLaboratory({super.key});
@@ -96,6 +97,7 @@ class _ResponsiveSettingsGrid extends StatelessWidget {
           BrandingAnimationSettings(),
           CafeModeSettings(),
           ForceZuneSettings(),
+          MildSpectrumSettings(),
         ],
       ),
     );

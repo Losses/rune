@@ -968,5 +968,83 @@
   "considerPurchase": "请考虑购买正版许可证。",
   "@considerPurchase": {
     "description": "关于页面中的通知，引导用户购买许可证"
+  },
+  "lyrics": "歌词",
+  "@lyrics": {
+    "description": "按钮提示文本，用于控制播放，用于切换到歌词页面。"
+  },
+  "lyricsSubtitle": "展示曲目的完整歌词",
+  "@lyricsSubtitle": {},
+  "onlineServices": "在线服务",
+  "@onlineServices": {
+    "description": "播放设置页面中的章节标题。"
+  },
+  "login": "登录",
+  "@login": {
+    "description": "登录模态框的操作按钮。"
+  },
+  "loginFailed": "登录失败",
+  "@loginFailed": {
+    "description": "登录模态框中登录失败按钮的标题。"
+  },
+  "loginFailedSubtitle": "尝试登录时出错",
+  "@loginFailedSubtitle": {
+    "description": "登录模态框中登录失败按钮的副标题。"
+  },
+  "lastFmSubtitle": "使用此音乐跟踪服务提供详细的收听见解。",
+  "@lastFmSubtitle": {
+    "description": "scrobble 服务的描述。"
+  },
+  "libreFmSubtitle": "一个自由开放的平台，用于分享您的音乐品味。",
+  "@libreFmSubtitle": {
+    "description": "scrobble 服务的描述。"
+  },
+  "listenBrainzSubtitle": "在追踪您的习惯的同时为开源数据库做出贡献。",
+  "@listenBrainzSubtitle": {
+    "description": "scrobble 服务的描述。"
+  },
+  "fix": "修复",
+  "@fix": {
+    "description": "服务登录失败设置项的动作按钮。"
+  },
+  "confirmLogoutTitle": "确认注销",
+  "@confirmLogoutTitle": {
+    "description": "注销确认对话框的标题。"
+  },
+  "confirmLogoutSubtitle": "您确定要注销吗？所有本地存储的登录凭证都将被删除。",
+  "@confirmLogoutSubtitle": {
+    "description": "注销确认对话框的副标题。"
+  },
+  "retryLogin": "重试登录",
+  "@retryLogin": {
+    "description": "错误选项菜单中的重试登录选项。"
+  },
+  "logout": "注销",
+  "@logout": {
+    "description": "错误选项菜单中的注销选项。"
+  },
+  "copy": "复制",
+  "@copy": {
+    "description": "内容上下文菜单中的项。"
+  },
+  "username": "用户名",
+  "@username": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "password": "密码",
+  "@password": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "scrobble 登录表单的输入字段标题。"
   }
 }

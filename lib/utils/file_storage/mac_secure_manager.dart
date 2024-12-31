@@ -7,9 +7,9 @@ import '../settings_manager.dart';
 
 import '../../utils/rune_log.dart';
 
-const storageKey = 'rune-secure-bookmarks';
-
 class MacSecureManager {
+  static const storageKey = 'rune-secure-bookmarks';
+
   static final MacSecureManager _instance = MacSecureManager._internal();
   factory MacSecureManager() => _instance;
 

@@ -9,7 +9,7 @@ use tokio::task;
 
 use database::actions::file::{get_file_by_id, get_random_files};
 use database::connection::MainDbConnection;
-use playback::player::Player;
+use playback::player::{Player, PlayingItem};
 
 async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_ids: Vec<i32>) {
     let player = Player::new(None);
@@ -36,7 +36,7 @@ async fn play_files(main_db: &MainDbConnection, canonicalized_path: &Path, file_
             .into_iter()
             .map(|file| {
                 (
-                    file.id,
+                    PlayingItem::InLibrary(file.id),
                     canonicalize(canonicalized_path.join(file.directory).join(file.file_name))
                         .unwrap(),
                 )

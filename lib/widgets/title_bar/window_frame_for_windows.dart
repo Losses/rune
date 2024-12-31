@@ -5,16 +5,16 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:bitsdojo_window/bitsdojo_window.dart';
 
 import '../../main.dart';
-import '../../providers/full_screen.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_search.dart';
-import 'drag_move_window_area.dart';
 import '../../providers/router_path.dart';
+import '../../providers/full_screen.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../router/rune_stack.dart';
 
 import 'window_icon_button.dart';
+import 'drag_move_window_area.dart';
 
 class WindowFrameForWindows extends StatefulWidget {
   final Widget child;

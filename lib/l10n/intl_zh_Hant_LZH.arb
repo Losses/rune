@@ -968,5 +968,83 @@
   "considerPurchase": "望君購執。",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "詞",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "展曲全詞",
+  "@lyricsSubtitle": {},
+  "onlineServices": "遙供他務",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "籍名",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "籍名未果",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "籍時遇謬",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "知聆曉跡，悉聞賞趣。",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "舒表曲志於自由之地。",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "循轍之時助築開源庫。",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "繕",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "確出",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "誠欲籍出？儲據將棄。",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "再籍",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "出籍",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "抄取",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "簿名",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "符節",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "際鑰",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "際密",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "令牌",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

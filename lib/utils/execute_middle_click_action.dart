@@ -1,12 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../messages/all.dart';
-import '../screens/settings_playback/settings_playback.dart';
+import '../constants/configurations.dart';
+
 import 'api/operate_playback_with_mix_query.dart';
-import 'build_query.dart';
-import 'get_non_replace_operate_mode.dart';
+
 import 'query_list.dart';
+import 'build_query.dart';
+import 'playing_item.dart';
 import 'settings_manager.dart';
+import 'get_non_replace_operate_mode.dart';
 
 Future<void> executeMiddleClickAction(
   BuildContext context,
@@ -14,7 +17,7 @@ Future<void> executeMiddleClickAction(
   int id,
 ) async {
   String middleClickAction =
-      await SettingsManager().getValue<String>(middleClickActionKey) ??
+      await SettingsManager().getValue<String>(kMiddleClickActionKey) ??
           "StartPlaying";
 
   if (!context.mounted) return;
@@ -47,7 +50,7 @@ Future<void> startPlaying(
     initialPlaybackId: 0,
     instantlyPlay: true,
     operateMode: PlaylistOperateMode.Replace,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
 
@@ -64,7 +67,7 @@ Future<void> addToQueue(
     initialPlaybackId: 0,
     instantlyPlay: false,
     operateMode: await getNonReplaceOperateMode(),
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
 
@@ -93,6 +96,6 @@ Future<void> startRoaming(
     initialPlaybackId: 0,
     instantlyPlay: true,
     operateMode: PlaylistOperateMode.Replace,
-    fallbackFileIds: fallbackFileIds,
+    fallbackPlayingItems: fallbackFileIds.map(PlayingItem.inLibrary).toList(),
   );
 }
