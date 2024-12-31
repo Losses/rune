@@ -33,8 +33,8 @@ fn main() -> Result<()> {
     let output_file_base = matches.get_one::<String>("OUTPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 11025;
-    let sample_count = 4;
+    let sample_rate = 8000;
+    let sample_count = 3;
     let sample_duration = 10.0;
 
     // Create a cancellation token (if needed)
@@ -56,7 +56,7 @@ fn main() -> Result<()> {
 
     for (counter, event) in receiver.iter().enumerate() {
         // Create a numbered output file name
-        let output_file = format!("{}_{}.txt", output_file_base, counter);
+        let output_file = format!("{}_{}.log", output_file_base, counter);
 
         // Log the output file path
         println!("Writing to output file: {}", output_file);

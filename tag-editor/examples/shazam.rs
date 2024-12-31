@@ -30,9 +30,9 @@ async fn main() -> Result<()> {
     let input_file = matches.get_one::<String>("INPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 11025;
-    let sample_count = 4;
-    let sample_duration = 10.0;
+    let sample_rate = 8000;
+    let sample_count = 8;
+    let sample_duration = 20.0;
 
     // Create a cancellation token (if needed)
     let cancel_token = CancellationToken::new();

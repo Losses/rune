@@ -44,6 +44,16 @@ async fn main() -> Result<()> {
     // Print the signature (mimicking the Go code's output)
     for (band, peaks) in signature.peaks_by_band.iter().enumerate() {
         println!("Band {}: {} peaks", band, peaks.len());
+
+        for (i, peak) in peaks.iter().enumerate() {
+            println!(
+                "  Peak {}: {{Pass: {}, Magnitude: {}, Bin: {}}}",
+                i + 1,
+                peak.pass,
+                peak.magnitude,
+                peak.bin
+            );
+        }
     }
 
     Ok(())
