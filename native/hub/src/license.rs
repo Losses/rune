@@ -40,9 +40,8 @@ pub async fn check_store_license() -> Result<Option<(String, bool, bool)>> {
 
 #[cfg(target_os = "macos")]
 pub async fn check_store_license() -> Result<Option<(String, bool, bool)>, &'static str> {
-    use crate::apple_bridge::apple_bridge::bundle_id;
-    let bundle_id = bundle_id();
-
+    use crate::apple_bridge::get_bundle_id;
+    let bundle_id = get_bundle_id();
     if bundle_id == "ci.not.rune.appstore" {
         let is_active = true;
         let is_trial = false;
