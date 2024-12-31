@@ -134,8 +134,7 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
     let mut spread_outputs = Ring::<F64Array1025>::new(256);
     let mut peaks_by_band: [Vec<FrequencyPeak>; 5] = Default::default();
 
-    for i in 0..(samples.len() as i32 - 128) / 128 {
-        log!("Iteration: {} (Rust)", i);
+    for i in 0..((samples.len() as i32) / 128) {
         let start = i * 128;
         // Corrected the end calculation to ensure we take exactly 128 samples
         let end = start + 128;
@@ -183,26 +182,14 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
 
             // Skip until we have enough samples
             if i < 45 {
-                log!("  Skipping peak recognition (i < 45)");
                 continue;
             }
 
             // Recognize peaks
             let fft_output = fft_outputs.at(-46);
-            log!(
-                "  Recognizing peaks (fft_output from {} iterations ago)",
-                46
-            );
             for bin in 10..1015 {
                 let neighbor = max_neighbor(&spread_outputs, bin);
                 if fft_output.0[bin] <= neighbor {
-                    log!(
-                        "    bin {}: fftOutput[{}] ({:.6}) <= maxNeighbor ({:.6}). Skipping.",
-                        bin,
-                        bin,
-                        fft_output.0[bin],
-                        neighbor
-                    );
                     continue;
                 }
 
@@ -211,15 +198,6 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
                 let after = normalize_peak(fft_output.0[bin + 1]);
                 let variation = ((32.0 * (after - before)) / (2.0 * peak - after - before)) as i32;
                 let peak_bin = bin as i32 * 64 + variation;
-                log!(
-                    "    bin {}: before: {}, peak: {}, after: {}, variation: {}, peak_bin: {}",
-                    bin,
-                    before,
-                    peak,
-                    after,
-                    variation,
-                    peak_bin
-                );
 
                 if let Some(band) = peak_band(peak_bin) {
                     peaks_by_band[band].push(FrequencyPeak {
@@ -227,21 +205,11 @@ pub fn compute_signature(sample_rate: i32, samples: &[f64]) -> Signature {
                         magnitude: peak as i32,
                         bin: peak_bin,
                     });
-                    log!(
-                        "    Peak added for band {}: Pass: {}, Magnitude: {}, Bin: {}",
-                        band,
-                        i - 45,
-                        peak as i32,
-                        peak_bin
-                    );
-                } else {
-                    log!("    bin {}: peak_band returned None. Skipping.", bin);
                 }
             }
         }
     }
 
-    log!("=== Finished Rust ComputeSignature ===");
     Signature {
         sample_rate,
         num_samples: samples.len() as i32,
