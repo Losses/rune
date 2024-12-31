@@ -1,3 +1,4 @@
+#[cfg(target_os = "macos")]
 use swift_rs::{swift, SRString};
 
 #[cfg(target_os = "macos")]
