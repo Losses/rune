@@ -4,6 +4,7 @@ use anyhow::{bail, Result};
 use rubato::{FftFixedInOut, Resampler};
 use symphonia::core::audio::AudioBuffer;
 use symphonia::core::audio::AudioBufferRef;
+use symphonia::core::audio::Signal;
 use symphonia::core::codecs::Decoder;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
@@ -144,20 +145,32 @@ impl Sampler {
     where
         T: Sample + IntoSample<f64>,
     {
-        for plane in buf.planes().planes() {
-            for &sample in plane.iter() {
-                let sample = IntoSample::<f64>::into_sample(sample);
-                self.current_sample_buffer.push(sample);
+        // Get number of frames and channels
+        let num_channels = buf.spec().channels.count();
+        let frames = buf.frames();
 
-                // Process the chunk if it reaches the required size
-                if self.current_sample_buffer.len() >= self.samples_per_chunk {
-                    let chunk = self.current_sample_buffer[..self.samples_per_chunk].to_vec();
-                    self.process_audio_chunk(&chunk, resampler, output_buffer, sender)?;
+        // Process frame by frame, averaging all channels
+        for frame_idx in 0..frames {
+            let mut frame_sum = 0.0;
 
-                    // Remove processed samples, keeping the overlap
-                    self.current_sample_buffer
-                        .drain(..(self.samples_per_chunk - self.overlap));
-                }
+            // Sum all channels for this frame
+            for channel in 0..num_channels {
+                let sample = buf.chan(channel)[frame_idx];
+                frame_sum += IntoSample::<f64>::into_sample(sample);
+            }
+
+            // Average the sum by number of channels
+            let mixed_sample = frame_sum / num_channels as f64;
+            self.current_sample_buffer.push(mixed_sample);
+
+            // Process the chunk if it reaches the required size
+            if self.current_sample_buffer.len() >= self.samples_per_chunk {
+                let chunk = self.current_sample_buffer[..self.samples_per_chunk].to_vec();
+                self.process_audio_chunk(&chunk, resampler, output_buffer, sender)?;
+
+                // Remove processed samples, keeping the overlap
+                self.current_sample_buffer
+                    .drain(..(self.samples_per_chunk - self.overlap));
             }
         }
         Ok(())
