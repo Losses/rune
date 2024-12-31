@@ -80,7 +80,7 @@ class PlaybackModeButton extends StatelessWidget {
         : [];
 
     // Check if all modes are disabled
-    if (disabledModes.length >= PlaybackMode.values.length - 1) {
+    if (disabledModes.length >= PlaybackMode.values.length) {
       return PlaybackMode.sequential; // Default to sequential mode
     }
 
