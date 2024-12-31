@@ -1,4 +1,4 @@
-use swift_rs::{swift, Bool, Int, SRObject, SRObjectArray, SRString};
+use swift_rs::{swift, SRString};
 
 #[cfg(target_os = "macos")]
 swift!(fn bundle_id() -> SRString);
