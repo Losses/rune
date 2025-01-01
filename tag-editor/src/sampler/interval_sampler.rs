@@ -1,3 +1,5 @@
+use std::sync::mpsc::channel;
+use std::sync::mpsc::Receiver;
 use std::sync::mpsc::Sender;
 
 use anyhow::{bail, Result};
@@ -22,6 +24,7 @@ pub struct SampleEvent {
 }
 
 pub struct IntervalSampler {
+    file_path: String,       // Path to the audio file
     sample_duration: f64,    // Duration of each sample (in seconds)
     interval: f64,           // Time interval between samples (in seconds)
     target_sample_rate: u32, // Target sample rate
@@ -34,16 +37,24 @@ pub struct IntervalSampler {
     // Cancellation flag
     fn_is_cancelled: Box<dyn Fn() -> bool + Send>,
     is_cancelled: bool,
+
+    // Channel
+    sender: Sender<SampleEvent>,
+    pub receiver: Receiver<SampleEvent>,
 }
 
 impl IntervalSampler {
     pub fn new(
+        file_path: &str,
         sample_duration: f64,
         interval: f64,
         target_sample_rate: u32,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
+        let (sender, receiver) = channel::<SampleEvent>();
+
         IntervalSampler {
+            file_path: file_path.to_string(),
             sample_duration,
             interval,
             target_sample_rate,
@@ -56,11 +67,13 @@ impl IntervalSampler {
                     .map_or(false, |token| token.is_cancelled())
             }),
             is_cancelled: false,
+            sender,
+            receiver,
         }
     }
 
-    pub fn process(&mut self, file_path: &str, sender: Sender<SampleEvent>) -> Result<()> {
-        let mut format = get_format(file_path)?;
+    pub fn process(&mut self) -> Result<()> {
+        let mut format = get_format(&self.file_path)?;
         let track = match format
             .tracks()
             .iter()
@@ -93,7 +106,6 @@ impl IntervalSampler {
             duration,
             resampler,
             &mut output_buffer,
-            &sender,
         )?;
 
         Ok(())
@@ -109,7 +121,6 @@ impl IntervalSampler {
         sample_rate: u32,
         resampler: &mut FftFixedInOut<f64>,
         output_buffer: &mut [Vec<f64>],
-        sender: &Sender<SampleEvent>,
         sample_index: &mut usize,
     ) -> Result<()>
     where
@@ -146,7 +157,7 @@ impl IntervalSampler {
                 let input_frames = vec![self.current_sample_buffer.clone()];
                 resampler.process_into_buffer(&input_frames, output_buffer, None)?;
 
-                sender.send(SampleEvent {
+                self.sender.send(SampleEvent {
                     sample_index: *sample_index,
                     total_samples: (self.interval / self.sample_duration) as usize,
                     data: output_buffer[0].clone(),
@@ -175,7 +186,6 @@ impl IntervalSampler {
         duration: f64,
         mut resampler: FftFixedInOut<f64>,
         output_buffer: &mut [Vec<f64>],
-        sender: &Sender<SampleEvent>,
     ) -> Result<()> {
         let mut sample_index = 0;
 
@@ -205,7 +215,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -215,7 +224,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -225,7 +233,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -235,7 +242,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -245,7 +251,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -255,7 +260,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -265,7 +269,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -275,7 +278,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -285,7 +287,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -295,7 +296,6 @@ impl IntervalSampler {
                         sample_rate,
                         &mut resampler,
                         output_buffer,
-                        sender,
                         &mut sample_index,
                     )?;
                 }
@@ -313,7 +313,7 @@ impl IntervalSampler {
             let end_time =
                 self.current_time + (self.current_sample_buffer.len() as f64 / sample_rate as f64);
 
-            sender.send(SampleEvent {
+            self.sender.send(SampleEvent {
                 sample_index,
                 total_samples: (duration / self.interval) as usize,
                 data: output_buffer[0].clone(),

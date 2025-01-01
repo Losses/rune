@@ -1,5 +1,3 @@
-use std::sync::mpsc::channel;
-
 use anyhow::Result;
 use clap::{Arg, Command};
 use tokio_util::sync::CancellationToken;
@@ -39,10 +37,10 @@ async fn main() -> Result<()> {
     let cancel_token = CancellationToken::new();
 
     // Create a channel for SampleEvents
-    let (sender, receiver) = channel();
 
     // Initialize Sampler
     let mut sampler = IntervalSampler::new(
+        input_file,
         sample_duration,
         interval_duration,
         sample_rate,
@@ -50,10 +48,10 @@ async fn main() -> Result<()> {
     );
 
     // Process the audio file
-    sampler.process(input_file, sender)?;
+    sampler.process()?;
 
     // Collect and process sample events
-    for event in receiver.iter() {
+    for event in sampler.receiver.iter() {
         println!("Event:");
         println!("= Sample Index: {}", event.sample_index);
         println!("= Start Time: {:?}", event.start_time);
