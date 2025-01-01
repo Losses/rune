@@ -126,7 +126,7 @@ impl IntervalSampler {
             if self.should_take_sample(next_time) {
                 // Clear buffer if we're starting a new sample
                 self.current_sample_buffer.clear();
-                sample_start_time = Some(next_time);
+                sample_start_time = Some(self.current_time);
             }
 
             // Mix channels
@@ -153,7 +153,7 @@ impl IntervalSampler {
                     sample_rate: self.target_sample_rate,
                     duration: self.sample_duration,
                     start_time: sample_start_time.unwrap_or(self.current_time),
-                    end_time: next_time,
+                    end_time: sample_start_time.unwrap_or(self.current_time) + self.sample_duration,
                 })?;
 
                 *sample_index += 1;
