@@ -13,9 +13,9 @@ use log::{debug, info};
 use once_cell::sync::OnceCell;
 use tokio::sync::Mutex;
 
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "ios"))]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
@@ -51,7 +51,7 @@ pub struct MediaControlManager {
 
 impl MediaControlManager {
     pub fn new() -> Result<Self> {
-        #[cfg(not(any(target_os = "windows", target_os = "android")))]
+        #[cfg(not(any(target_os = "windows", target_os = "android", target_os = "ios")))]
         let hwnd = None;
 
         #[cfg(target_os = "windows")]
@@ -67,7 +67,7 @@ impl MediaControlManager {
         let config = PlatformConfig {
             dbus_name: "rune_player",
             display_name: "Rune",
-            #[cfg(not(target_os = "android"))]
+            #[cfg(not(any(target_os = "android", target_os = "ios")))]
             hwnd,
         };
 

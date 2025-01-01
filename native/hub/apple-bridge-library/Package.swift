@@ -5,15 +5,23 @@ import PackageDescription
 
 let package = Package(
     name: "apple-bridge-library",
+    platforms: [
+        .macOS(.v10_13),
+        .iOS(.v14)  // Minimum iOS version requirement
+    ],
     products: [
-        .library(name: "apple-bridge-library", type: .static, targets: ["apple-bridge-library"]),
+        .library(name: "apple-bridge-library", type: .static, targets: ["apple-bridge-library"])
     ],
     dependencies: [
+        .package(name: "SwiftRs", url: "https://github.com/Brendonovich/swift-rs", from: "1.0.5")
     ],
     targets: [
         .target(
             name: "apple-bridge-library",
-            dependencies: []
+            dependencies: [
+                .product(name: "SwiftRs", package: "SwiftRs")
+            ],
+            path: "src"
         )
     ]
 )
