@@ -96,7 +96,6 @@ impl IntervalSampler {
             self.samples_per_chunk,
             1,
         )?;
-        let mut output_buffer = resampler.output_buffer_allocate(true);
 
         self.process_audio_stream(
             &mut format,
@@ -105,7 +104,6 @@ impl IntervalSampler {
             sample_rate,
             duration,
             resampler,
-            &mut output_buffer,
         )?;
 
         Ok(())
@@ -185,9 +183,9 @@ impl IntervalSampler {
         sample_rate: u32,
         duration: f64,
         mut resampler: FftFixedInOut<f64>,
-        output_buffer: &mut [Vec<f64>],
     ) -> Result<()> {
         let mut sample_index = 0;
+        let mut output_buffer = resampler.output_buffer_allocate(true);
 
         while self.current_time < duration {
             if self.is_cancelled || (self.fn_is_cancelled)() {
@@ -214,7 +212,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -223,7 +221,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -232,7 +230,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -241,7 +239,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -250,7 +248,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -259,7 +257,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -268,7 +266,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -277,7 +275,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -286,7 +284,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -295,7 +293,7 @@ impl IntervalSampler {
                         buf.as_ref(),
                         sample_rate,
                         &mut resampler,
-                        output_buffer,
+                        &mut output_buffer,
                         &mut sample_index,
                     )?;
                 }
@@ -308,7 +306,7 @@ impl IntervalSampler {
                 self.current_sample_buffer.push(0.0);
             }
             let input_frames = vec![self.current_sample_buffer.clone()];
-            resampler.process_into_buffer(&input_frames, output_buffer, None)?;
+            resampler.process_into_buffer(&input_frames, &mut output_buffer, None)?;
 
             let end_time =
                 self.current_time + (self.current_sample_buffer.len() as f64 / sample_rate as f64);
