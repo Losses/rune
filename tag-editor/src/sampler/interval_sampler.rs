@@ -1,7 +1,4 @@
-use std::sync::mpsc::channel;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
-
+use std::sync::mpsc::{channel, Receiver, Sender};
 use anyhow::{bail, Result};
 use rubato::{FftFixedInOut, Resampler};
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
@@ -10,35 +7,35 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::formats::FormatReader;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
-
 use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 
 pub struct SampleEvent {
     pub sample_index: usize,  // The index of the current sample
     pub total_samples: usize, // Total number of samples
-    pub data: Vec<f64>,       // Sample data
-    pub sample_rate: u32,     // Sample rate
-    pub duration: f64,        // Sample duration
-    pub start_time: f64,      // Start time of this sample in the audio (in seconds)
-    pub end_time: f64,        // End time of this sample in the audio (in seconds)
+    pub data: Vec<f64>,       // Sample data in floating-point format
+    pub sample_rate: u32,     // Sample rate of the audio
+    pub duration: f64,        // Duration of the sample in seconds
+    pub start_time: f64,      // Start time of the sample in the audio (in seconds)
+    pub end_time: f64,        // End time of the sample in the audio (in seconds)
 }
 
 pub struct IntervalSampler {
     file_path: String,       // Path to the audio file
     sample_duration: f64,    // Duration of each sample (in seconds)
     interval: f64,           // Time interval between samples (in seconds)
-    target_sample_rate: u32, // Target sample rate
+    target_sample_rate: u32, // Target sample rate for resampling
 
-    // Processing state
+    // Processing state variables
     current_time: f64,               // Current time position in the audio
-    current_sample_buffer: Vec<f64>, // Buffer for storing current samples
+    current_sample_buffer: Vec<f64>, // Buffer to store current samples
     samples_per_chunk: usize,        // Number of samples per chunk
+    next_sample_time: f64,           // Time for the next sample
 
-    // Cancellation flag
+    // Cancellation flag and function
     fn_is_cancelled: Box<dyn Fn() -> bool + Send>,
     is_cancelled: bool,
 
-    // Channel
+    // Channels for sending and receiving sample events
     sender: Sender<SampleEvent>,
     pub receiver: Receiver<SampleEvent>,
 }
@@ -51,6 +48,7 @@ impl IntervalSampler {
         target_sample_rate: u32,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
+        // Create a channel for sending sample events
         let (sender, receiver) = channel::<SampleEvent>();
 
         IntervalSampler {
@@ -58,22 +56,30 @@ impl IntervalSampler {
             sample_duration,
             interval,
             target_sample_rate,
+
             current_time: 0.0,
             current_sample_buffer: Vec::new(),
             samples_per_chunk: 0,
+            next_sample_time: 0.0,
+
             fn_is_cancelled: Box::new(move || {
                 cancel_token
                     .as_ref()
                     .map_or(false, |token| token.is_cancelled())
             }),
             is_cancelled: false,
+
             sender,
             receiver,
         }
     }
 
+    // Main processing function to read and process audi
     pub fn process(&mut self) -> Result<()> {
+        // Get the audio format from the file path
         let mut format = get_format(&self.file_path)?;
+        
+        // Find a valid audio track
         let track = match format
             .tracks()
             .iter()
@@ -84,12 +90,18 @@ impl IntervalSampler {
         };
 
         let track_id = track.id;
+        
+        // Get codec information such as sample rate and duration
         let (sample_rate, duration) = get_codec_information(track)?;
+        
+        // Calculate the number of samples per chunk based on duration and sample rate
         self.samples_per_chunk = (self.sample_duration * sample_rate as f64) as usize;
 
+        // Initialize decoder with default options
         let dec_opts: DecoderOptions = Default::default();
         let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
 
+        // Create a resampler for converting audio to the target sample rate
         let resampler = FftFixedInOut::<f64>::new(
             sample_rate as usize,
             self.target_sample_rate as usize,
@@ -97,6 +109,7 @@ impl IntervalSampler {
             1,
         )?;
 
+        // Process the audio stream using the format reader, decoder, and resampler
         self.process_audio_stream(
             &mut format,
             &mut decoder,
@@ -109,10 +122,13 @@ impl IntervalSampler {
         Ok(())
     }
 
+    // Determine if the current time is appropriate to take a sample
     fn should_take_sample(&self, current_time: f64) -> bool {
-        (current_time / self.interval).floor() > (self.current_time / self.interval).floor()
+        // Return true if the current time has reached or exceeded the next sample time
+        current_time >= self.next_sample_time
     }
 
+    // Process an audio buffer and extract samples
     fn process_audio_buffer<T>(
         &mut self,
         buf: &AudioBuffer<T>,
@@ -124,57 +140,59 @@ impl IntervalSampler {
     where
         T: Sample + IntoSample<f64>,
     {
-        let frames = buf.frames();
-        let num_channels = buf.spec().channels.count();
-        let frame_duration = 1.0 / sample_rate as f64;
-        let mut sample_start_time: Option<f64> = None;
+        let frames = buf.frames(); // Number of frames in the buffer
+        let num_channels = buf.spec().channels.count(); // Number of audio channels
+        let frame_duration = 1.0 / sample_rate as f64; // Duration of each frame
 
         for frame_idx in 0..frames {
-            let next_time = self.current_time + frame_duration;
+            let next_time = self.current_time + frame_duration; // Calculate next time position
 
-            if self.should_take_sample(next_time) {
-                // Clear buffer if we're starting a new sample
-                self.current_sample_buffer.clear();
-                sample_start_time = Some(self.current_time);
+            // Check if a new sample should be taken
+            if self.should_take_sample(next_time) && self.current_sample_buffer.is_empty() {
+                self.current_sample_buffer.clear(); // Clear the buffer to start a new sample
             }
 
-            // Mix channels
+            // Mix audio channels into a single sample
             let mut frame_sum = 0.0;
             for channel in 0..num_channels {
                 frame_sum += IntoSample::<f64>::into_sample(buf.chan(channel)[frame_idx]);
             }
             let mixed_sample = frame_sum / num_channels as f64;
 
-            // Add sample to buffer if we're collecting
-            if self.should_take_sample(next_time) || !self.current_sample_buffer.is_empty() {
+            // Collect samples if currently sampling or should start sampling
+            if !self.current_sample_buffer.is_empty() || self.should_take_sample(next_time) {
                 self.current_sample_buffer.push(mixed_sample);
             }
 
-            // Process if we have enough samples
+            // Process a complete sample block
             if self.current_sample_buffer.len() >= self.samples_per_chunk {
                 let input_frames = vec![self.current_sample_buffer.clone()];
                 resampler.process_into_buffer(&input_frames, output_buffer, None)?;
 
+                // Send a sample event with the collected data
                 self.sender.send(SampleEvent {
                     sample_index: *sample_index,
                     total_samples: (self.interval / self.sample_duration) as usize,
                     data: output_buffer[0].clone(),
                     sample_rate: self.target_sample_rate,
                     duration: self.sample_duration,
-                    start_time: sample_start_time.unwrap_or(self.current_time),
-                    end_time: sample_start_time.unwrap_or(self.current_time) + self.sample_duration,
+                    start_time: self.next_sample_time,
+                    end_time: self.next_sample_time + self.sample_duration,
                 })?;
 
-                *sample_index += 1;
-                self.current_sample_buffer.clear();
-                sample_start_time = None;
+                *sample_index += 1; // Increment the sample index
+                self.current_sample_buffer.clear(); // Clear the buffer for the next sample
+
+                // Update the next sample time
+                self.next_sample_time += self.interval;
             }
 
-            self.current_time = next_time;
+            self.current_time = next_time; // Update the current time
         }
         Ok(())
     }
 
+    // Process the entire audio stream
     fn process_audio_stream(
         &mut self,
         format: &mut Box<dyn FormatReader>,
@@ -184,28 +202,34 @@ impl IntervalSampler {
         duration: f64,
         mut resampler: FftFixedInOut<f64>,
     ) -> Result<()> {
-        let mut sample_index = 0;
-        let mut output_buffer = resampler.output_buffer_allocate(true);
+        let mut sample_index = 0; // Initialize sample index
+        let mut output_buffer = resampler.output_buffer_allocate(true); // Allocate output buffer
 
+        // Loop through the audio stream until the end
         while self.current_time < duration {
+            // Check for cancellation
             if self.is_cancelled || (self.fn_is_cancelled)() {
                 return Ok(());
             }
 
+            // Get the next packet from the format reader
             let packet = match format.next_packet() {
                 Ok(packet) => packet,
-                Err(_) => break,
+                Err(_) => break, // Exit loop on error
             };
 
+            // Skip packets that do not match the track ID
             if packet.track_id() != track_id {
                 continue;
             }
 
+            // Decode the packet into audio frames
             let decoded = match decoder.decode(&packet) {
                 Ok(decoded) => decoded,
-                Err(_) => continue,
+                Err(_) => continue, // Skip on decode error
             };
 
+            // Process the decoded audio buffer based on its type
             match decoded {
                 AudioBufferRef::U8(buf) => {
                     self.process_audio_buffer(
@@ -302,23 +326,23 @@ impl IntervalSampler {
 
         // Process any remaining samples in the buffer
         if !self.current_sample_buffer.is_empty() {
+            // Fill the buffer to the required size with zeros
             while self.current_sample_buffer.len() < self.samples_per_chunk {
                 self.current_sample_buffer.push(0.0);
             }
+
             let input_frames = vec![self.current_sample_buffer.clone()];
             resampler.process_into_buffer(&input_frames, &mut output_buffer, None)?;
 
-            let end_time =
-                self.current_time + (self.current_sample_buffer.len() as f64 / sample_rate as f64);
-
+            // Send the final sample event
             self.sender.send(SampleEvent {
                 sample_index,
                 total_samples: (duration / self.interval) as usize,
                 data: output_buffer[0].clone(),
                 sample_rate: self.target_sample_rate,
                 duration: self.sample_duration,
-                start_time: self.current_time,
-                end_time,
+                start_time: self.next_sample_time,
+                end_time: self.next_sample_time + self.sample_duration,
             })?;
         }
 
