@@ -22,7 +22,7 @@ pub struct SampleEvent {
     pub duration: f64,
 }
 
-pub struct Sampler {
+pub struct UniformSampler {
     sample_duration: f64,    // Duration of each sample (in seconds)
     sample_count: usize,     // Number of samples needed
     target_sample_rate: u32, // Target sample rate
@@ -38,14 +38,14 @@ pub struct Sampler {
     is_cancelled: bool,                            // Cancellation status
 }
 
-impl Sampler {
+impl UniformSampler {
     pub fn new(
         sample_duration: f64,
         sample_count: usize,
         target_sample_rate: u32,
         cancel_token: Option<CancellationToken>,
     ) -> Self {
-        Sampler {
+        UniformSampler {
             sample_duration,
             sample_count,
             target_sample_rate,

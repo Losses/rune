@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::{Arg, Command};
 use tokio_util::sync::CancellationToken;
 
-use tag_editor::sampler::Sampler;
+use tag_editor::sampler::uniform_sampler::UniformSampler;
 
 fn main() -> Result<()> {
     // Set up CLI arguments
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
     let (sender, receiver) = channel();
 
     // Initialize Sampler
-    let mut sampler = Sampler::new(
+    let mut sampler = UniformSampler::new(
         sample_duration,
         sample_count,
         sample_rate,
