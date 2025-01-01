@@ -8,7 +8,8 @@ func initAudioSession() {
       try audio_session.setCategory(AVAudioSession.Category.playAndRecord);
       try audio_session.setActive(true);
   } catch {
-      print(error);
+      // This is a fatal error because the audio session is required for the app to work
+      fatalError(error);
   }
 }
 
