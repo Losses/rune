@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         )
         .arg(
             Arg::new("OUTPUT")
-                .help("Sets the output text file base name")
+                .help("Sets the output file base name")
                 .required(true)
                 .index(2),
         )
@@ -55,18 +55,19 @@ fn main() -> Result<()> {
     sampler.process(input_file, sender)?;
 
     for (counter, event) in receiver.iter().enumerate() {
-        // Create a numbered output file name
-        let output_file = format!("{}_{}.sample.log", output_file_base, counter);
+        // Create numbered output file names for both txt and pcm
+        let txt_file = format!("{}_{}.sample.log", output_file_base, counter);
+        // You can use ` ffplay ./YOUR_FILE.pcm.log  -f s16le -ar 8000` to debug this
+        let pcm_file = format!("{}_{}.pcm.log", output_file_base, counter);
 
-        // Log the output file path
-        println!("Writing to output file: {}", output_file);
+        // Log the output file paths
+        println!("Writing to text file: {}", txt_file);
+        println!("Writing to PCM file: {}", pcm_file);
 
-        // Open the output file for writing
-        let mut file = File::create(&output_file)?;
-
-        // Write the event data to the file
+        // Write text file
+        let mut text_file = File::create(&txt_file)?;
         writeln!(
-            file,
+            text_file,
             "{}",
             event
                 .data
@@ -75,6 +76,14 @@ fn main() -> Result<()> {
                 .collect::<Vec<_>>()
                 .join("\n")
         )?;
+
+        // Write PCM file
+        let mut pcm_file = File::create(&pcm_file)?;
+        for sample in &event.data {
+            // Convert f32 to i16 PCM
+            let pcm_sample = (sample.clamp(-1.0, 1.0) * 32767.0) as i16;
+            pcm_file.write_all(&pcm_sample.to_le_bytes())?;
+        }
     }
 
     Ok(())
