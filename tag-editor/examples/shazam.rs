@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     // Set parameters
     let sample_rate = 8000;
     let sample_duration = 12.0;
-    let interval_duration = 12.0;
+    let interval_duration = 24.0;
 
     // Create a cancellation token (if needed)
     let cancel_token = CancellationToken::new();

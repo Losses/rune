@@ -1,4 +1,5 @@
 use std::sync::mpsc::{channel, Receiver, Sender};
+
 use anyhow::{bail, Result};
 use rubato::{FftFixedInOut, Resampler};
 use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
@@ -7,6 +8,7 @@ use symphonia::core::conv::IntoSample;
 use symphonia::core::formats::FormatReader;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
+
 use analysis::utils::audio_metadata_reader::{get_codec_information, get_format};
 
 pub struct SampleEvent {
