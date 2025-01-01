@@ -5,7 +5,7 @@ use clap::{Arg, Command};
 use tokio_util::sync::CancellationToken;
 
 use tag_editor::{
-    sampler::uniform_sampler::UniformSampler,
+    sampler::interval_sampler::IntervalSampler,
     shazam::{
         api::identify,
         spectrogram::{compute_signature, Signature},
@@ -32,8 +32,8 @@ async fn main() -> Result<()> {
 
     // Set parameters
     let sample_rate = 8000;
-    let sample_count = 8;
-    let sample_duration = 20.0;
+    let sample_duration = 12.0;
+    let interval_duration = 12.0;
 
     // Create a cancellation token (if needed)
     let cancel_token = CancellationToken::new();
@@ -42,9 +42,9 @@ async fn main() -> Result<()> {
     let (sender, receiver) = channel();
 
     // Initialize Sampler
-    let mut sampler = UniformSampler::new(
+    let mut sampler = IntervalSampler::new(
         sample_duration,
-        sample_count,
+        interval_duration,
         sample_rate,
         Some(cancel_token.clone()),
     );
@@ -54,11 +54,19 @@ async fn main() -> Result<()> {
 
     // Collect and process sample events
     for event in receiver.iter() {
+        println!("Event:");
+        println!("= Sample Index: {}", event.sample_index);
+        println!("= Start Time: {:?}", event.start_time);
+        println!("= End Time: {:?}", event.end_time);
+
         let signature: Signature = compute_signature(event.sample_rate.try_into()?, &event.data);
         println!("{}", signature);
 
         let identified_result = identify(signature).await;
         println!("{:?}", identified_result);
+
+        println!();
+        println!();
     }
 
     Ok(())
