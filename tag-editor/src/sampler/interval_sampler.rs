@@ -80,7 +80,7 @@ impl IntervalSampler {
     pub fn process(&mut self) -> Result<()> {
         // Get the audio format from the file path
         let mut format = get_format(&self.file_path)?;
-        
+
         // Find a valid audio track
         let track = match format
             .tracks()
@@ -92,10 +92,10 @@ impl IntervalSampler {
         };
 
         let track_id = track.id;
-        
+
         // Get codec information such as sample rate and duration
         let (sample_rate, duration) = get_codec_information(track)?;
-        
+
         // Calculate the number of samples per chunk based on duration and sample rate
         self.samples_per_chunk = (self.sample_duration * sample_rate as f64) as usize;
 
@@ -124,13 +124,6 @@ impl IntervalSampler {
         Ok(())
     }
 
-    // Determine if the current time is appropriate to take a sample
-    fn should_take_sample(&self, current_time: f64) -> bool {
-        // Return true if the current time has reached or exceeded the next sample time
-        current_time >= self.next_sample_time
-    }
-
-    // Process an audio buffer and extract samples
     fn process_audio_buffer<T>(
         &mut self,
         buf: &AudioBuffer<T>,
@@ -142,36 +135,60 @@ impl IntervalSampler {
     where
         T: Sample + IntoSample<f64>,
     {
-        let frames = buf.frames(); // Number of frames in the buffer
-        let num_channels = buf.spec().channels.count(); // Number of audio channels
-        let frame_duration = 1.0 / sample_rate as f64; // Duration of each frame
+        let frames = buf.frames();
+        let num_channels = buf.spec().channels.count();
+        let frame_duration = 1.0 / sample_rate as f64;
 
         for frame_idx in 0..frames {
-            let next_time = self.current_time + frame_duration; // Calculate next time position
-
-            // Check if a new sample should be taken
-            if self.should_take_sample(next_time) && self.current_sample_buffer.is_empty() {
-                self.current_sample_buffer.clear(); // Clear the buffer to start a new sample
-            }
-
-            // Mix audio channels into a single sample
+            // Mix audio channels into one sample
             let mut frame_sum = 0.0;
             for channel in 0..num_channels {
                 frame_sum += IntoSample::<f64>::into_sample(buf.chan(channel)[frame_idx]);
             }
             let mixed_sample = frame_sum / num_channels as f64;
 
-            // Collect samples if currently sampling or should start sampling
-            if !self.current_sample_buffer.is_empty() || self.should_take_sample(next_time) {
-                self.current_sample_buffer.push(mixed_sample);
-            }
+            // Calculate the next frame time
+            let next_time = self.current_time + frame_duration;
 
-            // Process a complete sample block
-            if self.current_sample_buffer.len() >= self.samples_per_chunk {
+            // Check if we're within the current sample window
+            if self.current_time >= self.next_sample_time
+                && self.current_time < (self.next_sample_time + self.sample_duration)
+            {
+                // Add the sample to the current buffer
+                self.current_sample_buffer.push(mixed_sample);
+
+                // Check if we've collected enough samples for this chunk
+                if self.current_sample_buffer.len() >= self.samples_per_chunk {
+                    // Process and send the current chunk
+                    let input_frames = vec![self.current_sample_buffer.clone()];
+                    resampler.process_into_buffer(&input_frames, output_buffer, None)?;
+
+                    self.sender.send(SampleEvent {
+                        sample_index: *sample_index,
+                        total_samples: (self.interval / self.sample_duration) as usize,
+                        data: output_buffer[0].clone(),
+                        sample_rate: self.target_sample_rate,
+                        duration: self.sample_duration,
+                        start_time: self.next_sample_time,
+                        end_time: self.next_sample_time + self.sample_duration,
+                    })?;
+
+                    // Reset buffer and update counters
+                    self.current_sample_buffer.clear();
+                    self.next_sample_time += self.interval;
+                    *sample_index += 1;
+                }
+            } else if self.current_time >= (self.next_sample_time + self.sample_duration) {
+                // We've moved past the current sample window without filling the buffer
+                // Fill the remaining space with silence
+                while self.current_sample_buffer.len() < self.samples_per_chunk {
+                    self.current_sample_buffer.push(0.0);
+                }
+
+                // Process and send the current chunk
                 let input_frames = vec![self.current_sample_buffer.clone()];
                 resampler.process_into_buffer(&input_frames, output_buffer, None)?;
 
-                // Send a sample event with the collected data
                 self.sender.send(SampleEvent {
                     sample_index: *sample_index,
                     total_samples: (self.interval / self.sample_duration) as usize,
@@ -182,14 +199,13 @@ impl IntervalSampler {
                     end_time: self.next_sample_time + self.sample_duration,
                 })?;
 
-                *sample_index += 1; // Increment the sample index
-                self.current_sample_buffer.clear(); // Clear the buffer for the next sample
-
-                // Update the next sample time
+                // Reset buffer and update counters
+                self.current_sample_buffer.clear();
                 self.next_sample_time += self.interval;
+                *sample_index += 1;
             }
 
-            self.current_time = next_time; // Update the current time
+            self.current_time = next_time;
         }
         Ok(())
     }
@@ -204,8 +220,8 @@ impl IntervalSampler {
         duration: f64,
         mut resampler: FftFixedInOut<f64>,
     ) -> Result<()> {
-        let mut sample_index = 0; // Initialize sample index
-        let mut output_buffer = resampler.output_buffer_allocate(true); // Allocate output buffer
+        let mut sample_index = 0;
+        let mut output_buffer = resampler.output_buffer_allocate(true);
 
         // Loop through the audio stream until the end
         while self.current_time < duration {
@@ -225,7 +241,6 @@ impl IntervalSampler {
                 continue;
             }
 
-            // Decode the packet into audio frames
             let decoded = match decoder.decode(&packet) {
                 Ok(decoded) => decoded,
                 Err(_) => continue, // Skip on decode error
@@ -324,28 +339,6 @@ impl IntervalSampler {
                     )?;
                 }
             }
-        }
-
-        // Process any remaining samples in the buffer
-        if !self.current_sample_buffer.is_empty() {
-            // Fill the buffer to the required size with zeros
-            while self.current_sample_buffer.len() < self.samples_per_chunk {
-                self.current_sample_buffer.push(0.0);
-            }
-
-            let input_frames = vec![self.current_sample_buffer.clone()];
-            resampler.process_into_buffer(&input_frames, &mut output_buffer, None)?;
-
-            // Send the final sample event
-            self.sender.send(SampleEvent {
-                sample_index,
-                total_samples: (duration / self.interval) as usize,
-                data: output_buffer[0].clone(),
-                sample_rate: self.target_sample_rate,
-                duration: self.sample_duration,
-                start_time: self.next_sample_time,
-                end_time: self.next_sample_time + self.sample_duration,
-            })?;
         }
 
         Ok(())
