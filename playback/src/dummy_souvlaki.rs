@@ -43,6 +43,7 @@ pub enum SeekDirection {
 pub struct PlatformConfig {
     pub dbus_name: &'static str,
     pub display_name: &'static str,
+    pub hwnd: Option<()>,
 }
 
 /// A platform-specific error.
