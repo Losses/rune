@@ -9,7 +9,7 @@ func initAudioSession() {
       try audio_session.setActive(true);
   } catch {
       // This is a fatal error because the audio session is required for the app to work
-      fatalError(error);
+      fatalError("\(error)");
   }
 }
 

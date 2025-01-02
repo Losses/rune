@@ -10,14 +10,14 @@ pub mod player;
 pub mod sfx_player;
 pub mod strategies;
 
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 mod dummy_souvlaki;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
-
-#[cfg(any(target_os = "android", target_os = "ios"))]
+#[cfg(target_os = "android")]
 pub use dummy_souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
+
+#[cfg(not(target_os = "android"))]
+pub use souvlaki::{MediaMetadata, MediaPlayback, MediaPosition};
 
 pub use internal::{PlayerCommand, PlayerEvent};
 
