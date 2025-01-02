@@ -1,11 +1,15 @@
+use std::time::Duration;
+
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
+use once_cell::sync::Lazy;
 use rand::seq::SliceRandom;
-use reqwest::{header, Client};
+use reqwest::{header, Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::rate_limiter::RateLimiter;
 use super::spectrogram::Signature;
 
 #[derive(Serialize, Debug)]
@@ -75,10 +79,15 @@ pub struct Action {
 }
 
 pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>)> {
-    let sample_rate: i32 = signature.sample_rate;
-    let signature_data = signature.encode();
+    static LIMITER: Lazy<RateLimiter> = Lazy::new(|| RateLimiter::new(Duration::from_secs(3)));
 
+    let sample_rate = signature.sample_rate;
+    let signature_data = signature.encode();
     let encoded_signature = general_purpose::STANDARD.encode(&signature_data);
+
+    let sample_ms = (signature.num_samples as f64 / sample_rate as f64) * 1000.0;
+
+    let timestamp = Utc::now().timestamp_millis();
 
     let request = IdentifyRequest {
         geolocation: Geolocation {
@@ -87,11 +96,11 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
             longitude: 2.0,
         },
         signature: SignatureRequest {
-            samplems: sample_rate as f64,
-            timestamp: Utc::now().timestamp_millis(),
+            samplems: sample_ms,
+            timestamp,
             uri: &format!("data:audio/vnd.shazam.sig;base64,{}", encoded_signature),
         },
-        timestamp: Utc::now().timestamp_millis(),
+        timestamp,
         timezone: "Europe/Berlin",
     };
 
@@ -104,36 +113,49 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
     let query =
         "?sync=true&webv3=true&sampling=true&connected=&shazamapiversion=v3&sharehub=true&video=v3";
 
-    let response = client
-        .post(format!("{}{}", url, query))
-        .header(
-            header::USER_AGENT,
-            header::HeaderValue::from_static(
-                USER_AGENTS
-                    .choose(&mut rand::thread_rng())
-                    .ok_or_else(|| anyhow::anyhow!("Failed to choose a user agent"))?,
-            ),
-        )
-        .header(
-            header::CONTENT_LANGUAGE,
-            header::HeaderValue::from_static("en_US"),
-        )
-        .header(
-            header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/json"),
-        )
-        .json(&request)
-        .send()
-        .await?;
+    let mut attempts = 0;
+    loop {
+        LIMITER.acquire().await;
 
-    if response.status().is_success() {
-        let resp_data: IdentifyResponse = response.json().await?;
-        Ok((resp_data.matches, resp_data.track))
-    } else {
-        Err(anyhow::anyhow!(
-            "Failed to identify track, status: {}",
-            response.status()
-        ))
+        let response = client
+            .post(format!("{}{}", url, query))
+            .header(
+                header::USER_AGENT,
+                header::HeaderValue::from_static(
+                    USER_AGENTS
+                        .choose(&mut rand::thread_rng())
+                        .ok_or_else(|| anyhow::anyhow!("Failed to choose a user agent"))?,
+                ),
+            )
+            .header(
+                header::CONTENT_LANGUAGE,
+                header::HeaderValue::from_static("en_US"),
+            )
+            .header(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("application/json"),
+            )
+            .json(&request)
+            .send()
+            .await?;
+
+        match response.status() {
+            StatusCode::OK => {
+                let resp_data: IdentifyResponse = response.json().await?;
+                return Ok((resp_data.matches, resp_data.track));
+            }
+            StatusCode::TOO_MANY_REQUESTS if attempts < 3 => {
+                attempts += 1;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "Failed to identify track, status: {}",
+                    response.status()
+                ));
+            }
+        }
     }
 }
 

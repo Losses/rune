@@ -11,6 +11,7 @@
 
 pub mod api;
 pub mod hanning;
+pub mod rate_limiter;
 pub mod ring;
 pub mod signature;
 pub mod spectrogram;
