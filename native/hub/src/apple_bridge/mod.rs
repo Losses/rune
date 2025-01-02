@@ -10,6 +10,7 @@ pub fn get_bundle_id() -> String {
 }
 
 #[cfg(test)]
+#[cfg(target_os = "macos")]
 mod tests {
     use super::*;
 
