@@ -22,14 +22,14 @@ struct IdentifyRequest<'a> {
 
 #[derive(Serialize, Debug)]
 struct Geolocation {
-    altitude: f64,
-    latitude: f64,
-    longitude: f64,
+    altitude: i32,
+    latitude: i32,
+    longitude: i32,
 }
 
 #[derive(Serialize, Debug)]
 struct SignatureRequest<'a> {
-    samplems: f64,
+    samplems: i32,
     timestamp: i64,
     uri: &'a str,
 }
@@ -85,15 +85,15 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
     let signature_data = signature.encode();
     let encoded_signature = general_purpose::STANDARD.encode(&signature_data);
 
-    let sample_ms = (signature.num_samples as f64 / sample_rate as f64) * 1000.0;
+    let sample_ms = (signature.num_samples / sample_rate) * 1000;
 
     let timestamp = Utc::now().timestamp_millis();
 
     let request = IdentifyRequest {
         geolocation: Geolocation {
-            altitude: 300.0,
-            latitude: 45.0,
-            longitude: 2.0,
+            altitude: 300,
+            latitude: 45,
+            longitude: 2,
         },
         signature: SignatureRequest {
             samplems: sample_ms,
