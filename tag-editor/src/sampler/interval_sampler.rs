@@ -103,23 +103,8 @@ impl IntervalSampler {
         let dec_opts: DecoderOptions = Default::default();
         let mut decoder = symphonia::default::get_codecs().make(&track.codec_params, &dec_opts)?;
 
-        // Create a resampler for converting audio to the target sample rate
-        let resampler = FftFixedInOut::<f64>::new(
-            sample_rate as usize,
-            self.target_sample_rate as usize,
-            self.samples_per_chunk,
-            1,
-        )?;
-
         // Process the audio stream using the format reader, decoder, and resampler
-        self.process_audio_stream(
-            &mut format,
-            &mut decoder,
-            track_id,
-            sample_rate,
-            duration,
-            resampler,
-        )?;
+        self.process_audio_stream(&mut format, &mut decoder, track_id, sample_rate, duration)?;
 
         Ok(())
     }
@@ -140,27 +125,34 @@ impl IntervalSampler {
         let frame_duration = 1.0 / sample_rate as f64;
 
         for frame_idx in 0..frames {
-            // Mix audio channels into one sample
-            let mut frame_sum = 0.0;
-            for channel in 0..num_channels {
-                frame_sum += IntoSample::<f64>::into_sample(buf.chan(channel)[frame_idx]);
-            }
-            let mixed_sample = frame_sum / num_channels as f64;
+            // Mix down to mono
+            let mixed_sample = (0..num_channels)
+                .map(|ch| IntoSample::<f64>::into_sample(buf.chan(ch)[frame_idx]))
+                .sum::<f64>()
+                / num_channels as f64;
 
-            // Calculate the next frame time
-            let next_time = self.current_time + frame_duration;
+            // Store the sample with its exact time
+            self.current_sample_buffer.push(mixed_sample);
 
-            // Check if we're within the current sample window
-            if self.current_time >= self.next_sample_time
-                && self.current_time < (self.next_sample_time + self.sample_duration)
-            {
-                // Add the sample to the current buffer
-                self.current_sample_buffer.push(mixed_sample);
+            // Update current time
+            self.current_time += frame_duration;
 
-                // Check if we've collected enough samples for this chunk
-                if self.current_sample_buffer.len() >= self.samples_per_chunk {
-                    // Process and send the current chunk
-                    let input_frames = vec![self.current_sample_buffer.clone()];
+            // Check if we have enough samples for the current window
+            let samples_in_window = (self.sample_duration * sample_rate as f64) as usize;
+
+            if self.current_time >= self.next_sample_time + self.sample_duration {
+                // We've passed the current window, process what we have
+
+                // Ensure we have exactly the right number of samples
+                if self.current_sample_buffer.len() >= samples_in_window {
+                    // Extract exactly samples_in_window samples for processing
+                    let chunk: Vec<f64> = self
+                        .current_sample_buffer
+                        .drain(..samples_in_window)
+                        .collect();
+
+                    // Process and send the chunk
+                    let input_frames = vec![chunk];
                     resampler.process_into_buffer(&input_frames, output_buffer, None)?;
 
                     self.sender.send(SampleEvent {
@@ -173,39 +165,14 @@ impl IntervalSampler {
                         end_time: self.next_sample_time + self.sample_duration,
                     })?;
 
-                    // Reset buffer and update counters
-                    self.current_sample_buffer.clear();
-                    self.next_sample_time += self.interval;
+                    // Move to next window
                     *sample_index += 1;
+                    self.next_sample_time += self.interval;
+
+                    // Keep remaining samples for next window
+                    // No need to clear buffer as we used drain()
                 }
-            } else if self.current_time >= (self.next_sample_time + self.sample_duration) {
-                // We've moved past the current sample window without filling the buffer
-                // Fill the remaining space with silence
-                while self.current_sample_buffer.len() < self.samples_per_chunk {
-                    self.current_sample_buffer.push(0.0);
-                }
-
-                // Process and send the current chunk
-                let input_frames = vec![self.current_sample_buffer.clone()];
-                resampler.process_into_buffer(&input_frames, output_buffer, None)?;
-
-                self.sender.send(SampleEvent {
-                    sample_index: *sample_index,
-                    total_samples: (self.interval / self.sample_duration) as usize,
-                    data: output_buffer[0].clone(),
-                    sample_rate: self.target_sample_rate,
-                    duration: self.sample_duration,
-                    start_time: self.next_sample_time,
-                    end_time: self.next_sample_time + self.sample_duration,
-                })?;
-
-                // Reset buffer and update counters
-                self.current_sample_buffer.clear();
-                self.next_sample_time += self.interval;
-                *sample_index += 1;
             }
-
-            self.current_time = next_time;
         }
         Ok(())
     }
@@ -218,8 +185,15 @@ impl IntervalSampler {
         track_id: u32,
         sample_rate: u32,
         duration: f64,
-        mut resampler: FftFixedInOut<f64>,
     ) -> Result<()> {
+        // Create a resampler for converting audio to the target sample rate
+        let mut resampler = FftFixedInOut::<f64>::new(
+            sample_rate as usize,
+            self.target_sample_rate as usize,
+            self.samples_per_chunk,
+            1,
+        )?;
+
         let mut sample_index = 0;
         let mut output_buffer = resampler.output_buffer_allocate(true);
 
