@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     }
 
     // Set the sample rate
-    let sample_rate = 11025;
+    let sample_rate = 16000;
 
     // Compute the signature
     let signature: Signature = compute_signature(sample_rate, &samples);

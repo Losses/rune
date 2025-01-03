@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
     let input_file = matches.get_one::<String>("INPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 8000;
+    let sample_rate = 16000;
     let sample_duration = 12.0;
     let interval_duration = 24.0;
 

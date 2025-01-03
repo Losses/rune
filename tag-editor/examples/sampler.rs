@@ -32,7 +32,7 @@ fn main() -> Result<()> {
     let output_file_base = matches.get_one::<String>("OUTPUT").unwrap();
 
     // Set parameters
-    let sample_rate = 8000;
+    let sample_rate = 16000;
     let sample_duration = 12.0;
     let interval_duration = 24.0;
 
