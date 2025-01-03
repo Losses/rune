@@ -718,11 +718,12 @@ packages:
   macos_secure_bookmarks:
     dependency: "direct main"
     description:
-      name: macos_secure_bookmarks
-      sha256: c3163875f8fd530a1654a7cf8aa426e6e208d28bf05724a1d4960e4b7d2ca1c6
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.1"
+      path: "."
+      ref: master
+      resolved-ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
+      url: "https://github.com/XMLHexagram/macos_secure_bookmarks.git"
+    source: git
+    version: "0.2.0"
   macos_window_utils:
     dependency: transitive
     description:
