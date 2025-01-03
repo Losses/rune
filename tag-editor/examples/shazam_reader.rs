@@ -12,10 +12,10 @@ async fn main() -> Result<()> {
     let matches = Command::new("Shazam Reader CLI")
         .version("1.0")
         .author("Rune Developers")
-        .about("Processes audio files and outputs spectrograms")
+        .about("Processes text files and outputs spectrograms")
         .arg(
             Arg::new("INPUT")
-                .help("Sets the input audio file")
+                .help("Sets the input text file")
                 .required(true)
                 .index(1),
         )
