@@ -43,7 +43,7 @@ struct IdentifyResponse {
 #[derive(Deserialize, Debug)]
 pub struct Match {
     pub offset: f64,
-    pub time_skew: f64,
+    pub time_skew: Option<f64>,
 }
 
 #[derive(Deserialize, Debug)]
