@@ -58,7 +58,7 @@ pub struct Track {
 pub struct Section {
     #[serde(rename = "type")]
     pub section_type: String,
-    pub metadata: Vec<Metadata>,
+    pub metadata: Option<Vec<Metadata>>,
 }
 
 #[derive(Deserialize, Debug)]
