@@ -4350,6 +4350,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e819f2bc632f285be6d7cd36e25940d45b2391dd6d9b939e79de557f7014248"
 
 [[package]]
+name = "rusty-chromaprint"
+version = "0.3.0"
+source = "git+https://github.com/Losses/rusty-chromaprint?rev=db4d9af2dd66f8c7f38f04725fb1780e64b4686f#db4d9af2dd66f8c7f38f04725fb1780e64b4686f"
+dependencies = [
+ "rubato",
+ "rustfft",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5424,6 +5433,7 @@ dependencies = [
  "reqwest",
  "rubato",
  "rustfft",
+ "rusty-chromaprint",
  "serde",
  "serde_json",
  "symphonia",
