@@ -426,8 +426,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "2186f815de5d6b461775938eb2484d9a3f4162ee"
-      resolved-ref: "2186f815de5d6b461775938eb2484d9a3f4162ee"
+      ref: fa35f8cae87d2c0a9989279fe99fdee32d601e84
+      resolved-ref: fa35f8cae87d2c0a9989279fe99fdee32d601e84
       url: "https://github.com/Losses/fluent_ui.git"
     source: git
     version: "4.9.1"

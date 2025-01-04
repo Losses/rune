@@ -171,7 +171,7 @@ class NavigationBarState extends State<NavigationBar> {
                         route: route,
                         isSelected: route == item,
                         delay: delay,
-                        onTap: () => _onRouteSelected(route),
+                        onPressed: () => _onRouteSelected(route),
                       );
                     },
                   ).toList(),
