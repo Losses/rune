@@ -1,5 +1,6 @@
 use anyhow::Result;
 use std::env;
+#[cfg(target_os = "macos")]
 use swift_rs::SwiftLinker;
 use vergen_git2::{BuildBuilder, Emitter, Git2Builder, RustcBuilder};
 
@@ -23,6 +24,7 @@ fn main() -> Result<()> {
     let target = std::env::var("TARGET").unwrap();
 
     if target.contains("darwin") {
+        #[cfg(target_os = "macos")]
         SwiftLinker::new("10.13")
             .with_ios("12")
             .with_package("apple-bridge-library", "./apple-bridge-library/")
