@@ -96,7 +96,8 @@ void main(List<String> arguments) async {
     final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
     isWindows11 = windowsInfo.productName.startsWith('Windows 11');
 
-    if (isWindows10 && appTheme.windowEffect == WindowEffect.mica) {
+    if ((isWindows10 && appTheme.windowEffect == WindowEffect.mica) ||
+        Platform.isIOS) {
       appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
@@ -390,7 +391,7 @@ class _RuneState extends State<Rune> {
             final theme = FluentTheme.of(context);
 
             Widget content = Container(
-              color: (appTheme.windowEffect == WindowEffect.solid || Platform.isIOS)
+              color: appTheme.windowEffect == WindowEffect.solid
                   ? theme.micaBackgroundColor
                   : Colors.transparent,
               child: Directionality(
