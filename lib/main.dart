@@ -390,7 +390,7 @@ class _RuneState extends State<Rune> {
             final theme = FluentTheme.of(context);
 
             Widget content = Container(
-              color: appTheme.windowEffect == WindowEffect.solid
+              color: (appTheme.windowEffect == WindowEffect.solid || Platform.isIOS)
                   ? theme.micaBackgroundColor
                   : Colors.transparent,
               child: Directionality(
