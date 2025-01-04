@@ -719,7 +719,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: master
+      ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
       resolved-ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
       url: "https://github.com/XMLHexagram/macos_secure_bookmarks.git"
     source: git
