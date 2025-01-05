@@ -1,8 +1,5 @@
-/**
- * Source: https://github.com/darksv/rusty-chromaprint/blob/main/chromaprint/Cargo.toml
- * Original License: MIT
- */
 use std::path::Path;
+use std::time::Duration;
 
 use anyhow::Context;
 use symphonia::core::audio::SampleBuffer;
@@ -18,7 +15,7 @@ use rusty_chromaprint::{Configuration, Fingerprinter};
 pub fn calc_fingerprint(
     path: impl AsRef<Path>,
     config: &Configuration,
-) -> anyhow::Result<Vec<u32>> {
+) -> anyhow::Result<(Vec<u32>, Duration)> {
     let path = path.as_ref();
     let src = std::fs::File::open(path).context("failed to open file")?;
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
@@ -66,15 +63,17 @@ pub fn calc_fingerprint(
         .context("initializing fingerprinter")?;
 
     let mut sample_buf = None;
+    let mut total_frames = 0u64;
 
     while let Ok(packet) = format.next_packet() {
-
         if packet.track_id() != track_id {
             continue;
         }
 
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
+                total_frames += audio_buf.frames() as u64;
+
                 if sample_buf.is_none() {
                     let spec = *audio_buf.spec();
                     let duration = audio_buf.capacity() as u64;
@@ -92,5 +91,12 @@ pub fn calc_fingerprint(
     }
 
     printer.finish();
-    Ok(printer.fingerprint().to_vec())
+
+    // Calculate the total duration in seconds.
+    // Calculate the total duration as a Duration object.
+    let total_duration_secs = total_frames / sample_rate as u64;
+    let total_duration_nanos = (total_frames % sample_rate as u64) * 1_000_000_000 / sample_rate as u64;
+    let total_duration = Duration::new(total_duration_secs, total_duration_nanos as u32);
+
+    Ok((printer.fingerprint().to_vec(), total_duration))
 }
