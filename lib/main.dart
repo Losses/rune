@@ -96,7 +96,8 @@ void main(List<String> arguments) async {
     final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
     isWindows11 = windowsInfo.productName.startsWith('Windows 11');
 
-    if (isWindows10 && appTheme.windowEffect == WindowEffect.mica) {
+    if ((isWindows10 && appTheme.windowEffect == WindowEffect.mica) ||
+        Platform.isIOS) {
       appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
