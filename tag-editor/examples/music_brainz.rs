@@ -35,7 +35,14 @@ async fn main() -> Result<()> {
     let (fingerprint, duration) = calc_fingerprint(file_path, &config)?;
 
     // Call the identify function
-    match identify(api_key, fingerprint, duration.as_secs().try_into()?).await {
+    match identify(
+        api_key,
+        fingerprint,
+        &config,
+        duration.as_secs().try_into()?,
+    )
+    .await
+    {
         Ok(response) => {
             println!("Identification successful: {:?}", response);
         }
