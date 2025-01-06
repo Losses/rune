@@ -38,7 +38,6 @@ macro_rules! check_cancellation {
 }
 
 pub struct Analyzer {
-    // init in new()
     pub batch_size: usize,
     pub window_size: usize,
     overlap_size: usize,
@@ -160,19 +159,23 @@ impl Analyzer {
     where
         T: Sample + IntoSample<f32>,
     {
-        for plane in buf.planes().planes() {
-            debug!("Processing plane with len: {}", plane.len());
-            for &sample in plane.iter() {
-                let sample: f32 = IntoSample::<f32>::into_sample(sample);
-                self.sample_buffer.push(sample);
-                self.total_samples += 1;
+        let frames = buf.frames();
+        let num_channels = buf.spec().channels.count();
 
-                while self.sample_buffer.len() >= self.actual_data_size {
-                    let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
-                    self.process_audio_chunk(&chunk, false);
-                    self.sample_buffer
-                        .drain(..(self.window_size - self.overlap_size));
-                }
+        for frame_idx in 0..frames {
+            let mixed_sample: f32 = (0..num_channels)
+                .map(|ch| IntoSample::<f32>::into_sample(buf.chan(ch)[frame_idx]))
+                .sum::<f32>()
+                / num_channels as f32;
+
+            self.sample_buffer.push(mixed_sample);
+            self.total_samples += 1;
+
+            while self.sample_buffer.len() >= self.actual_data_size {
+                let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
+                self.process_audio_chunk(&chunk, false);
+                self.sample_buffer
+                    .drain(..(self.window_size - self.overlap_size));
             }
         }
     }
