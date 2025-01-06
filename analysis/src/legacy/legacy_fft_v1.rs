@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::debug;
 
 use rubato::Resampler;
 use rubato::SincFixedIn;

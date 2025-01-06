@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{debug, info};
+use log::debug;
 
 use realfft::{RealFftPlanner, RealToComplex};
 use rubato::{FftFixedInOut, Resampler};
@@ -23,7 +23,7 @@ use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {
     computing_device: ComputingDevice,
-    window_size: usize, //
+    window_size: usize,
     batch_size: usize,
     overlap_size: usize,
     gpu_batch_fft: Option<wgpu_radix4::FFTCompute>,
