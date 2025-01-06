@@ -1022,5 +1022,29 @@
   "logout": "ログアウト",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "コピー",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "ユーザーネーム",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "パスワード",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "アプリケーションプログラミングインタフェースキー",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "アプリケーションプログラミングインタフェースシークレット",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "ユーザトークン",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }
