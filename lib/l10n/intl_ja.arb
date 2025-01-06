@@ -1022,5 +1022,29 @@
   "logout": "離脱",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "模倣",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "使用者名",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "暗証番号",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API 鍵",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API 合言葉",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "使用者証票",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }
