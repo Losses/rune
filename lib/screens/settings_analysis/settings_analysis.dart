@@ -4,7 +4,6 @@ import '../../utils/settings_page_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
-import 'widgets/computing_device_setting.dart';
 import 'widgets/performance_level_setting.dart';
 
 class SettingsAnalysis extends StatefulWidget {
@@ -24,7 +23,8 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
           child: SettingsPagePadding(
             child: Column(
               children: const [
-                ComputingDeviceSetting(),
+                // The setting has been hidden due to significant stability issues.
+                // ComputingDeviceSetting(),
                 PerformanceLevelSetting(),
               ],
             ),

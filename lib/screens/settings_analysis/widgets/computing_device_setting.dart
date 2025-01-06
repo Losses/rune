@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../utils/settings_manager.dart';
 import '../../../widgets/settings/settings_box_combo_box.dart';
 import '../../../constants/configurations.dart';
+import '../../../constants/settings_manager.dart';
 
 class ComputingDeviceSetting extends StatefulWidget {
   const ComputingDeviceSetting({super.key});
@@ -23,7 +23,7 @@ class ComputingDeviceSettingState extends State<ComputingDeviceSetting> {
 
   Future<void> _loadComputingDevice() async {
     final storedComputingDevice =
-        await SettingsManager().getValue<String>(kAnalysisComputingDeviceKey);
+        await $settingsManager.getValue<String>(kAnalysisComputingDeviceKey);
     setState(() {
       computingDevice = storedComputingDevice ?? "cpu";
     });
@@ -33,18 +33,20 @@ class ComputingDeviceSettingState extends State<ComputingDeviceSetting> {
     setState(() {
       computingDevice = newDevice;
     });
-    await SettingsManager().setValue(kAnalysisComputingDeviceKey, newDevice);
+    await $settingsManager.setValue(kAnalysisComputingDeviceKey, newDevice);
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
+
     return SettingsBoxComboBox(
-      title: S.of(context).computingDevice,
-      subtitle: S.of(context).computingDeviceSubtitle,
+      title: s.computingDevice,
+      subtitle: s.computingDeviceSubtitle,
       value: computingDevice,
       items: [
-        SettingsBoxComboBoxItem(value: "gpu", title: S.of(context).gpu),
-        SettingsBoxComboBoxItem(value: "cpu", title: S.of(context).cpu),
+        SettingsBoxComboBoxItem(value: "gpu", title: s.gpu),
+        SettingsBoxComboBoxItem(value: "cpu", title: s.cpu),
       ],
       onChanged: (newValue) {
         if (newValue != null) {

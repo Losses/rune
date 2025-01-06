@@ -11,6 +11,7 @@ const kLastQueueIndexKey = 'last_queue_index';
 /// The primary purpose of this key is to serve as an identifier for storing
 /// and retrieving the user's choice of computing device (e.g., CPU or GPU) from
 /// persistent storage.
+/// The setting has been hidden due to significant stability issues.
 const kAnalysisComputingDeviceKey = 'analysis_mode';
 
 /// This key is used to adjust the workloadFactor based on the user's performance

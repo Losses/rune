@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../utils/settings_manager.dart';
 import '../../../widgets/settings/settings_box_combo_box.dart';
 import '../../../constants/configurations.dart';
+import '../../../constants/settings_manager.dart';
 
 class PerformanceLevelSetting extends StatefulWidget {
   const PerformanceLevelSetting({super.key});
@@ -23,7 +23,7 @@ class PerformanceLevelSettingState extends State<PerformanceLevelSetting> {
 
   Future<void> _loadPerformanceLevel() async {
     final storedPerformanceLevel =
-        await SettingsManager().getValue<String>(kAnalysisPerformanceLevelKey);
+        await $settingsManager.getValue<String>(kAnalysisPerformanceLevelKey);
     setState(() {
       performanceLevel = storedPerformanceLevel ?? "performance";
     });
@@ -33,21 +33,20 @@ class PerformanceLevelSettingState extends State<PerformanceLevelSetting> {
     setState(() {
       performanceLevel = newLevel;
     });
-    await SettingsManager().setValue(kAnalysisPerformanceLevelKey, newLevel);
+    await $settingsManager.setValue(kAnalysisPerformanceLevelKey, newLevel);
   }
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     return SettingsBoxComboBox(
-      title: S.of(context).performanceLevel,
-      subtitle: S.of(context).performanceLevelSubtitle,
+      title: s.performanceLevel,
+      subtitle: s.performanceLevelSubtitle,
       value: performanceLevel,
       items: [
-        SettingsBoxComboBoxItem(
-            value: "performance", title: S.of(context).performance),
-        SettingsBoxComboBoxItem(value: "balance", title: S.of(context).balance),
-        SettingsBoxComboBoxItem(
-            value: "battery", title: S.of(context).batterySaving),
+        SettingsBoxComboBoxItem(value: "performance", title: s.performance),
+        SettingsBoxComboBoxItem(value: "balance", title: s.balance),
+        SettingsBoxComboBoxItem(value: "battery", title: s.batterySaving),
       ],
       onChanged: (newValue) {
         if (newValue != null) {
