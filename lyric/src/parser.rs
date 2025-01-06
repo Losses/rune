@@ -19,6 +19,11 @@ pub fn parse_audio_lyrics(path: PathBuf) -> Option<Result<LyricFile>> {
         return Some(lyric);
     }
 
+    // Try to find and parse the .lrc file
+    if let Some(lyric) = parse_lyrics_with_extension(&path, "lrcx", parse_lrc) {
+        return Some(lyric);
+    }
+
     // Try to find and parse the .vtt file
     if let Some(lyric) = parse_lyrics_with_extension(&path, "vtt", parse_vtt) {
         return Some(lyric);

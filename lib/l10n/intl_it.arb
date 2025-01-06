@@ -970,5 +970,83 @@
   "considerPurchase": "Si prega di considerare l'acquisto di una licenza originale.",
   "@considerPurchase": {
     "description": "Avviso nella pagina delle informazioni, che guida l'utente all'acquisto di una licenza"
+  },
+  "lyrics": "Testi",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Mostra il testo completo della canzone",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Servizi Online",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Accedi",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Accesso Fallito",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Si è verificato un errore durante l'accesso",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Fornisce dettagliate informazioni di ascolto con questo servizio di tracciamento musicale.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Una piattaforma libera e aperta per condividere i tuoi gusti musicali.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Contribuisci a un database open-source mentre tieni traccia delle tue abitudini.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Correggi",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Conferma Disconnessione",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Sei sicuro di volerti disconnettere? Tutte le credenziali di accesso memorizzate localmente verranno eliminate.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Riprova Accesso",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Disconnetti",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copia",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Nome utente",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Password",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "Chiave API",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Token Utente",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

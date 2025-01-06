@@ -43,6 +43,14 @@ class ParentLinkState extends State<ParentLink> {
     });
   }
 
+  void _onPressed() {
+    if (comboBoxOpened) {
+      return;
+    }
+
+    widget.onPressed();
+  }
+
   @override
   Widget build(BuildContext context) {
     final accentColor = FluentTheme.of(context).accentColor;
@@ -50,13 +58,13 @@ class ParentLinkState extends State<ParentLink> {
     return Padding(
       padding: const EdgeInsets.only(right: 12),
       child: Listener(
-        onPointerUp: (_) => widget.onPressed(),
+        onPointerUp: (_) => _onPressed(),
         child: FocusableActionDetector(
           focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoverHighlight,
           actions: {
-            ActivateIntent: ActivateLinkAction(context, widget.onPressed),
+            ActivateIntent: ActivateLinkAction(context, _onPressed),
           },
           child: SizedBox(
             height: 80,

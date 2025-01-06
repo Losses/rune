@@ -111,25 +111,14 @@ class NavigationBarState extends State<NavigationBar> {
             deviceType: DeviceType.fish,
             builder: (context, isFish) {
               if (isFish) {
-                return Padding(
-                  padding:
-                      EdgeInsetsDirectional.only(top: 20 + viewPadding.top),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: 60,
-                      height: 60,
-                      child: NavigationBackButton(),
-                    ),
-                  ),
-                );
+                return NavigationBackParent(viewPadding: viewPadding);
               }
 
               return parent != null
                   ? Padding(
                       padding: const EdgeInsets.only(right: 12),
                       child: SizedBox(
-                        height: 80,
+                        height: 92,
                         width: 320,
                         child: ParentLink(
                           titleFlipKey: titleFlipKey,
@@ -158,7 +147,12 @@ class NavigationBarState extends State<NavigationBar> {
                 controller: scrollController,
                 padding: isFish
                     ? const EdgeInsets.symmetric(horizontal: 20, vertical: 0)
-                    : const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    : const EdgeInsets.only(
+                        left: 20,
+                        right: 20,
+                        top: 0,
+                        bottom: 12,
+                      ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: validSlibings.toList().asMap().entries.map(
@@ -177,7 +171,7 @@ class NavigationBarState extends State<NavigationBar> {
                         route: route,
                         isSelected: route == item,
                         delay: delay,
-                        onTap: () => _onRouteSelected(route),
+                        onPressed: () => _onRouteSelected(route),
                       );
                     },
                   ).toList(),
@@ -233,6 +227,30 @@ class NavigationBarState extends State<NavigationBar> {
           ],
         );
       },
+    );
+  }
+}
+
+class NavigationBackParent extends StatelessWidget {
+  const NavigationBackParent({
+    super.key,
+    required this.viewPadding,
+  });
+
+  final EdgeInsets viewPadding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsetsDirectional.only(top: 20 + viewPadding.top),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: SizedBox(
+          width: 60,
+          height: 60,
+          child: NavigationBackButton(),
+        ),
+      ),
     );
   }
 }

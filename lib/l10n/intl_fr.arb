@@ -970,5 +970,83 @@
   "considerPurchase": "Veuillez envisager d'acheter une licence authentique.",
   "@considerPurchase": {
     "description": "Avis dans la page à propos, guidant l'utilisateur à acheter une licence"
+  },
+  "lyrics": "Paroles",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Afficher les paroles complètes de la chanson",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Services en ligne",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Connexion",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Échec de connexion",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Une erreur s'est produite lors de la tentative de connexion",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Fournit des analyses détaillées d'écoute avec ce service de suivi musical.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Une plateforme libre et gratuite pour partager vos goûts musicaux.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Contribuez à une base de données open-source tout en suivant vos habitudes.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Réparer",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Confirmer la déconnexion",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Êtes-vous sûr de vouloir vous déconnecter ? Toutes les informations de connexion stockées localement seront supprimées.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Réessayer la connexion",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Déconnexion",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copier",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Nom d'utilisateur",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Mot de passe",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "Clé API",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "Secret API",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Jeton utilisateur",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

@@ -1,7 +1,6 @@
 pub mod analysis;
-pub mod shared_utils;
 mod tests;
-mod utils;
+pub mod utils;
 mod wgpu_fft;
 
 cfg_if::cfg_if! {

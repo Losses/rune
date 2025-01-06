@@ -1017,10 +1017,34 @@
   },
   "retryLogin": "重试登录",
   "@retryLogin": {
-    "description": "Option to retry login in the error options menu."
+    "description": "错误选项菜单中的重试登录选项。"
   },
   "logout": "注销",
   "@logout": {
-    "description": "Option to log out in the error options menu."
+    "description": "错误选项菜单中的注销选项。"
+  },
+  "copy": "复制",
+  "@copy": {
+    "description": "内容上下文菜单中的项。"
+  },
+  "username": "用户名",
+  "@username": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "password": "密码",
+  "@password": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "scrobble 登录表单的输入字段标题。"
   }
 }

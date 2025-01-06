@@ -8,12 +8,11 @@ import '../../utils/settings_page_padding.dart';
 import '../../config/theme.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
+import '../../constants/configurations.dart';
 
 import '../settings_library/widgets/settings_button.dart';
 
 import 'constants/supported_languages.dart';
-
-const localeKey = 'locale';
 
 final _settingsManager = SettingsManager();
 
@@ -35,7 +34,7 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
 
   Future<void> _loadSettings() async {
     final String? storedLocale =
-        await _settingsManager.getValue<String>(localeKey);
+        await _settingsManager.getValue<String>(kLocaleKey);
 
     setState(() {
       locale = localeFromString(storedLocale);
@@ -61,9 +60,9 @@ class _SettingsLanguageState extends State<SettingsLanguage> {
 
       final serializedLocale = parts.join('|');
 
-      await _settingsManager.setValue(localeKey, serializedLocale);
+      await _settingsManager.setValue(kLocaleKey, serializedLocale);
     } else {
-      await _settingsManager.removeValue(localeKey);
+      await _settingsManager.removeValue(kLocaleKey);
     }
   }
 

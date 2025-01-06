@@ -51,6 +51,7 @@ pub fn metadata_summary_to_scrobbling_track(
 }
 
 pub async fn initialize_player(
+    lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
@@ -60,12 +61,14 @@ pub async fn initialize_player(
     let playlist_receiver = player.lock().await.subscribe_playlist();
     let realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
     let crash_receiver = player.lock().await.subscribe_crash();
+    let player_log_receiver = player.lock().await.subscribe_log();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
     let main_db_for_played_throudh = Arc::clone(&main_db);
     let main_db_for_playlist = Arc::clone(&main_db);
-    let main_db_for_error_reporter = Arc::clone(&main_db);
+    let main_db_for_scrobble_log = Arc::clone(&main_db);
+    let main_db_for_player_log = Arc::clone(&main_db);
 
     let manager = Arc::new(Mutex::new(MediaControlManager::new()?));
 
@@ -196,6 +199,7 @@ pub async fn initialize_player(
                 playback_mode: status.playback_mode.into(),
                 ready: status.ready,
                 cover_art_path: cached_cover_art.clone().unwrap_or_default(),
+                lib_path: lib_path.as_str().to_string(),
             };
 
             if let Err(e) =
@@ -286,7 +290,7 @@ pub async fn initialize_player(
     });
 
     task::spawn(async move {
-        let main_db = Arc::clone(&main_db_for_error_reporter);
+        let main_db = Arc::clone(&main_db_for_scrobble_log);
 
         while let Ok(error) = scrobber_error_receiver.recv().await {
             error!(
@@ -312,6 +316,35 @@ pub async fn initialize_player(
                         "Failed to start txn while logging scrobbler error: {:#?}",
                         e
                     );
+                }
+            }
+        }
+    });
+
+    task::spawn(async move {
+        let main_db = Arc::clone(&main_db_for_player_log);
+
+        while let Ok(error) = player_log_receiver.recv().await {
+            error!(
+                "Player received error: {}: {:#?}",
+                error.domain, error.error
+            );
+
+            match main_db.begin().await {
+                Ok(txn) => {
+                    if let Err(e) = insert_log(
+                        &txn,
+                        database::actions::logging::LogLevel::Error,
+                        error.domain,
+                        format!("{:#?}", error.error),
+                    )
+                    .await
+                    {
+                        error!("Failed to log player error: {:#?}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to start txn while logging player error: {:#?}", e);
                 }
             }
         }

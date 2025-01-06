@@ -1022,5 +1022,29 @@
   "logout": "Logout",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copy",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Username",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Password",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

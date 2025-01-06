@@ -970,5 +970,83 @@
   "considerPurchase": "Bonvolu konsideri aĉeti originalan licencon.",
   "@considerPurchase": {
     "description": "Averto en la pri-paĝo, gvidante uzanton por aĉeti licencon"
+  },
+  "lyrics": "Kantoteksto",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Montri la plenan kantotekston",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Retaj Servoj",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Ensaluti",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Ensaluto Malsukcesis",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Eraro okazis dum ensaluto",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Provizu detalajn aŭskultajn statistikojn per ĉi tiu muzikspura servo.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Senpaga kaj malfermita platformo por kunhavigi vian muzikguston.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Kontribuu al malfermitkoda datumbazo dum vi spuras viajn kutimojn.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Ripari",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Konfirmi Elsaluton",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Ĉu vi certas, ke vi volas elsaluti? Ĉiuj loke konservitaj ensalutaj akreditiloj estos forigitaj.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Reprovi Ensaluton",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Elsaluti",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Kopii",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Uzantnomo",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Pasvorto",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-Ŝlosilo",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API-Sekreto",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Uzanta Ĵetono",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

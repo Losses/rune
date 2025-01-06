@@ -1,22 +1,24 @@
+use std::sync::{Arc, Mutex};
+
+use log::debug;
+
+use rubato::{FftFixedInOut, Resampler};
+use rustfft::num_complex::Complex;
+use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
+use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::conv::IntoSample;
+use symphonia::core::errors::Error;
+use symphonia::core::formats::FormatReader;
+use symphonia::core::sample::Sample;
+use symphonia::default::get_codecs;
+use tokio_util::sync::CancellationToken;
+
 use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
 use crate::analyzer::gpu_sub_analyzer::GpuSubAnalyzer;
 use crate::analyzer::sub_analyzer::SubAnalyzer;
 use crate::utils::audio_description::AudioDescription;
-use std::sync::{Arc, Mutex};
-
-use log::{debug, info};
-
-use rubato::{FftFixedInOut, Resampler};
-use rustfft::num_complex::Complex;
-use symphonia::core::audio::{AudioBufferRef, Signal};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-use symphonia::core::conv::IntoSample;
-use symphonia::core::errors::Error;
-use tokio_util::sync::CancellationToken;
-
-use crate::shared_utils::computing_device::ComputingDevice;
-
-use crate::shared_utils::audio_metadata_reader::*;
+use crate::utils::audio_metadata_reader::*;
+use crate::utils::computing_device::ComputingDevice;
 
 macro_rules! check_cancellation {
     ($self:expr) => {
@@ -36,7 +38,6 @@ macro_rules! check_cancellation {
 }
 
 pub struct Analyzer {
-    // init in new()
     pub batch_size: usize,
     pub window_size: usize,
     overlap_size: usize,
@@ -124,7 +125,7 @@ impl Analyzer {
         self.duration_in_seconds = duration_in_seconds;
 
         let dec_opts: DecoderOptions = Default::default();
-        let mut decoder = symphonia::default::get_codecs()
+        let mut decoder = get_codecs()
             .make(&track.codec_params, &dec_opts)
             .expect("unsupported codec");
 
@@ -154,31 +155,35 @@ impl Analyzer {
             .process_audio_chunk(self, chunk, force);
     }
 
-    fn process_audio_buffer<T>(&mut self, buf: &symphonia::core::audio::AudioBuffer<T>)
+    fn process_audio_buffer<T>(&mut self, buf: &AudioBuffer<T>)
     where
-        T: symphonia::core::sample::Sample + symphonia::core::conv::IntoSample<f32>,
+        T: Sample + IntoSample<f32>,
     {
-        for plane in buf.planes().planes() {
-            debug!("Processing plane with len: {}", plane.len());
-            for &sample in plane.iter() {
-                let sample: f32 = IntoSample::<f32>::into_sample(sample);
-                self.sample_buffer.push(sample);
-                self.total_samples += 1;
+        let frames = buf.frames();
+        let num_channels = buf.spec().channels.count();
 
-                while self.sample_buffer.len() >= self.actual_data_size {
-                    let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
-                    self.process_audio_chunk(&chunk, false);
-                    self.sample_buffer
-                        .drain(..(self.window_size - self.overlap_size));
-                }
+        for frame_idx in 0..frames {
+            let mixed_sample: f32 = (0..num_channels)
+                .map(|ch| IntoSample::<f32>::into_sample(buf.chan(ch)[frame_idx]))
+                .sum::<f32>()
+                / num_channels as f32;
+
+            self.sample_buffer.push(mixed_sample);
+            self.total_samples += 1;
+
+            while self.sample_buffer.len() >= self.actual_data_size {
+                let chunk: Vec<f32> = self.sample_buffer[..self.actual_data_size].to_vec();
+                self.process_audio_chunk(&chunk, false);
+                self.sample_buffer
+                    .drain(..(self.window_size - self.overlap_size));
             }
         }
     }
 
     fn process_audio_stream(
         &mut self,
-        format: &mut Box<dyn symphonia::core::formats::FormatReader>,
-        decoder: &mut Box<dyn symphonia::core::codecs::Decoder>,
+        format: &mut Box<dyn FormatReader>,
+        decoder: &mut Box<dyn Decoder>,
         track_id: u32,
     ) {
         self.resample_ratio = 11025_f64 / self.sample_rate as f64;
@@ -290,7 +295,7 @@ impl Analyzer {
             check_cancellation!(self, self.process_audio_chunk(&chunk, true));
         }
 
-        info!("Total samples: {}", self.total_samples);
+        debug!("Total samples: {}", self.total_samples);
 
         if self.count == 0 {
             panic!("No audio data processed");

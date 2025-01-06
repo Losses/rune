@@ -11,14 +11,14 @@ class SlibingLink extends StatefulWidget {
   final NavigationItem route;
   final bool isSelected;
   final int? delay;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
 
   const SlibingLink({
     super.key,
     required this.route,
     required this.isSelected,
     required this.delay,
-    required this.onTap,
+    required this.onPressed,
   });
 
   @override
@@ -72,6 +72,14 @@ class _SlibingLinkState extends State<SlibingLink> {
     });
   }
 
+  void _onPressed() {
+    if (comboBoxOpened) {
+      return;
+    }
+
+    widget.onPressed();
+  }
+
   @override
   Widget build(BuildContext context) {
     final childFlipKey = 'child:${widget.route.path}';
@@ -84,13 +92,13 @@ class _SlibingLinkState extends State<SlibingLink> {
     return Padding(
       padding: const EdgeInsets.only(right: 14),
       child: Listener(
-        onPointerUp: (_) => widget.onTap(),
+        onPointerUp: (_) => _onPressed(),
         child: FocusableActionDetector(
           focusNode: _focusNode,
           onShowFocusHighlight: _handleFocusHighlight,
           onShowHoverHighlight: _handleHoveHighlight,
           actions: {
-            ActivateIntent: ActivateLinkAction(context, widget.onTap),
+            ActivateIntent: ActivateLinkAction(context, _onPressed),
           },
           child: AnimatedOpacity(
             key: Key('animation-$childFlipKey'),

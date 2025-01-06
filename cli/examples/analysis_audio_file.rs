@@ -1,6 +1,6 @@
 use analysis::{
     analysis::{analyze_audio, normalize_analysis_result},
-    shared_utils::computing_device::ComputingDevice,
+    utils::computing_device::ComputingDevice,
 };
 
 fn main() {

@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/settings_manager.dart';
-import '../../../../widgets/banding_animation/branding_animation.dart';
+import '../../../../constants/configurations.dart';
 
 import '../../utils/settings_combo_box_item.dart';
 import '../../constants/branding_sfx.dart';
@@ -28,7 +28,7 @@ class BrandingAnimationSettingsState extends State<BrandingAnimationSettings> {
   }
 
   Future<void> _loadSettings() async {
-    final storedSfx = await _settingsManager.getValue<String>(bandingSfxKey);
+    final storedSfx = await _settingsManager.getValue<String>(kBandingSfxKey);
     if (storedSfx != null) {
       setState(() => brandingSfx = storedSfx);
     }
@@ -54,7 +54,7 @@ class BrandingAnimationSettingsState extends State<BrandingAnimationSettings> {
         onChanged: (value) {
           if (value == null) return;
           setState(() => brandingSfx = value);
-          _settingsManager.setValue<String>(bandingSfxKey, value);
+          _settingsManager.setValue<String>(kBandingSfxKey, value);
         },
       ),
     );

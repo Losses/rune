@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/settings_manager.dart';
-import '../../../../widgets/cover_wall_background/cover_wall_background.dart';
+import '../../../../constants/configurations.dart';
 
 import '../../utils/settings_combo_box_item.dart';
 import '../../constants/cover_wall_item_count.dart';
@@ -29,7 +29,7 @@ class CoverWallRichnessSettingsState extends State<CoverWallRichnessSettings> {
 
   Future<void> _loadSettings() async {
     final storedCount =
-        await _settingsManager.getValue<String>(randomCoverWallCountKey);
+        await _settingsManager.getValue<String>(kRandomCoverWallCountKey);
     if (storedCount != null) {
       setState(() => randomCoverWallCount = storedCount);
     }
@@ -55,7 +55,7 @@ class CoverWallRichnessSettingsState extends State<CoverWallRichnessSettings> {
         onChanged: (value) {
           if (value == null) return;
           setState(() => randomCoverWallCount = value);
-          _settingsManager.setValue<String>(randomCoverWallCountKey, value);
+          _settingsManager.setValue<String>(kRandomCoverWallCountKey, value);
         },
       ),
     );

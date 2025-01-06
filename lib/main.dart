@@ -16,7 +16,6 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
 
-import 'providers/scrobble.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
@@ -42,20 +41,20 @@ import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
 import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
-import 'screens/settings_laboratory/widgets/settings/cafe_mode_settings.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
-import 'screens/settings_theme/settings_theme.dart';
 import 'screens/settings_theme/constants/window_sizes.dart';
-import 'screens/settings_language/settings_language.dart';
 
 import 'messages/all.dart';
+
+import 'constants/configurations.dart';
 
 import 'providers/crash.dart';
 import 'providers/volume.dart';
 import 'providers/status.dart';
 import 'providers/license.dart';
 import 'providers/playlist.dart';
+import 'providers/scrobble.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
@@ -97,7 +96,8 @@ void main(List<String> arguments) async {
     final isWindows10 = windowsInfo.productName.startsWith('Windows 10');
     isWindows11 = windowsInfo.productName.startsWith('Windows 11');
 
-    if (isWindows10 && appTheme.windowEffect == WindowEffect.mica) {
+    if ((isWindows10 && appTheme.windowEffect == WindowEffect.mica) ||
+        Platform.isIOS) {
       appTheme.windowEffect = WindowEffect.solid;
     }
   } catch (e) {
@@ -105,27 +105,27 @@ void main(List<String> arguments) async {
   }
 
   final String? colorMode =
-      await settingsManager.getValue<String>(colorModeKey);
+      await settingsManager.getValue<String>(kColorModeKey);
 
   updateColorMode(colorMode);
 
   await ThemeColorManager().initialize();
 
-  final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+  final int? themeColor = await settingsManager.getValue<int>(kThemeColorKey);
 
   if (themeColor != null) {
     appTheme.updateThemeColor(Color(themeColor));
   }
 
-  final String? locale = await settingsManager.getValue<String>(localeKey);
+  final String? locale = await settingsManager.getValue<String>(kLocaleKey);
 
   appTheme.locale = localeFromString(locale);
 
   disableBrandingAnimation =
-      await settingsManager.getValue<bool>(disableBrandingAnimationKey) ??
+      await settingsManager.getValue<bool>(kDisableBrandingAnimationKey) ??
           false;
 
-  cafeMode = (await settingsManager.getValue<String>(cafeModeKey)) == "true";
+  cafeMode = (await settingsManager.getValue<String>(kCafeModeKey)) == "true";
 
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -186,9 +186,9 @@ void main(List<String> arguments) async {
   }
 
   final windowSizeMode =
-      await settingsManager.getValue<String>(windowSizeKey) ?? 'normal';
+      await settingsManager.getValue<String>(kWindowSizeKey) ?? 'normal';
   final bool? rememberWindowSize =
-      await SettingsManager().getValue<bool>(rememberWindowSizeKey);
+      await SettingsManager().getValue<bool>(kRememberWindowSizeKey);
 
   final firstView = WidgetsBinding.instance.platformDispatcher.views.first;
 

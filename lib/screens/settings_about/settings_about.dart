@@ -5,6 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
@@ -18,10 +19,10 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/system.pb.dart';
 import '../../providers/license.dart';
 import '../../providers/responsive_providers.dart';
-import '../../utils/l10n.dart';
+
+import '../settings_home/settings_home.dart';
 
 const size = 400.0;
-const mysteriousKey = 'mysterious_key';
 
 class SettingsAboutPage extends StatelessWidget {
   const SettingsAboutPage({super.key});
@@ -100,7 +101,7 @@ class _LogoSectionState extends State<_LogoSection> {
               contextController: contextController,
               onContextMenu: (offset) async {
                 final triggeredMysterious =
-                    await SettingsManager().getValue<bool>(mysteriousKey);
+                    await SettingsManager().getValue<bool>(SettingsHomePage.mysteriousKey);
 
                 if (triggeredMysterious == true) return;
                 if (!context.mounted) return;
@@ -125,7 +126,7 @@ class _LogoSectionState extends State<_LogoSection> {
                           leading: const Icon(Symbols.controller_gen),
                           text: Text(S.of(context).mysteriousButton),
                           onPressed: () {
-                            SettingsManager().setValue(mysteriousKey, true);
+                            SettingsManager().setValue(SettingsHomePage.mysteriousKey, true);
 
                             $showModal<void>(
                               context,

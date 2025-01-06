@@ -8,8 +8,7 @@ import '../utils/playing_item.dart';
 import '../utils/settings_manager.dart';
 import '../utils/theme_color_manager.dart';
 import '../messages/all.dart';
-
-const lastQueueIndexKey = 'last_queue_index';
+import '../constants/configurations.dart';
 
 class PlaybackStatusProvider with ChangeNotifier {
   final PlaybackStatus _playbackStatus =
@@ -19,19 +18,19 @@ class PlaybackStatusProvider with ChangeNotifier {
   PlaybackStatus get playbackStatus => _playbackStatus;
   PlayingItem? get playingItem => _playingItem;
 
-  late StreamSubscription<RustSignal<PlaybackStatus>> subscription;
+  late StreamSubscription<RustSignal<PlaybackStatus>> statusSubscription;
 
   bool _hasPendingNotification = false;
 
   PlaybackStatusProvider() {
-    subscription =
+    statusSubscription =
         PlaybackStatus.rustSignalStream.listen(_updatePlaybackStatus);
   }
 
   @override
   void dispose() {
     super.dispose();
-    subscription.cancel();
+    statusSubscription.cancel();
   }
 
   void _scheduleNotification() {
@@ -50,27 +49,31 @@ class PlaybackStatusProvider with ChangeNotifier {
       final bool isNewTrack = _playbackStatus.item != newStatus.item;
 
       _playbackStatus.state = newStatus.state;
-      _playbackStatus.progressSeconds = newStatus.progressSeconds;
-      _playbackStatus.progressPercentage = newStatus.progressPercentage;
-      _playbackStatus.artist = newStatus.artist;
-      _playbackStatus.album = newStatus.album;
-      _playbackStatus.title = newStatus.title;
-      _playbackStatus.duration = newStatus.duration;
-      _playbackStatus.index = newStatus.index;
-      _playbackStatus.item = newStatus.item;
-      _playbackStatus.playbackMode = newStatus.playbackMode;
-      _playbackStatus.ready = newStatus.ready;
-      _playbackStatus.coverArtPath = newStatus.coverArtPath;
-      final newPlayingItem = newStatus.item.isEmpty
-          ? null
-          : PlayingItem.fromString(newStatus.item);
-      _playingItem = newPlayingItem;
 
-      if (isNewTrack) {
-        if (newPlayingItem != null) {
-          ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+      if (newStatus.state != "Stopped" || _playbackStatus.libPath != newStatus.libPath) {
+        _playbackStatus.progressSeconds = newStatus.progressSeconds;
+        _playbackStatus.progressPercentage = newStatus.progressPercentage;
+        _playbackStatus.artist = newStatus.artist;
+        _playbackStatus.album = newStatus.album;
+        _playbackStatus.title = newStatus.title;
+        _playbackStatus.duration = newStatus.duration;
+        _playbackStatus.index = newStatus.index;
+        _playbackStatus.item = newStatus.item;
+        _playbackStatus.playbackMode = newStatus.playbackMode;
+        _playbackStatus.ready = newStatus.ready;
+        _playbackStatus.coverArtPath = newStatus.coverArtPath;
+        _playbackStatus.libPath = newStatus.libPath;
+        final newPlayingItem = newStatus.item.isEmpty
+            ? null
+            : PlayingItem.fromString(newStatus.item);
+        _playingItem = newPlayingItem;
+
+        if (isNewTrack) {
+          if (newPlayingItem != null) {
+            ThemeColorManager().handleCoverArtColorChange(newPlayingItem);
+          }
+          SettingsManager().setValue(kLastQueueIndexKey, newStatus.index);
         }
-        SettingsManager().setValue(lastQueueIndexKey, newStatus.index);
       }
 
       _scheduleNotification();

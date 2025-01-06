@@ -120,7 +120,7 @@ async fn player_loop(
         let recommend_db: Arc<database::connection::RecommendationDbConnection> =
             db_connections.recommend_db;
 
-        let lib_path = Arc::new(path);
+        let lib_path: Arc<String> = Arc::new(path);
 
         let main_cancel_token = CancellationToken::new();
         let task_tokens = Arc::new(Mutex::new(TaskTokens::default()));
@@ -136,6 +136,7 @@ async fn player_loop(
 
         info!("Initializing Player events");
         tokio::spawn(initialize_player(
+            lib_path.clone(),
             main_db.clone(),
             player.clone(),
             scrobbler.clone(),

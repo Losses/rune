@@ -130,6 +130,7 @@ pub enum PlayerEvent {
     VolumeUpdate(f32),
     PlaylistUpdated(Vec<PlayingItem>),
     RealtimeFFT(Vec<f32>),
+    Log(InternalLog),
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +150,12 @@ fn try_new_sink(stream: &RuneOutputStreamHandle) -> Result<Sink, PlayError> {
     let (sink, queue_rx) = Sink::new_idle();
     stream.play_raw(queue_rx)?;
     Ok(sink)
+}
+
+#[derive(Debug, Clone)]
+pub struct InternalLog {
+    pub domain: String,
+    pub error: String,
 }
 
 impl Source for SharedSource {
@@ -346,8 +353,13 @@ impl PlayerInternal {
                 .with_context(|| format!("Failed to open file: {:?}", item.path))?;
             let source = Decoder::new(BufReader::new(file));
 
-            if source.is_err() {
+            if let Err(error) = source {
+                warn!("Failed to decode file {:?}: {:#?}", item.path, error);
                 self.next()?;
+                self.event_sender.send(PlayerEvent::Log(InternalLog {
+                    domain: "player::internal::decoder".to_string(),
+                    error: format!("{:#?}", error),
+                }))?;
                 return Ok(());
             }
 

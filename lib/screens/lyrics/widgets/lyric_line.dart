@@ -1,7 +1,12 @@
 import 'dart:ui';
 
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:clipboard/clipboard.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/l10n.dart';
+import '../../../utils/api/seek_absolute.dart';
+import '../../../widgets/context_menu_wrapper.dart';
 import '../../../messages/all.dart';
 
 import 'lyric_section.dart';
@@ -31,7 +36,14 @@ class _LyricLineState extends State<LyricLine>
     with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _blurAnimation;
+  late Animation<double> _opacityAnimation;
   double _targetBlur = 0.0;
+  double _targetOpacity = 1.0;
+  bool _isHovered = false;
+  bool _contextMenuIsOpen = false;
+
+  final _contextController = FlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void initState() {
@@ -46,7 +58,15 @@ class _LyricLineState extends State<LyricLine>
         curve: Curves.easeInOut,
       ),
     );
-    _updateBlurAnimation();
+    _opacityAnimation = Tween<double>(begin: 1.0, end: 1.0).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+    _updateAnimations();
+
+    _contextController.addListener(_handleContextControllerUpdate);
   }
 
   @override
@@ -55,16 +75,32 @@ class _LyricLineState extends State<LyricLine>
     if (oldWidget.currentTimeMilliseconds != widget.currentTimeMilliseconds ||
         oldWidget.isActive != widget.isActive ||
         oldWidget.isPassed != widget.isPassed) {
-      _updateBlurAnimation();
+      _updateAnimations();
     }
   }
 
-  void _updateBlurAnimation() {
-    _targetBlur = _calculateTargetBlur();
+  void _handleContextControllerUpdate() {
+    _contextMenuIsOpen = _contextController.isOpen;
+    _updateAnimations();
+  }
+
+  void _updateAnimations() {
+    _targetBlur = _isHovered || _contextMenuIsOpen ? 0 : _calculateTargetBlur();
+    _targetOpacity = _isHovered || _contextMenuIsOpen ? 0.9 : 1.0;
 
     _blurAnimation = Tween<double>(
       begin: _blurAnimation.value,
       end: _targetBlur,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _opacityAnimation = Tween<double>(
+      begin: _opacityAnimation.value,
+      end: _targetOpacity,
     ).animate(
       CurvedAnimation(
         parent: _controller,
@@ -89,49 +125,118 @@ class _LyricLineState extends State<LyricLine>
     return (timeDiff.clamp(0, maxTimeDiff) / maxTimeDiff) * 3.0;
   }
 
+  void _openLyricContextMenu(
+    Offset localPosition,
+  ) async {
+    if (!context.mounted) return;
+    final targetContext = _contextAttachKey.currentContext;
+
+    if (targetContext == null) return;
+    final box = targetContext.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(
+      localPosition,
+      ancestor: Navigator.of(context).context.findRenderObject(),
+    );
+
+    final s = S.of(context);
+
+    _contextController.showFlyout(
+      position: position,
+      builder: (_) {
+        return MenuFlyout(
+          items: [
+            MenuFlyoutItem(
+              leading: const Icon(Symbols.content_copy),
+              text: Text(s.copy),
+              onPressed: () {
+                FlutterClipboard.copy(
+                    widget.sections.map((s) => s.content).join(''));
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   void dispose() {
     _controller.dispose();
+    _contextController.removeListener(_handleContextControllerUpdate);
+    _contextController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _blurAnimation,
-      builder: (context, child) {
-        return ImageFiltered(
-          imageFilter: ImageFilter.blur(
-            sigmaX: _blurAnimation.value,
-            sigmaY: _blurAnimation.value,
-          ),
-          child: child,
-        );
+    return MouseRegion(
+      onEnter: (_) {
+        if (mounted) {
+          setState(() {
+            _isHovered = true;
+            _updateAnimations();
+          });
+        }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 16.0),
-        child: widget.isStatic
-            ? Wrap(
-                children: widget.sections.indexed.map((section) {
-                  return SimpleLyricSection(
-                    key: ValueKey(section.$1),
-                    section: section.$2,
-                    isPassed: widget.isPassed,
+      onExit: (_) {
+        if (mounted) {
+          setState(() {
+            _isHovered = false;
+            _updateAnimations();
+          });
+        }
+      },
+      child: GestureDetector(
+          onTap: () {
+            seekAbsolute(widget.sections.first.startTime);
+          },
+          child: ContextMenuWrapper(
+              onContextMenu: _openLyricContextMenu,
+              onMiddleClick: (_) => {},
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
+              child: AnimatedBuilder(
+                animation:
+                    Listenable.merge([_blurAnimation, _opacityAnimation]),
+                builder: (context, child) {
+                  return Opacity(
+                    opacity: _opacityAnimation.value,
+                    child: ImageFiltered(
+                      imageFilter: ImageFilter.blur(
+                        sigmaX: _blurAnimation.value,
+                        sigmaY: _blurAnimation.value,
+                      ),
+                      child: child,
+                    ),
                   );
-                }).toList(),
-              )
-            : Wrap(
-                children: widget.sections.indexed.map((section) {
-                  return LyricSection(
-                    key: ValueKey(section.$1),
-                    section: section.$2,
-                    currentTimeMilliseconds: widget.currentTimeMilliseconds,
-                    isActive: widget.isActive,
-                    isPassed: widget.isPassed,
-                  );
-                }).toList(),
-              ),
-      ),
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      vertical: 10.0, horizontal: 16.0),
+                  child: widget.isStatic
+                      ? Wrap(
+                          children: widget.sections.indexed.map((section) {
+                            return SimpleLyricSection(
+                              key: ValueKey(section.$1),
+                              section: section.$2,
+                              isPassed: widget.isPassed,
+                            );
+                          }).toList(),
+                        )
+                      : Wrap(
+                          children: widget.sections.indexed.map((section) {
+                            return LyricSection(
+                              key: ValueKey(section.$1),
+                              section: section.$2,
+                              currentTimeMilliseconds:
+                                  widget.currentTimeMilliseconds,
+                              isActive: widget.isActive,
+                              isPassed: widget.isPassed,
+                            );
+                          }).toList(),
+                        ),
+                ),
+              ))),
     );
   }
 }

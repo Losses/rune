@@ -198,6 +198,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "0.4.2"
+  clipboard:
+    dependency: "direct main"
+    description:
+      name: clipboard
+      sha256: "2ec38f0e59878008ceca0ab122e4bfde98847f88ef0f83331362ba4521f565a9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.3"
   clock:
     dependency: transitive
     description:
@@ -418,8 +426,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "2186f815de5d6b461775938eb2484d9a3f4162ee"
-      resolved-ref: "2186f815de5d6b461775938eb2484d9a3f4162ee"
+      ref: fa35f8cae87d2c0a9989279fe99fdee32d601e84
+      resolved-ref: fa35f8cae87d2c0a9989279fe99fdee32d601e84
       url: "https://github.com/Losses/fluent_ui.git"
     source: git
     version: "4.9.1"
@@ -710,11 +718,12 @@ packages:
   macos_secure_bookmarks:
     dependency: "direct main"
     description:
-      name: macos_secure_bookmarks
-      sha256: c3163875f8fd530a1654a7cf8aa426e6e208d28bf05724a1d4960e4b7d2ca1c6
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.2.1"
+      path: "."
+      ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
+      resolved-ref: c07abbf7c186c543de09a9c7df8577bbf5e27748
+      url: "https://github.com/XMLHexagram/macos_secure_bookmarks.git"
+    source: git
+    version: "0.2.0"
   macos_window_utils:
     dependency: transitive
     description:

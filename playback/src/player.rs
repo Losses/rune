@@ -8,7 +8,7 @@ use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::internal::{PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
+use crate::internal::{InternalLog, PlaybackMode, PlayerCommand, PlayerEvent, PlayerInternal};
 use crate::strategies::AddMode;
 
 #[derive(Debug, Clone)]
@@ -83,6 +83,7 @@ pub struct Player {
     status_sender: SimpleSender<PlayerStatus>,
     playlist_sender: SimpleSender<PlaylistStatus>,
     played_through_sender: SimpleSender<PlayingItem>,
+    log_sender: SimpleSender<InternalLog>,
     realtime_fft_sender: SimpleSender<Vec<f32>>,
     crash_sender: SimpleSender<String>,
     cancellation_token: CancellationToken,
@@ -111,6 +112,7 @@ impl Player {
         let (realtime_fft_sender, _) = SimpleChannel::channel(32);
         // Create a broadcast channel player crash report
         let (crash_sender, _) = SimpleChannel::channel(16);
+        let (log_sender, _) = SimpleChannel::channel(16);
 
         // Create a cancellation token
         let cancellation_token = cancellation_token.unwrap_or_default();
@@ -138,6 +140,7 @@ impl Player {
             played_through_sender: played_through_sender.clone(),
             realtime_fft_sender: realtime_fft_sender.clone(),
             crash_sender: crash_sender.clone(),
+            log_sender: log_sender.clone(),
             cancellation_token: cancellation_token.clone(),
         };
 
@@ -273,6 +276,9 @@ impl Player {
                     PlayerEvent::VolumeUpdate(value) => {
                         status.volume = value;
                     }
+                    PlayerEvent::Log(log) => {
+                        log_sender.send(log);
+                    }
                 }
                 status_sender_clone.send(status.clone());
             }
@@ -307,6 +313,10 @@ impl Player {
 
     pub fn subscribe_crash(&self) -> SimpleReceiver<String> {
         self.crash_sender.subscribe()
+    }
+
+    pub fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        self.log_sender.subscribe()
     }
 
     // Send a command to the internal player

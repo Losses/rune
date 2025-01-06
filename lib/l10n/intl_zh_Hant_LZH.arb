@@ -995,11 +995,11 @@
   "@lastFmSubtitle": {
     "description": "The service description of the scrobble service."
   },
-  "libreFmSubtitle": "於自由之地舒表曲志。",
+  "libreFmSubtitle": "舒表曲志於自由之地。",
   "@libreFmSubtitle": {
     "description": "The service description of the scrobble service."
   },
-  "listenBrainzSubtitle": "循轍時助築開源之庫。",
+  "listenBrainzSubtitle": "循轍之時助築開源庫。",
   "@listenBrainzSubtitle": {
     "description": "The service description of the scrobble service."
   },
@@ -1022,5 +1022,29 @@
   "logout": "出籍",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "抄取",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "簿名",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "符節",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "際鑰",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "際密",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "令牌",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

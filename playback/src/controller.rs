@@ -15,6 +15,7 @@ use tokio::sync::Mutex;
 
 #[cfg(target_os = "android")]
 use crate::dummy_souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
+
 #[cfg(not(target_os = "android"))]
 use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
@@ -51,7 +52,7 @@ pub struct MediaControlManager {
 
 impl MediaControlManager {
     pub fn new() -> Result<Self> {
-        #[cfg(not(any(target_os = "windows", target_os = "android")))]
+        #[cfg(not(any(target_os = "windows")))]
         let hwnd = None;
 
         #[cfg(target_os = "windows")]
@@ -61,13 +62,9 @@ impl MediaControlManager {
             (Some(handle), dummy_window)
         };
 
-        // #[cfg(target_os = "android")]
-        // let hwnd = ();
-
         let config = PlatformConfig {
             dbus_name: "rune_player",
             display_name: "Rune",
-            #[cfg(not(target_os = "android"))]
             hwnd,
         };
 

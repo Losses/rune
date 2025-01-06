@@ -57,6 +57,63 @@
   </screenshots>
 
   <releases>
+    <release version="1.1.0-beta.3" date="2025-01-05">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Prevent multiple events being triggered in the navigation bar.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.2" date="2024-12-31">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Updated translation files by @123Duo3.</li>
+          <li>Improved randomness of the cover art wall.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Enhanced image rendering quality by setting filter quality to high.</li>
+          <li>Fixed issue where switching among playback modes was not possible when there were
+            insufficient enabled modes.</li>
+          <li>Resolved issue where the navigation back text was not clickable on the bottom side.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-beta.1" date="2024-12-26">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Clicking on lyrics now seeks to the corresponding timestamp.</li>
+          <li>Added functionality to copy lyrics.</li>
+          <li>Added new localization entries.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Blank cover art not displaying metadata on the lyrics page.</li>
+          <li>Playback status disappeared after audio finished playing.</li>
+          <li>The online service error recovery menu not appearing.</li>
+          <li>Scrobble login status detection.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.0-alpha.6" date="2024-12-25">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Added logging capability for internal decoder errors.</li>
+          <li>Added support for parsing .lrcx lyric files.</li>
+          <li>Added Mild Spectrum settings and integrate with FFT visualizer.</li>
+          <li>Update translation files by @NovaDNG.</li>
+        </ul>
+        <p>Bugs</p>
+        <ul>
+          <li>Normalize lyrics based on track duration and improve playback status handling.</li>
+          <li>Update makeLatest condition to exclude alpha and beta branches by @Ovler-Young.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0-alpha.5" date="2024-12-22">
       <description>
         <p>Features</p>

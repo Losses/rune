@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::debug;
 
 use rubato::Resampler;
 use rubato::SincFixedIn;
@@ -14,12 +14,11 @@ use symphonia::core::errors::Error;
 use tokio_util::sync::CancellationToken;
 
 use crate::utils::audio_description::AudioDescription;
+use crate::utils::audio_metadata_reader::*;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 use crate::utils::hanning_window::build_hanning_window;
-
-use crate::shared_utils::audio_metadata_reader::*;
 
 // Define the macro at the beginning of the file, after the imports
 macro_rules! process_window {
@@ -273,7 +272,7 @@ pub fn fft(
     }
     debug!("Final average spectrum calculated");
 
-    info!("Total samples: {}", total_samples);
+    debug!("Total samples: {}", total_samples);
 
     Some(AudioDescription {
         sample_rate,

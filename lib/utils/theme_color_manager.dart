@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../config/theme.dart';
-import '../screens/settings_theme/settings_theme.dart';
+import '../constants/configurations.dart';
 
 import 'api/get_primary_color.dart';
+
 import 'playing_item.dart';
 import 'settings_manager.dart';
 
@@ -21,11 +22,11 @@ class ThemeColorManager {
 
     // 1. Read dynamic color settings
     final bool? enableDynamicColors =
-        await settingsManager.getValue<bool>(enableDynamicColorsKey);
+        await settingsManager.getValue<bool>(kEnableDynamicColorsKey);
     _isDynamicColorEnabled = enableDynamicColors ?? false;
 
     // 2. Read the user's selected theme color
-    final int? themeColor = await settingsManager.getValue<int>(themeColorKey);
+    final int? themeColor = await settingsManager.getValue<int>(kThemeColorKey);
     if (themeColor != null) {
       _userSelectedColor = Color(themeColor);
     }

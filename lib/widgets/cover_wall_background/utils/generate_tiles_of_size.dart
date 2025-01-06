@@ -35,7 +35,7 @@ List<List<RandomGridPlacement>> generateTilesOfSize(
     if (occupied[i]) continue;
 
     double randomValue1 = stringToDouble('$gridKey-$seed');
-    double randomValue2 = stringToDouble('$gridKey-i-$seed');
+    double randomValue2 = stringToDouble('$gridKey-i-${seed + 1}');
     int coverIndex = (randomValue2 * (nImages - 1)).round();
 
     int maxSize = maxRandomGridConfigSize;
@@ -95,7 +95,7 @@ List<List<RandomGridPlacement>> generateTilesOfSize(
     final int col = i % cols;
 
     final gridKey = '$row-$col';
-    double randomValue2 = stringToDouble('$gridKey-i-$seed');
+    double randomValue2 = stringToDouble('$gridKey-i-${seed + 8}');
     int coverIndex = (randomValue2 * (nImages - 1)).round();
 
     occupied[i] = true;

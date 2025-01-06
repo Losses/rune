@@ -9,6 +9,7 @@ import '../messages/playback.pb.dart';
 
 class VolumeProvider with ChangeNotifier {
   static const String _volumeSettingsKey = 'volume_level';
+
   final SettingsManager _settingsManager = SettingsManager();
   late StreamSubscription<RustSignal<VolumeResponse>> _subscription;
 

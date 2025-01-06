@@ -970,12 +970,16 @@ pub async fn query_mix_media_files(
 
         let recommend_n = pipe_limit.unwrap_or(30);
 
-        let file_ids =
-            get_recommendation_by_parameter(recommend_db, virtual_point, recommend_n as usize)
-                .with_context(|| "Failed to get recommendation by parameters")?
-                .into_iter()
-                .map(|x| x.0 as i32)
-                .collect::<Vec<i32>>();
+        let file_ids = match get_recommendation_by_parameter(
+            recommend_db,
+            virtual_point,
+            recommend_n as usize,
+        )
+        .with_context(|| "Failed to get recommendation by parameters")
+        {
+            Ok(x) => x.into_iter().map(|x| x.0 as i32).collect::<Vec<i32>>(),
+            Err(_) => return Ok([].to_vec()),
+        };
 
         let media_files = get_files_by_ids(main_db, &file_ids).await?;
 

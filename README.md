@@ -77,7 +77,7 @@ However, if you have specific needs, you can choose to build your own binary pac
 
 If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
 
-Additionally, when using these unofficial sources, **you should still purchase a genuine license**.
+Additionally, when using these unofficial sources, **you still need to purchase a license to become a genuine user**.
 
 ## Release Policy
 

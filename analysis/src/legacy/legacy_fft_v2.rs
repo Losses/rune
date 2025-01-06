@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use log::{debug, info};
+use log::debug;
 
 use realfft::{RealFftPlanner, RealToComplex};
 use rubato::{FftFixedInOut, Resampler};
@@ -12,19 +12,18 @@ use symphonia::core::errors::Error;
 use symphonia::core::sample::Sample;
 use tokio_util::sync::CancellationToken;
 
-use crate::shared_utils::computing_device::ComputingDevice;
 use crate::utils::audio_description::AudioDescription;
+use crate::utils::audio_metadata_reader::*;
+use crate::utils::computing_device::ComputingDevice;
 use crate::utils::features::energy;
 use crate::utils::features::rms;
 use crate::utils::features::zcr;
 use crate::utils::hanning_window::build_hanning_window;
-
-use crate::shared_utils::audio_metadata_reader::*;
 use crate::wgpu_fft::wgpu_radix4;
 
 pub struct FFTProcessor {
     computing_device: ComputingDevice,
-    window_size: usize, //
+    window_size: usize,
     batch_size: usize,
     overlap_size: usize,
     gpu_batch_fft: Option<wgpu_radix4::FFTCompute>,
@@ -314,7 +313,7 @@ impl FFTProcessor {
             }
         }
 
-        info!("Total samples: {}", self.total_samples);
+        debug!("Total samples: {}", self.total_samples);
 
         if self.count == 0 {
             panic!("No audio data processed");

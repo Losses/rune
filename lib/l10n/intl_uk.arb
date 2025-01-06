@@ -968,5 +968,83 @@
   "considerPurchase": "Будь ласка, розгляньте можливість придбання ліцензійної версії.",
   "@considerPurchase": {
     "description": "Notice in the about page, guiding user to purchase a license"
+  },
+  "lyrics": "Тексти пісень",
+  "@lyrics": {
+    "description": "Button prompt text for controlling playback, used to switch to the lyrics page."
+  },
+  "lyricsSubtitle": "Показати повний текст пісні",
+  "@lyricsSubtitle": {},
+  "onlineServices": "Онлайн-сервіси",
+  "@onlineServices": {
+    "description": "A chapter title in the playback settings page."
+  },
+  "login": "Увійти",
+  "@login": {
+    "description": "The action button of the login modal."
+  },
+  "loginFailed": "Помилка входу",
+  "@loginFailed": {
+    "description": "The title of the login failed button of the login modal."
+  },
+  "loginFailedSubtitle": "Під час входу сталася помилка",
+  "@loginFailedSubtitle": {
+    "description": "The subtitle of the login failed button of the login modal."
+  },
+  "lastFmSubtitle": "Надайте детальну статистику прослуховування за допомогою цього сервісу відстеження музики.",
+  "@lastFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "libreFmSubtitle": "Безкоштовна та відкрита платформа для обміну музичними вподобаннями.",
+  "@libreFmSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "listenBrainzSubtitle": "Робіть внесок у базу даних з відкритим кодом, відстежуючи свої звички прослуховування.",
+  "@listenBrainzSubtitle": {
+    "description": "The service description of the scrobble service."
+  },
+  "fix": "Виправити",
+  "@fix": {
+    "description": "The action button of the service login failed settings item."
+  },
+  "confirmLogoutTitle": "Підтвердити вихід",
+  "@confirmLogoutTitle": {
+    "description": "Title for the logout confirmation dialog."
+  },
+  "confirmLogoutSubtitle": "Ви впевнені, що хочете вийти? Усі локально збережені облікові дані буде видалено.",
+  "@confirmLogoutSubtitle": {
+    "description": "Subtitle for the logout confirmation dialog."
+  },
+  "retryLogin": "Повторити вхід",
+  "@retryLogin": {
+    "description": "Option to retry login in the error options menu."
+  },
+  "logout": "Вийти",
+  "@logout": {
+    "description": "Option to log out in the error options menu."
+  },
+  "copy": "Копіювати",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Ім'я користувача",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Пароль",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-ключ",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "Секретний API-ключ",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Токен користувача",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

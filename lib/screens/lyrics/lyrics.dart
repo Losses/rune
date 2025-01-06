@@ -21,6 +21,7 @@ class LyricsPage extends StatefulWidget {
 class _LyricsPageState extends State<LyricsPage> {
   PlayingItem? _cachedPlayingItem;
   Future<List<LyricContentLine>>? _lyric;
+  List<LyricContentLine> _rawLyrics = [];
 
   late PlaybackStatusProvider playbackStatus;
 
@@ -41,18 +42,45 @@ class _LyricsPageState extends State<LyricsPage> {
     playbackStatus.removeListener(_handlePlaybackStatusUpdate);
   }
 
+  List<LyricContentLine> _createNormalizedLyrics(
+      List<LyricContentLine> originalLyrics, int trackDuration) {
+    return originalLyrics.map((line) {
+      var newLine = LyricContentLine(
+        startTime: line.startTime,
+        endTime: line.endTime >= 599940000 ? trackDuration : line.endTime,
+        sections: line.sections
+            .map((section) => LyricContentLineSection(
+                  startTime: section.startTime,
+                  endTime: section.endTime >= 599940000
+                      ? trackDuration
+                      : section.endTime,
+                  content: section.content,
+                ))
+            .toList(),
+      );
+      return newLine;
+    }).toList();
+  }
+
   _handlePlaybackStatusUpdate() {
     if (_cachedPlayingItem != playbackStatus.playingItem) {
       setState(() {
         final item = playbackStatus.playingItem;
         _cachedPlayingItem = item;
-        _lyric = getLyricByTrackId(item);
+        _lyric = getLyricByTrackId(item).then((lyrics) {
+          _rawLyrics = lyrics;
+          return lyrics;
+        });
       });
     }
   }
 
-  int _selectProgress(BuildContext context, PlaybackStatusProvider status) {
-    return (status.playbackStatus.progressSeconds * 1000).round();
+  (int, int) _selectProgress(
+      BuildContext context, PlaybackStatusProvider status) {
+    return (
+      (status.playbackStatus.progressSeconds * 1000).round(),
+      (status.playbackStatus.duration * 1000).round(),
+    );
   }
 
   @override
@@ -62,12 +90,18 @@ class _LyricsPageState extends State<LyricsPage> {
       builder: (context, snapshot) {
         if (snapshot.data == null) return Container();
 
-        return Selector<PlaybackStatusProvider, int>(
+        return Selector<PlaybackStatusProvider, (int, int)>(
           selector: _selectProgress,
-          builder: (context, currentTimeMilliseconds, child) {
+          builder: (context, x, child) {
             final List<int> activeLines = [];
 
-            for (final (index, line) in snapshot.data!.indexed) {
+            final currentTimeMilliseconds = x.$1;
+            final trackDuration = x.$2;
+
+            final normalizedLyrics =
+                _createNormalizedLyrics(_rawLyrics, trackDuration);
+
+            for (final (index, line) in normalizedLyrics.indexed) {
               if (currentTimeMilliseconds > line.startTime &&
                   currentTimeMilliseconds < line.endTime) {
                 activeLines.add(index);
@@ -87,7 +121,7 @@ class _LyricsPageState extends State<LyricsPage> {
                   return PageContentFrame(
                     child: BandScreenLyricsView(
                       item: _cachedPlayingItem,
-                      lyrics: snapshot.data!,
+                      lyrics: normalizedLyrics,
                       currentTimeMilliseconds: currentTimeMilliseconds,
                       activeLines: activeLines,
                     ),
@@ -96,7 +130,7 @@ class _LyricsPageState extends State<LyricsPage> {
 
                 return LyricsLayout(
                   item: _cachedPlayingItem,
-                  lyrics: snapshot.data!,
+                  lyrics: normalizedLyrics,
                   currentTimeMilliseconds: currentTimeMilliseconds,
                   activeLines: activeLines,
                 );

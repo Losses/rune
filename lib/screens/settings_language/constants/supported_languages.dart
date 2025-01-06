@@ -74,7 +74,6 @@ const List<LanguageOption> supportedLanguages = [
     title: '简体中文',
     sampleText: '人人生而自由，在尊严和权利上一律平等。他们禀赋理性和良知，应当以兄弟情谊的精神相对待。',
     locale: Locale.fromSubtags(languageCode: 'zh', scriptCode: 'Hans'),
-    experimental: true,
   ),
   LanguageOption(
     title: '傳統中文',

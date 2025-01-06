@@ -7,9 +7,9 @@ import 'package:flutter_window_close/flutter_window_close.dart';
 
 import 'settings_manager.dart';
 
-final closeNotificationShownKey = 'close_notification_shown';
-
 class CloseManager {
+  static const closeNotificationShownKey = 'close_notification_shown';
+
   bool forceClose = false;
 
   String? notificationTitle;
@@ -41,7 +41,7 @@ class CloseManager {
 
   close() {
     forceClose = true;
-    
+
     if (Platform.isMacOS) {
       SystemNavigator.pop();
     } else {

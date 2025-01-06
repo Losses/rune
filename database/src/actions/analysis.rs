@@ -14,7 +14,7 @@ use seq_macro::seq;
 use tokio_util::sync::CancellationToken;
 
 use analysis::analysis::{analyze_audio, normalize_analysis_result, NormalizedAnalysisResult};
-use analysis::shared_utils::computing_device::ComputingDevice;
+use analysis::utils::computing_device::ComputingDevice;
 
 use crate::entities::{media_analysis, media_files};
 use crate::parallel_media_files_processing;

@@ -2,11 +2,11 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../utils/settings_manager.dart';
 import '../utils/router/navigation.dart';
 import '../screens/collection/utils/collection_data_provider.dart';
-import '../screens/settings_analysis/settings_analysis.dart';
 import '../messages/library_manage.pb.dart';
+import '../constants/configurations.dart';
+import '../constants/settings_manager.dart';
 
 enum TaskStatus { working, finished, cancelled }
 
@@ -233,13 +233,12 @@ class LibraryManagerProvider with ChangeNotifier {
 
   Future<void> analyzeLibrary(String path, [bool initialize = false]) async {
     _updateAnalyzeProgress(path, 0, -1, TaskStatus.working, initialize);
-    final computingDevice =
-        await SettingsManager().getValue<String>(analysisComputingDeviceKey);
+    final computingDevice = 'cpu';
 
     double workloadFactor = 0.75;
 
     String? performanceLevel =
-        await SettingsManager().getValue<String>(analysisPerformanceLevelKey);
+        await $settingsManager.getValue<String>(kAnalysisPerformanceLevelKey);
 
     if (performanceLevel == "balance") {
       workloadFactor = 0.5;

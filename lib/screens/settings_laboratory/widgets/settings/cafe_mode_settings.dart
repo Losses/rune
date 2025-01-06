@@ -1,14 +1,13 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../../utils/settings_manager.dart';
+import '../../../../constants/configurations.dart';
 
 import '../../utils/settings_combo_box_item.dart';
 import '../../constants/cafe_mode.dart';
 
 import '../settings_card.dart';
 import '../settings_combo_box.dart';
-
-const cafeModeKey = 'cafe_mode';
 
 class CafeModeSettings extends StatefulWidget {
   const CafeModeSettings({super.key});
@@ -28,7 +27,7 @@ class CafeModeSettingsState extends State<CafeModeSettings> {
   }
 
   Future<void> _loadSettings() async {
-    final storedCafeMode = await _settingsManager.getValue<String>(cafeModeKey);
+    final storedCafeMode = await _settingsManager.getValue<String>(kCafeModeKey);
     if (storedCafeMode != null) {
       setState(() => cafeMode = storedCafeMode);
     }
@@ -54,7 +53,7 @@ class CafeModeSettingsState extends State<CafeModeSettings> {
         onChanged: (value) {
           if (value == null) return;
           setState(() => cafeMode = value);
-          _settingsManager.setValue<String>(cafeModeKey, value);
+          _settingsManager.setValue<String>(kCafeModeKey, value);
         },
       ),
     );
