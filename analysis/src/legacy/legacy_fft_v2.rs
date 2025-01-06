@@ -313,7 +313,7 @@ impl FFTProcessor {
             }
         }
 
-        info!("Total samples: {}", self.total_samples);
+        debug!("Total samples: {}", self.total_samples);
 
         if self.count == 0 {
             panic!("No audio data processed");

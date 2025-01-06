@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use log::{debug, info};
+use log::debug;
 
 use rubato::{FftFixedInOut, Resampler};
 use rustfft::num_complex::Complex;
@@ -295,7 +295,7 @@ impl Analyzer {
             check_cancellation!(self, self.process_audio_chunk(&chunk, true));
         }
 
-        info!("Total samples: {}", self.total_samples);
+        debug!("Total samples: {}", self.total_samples);
 
         if self.count == 0 {
             panic!("No audio data processed");
