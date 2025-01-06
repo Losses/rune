@@ -1,12 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../utils/l10n.dart';
-import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
-import '../../widgets/settings/settings_box_combo_box.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../constants/configurations.dart';
+
+import 'widgets/computing_device_setting.dart';
+import 'widgets/performance_level_setting.dart';
 
 class SettingsAnalysis extends StatefulWidget {
   const SettingsAnalysis({super.key});
@@ -16,44 +15,6 @@ class SettingsAnalysis extends StatefulWidget {
 }
 
 class _SettingsAnalysisState extends State<SettingsAnalysis> {
-  String computingDevice = "cpu";
-  String performanceLevel = "performance";
-
-  @override
-  void initState() {
-    super.initState();
-    _loadSettings();
-  }
-
-  Future<void> _loadSettings() async {
-    String? storedComputingDeviceKey =
-        await SettingsManager().getValue<String>(kAnalysisComputingDeviceKey);
-    String? storedPerformanceLevel =
-        await SettingsManager().getValue<String>(kAnalysisPerformanceLevelKey);
-    setState(() {
-      if (storedComputingDeviceKey != null) {
-        computingDevice = storedComputingDeviceKey;
-      }
-      if (storedPerformanceLevel != null) {
-        performanceLevel = storedPerformanceLevel;
-      }
-    });
-  }
-
-  Future<void> _updateAnalysisDevice(String newSetting) async {
-    setState(() {
-      computingDevice = newSetting;
-    });
-    await SettingsManager().setValue(kAnalysisComputingDeviceKey, newSetting);
-  }
-
-  Future<void> _updatePerformanceLevel(String newSetting) async {
-    setState(() {
-      performanceLevel = newSetting;
-    });
-    await SettingsManager().setValue(kAnalysisPerformanceLevelKey, newSetting);
-  }
-
   @override
   Widget build(BuildContext context) {
     return PageContentFrame(
@@ -62,51 +23,9 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
           padding: getScrollContainerPadding(context),
           child: SettingsPagePadding(
             child: Column(
-              children: [
-                SettingsBoxComboBox(
-                  title: S.of(context).computingDevice,
-                  subtitle: S.of(context).computingDeviceSubtitle,
-                  value: computingDevice,
-                  items: [
-                    SettingsBoxComboBoxItem(
-                      value: "gpu",
-                      title: S.of(context).gpu,
-                    ),
-                    SettingsBoxComboBoxItem(
-                      value: "cpu",
-                      title: S.of(context).cpu,
-                    ),
-                  ],
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      _updateAnalysisDevice(newValue);
-                    }
-                  },
-                ),
-                SettingsBoxComboBox(
-                  title: S.of(context).performanceLevel,
-                  subtitle: S.of(context).performanceLevelSubtitle,
-                  value: performanceLevel,
-                  items: [
-                    SettingsBoxComboBoxItem(
-                      value: "performance",
-                      title: S.of(context).performance,
-                    ),
-                    SettingsBoxComboBoxItem(
-                      value: "balance",
-                      title: S.of(context).balance,
-                    ),
-                    SettingsBoxComboBoxItem(
-                      value: "battery",
-                      title: S.of(context).batterySaving,
-                    ),
-                  ],
-                  onChanged: (newValue) {
-                    if (newValue != null) {
-                      _updatePerformanceLevel(newValue);
-                    }
-                  },
-                ),
+              children: const [
+                ComputingDeviceSetting(),
+                PerformanceLevelSetting(),
               ],
             ),
           ),
