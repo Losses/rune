@@ -4,10 +4,13 @@ use log::{debug, info};
 
 use rubato::{FftFixedInOut, Resampler};
 use rustfft::num_complex::Complex;
-use symphonia::core::audio::{AudioBufferRef, Signal};
-use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+use symphonia::core::audio::{AudioBuffer, AudioBufferRef, Signal};
+use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::conv::IntoSample;
 use symphonia::core::errors::Error;
+use symphonia::core::formats::FormatReader;
+use symphonia::core::sample::Sample;
+use symphonia::default::get_codecs;
 use tokio_util::sync::CancellationToken;
 
 use crate::analyzer::cpu_sub_analyzer::CpuSubAnalyzer;
@@ -123,7 +126,7 @@ impl Analyzer {
         self.duration_in_seconds = duration_in_seconds;
 
         let dec_opts: DecoderOptions = Default::default();
-        let mut decoder = symphonia::default::get_codecs()
+        let mut decoder = get_codecs()
             .make(&track.codec_params, &dec_opts)
             .expect("unsupported codec");
 
@@ -153,9 +156,9 @@ impl Analyzer {
             .process_audio_chunk(self, chunk, force);
     }
 
-    fn process_audio_buffer<T>(&mut self, buf: &symphonia::core::audio::AudioBuffer<T>)
+    fn process_audio_buffer<T>(&mut self, buf: &AudioBuffer<T>)
     where
-        T: symphonia::core::sample::Sample + symphonia::core::conv::IntoSample<f32>,
+        T: Sample + IntoSample<f32>,
     {
         for plane in buf.planes().planes() {
             debug!("Processing plane with len: {}", plane.len());
@@ -176,8 +179,8 @@ impl Analyzer {
 
     fn process_audio_stream(
         &mut self,
-        format: &mut Box<dyn symphonia::core::formats::FormatReader>,
-        decoder: &mut Box<dyn symphonia::core::codecs::Decoder>,
+        format: &mut Box<dyn FormatReader>,
+        decoder: &mut Box<dyn Decoder>,
         track_id: u32,
     ) {
         self.resample_ratio = 11025_f64 / self.sample_rate as f64;
