@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{bail, Result};
-use log::warn;
+use log::{error, warn};
 use reqwest::Client;
 use rusty_chromaprint::Configuration;
 use serde::{Deserialize, Serialize};
@@ -97,7 +97,7 @@ async fn identify_implementation(
     let duration_str = duration.to_string();
     form_data.insert("duration", &duration_str);
     form_data.insert("fingerprint", &encoded_fingerprint);
-    form_data.insert("meta", "recordingids releaseids tracks");
+    form_data.insert("meta", "recordings releases tracks");
 
     let response = client
         .post("https://api.acoustid.org/v2/lookup")
@@ -106,6 +106,7 @@ async fn identify_implementation(
         .await?;
 
     let response_text = response.text().await?;
+
     let parsed_response: AcoustIdResponse = serde_json::from_str(&response_text)?;
 
     match parsed_response {
@@ -133,7 +134,10 @@ pub async fn identify(
                 warn!("Attempt {} failed: {}. Retrying...", attempts, e);
                 continue;
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                error!("Failed after {} attempts: {}", attempts, e);
+                return Err(e);
+            }
         }
     }
 }

@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
     .await
     {
         Ok(response) => {
-            println!("Identification successful: {:?}", response);
+            println!("Identification successful: {:#?}", response);
         }
         Err(e) => {
             eprintln!("Identification failed: {:?}", e);
