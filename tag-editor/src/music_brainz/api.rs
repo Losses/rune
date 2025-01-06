@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use log::warn;
 use reqwest::Client;
 use rusty_chromaprint::Configuration;
@@ -20,9 +20,16 @@ pub struct AcoustIdRequest<'a> {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct AcoustIdResponse {
-    pub status: String,
-    pub results: Vec<AcoustIdResult>,
+#[serde(untagged)]
+pub enum AcoustIdResponse {
+    Success {
+        status: String,
+        results: Vec<AcoustIdResult>,
+    },
+    Error {
+        status: String,
+        error: ErrorDetail,
+    },
 }
 
 #[derive(Deserialize, Debug)]
@@ -37,6 +44,7 @@ pub struct Recording {
     pub id: String,
     pub title: String,
     pub artists: Vec<Artist>,
+    pub releases: Option<Vec<Release>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -45,12 +53,40 @@ pub struct Artist {
     pub name: String,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct Release {
+    pub id: String,
+    pub mediums: Option<Vec<Medium>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Medium {
+    pub format: String,
+    pub position: u32,
+    pub track_count: u32,
+    pub tracks: Option<Vec<Track>>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct Track {
+    pub id: String,
+    pub position: u32,
+    pub title: String,
+    pub artists: Vec<Artist>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ErrorDetail {
+    pub code: i32,
+    pub message: String,
+}
+
 async fn identify_implementation(
     api_key: &str,
     fingerprint: Vec<u32>,
     config: &Configuration,
     duration: u32,
-) -> Result<String> {
+) -> Result<Vec<AcoustIdResult>> {
     let client = Client::builder().gzip(true).build()?;
 
     let encoded_fingerprint = encode_fingerprint(fingerprint, config, false, true);
@@ -68,11 +104,14 @@ async fn identify_implementation(
         .form(&form_data)
         .send()
         .await?;
-    // .await?
-    // .json::<AcoustIdResponse>()
-    // .await?;
 
-    Ok(response.text().await?)
+    let response_text = response.text().await?;
+    let parsed_response: AcoustIdResponse = serde_json::from_str(&response_text)?;
+
+    match parsed_response {
+        AcoustIdResponse::Success { results, .. } => Ok(results),
+        AcoustIdResponse::Error { error, .. } => bail!("Error {}: {}", error.code, error.message),
+    }
 }
 
 pub async fn identify(
@@ -80,7 +119,7 @@ pub async fn identify(
     fingerprint: Vec<u32>,
     config: &Configuration,
     duration: u32,
-) -> Result<String> {
+) -> Result<Vec<AcoustIdResult>> {
     let mut attempts = 0;
     loop {
         if attempts > 0 {
@@ -88,7 +127,7 @@ pub async fn identify(
         }
 
         match identify_implementation(api_key, fingerprint.clone(), config, duration).await {
-            Ok(response) => return Ok(response),
+            Ok(results) => return Ok(results),
             Err(e) if attempts < 3 => {
                 attempts += 1;
                 warn!("Attempt {} failed: {}. Retrying...", attempts, e);
