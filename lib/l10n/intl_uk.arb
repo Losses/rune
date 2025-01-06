@@ -1022,5 +1022,29 @@
   "logout": "Вийти",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "Копіювати",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Ім'я користувача",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Пароль",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-ключ",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "Секретний API-ключ",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Токен користувача",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

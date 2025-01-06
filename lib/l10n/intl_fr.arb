@@ -1024,5 +1024,29 @@
   "logout": "Déconnexion",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "Copier",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Nom d'utilisateur",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Mot de passe",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "Clé API",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "Secret API",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Jeton utilisateur",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

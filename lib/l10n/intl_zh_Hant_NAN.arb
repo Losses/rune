@@ -1024,5 +1024,29 @@
   "logout": "登出",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "拷貝",
+  "@copy": {
+    "description": "內容上跤選單內底的項目。"
+  },
+  "username": "用戶名稱",
+  "@username": {
+    "description": "scrobble 登入表的輸入空格標題。"
+  },
+  "password": "密碼",
+  "@password": {
+    "description": "scrobble 登入表的輸入空格標題。"
+  },
+  "apiKey": "API Key",
+  "@apiKey": {
+    "description": "scrobble 登入表的輸入空格標題。"
+  },
+  "apiSecret": "API Secret",
+  "@apiSecret": {
+    "description": "scrobble 登入表的輸入空格標題。"
+  },
+  "userToken": "User Token",
+  "@userToken": {
+    "description": "scrobble 登入表的輸入空格標題。"
   }
 }

@@ -1024,5 +1024,29 @@
   "logout": "Elsaluti",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "Kopii",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "Uzantnomo",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "Pasvorto",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API-Ŝlosilo",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API-Sekreto",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "Uzanta Ĵetono",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

@@ -1024,5 +1024,29 @@
   "logout": "로그아웃",
   "@logout": {
     "description": "오류 옵션 메뉴에서 로그아웃 옵션입니다."
+  },
+  "copy": "복사",
+  "@copy": {
+    "description": "Item in the content context menu."
+  },
+  "username": "사용자 이름",
+  "@username": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "password": "비밀번호",
+  "@password": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiKey": "API 키",
+  "@apiKey": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "apiSecret": "API 시크릿",
+  "@apiSecret": {
+    "description": "Input field title of the scrobble login form."
+  },
+  "userToken": "사용자 토큰",
+  "@userToken": {
+    "description": "Input field title of the scrobble login form."
   }
 }

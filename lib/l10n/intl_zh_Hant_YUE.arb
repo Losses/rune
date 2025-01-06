@@ -1022,5 +1022,29 @@
   "logout": "登出",
   "@logout": {
     "description": "Option to log out in the error options menu."
+  },
+  "copy": "複製",
+  "@copy": {
+    "description": "內容選單嘅選項。"
+  },
+  "username": "用戶名",
+  "@username": {
+    "description": "scrobble 登入表格嘅輸入欄位標題。"
+  },
+  "password": "密碼",
+  "@password": {
+    "description": "scrobble 登入表格嘅輸入欄位標題。"
+  },
+  "apiKey": "API 密匙",
+  "@apiKey": {
+    "description": "scrobble 登入表格嘅輸入欄位標題。"
+  },
+  "apiSecret": "API 密鑰",
+  "@apiSecret": {
+    "description": "scrobble 登入表格嘅輸入欄位標題。"
+  },
+  "userToken": "用戶權杖",
+  "@userToken": {
+    "description": "scrobble 登入表格嘅輸入欄位標題。"
   }
 }
