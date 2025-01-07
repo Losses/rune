@@ -142,7 +142,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       final (initialized, initializeMode) =
                                           result;
                                       if (!initialized &&
-                                          initializeMode == null) return;
+                                          initializeMode == null) {
+                                        return;
+                                      }
 
                                       if (!context.mounted) return;
                                       await closeLibrary(context);

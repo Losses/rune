@@ -165,7 +165,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
                             boxShadow: [
                               BoxShadow(
                                 color: theme.accentColor
-                                    .withOpacity(0.5 * focusValue),
+                                    .withValues(alpha: 0.5 * focusValue),
                                 blurRadius: focusValue * 4,
                                 spreadRadius: focusValue * 2,
                               ),

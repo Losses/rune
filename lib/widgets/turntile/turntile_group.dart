@@ -4,8 +4,6 @@ import 'turntile_normal_layout.dart';
 import 'turntile_group_items_list.dart';
 import 'turntile_group_items_tile.dart';
 
-
-
 enum TurntileGroupGridLayoutVariation { list, tile }
 
 class TurntileGroup<T> extends StatelessWidget {
@@ -53,7 +51,6 @@ class TurntileGroup<T> extends StatelessWidget {
           itemBuilder: itemBuilder,
         );
       case TurntileGroupGridLayoutVariation.tile:
-      default:
         return TurntileGroupItemsTile<T>(
           cellSize: 88,
           gapSize: gapSize,

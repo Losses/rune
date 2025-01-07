@@ -1,11 +1,12 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../../utils/ax_shadow.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/ax_shadow.dart';
+import '../../../utils/color_brightness.dart';
 import '../../../utils/theme_color_manager.dart';
-import '../../../widgets/settings/settings_block_title.dart';
 import '../../../widgets/tile/tile.dart';
+import '../../../widgets/settings/settings_block_title.dart';
 import '../../../constants/configurations.dart';
 import '../../../constants/settings_manager.dart';
 
@@ -43,7 +44,7 @@ class ThemeColorSettingState extends State<ThemeColorSetting> {
     if (newThemeColor == null) {
       await $settingsManager.removeValue(kThemeColorKey);
     } else {
-      await $settingsManager.setValue(kThemeColorKey, newThemeColor.value);
+      await $settingsManager.setValue(kThemeColorKey, newThemeColor.hexValue);
     }
   }
 

@@ -63,7 +63,6 @@ class StartGroup<T> extends StatelessWidget {
           child: child,
         );
       case StartGroupGroupLayoutVariation.normal:
-      default:
         return StartGroupNormalLayout(
           groupTitle: groupTitle,
           onTitleTap: onTitleTap,
@@ -85,7 +84,6 @@ class StartGroup<T> extends StatelessWidget {
           direction: direction,
         );
       case StartGroupGridLayoutVariation.initial:
-      default:
         return StartGroupImplementation<T>(
           cellSize: defaultCellSize,
           gapSize: gapSize,
