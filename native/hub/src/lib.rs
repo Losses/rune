@@ -63,7 +63,7 @@ use crate::system::*;
 use crate::utils::init_logging;
 
 macro_rules! select_signal {
-    ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
+    ($cancel_token:expr, $( $type:ty $(| $response:ty)? => ($($arg:ident),*) ),* $(,)? ) => {
         paste::paste! {
             $(
                 let [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver();
@@ -82,19 +82,44 @@ macro_rules! select_signal {
                             if let Some(dart_signal) = dart_signal {
                                 debug!("Processing signal: {}", stringify!($type));
 
-                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await.with_context(|| format!("Processing signal: {}", stringify!($type))) {
-                                    error!("{:?}", e);
-                                    CrashResponse {
-                                        detail: format!("{:#?}", e),
-                                    }
-                                    .send_signal_to_dart();
-                                };
+                                let result = [<$type:snake>]($($arg),*, dart_signal).await
+                                    .with_context(|| format!("Processing signal: {}", stringify!($type)));
+
+                                handle_result!(result, $($response)?);
                             }
                         }
                     )*
                     else => continue,
                 }
             }
+        }
+    };
+}
+
+macro_rules! handle_result {
+    ($result:expr, $type:ty) => {
+        match $result {
+            Ok(response) => {
+                if let Some(response) = response {
+                    response.send_signal_to_dart();
+                }
+            }
+            Err(e) => {
+                error!("{:?}", e);
+                CrashResponse {
+                    detail: format!("{:#?}", e),
+                }
+                .send_signal_to_dart();
+            }
+        }
+    };
+    ($result:expr,) => {
+        if let Err(e) = $result {
+            error!("{:?}", e);
+            CrashResponse {
+                detail: format!("{:#?}", e),
+            }
+            .send_signal_to_dart();
         }
     };
 }
@@ -146,11 +171,11 @@ async fn player_loop(
         select_signal!(
             main_cancel_token,
 
-            TestLibraryInitializedRequest => (main_db),
-            CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
+            TestLibraryInitializedRequest | TestLibraryInitializedResponse => (main_db),
+            CloseLibraryRequest | CloseLibraryResponse => (lib_path, main_cancel_token, task_tokens),
             ScanAudioLibraryRequest => (main_db, task_tokens),
             AnalyzeAudioLibraryRequest => (main_db, recommend_db, task_tokens),
-            CancelTaskRequest => (task_tokens),
+            CancelTaskRequest | CancelTaskResponse => (task_tokens),
 
             LoadRequest => (player),
             PlayRequest => (player),

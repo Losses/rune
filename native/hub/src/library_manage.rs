@@ -23,11 +23,11 @@ pub async fn close_library_request(
     main_token: Arc<CancellationToken>,
     task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<CloseLibraryRequest>,
-) -> Result<()> {
+) -> Result<Option<CloseLibraryResponse>> {
     let request = dart_signal.message;
 
     if request.path != *lib_path {
-        return Ok(());
+        return Ok(None);
     }
 
     let mut tokens = task_tokens.lock().await;
@@ -40,12 +40,9 @@ pub async fn close_library_request(
 
     main_token.cancel();
 
-    CloseLibraryResponse {
+    Ok(Some(CloseLibraryResponse {
         path: request.path.clone(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn scan_audio_library_request(
@@ -222,7 +219,7 @@ pub async fn analyze_audio_library_request(
 pub async fn cancel_task_request(
     task_tokens: Arc<Mutex<TaskTokens>>,
     dart_signal: DartSignal<CancelTaskRequest>,
-) -> Result<()> {
+) -> Result<Option<CancelTaskResponse>> {
     let request = dart_signal.message;
     let mut tokens = task_tokens.lock().await;
 
@@ -248,12 +245,9 @@ pub async fn cancel_task_request(
         _ => false,
     };
 
-    CancelTaskResponse {
+    Ok(Some(CancelTaskResponse {
         path: request.path.clone(),
         r#type: request.r#type,
         success,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
