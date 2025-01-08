@@ -88,21 +88,19 @@ const LICENSES: [&str; 18] = [
 pub async fn register_license_request(
     _main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<RegisterLicenseRequest>,
-) -> Result<()> {
+) -> Result<Option<RegisterLicenseResponse>> {
     let path = dart_signal.message.path;
 
     // Read the file content
     let file_content = match read_file_content(path).await {
         Ok(content) => content,
         Err(e) => {
-            let response = RegisterLicenseResponse {
+            return Ok(Some(RegisterLicenseResponse {
                 valid: false,
                 license: None,
                 success: false,
                 error: Some(format!("{:#?}", e)),
-            };
-            response.send_signal_to_dart();
-            return Ok(());
+            }))
         }
     };
 
@@ -120,18 +118,12 @@ pub async fn register_license_request(
     // Validate the License
     let valid = LICENSES.contains(&validation_hash.as_str());
 
-    // Construct the response
-    let response = RegisterLicenseResponse {
+    Ok(Some(RegisterLicenseResponse {
         valid,
         license: Some(license_hash),
         success: true,
         error: None,
-    };
-
-    // Send the response
-    response.send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 // Helper function: Asynchronously read file content
@@ -145,7 +137,7 @@ async fn read_file_content<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
 pub async fn validate_license_request(
     _main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<ValidateLicenseRequest>,
-) -> Result<()> {
+) -> Result<Option<ValidateLicenseResponse>> {
     let license = dart_signal.message.license;
 
     let mut is_pro = false;
@@ -190,7 +182,5 @@ pub async fn validate_license_request(
         },
     };
 
-    response.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(response))
 }

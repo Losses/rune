@@ -242,13 +242,13 @@ async fn player_loop(
             AuthenticateMultipleServiceRequest                                       => (scrobbler),
             LogoutSingleServiceRequest                                               => (scrobbler),
 
-            ListLogRequest => (main_db),
-            ClearLogRequest => (main_db),
-            RemoveLogRequest => (main_db),
+            ListLogRequest         | ListLogResponse         => (main_db),
+            ClearLogRequest        | ClearLogResponse        => (main_db),
+            RemoveLogRequest       | RemoveLogResponse       => (main_db),
 
-            SystemInfoRequest => (main_db),
-            RegisterLicenseRequest => (main_db),
-            ValidateLicenseRequest => (main_db),
+            SystemInfoRequest      | SystemInfoResponse      => (main_db),
+            RegisterLicenseRequest | RegisterLicenseResponse => (main_db),
+            ValidateLicenseRequest | ValidateLicenseResponse => (main_db),
         );
     });
 }

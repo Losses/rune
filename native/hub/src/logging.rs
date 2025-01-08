@@ -13,7 +13,7 @@ use crate::messages::*;
 pub async fn list_log_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<ListLogRequest>,
-) -> Result<()> {
+) -> Result<Option<ListLogResponse>> {
     let request = dart_signal.message;
 
     let result = list_log(
@@ -28,7 +28,8 @@ pub async fn list_log_request(
             request.cursor, request.page_size
         )
     })?;
-    ListLogResponse {
+
+    Ok(Some(ListLogResponse {
         result: result
             .into_iter()
             .map(|x| LogDetail {
@@ -39,38 +40,32 @@ pub async fn list_log_request(
                 date: x.date.timestamp(),
             })
             .collect(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn clear_log_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<ClearLogRequest>,
-) -> Result<()> {
+) -> Result<Option<ClearLogResponse>> {
     clear_logs(&main_db)
         .await
         .with_context(|| "Failed to clear logs")?;
-    ClearLogResponse { success: true }.send_signal_to_dart();
 
-    Ok(())
+    Ok(Some(ClearLogResponse { success: true }))
 }
 
 pub async fn remove_log_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<RemoveLogRequest>,
-) -> Result<()> {
+) -> Result<Option<RemoveLogResponse>> {
     let request = dart_signal.message;
 
     delete_log(&main_db, request.id)
         .await
         .with_context(|| format!("Failed to delete log with id={}", request.id))?;
-    RemoveLogResponse {
+    
+    Ok(Some(RemoveLogResponse {
         id: request.id,
         success: true,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
