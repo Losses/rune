@@ -34,6 +34,10 @@ class TrayManager {
       return 'assets/tray_icon_$brightness.ico';
     }
 
+    if (Platform.isLinux && bool.hasEnvironment('FLATPAK_ID')) {
+      return 'ci.not.Rune-tray-$brightness';
+    }
+
     return 'assets/linux-tray-$brightness.svg';
   }
 
