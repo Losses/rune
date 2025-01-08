@@ -133,7 +133,8 @@ flutter:
     - assets/branding-text.svg
     - assets/startup_0.ogg
     - assets/startup_1.ogg
-    - assets/linux-tray.svg
+    - assets/linux-tray-dark.svg
+    - assets/linux-tray-light.svg
     - assets/mac-tray.svg
     - assets/tray_icon_light.ico
     - assets/tray_icon_dark.ico
