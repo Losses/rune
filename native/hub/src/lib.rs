@@ -230,17 +230,17 @@ async fn player_loop(
             FetchMixQueriesRequest             | FetchMixQueriesResponse             => (main_db),
             OperatePlaybackWithMixQueryRequest | OperatePlaybackWithMixQueryResponse => (main_db, recommend_db, lib_path, player),
 
-            SetLikedRequest => (main_db),
-            GetLikedRequest => (main_db),
+            SetLikedRequest                    | SetLikedResponse                    => (main_db),
+            GetLikedRequest                    | GetLikedResponse                    => (main_db),
 
-            ComplexQueryRequest => (main_db, recommend_db),
-            SearchForRequest => (main_db),
+            ComplexQueryRequest                | ComplexQueryResponse                => (main_db, recommend_db),
+            SearchForRequest                   | SearchForResponse                   => (main_db),
 
-            FetchDirectoryTreeRequest => (main_db),
+            FetchDirectoryTreeRequest          | FetchDirectoryTreeResponse          => (main_db),
 
-            AuthenticateSingleServiceRequest => (scrobbler),
-            AuthenticateMultipleServiceRequest => (scrobbler),
-            LogoutSingleServiceRequest => (scrobbler),
+            AuthenticateSingleServiceRequest   | AuthenticateSingleServiceResponse   => (scrobbler),
+            AuthenticateMultipleServiceRequest                                       => (scrobbler),
+            LogoutSingleServiceRequest                                               => (scrobbler),
 
             ListLogRequest => (main_db),
             ClearLogRequest => (main_db),

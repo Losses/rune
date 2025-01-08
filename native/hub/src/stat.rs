@@ -14,13 +14,13 @@ use crate::{GetLikedRequest, GetLikedResponse, SetLikedRequest, SetLikedResponse
 pub async fn set_liked_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SetLikedRequest>,
-) -> Result<()> {
+) -> Result<Option<SetLikedResponse>> {
     let request = dart_signal.message;
 
     if let Some(item) = request.item {
         let parsed_item: PlayingItem = item.clone().into();
 
-        match parsed_item {
+        let response = match parsed_item {
             PlayingItem::InLibrary(file_id) => {
                 set_liked(&main_db, file_id, request.liked)
                     .await
@@ -36,40 +36,35 @@ pub async fn set_liked_request(
                     liked: request.liked,
                     success: true,
                 }
-                .send_signal_to_dart();
             }
-            PlayingItem::IndependentFile(_) => {
-                SetLikedResponse {
-                    item: Some(item),
-                    liked: false,
-                    success: false,
-                }
-                .send_signal_to_dart();
-            }
-            PlayingItem::Unknown => {
-                SetLikedResponse {
-                    item: Some(item),
-                    liked: false,
-                    success: false,
-                }
-                .send_signal_to_dart();
-            }
-        }
+            PlayingItem::IndependentFile(_) => SetLikedResponse {
+                item: Some(item),
+                liked: false,
+                success: false,
+            },
+            PlayingItem::Unknown => SetLikedResponse {
+                item: Some(item),
+                liked: false,
+                success: false,
+            },
+        };
+
+        return Ok(Some(response));
     }
 
-    Ok(())
+    Ok(None)
 }
 
 pub async fn get_liked_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetLikedRequest>,
-) -> Result<()> {
+) -> Result<Option<GetLikedResponse>> {
     let request = dart_signal.message;
 
     if let Some(item) = request.item {
         let parsed_item: PlayingItem = item.clone().into();
 
-        match parsed_item {
+        let response = match parsed_item {
             PlayingItem::InLibrary(file_id) => {
                 let liked = get_liked(&main_db, file_id)
                     .await
@@ -79,24 +74,19 @@ pub async fn get_liked_request(
                     item: Some(item),
                     liked,
                 }
-                .send_signal_to_dart();
             }
-            PlayingItem::IndependentFile(_) => {
-                GetLikedResponse {
-                    item: Some(item),
-                    liked: false,
-                }
-                .send_signal_to_dart();
-            }
-            PlayingItem::Unknown => {
-                GetLikedResponse {
-                    item: Some(item),
-                    liked: false,
-                }
-                .send_signal_to_dart();
-            }
-        }
+            PlayingItem::IndependentFile(_) => GetLikedResponse {
+                item: Some(item),
+                liked: false,
+            },
+            PlayingItem::Unknown => GetLikedResponse {
+                item: Some(item),
+                liked: false,
+            },
+        };
+
+        return Ok(Some(response));
     }
 
-    Ok(())
+    Ok(None)
 }
