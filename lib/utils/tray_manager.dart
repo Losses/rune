@@ -20,18 +20,25 @@ final SystemTray systemTray = SystemTray();
 
 class TrayManager {
   static String getTrayIconPath() {
-    if (Platform.isWindows) {
-      return SchedulerBinding.instance.platformDispatcher.platformBrightness ==
-              Brightness.light
-          ? 'assets/tray_icon_dark.ico'
-          : 'assets/tray_icon_light.ico';
-    }
-
     if (Platform.isMacOS) {
       return 'assets/mac-tray.svg';
     }
 
-    return 'assets/linux-tray.svg';
+    final brightness =
+        SchedulerBinding.instance.platformDispatcher.platformBrightness ==
+                Brightness.light
+            ? Brightness.dark.name
+            : Brightness.light.name;
+
+    if (Platform.isWindows) {
+      return 'assets/tray_icon_$brightness.ico';
+    }
+
+    if (Platform.isLinux && bool.hasEnvironment('FLATPAK_ID')) {
+      return 'ci.not.Rune-tray-$brightness';
+    }
+
+    return 'assets/linux-tray-$brightness.svg';
   }
 
   bool? _cachedPlaying;
