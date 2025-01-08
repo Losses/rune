@@ -191,7 +191,7 @@ async fn player_loop(
             SetRealtimeFftEnabledRequest                       => (player),
             SetAdaptiveSwitchingEnabledRequest                 => (player),
 
-            SfxPlayRequest => (sfx_player),
+            SfxPlayRequest                                     => (sfx_player),
 
             IfAnalyzeExistsRequest             | IfAnalyzeExistsResponse             => (main_db),
             GetAnalyzeCountRequest             | GetAnalyzeCountResponse             => (main_db),
@@ -220,15 +220,15 @@ async fn player_loop(
             ReorderPlaylistItemPositionRequest | ReorderPlaylistItemPositionResponse => (main_db),
             GetPlaylistByIdRequest             | GetPlaylistByIdResponse             => (main_db),
 
-            FetchAllMixesRequest => (main_db),
-            CreateMixRequest => (main_db),
-            UpdateMixRequest => (main_db),
-            RemoveMixRequest => (main_db),
-            AddItemToMixRequest => (main_db),
-            GetMixByIdRequest => (main_db),
-            MixQueryRequest => (main_db, recommend_db, lib_path),
-            FetchMixQueriesRequest => (main_db),
-            OperatePlaybackWithMixQueryRequest => (main_db, recommend_db, lib_path, player),
+            FetchAllMixesRequest               | FetchAllMixesResponse               => (main_db),
+            CreateMixRequest                   | CreateMixResponse                   => (main_db),
+            UpdateMixRequest                   | UpdateMixResponse                   => (main_db),
+            RemoveMixRequest                   | RemoveMixResponse                   => (main_db),
+            AddItemToMixRequest                | AddItemToMixResponse                => (main_db),
+            GetMixByIdRequest                  | GetMixByIdResponse                  => (main_db),
+            MixQueryRequest                    | MixQueryResponse                    => (main_db, recommend_db, lib_path),
+            FetchMixQueriesRequest             | FetchMixQueriesResponse             => (main_db),
+            OperatePlaybackWithMixQueryRequest | OperatePlaybackWithMixQueryResponse => (main_db, recommend_db, lib_path, player),
 
             SetLikedRequest => (main_db),
             GetLikedRequest => (main_db),
