@@ -17,7 +17,7 @@ pub async fn get_lyric_by_track_id_request(
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetLyricByTrackIdRequest>,
-) -> Result<()> {
+) -> Result<Option<GetLyricByTrackIdResponse>> {
     let item = dart_signal.message.item;
 
     if let Some(item) = item {
@@ -40,7 +40,7 @@ pub async fn get_lyric_by_track_id_request(
 
                 match lyric {
                     Some(lyric) => match lyric {
-                        Ok(lyric) => GetLyricByTrackIdResponse {
+                        Ok(lyric) => Ok(Some(GetLyricByTrackIdResponse {
                             item: Some(item),
                             lines: lyric
                                 .lyrics
@@ -59,28 +59,23 @@ pub async fn get_lyric_by_track_id_request(
                                         .collect(),
                                 })
                                 .collect(),
-                        }
-                        .send_signal_to_dart(),
+                        })),
                         Err(err) => {
-                            return Err(
-                                err.context(format!("Unable to parse lyric: item={:#?}", item))
-                            )
+                            Err(err.context(format!("Unable to parse lyric: item={:#?}", item)))
                         }
                     },
-                    None => GetLyricByTrackIdResponse {
+                    None => Ok(Some(GetLyricByTrackIdResponse {
                         item: Some(item),
                         lines: [].to_vec(),
-                    }
-                    .send_signal_to_dart(),
+                    })),
                 }
             }
-            None => GetLyricByTrackIdResponse {
+            None => Ok(Some(GetLyricByTrackIdResponse {
                 item: Some(item),
                 lines: [].to_vec(),
-            }
-            .send_signal_to_dart(),
+            })),
         }
+    } else {
+        Ok(None)
     }
-
-    Ok(())
 }

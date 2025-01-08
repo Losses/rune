@@ -217,13 +217,11 @@ pub async fn remove_request(
 pub async fn volume_request(
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<VolumeRequest>,
-) -> Result<()> {
+) -> Result<Option<VolumeResponse>> {
     let volume = dart_signal.message.volume;
     player.lock().await.set_volume(volume);
 
-    VolumeResponse { volume }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(VolumeResponse { volume }))
 }
 
 pub async fn move_playlist_item_request(

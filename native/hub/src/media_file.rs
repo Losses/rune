@@ -76,7 +76,7 @@ pub async fn fetch_media_files_request(
     main_db: Arc<DatabaseConnection>,
     lib_path: Arc<String>,
     dart_signal: DartSignal<FetchMediaFilesRequest>,
-) -> Result<()> {
+) -> Result<Option<FetchMediaFilesResponse>> {
     let request = dart_signal.message;
     let cursor = request.cursor;
     let page_size = request.page_size;
@@ -100,20 +100,17 @@ pub async fn fetch_media_files_request(
         })?;
 
     let media_files = parse_media_files(media_summaries, lib_path).await?;
-    FetchMediaFilesResponse {
+    Ok(Some(FetchMediaFilesResponse {
         media_files,
         cover_art_map,
-    }
-    .send_signal_to_dart(); // GENERATED
-
-    Ok(())
+    }))
 }
 
 pub async fn fetch_media_file_by_ids_request(
     main_db: Arc<MainDbConnection>,
     lib_path: Arc<String>,
     dart_signal: DartSignal<FetchMediaFileByIdsRequest>,
-) -> Result<()> {
+) -> Result<Option<FetchMediaFileByIdsResponse>> {
     let request = dart_signal.message;
 
     let media_entries = get_files_by_ids(&main_db, &request.ids)
@@ -134,20 +131,17 @@ pub async fn fetch_media_file_by_ids_request(
         HashMap::new()
     };
 
-    FetchMediaFileByIdsResponse {
+    Ok(Some(FetchMediaFileByIdsResponse {
         media_files: items,
         cover_art_map,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn fetch_parsed_media_file_request(
     db: Arc<DatabaseConnection>,
     lib_path: Arc<String>,
     dart_signal: DartSignal<FetchParsedMediaFileRequest>,
-) -> Result<()> {
+) -> Result<Option<FetchParsedMediaFileResponse>> {
     let file_id = dart_signal.message.id;
 
     let (media_file, artists, album) = get_parsed_file_by_id(&db, file_id)
@@ -167,7 +161,7 @@ pub async fn fetch_parsed_media_file_request(
         .ok_or(anyhow!("Parsed album not found for file_id: {}", file_id))
         .with_context(|| "Failed to query album")?;
 
-    FetchParsedMediaFileResponse {
+    Ok(Some(FetchParsedMediaFileResponse {
         file: Some(media_file.clone()),
         artists: artists
             .into_iter()
@@ -180,16 +174,13 @@ pub async fn fetch_parsed_media_file_request(
             id: album.id,
             name: album.name,
         }),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn search_media_file_summary_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SearchMediaFileSummaryRequest>,
-) -> Result<()> {
+) -> Result<Option<SearchMediaFileSummaryResponse>> {
     let request = dart_signal.message;
 
     let items = list_files(&main_db, request.n.try_into()?)
@@ -200,7 +191,7 @@ pub async fn search_media_file_summary_request(
         .await
         .with_context(|| "Failed to get media summaries")?;
 
-    SearchMediaFileSummaryResponse {
+    Ok(Some(SearchMediaFileSummaryResponse {
         result: media_summaries
             .into_iter()
             .map(|x| MediaFileSummary {
@@ -213,8 +204,5 @@ pub async fn search_media_file_summary_request(
                 cover_art_id: x.cover_art_id.unwrap_or(-1),
             })
             .collect(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }

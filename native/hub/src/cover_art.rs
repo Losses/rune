@@ -46,7 +46,7 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<GetCoverArtIdsByMixQueriesRequest>,
-) -> Result<()> {
+) -> Result<Option<GetCoverArtIdsByMixQueriesResponse>> {
     let request = dart_signal.message;
     let queries = request.requests;
 
@@ -76,23 +76,20 @@ pub async fn get_cover_art_ids_by_mix_queries_request(
         }
     });
 
-    GetCoverArtIdsByMixQueriesResponse {
+    Ok(Some(GetCoverArtIdsByMixQueriesResponse {
         result: join_all(files_futures).await,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn get_primary_color_by_track_id_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetPrimaryColorByTrackIdRequest>,
-) -> Result<()> {
+) -> Result<Option<GetPrimaryColorByTrackIdResponse>> {
     let item = dart_signal.message.item;
     let main_db = main_db.clone();
 
     if let Some(item) = item {
-        task::spawn_blocking(move || {
+        let response = task::spawn_blocking(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
                 let dispatcher = PlayingItemActionDispatcher::new();
@@ -104,17 +101,18 @@ pub async fn get_primary_color_by_track_id_request(
                     Some(x) => GetPrimaryColorByTrackIdResponse {
                         item: Some(item),
                         primary_color: Some(x),
-                    }
-                    .send_signal_to_dart(),
+                    },
                     None => GetPrimaryColorByTrackIdResponse {
                         item: Some(item),
                         primary_color: None,
-                    }
-                    .send_signal_to_dart(),
+                    },
                 }
             })
-        });
-    }
+        })
+        .await?;
 
-    Ok(())
+        Ok(Some(response))
+    } else {
+        Ok(None)
+    }
 }
