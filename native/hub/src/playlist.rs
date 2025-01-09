@@ -29,12 +29,12 @@ use crate::{
 pub async fn fetch_all_playlists_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchAllPlaylistsRequest>,
-) -> Result<()> {
+) -> Result<Option<FetchAllPlaylistsResponse>> {
     let playlists = get_all_playlists(&main_db)
         .await
         .with_context(|| "Failed to fetch all playlists")?;
 
-    FetchAllPlaylistsResponse {
+    Ok(Some(FetchAllPlaylistsResponse {
         playlists: playlists
             .into_iter()
             .map(|playlist| Playlist {
@@ -43,16 +43,13 @@ pub async fn fetch_all_playlists_request(
                 group: playlist.group,
             })
             .collect(),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn create_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<CreatePlaylistRequest>,
-) -> Result<()> {
+) -> Result<Option<CreatePlaylistResponse>> {
     let request = dart_signal.message;
 
     let name = request.name;
@@ -64,22 +61,19 @@ pub async fn create_playlist_request(
         .with_context(|| format!("Failed to create playlist: name={}, group={}", name, group))?;
     txn.commit().await?;
 
-    CreatePlaylistResponse {
+    Ok(Some(CreatePlaylistResponse {
         playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,
         }),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn update_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<UpdatePlaylistRequest>,
-) -> Result<()> {
+) -> Result<Option<UpdatePlaylistResponse>> {
     let request = dart_signal.message;
 
     let name = request.name;
@@ -99,41 +93,35 @@ pub async fn update_playlist_request(
         )
     })?;
 
-    UpdatePlaylistResponse {
+    Ok(Some(UpdatePlaylistResponse {
         playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,
         }),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn remove_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<RemovePlaylistRequest>,
-) -> Result<()> {
+) -> Result<Option<RemovePlaylistResponse>> {
     let request = dart_signal.message;
 
     remove_playlist(&main_db, request.playlist_id)
         .await
         .with_context(|| format!("Removing playlist: id={}", request.playlist_id))?;
 
-    RemovePlaylistResponse {
+    Ok(Some(RemovePlaylistResponse {
         playlist_id: request.playlist_id,
         success: true,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn add_item_to_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<AddItemToPlaylistRequest>,
-) -> Result<()> {
+) -> Result<Option<AddItemToPlaylistResponse>> {
     let request = dart_signal.message;
 
     add_item_to_playlist(
@@ -150,15 +138,13 @@ pub async fn add_item_to_playlist_request(
         )
     })?;
 
-    AddItemToPlaylistResponse { success: true }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(AddItemToPlaylistResponse { success: true }))
 }
 
 pub async fn reorder_playlist_item_position_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<ReorderPlaylistItemPositionRequest>,
-) -> Result<()> {
+) -> Result<Option<ReorderPlaylistItemPositionResponse>> {
     let request = dart_signal.message;
 
     reorder_playlist_item_position(
@@ -175,15 +161,13 @@ pub async fn reorder_playlist_item_position_request(
         )
     })?;
 
-    ReorderPlaylistItemPositionResponse { success: true }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(ReorderPlaylistItemPositionResponse { success: true }))
 }
 
 pub async fn get_playlist_by_id_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<GetPlaylistByIdRequest>,
-) -> Result<()> {
+) -> Result<Option<GetPlaylistByIdResponse>> {
     let request = dart_signal.message;
 
     let playlist = get_playlist_by_id(&main_db, request.playlist_id)
@@ -194,22 +178,19 @@ pub async fn get_playlist_by_id_request(
             request.playlist_id
         ))?;
 
-    GetPlaylistByIdResponse {
+    Ok(Some(GetPlaylistByIdResponse {
         playlist: Some(Playlist {
             id: playlist.id,
             name: playlist.name,
             group: playlist.group,
         }),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }
 
 pub async fn create_m3u8_playlist_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<CreateM3u8PlaylistRequest>,
-) -> Result<()> {
+) -> Result<Option<CreateM3u8PlaylistResponse>> {
     let request = dart_signal.message;
 
     let name = request.name;
@@ -219,7 +200,7 @@ pub async fn create_m3u8_playlist_request(
     match create_m3u8_playlist(&main_db, name.clone(), group.clone(), Path::new(&path)).await {
         Ok((playlist, import_result)) => {
             // On success, construct the response with playlist details and import results
-            CreateM3u8PlaylistResponse {
+            Ok(Some(CreateM3u8PlaylistResponse {
                 playlist: Some(Playlist {
                     id: playlist.id,
                     name: playlist.name,
@@ -229,21 +210,17 @@ pub async fn create_m3u8_playlist_request(
                 not_found_paths: import_result.unmatched_paths,
                 success: true,
                 error: String::new(), // No error on success
-            }
-            .send_signal_to_dart();
+            }))
         }
         Err(e) => {
             // On error, construct the response with the error message
-            CreateM3u8PlaylistResponse {
+            Ok(Some(CreateM3u8PlaylistResponse {
                 playlist: None,
                 imported_count: Some(0),
                 not_found_paths: vec![],
                 success: false,
                 error: e.to_string(), // Capture the error message
-            }
-            .send_signal_to_dart();
+            }))
         }
     }
-
-    Ok(())
 }

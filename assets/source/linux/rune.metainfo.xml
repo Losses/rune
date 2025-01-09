@@ -57,6 +57,15 @@
   </screenshots>
 
   <releases>
+    <release version="1.1.0-rc.1" date="2025-01-06">
+      <description>
+        <p>Features</p>
+        <ul>
+          <li>Update Translation files by @NovaDNG.</li>
+          <li>Optimize analyze performance.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0-beta.3" date="2025-01-05">
       <description>
         <p>Bugs</p>

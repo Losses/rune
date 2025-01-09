@@ -52,8 +52,8 @@ class RevealEffectPainter extends CustomPainter {
       mousePosition!,
       radius,
       [
-        config.hoverLightColor.withOpacity(config.opacity * 0.5),
-        config.hoverLightColor.withOpacity(0),
+        config.hoverLightColor.withValues(alpha: config.opacity * 0.5),
+        config.hoverLightColor.withValues(alpha: 0),
       ],
     );
 
@@ -69,8 +69,8 @@ class RevealEffectPainter extends CustomPainter {
       mousePosition!,
       radius,
       [
-        config.borderColor.withOpacity(config.opacity),
-        config.borderColor.withOpacity(0),
+        config.borderColor.withValues(alpha: config.opacity),
+        config.borderColor.withValues(alpha: 0),
       ],
     );
 
@@ -111,9 +111,11 @@ class RevealEffectPainter extends CustomPainter {
       position,
       radius,
       [
-        config.pressAnimationColor.withOpacity(innerAlpha.clamp(0.0, 1.0)),
-        config.pressAnimationColor.withOpacity(outerAlpha.clamp(0.0, 1.0)),
-        config.pressAnimationColor.withOpacity(0),
+        config.pressAnimationColor
+            .withValues(alpha: innerAlpha.clamp(0.0, 1.0)),
+        config.pressAnimationColor
+            .withValues(alpha: outerAlpha.clamp(0.0, 1.0)),
+        config.pressAnimationColor.withValues(alpha: 0),
       ],
       [0, outerBorder * 0.55, outerBorder],
     );

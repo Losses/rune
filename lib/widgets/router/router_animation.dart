@@ -119,8 +119,6 @@ class _RouterAnimationState extends State<RouterAnimation>
             child: child,
           ),
         );
-      default:
-        return child;
     }
   }
 

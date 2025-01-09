@@ -6,6 +6,8 @@ import 'package:system_theme/system_theme.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 import 'package:material_color_utilities/material_color_utilities.dart';
 
+import 'utils/color_brightness.dart';
+
 enum NavigationIndicators { sticky, end }
 
 class AppTheme extends ChangeNotifier {
@@ -23,7 +25,7 @@ class AppTheme extends ChangeNotifier {
       return;
     }
 
-    final colorScheme = Hct.fromInt(color.value);
+    final colorScheme = Hct.fromInt(color.hexValue);
     final double h = colorScheme.hue;
     final double c = colorScheme.chroma;
     final double t = colorScheme.tone.clamp(40, 70);
@@ -90,8 +92,8 @@ class AppTheme extends ChangeNotifier {
               ? const Color(0xFFF6F6F6)
               : const Color(0xFF1F1F1F)
           : brightness == Brightness.light
-              ? const Color(0xFFF3F3F3).withOpacity(0.05)
-              : const Color(0xFF202020).withOpacity(0.05),
+              ? const Color(0xFFF3F3F3).withValues(alpha: 0.05)
+              : const Color(0xFF202020).withValues(alpha: 0.05),
       dark: brightness == Brightness.dark,
     );
 

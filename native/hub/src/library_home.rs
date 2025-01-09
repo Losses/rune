@@ -208,7 +208,7 @@ pub async fn complex_query_request(
     main_db: Arc<MainDbConnection>,
     recommend_db: Arc<RecommendationDbConnection>,
     dart_signal: DartSignal<ComplexQueryRequest>,
-) -> Result<()> {
+) -> Result<Option<ComplexQueryResponse>> {
     let queries = dart_signal.message.queries;
 
     let futures = queries.into_iter().map(|query| {
@@ -253,7 +253,5 @@ pub async fn complex_query_request(
 
     let result = try_join_all(futures).await?;
 
-    ComplexQueryResponse { result }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(ComplexQueryResponse { result }))
 }

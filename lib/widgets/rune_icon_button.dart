@@ -67,7 +67,7 @@ class _RuneIconButtonState extends State<RuneIconButton> {
       borderColor = theme.accentColor;
       boxShadow = [
         BoxShadow(
-          color: theme.accentColor.withOpacity(0.5),
+          color: theme.accentColor.withValues(alpha: 0.5),
           blurRadius: 10,
           spreadRadius: 2,
         ),

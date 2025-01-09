@@ -13,7 +13,7 @@ use crate::messages::*;
 pub async fn search_for_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<SearchForRequest>,
-) -> Result<()> {
+) -> Result<Option<SearchForResponse>> {
     let request = dart_signal.message;
     let query_str = request.query_str;
     let search_fields = convert_to_collection_types(request.fields);
@@ -48,13 +48,10 @@ pub async fn search_for_request(
         }
     }
 
-    SearchForResponse {
+    Ok(Some(SearchForResponse {
         artists,
         albums,
         playlists,
         tracks,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }

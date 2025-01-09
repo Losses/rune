@@ -12,10 +12,10 @@ use crate::messages::*;
 pub async fn system_info_request(
     _main_db: Arc<MainDbConnection>,
     _: DartSignal<SystemInfoRequest>,
-) -> Result<()> {
+) -> Result<Option<SystemInfoResponse>> {
     let users = Users::new_with_refreshed_list();
 
-    SystemInfoResponse {
+    Ok(Some(SystemInfoResponse {
         build_date: option_env!("VERGEN_BUILD_DATE")
             .unwrap_or_default()
             .to_owned(),
@@ -31,7 +31,5 @@ pub async fn system_info_request(
         system_os_version: System::os_version().unwrap_or_default(),
         system_host_name: System::host_name().unwrap_or_default(),
         users: users.into_iter().map(|x| x.name().to_owned()).collect(),
-    }
-    .send_signal_to_dart();
-    Ok(())
+    }))
 }

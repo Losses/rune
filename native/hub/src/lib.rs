@@ -63,7 +63,7 @@ use crate::system::*;
 use crate::utils::init_logging;
 
 macro_rules! select_signal {
-    ($cancel_token:expr, $( $type:ty => ($($arg:ident),*) ),* $(,)? ) => {
+    ($cancel_token:expr, $( $type:ty $(| $response:ty)? => ($($arg:ident),*) ),* $(,)? ) => {
         paste::paste! {
             $(
                 let [<receiver_ $type:snake>] = <$type>::get_dart_signal_receiver();
@@ -82,19 +82,44 @@ macro_rules! select_signal {
                             if let Some(dart_signal) = dart_signal {
                                 debug!("Processing signal: {}", stringify!($type));
 
-                                if let Err(e) = [<$type:snake>]($($arg),*, dart_signal).await.with_context(|| format!("Processing signal: {}", stringify!($type))) {
-                                    error!("{:?}", e);
-                                    CrashResponse {
-                                        detail: format!("{:#?}", e),
-                                    }
-                                    .send_signal_to_dart();
-                                };
+                                let result = [<$type:snake>]($($arg),*, dart_signal).await
+                                    .with_context(|| format!("Processing signal: {}", stringify!($type)));
+
+                                handle_result!(result, $($response)?);
                             }
                         }
                     )*
                     else => continue,
                 }
             }
+        }
+    };
+}
+
+macro_rules! handle_result {
+    ($result:expr, $type:ty) => {
+        match $result {
+            Ok(response) => {
+                if let Some(response) = response {
+                    response.send_signal_to_dart();
+                }
+            }
+            Err(e) => {
+                error!("{:?}", e);
+                CrashResponse {
+                    detail: format!("{:#?}", e),
+                }
+                .send_signal_to_dart();
+            }
+        }
+    };
+    ($result:expr,) => {
+        if let Err(e) = $result {
+            error!("{:?}", e);
+            CrashResponse {
+                detail: format!("{:#?}", e),
+            }
+            .send_signal_to_dart();
         }
     };
 }
@@ -146,84 +171,84 @@ async fn player_loop(
         select_signal!(
             main_cancel_token,
 
-            TestLibraryInitializedRequest => (main_db),
-            CloseLibraryRequest => (lib_path, main_cancel_token, task_tokens),
-            ScanAudioLibraryRequest => (main_db, task_tokens),
-            AnalyzeAudioLibraryRequest => (main_db, recommend_db, task_tokens),
-            CancelTaskRequest => (task_tokens),
+            TestLibraryInitializedRequest | TestLibraryInitializedResponse => (main_db),
+            CloseLibraryRequest           | CloseLibraryResponse           => (lib_path, main_cancel_token, task_tokens),
+            CancelTaskRequest             | CancelTaskResponse             => (task_tokens),
+            ScanAudioLibraryRequest                                        => (main_db, task_tokens),
+            AnalyzeAudioLibraryRequest                                     => (main_db, recommend_db, task_tokens),
 
-            LoadRequest => (player),
-            PlayRequest => (player),
-            PauseRequest => (player),
-            NextRequest => (main_db, player),
-            PreviousRequest => (main_db, player),
-            SwitchRequest => (main_db, player),
-            SeekRequest => (player),
-            RemoveRequest => (player),
-            VolumeRequest => (player),
-            SetPlaybackModeRequest => (player),
-            MovePlaylistItemRequest => (player),
-            SetRealtimeFftEnabledRequest => (player),
-            SetAdaptiveSwitchingEnabledRequest => (player),
+            VolumeRequest                 | VolumeResponse     => (player),
+            LoadRequest                                        => (player),
+            PlayRequest                                        => (player),
+            PauseRequest                                       => (player),
+            NextRequest                                        => (main_db, player),
+            PreviousRequest                                    => (main_db, player),
+            SwitchRequest                                      => (main_db, player),
+            SeekRequest                                        => (player),
+            RemoveRequest                                      => (player),
+            SetPlaybackModeRequest                             => (player),
+            MovePlaylistItemRequest                            => (player),
+            SetRealtimeFftEnabledRequest                       => (player),
+            SetAdaptiveSwitchingEnabledRequest                 => (player),
 
-            SfxPlayRequest => (sfx_player),
+            SfxPlayRequest                                     => (sfx_player),
 
-            IfAnalyzeExistsRequest => (main_db),
-            GetAnalyzeCountRequest => (main_db),
+            IfAnalyzeExistsRequest             | IfAnalyzeExistsResponse             => (main_db),
+            GetAnalyzeCountRequest             | GetAnalyzeCountResponse             => (main_db),
 
-            FetchMediaFilesRequest => (main_db, lib_path),
-            FetchMediaFileByIdsRequest => (main_db, lib_path),
-            FetchParsedMediaFileRequest => (main_db, lib_path),
-            SearchMediaFileSummaryRequest => (main_db),
+            FetchMediaFilesRequest             | FetchMediaFilesResponse             => (main_db, lib_path),
+            FetchMediaFileByIdsRequest         | FetchMediaFileByIdsResponse         => (main_db, lib_path),
+            FetchParsedMediaFileRequest        | FetchParsedMediaFileResponse        => (main_db, lib_path),
+            SearchMediaFileSummaryRequest      | SearchMediaFileSummaryResponse      => (main_db),
 
-            GetLyricByTrackIdRequest => (lib_path, main_db),
+            GetLyricByTrackIdRequest           | GetLyricByTrackIdResponse           => (lib_path, main_db),
 
-            FetchCollectionGroupSummaryRequest => (main_db, recommend_db),
-            FetchCollectionGroupsRequest => (main_db, recommend_db),
-            FetchCollectionByIdsRequest => (main_db, recommend_db),
-            SearchCollectionSummaryRequest => (main_db, recommend_db),
+            FetchCollectionGroupSummaryRequest | CollectionGroupSummaryResponse      => (main_db),
+            FetchCollectionGroupsRequest       | CollectionGroups                    => (main_db, recommend_db),
+            FetchCollectionByIdsRequest        | FetchCollectionByIdsResponse        => (main_db, recommend_db),
+            SearchCollectionSummaryRequest     | SearchCollectionSummaryResponse     => (main_db),
 
-            GetCoverArtIdsByMixQueriesRequest => (main_db, recommend_db),
-            GetPrimaryColorByTrackIdRequest => (main_db),
+            GetCoverArtIdsByMixQueriesRequest  | GetCoverArtIdsByMixQueriesResponse  => (main_db, recommend_db),
+            GetPrimaryColorByTrackIdRequest    | GetPrimaryColorByTrackIdResponse    => (main_db),
 
-            FetchAllPlaylistsRequest => (main_db),
-            CreatePlaylistRequest => (main_db),
-            CreateM3u8PlaylistRequest => (main_db),
-            UpdatePlaylistRequest => (main_db),
-            RemovePlaylistRequest => (main_db),
-            AddItemToPlaylistRequest => (main_db),
-            ReorderPlaylistItemPositionRequest => (main_db),
-            GetPlaylistByIdRequest => (main_db),
+            FetchAllPlaylistsRequest           | FetchAllPlaylistsResponse           => (main_db),
+            CreatePlaylistRequest              | CreatePlaylistResponse              => (main_db),
+            CreateM3u8PlaylistRequest          | CreateM3u8PlaylistResponse          => (main_db),
+            UpdatePlaylistRequest              | UpdatePlaylistResponse              => (main_db),
+            RemovePlaylistRequest              | RemovePlaylistResponse              => (main_db),
+            AddItemToPlaylistRequest           | AddItemToPlaylistResponse           => (main_db),
+            ReorderPlaylistItemPositionRequest | ReorderPlaylistItemPositionResponse => (main_db),
+            GetPlaylistByIdRequest             | GetPlaylistByIdResponse             => (main_db),
 
-            FetchAllMixesRequest => (main_db),
-            CreateMixRequest => (main_db),
-            UpdateMixRequest => (main_db),
-            RemoveMixRequest => (main_db),
-            AddItemToMixRequest => (main_db),
-            GetMixByIdRequest => (main_db),
-            MixQueryRequest => (main_db, recommend_db, lib_path),
-            FetchMixQueriesRequest => (main_db),
-            OperatePlaybackWithMixQueryRequest => (main_db, recommend_db, lib_path, player),
+            FetchAllMixesRequest               | FetchAllMixesResponse               => (main_db),
+            CreateMixRequest                   | CreateMixResponse                   => (main_db),
+            UpdateMixRequest                   | UpdateMixResponse                   => (main_db),
+            RemoveMixRequest                   | RemoveMixResponse                   => (main_db),
+            AddItemToMixRequest                | AddItemToMixResponse                => (main_db),
+            GetMixByIdRequest                  | GetMixByIdResponse                  => (main_db),
+            MixQueryRequest                    | MixQueryResponse                    => (main_db, recommend_db, lib_path),
+            FetchMixQueriesRequest             | FetchMixQueriesResponse             => (main_db),
+            OperatePlaybackWithMixQueryRequest | OperatePlaybackWithMixQueryResponse => (main_db, recommend_db, lib_path, player),
 
-            SetLikedRequest => (main_db),
-            GetLikedRequest => (main_db),
+            SetLikedRequest                    | SetLikedResponse                    => (main_db),
+            GetLikedRequest                    | GetLikedResponse                    => (main_db),
 
-            ComplexQueryRequest => (main_db, recommend_db),
-            SearchForRequest => (main_db),
+            ComplexQueryRequest                | ComplexQueryResponse                => (main_db, recommend_db),
+            SearchForRequest                   | SearchForResponse                   => (main_db),
 
-            FetchDirectoryTreeRequest => (main_db),
+            FetchDirectoryTreeRequest          | FetchDirectoryTreeResponse          => (main_db),
 
-            AuthenticateSingleServiceRequest => (scrobbler),
-            AuthenticateMultipleServiceRequest => (scrobbler),
-            LogoutSingleServiceRequest => (scrobbler),
+            AuthenticateSingleServiceRequest   | AuthenticateSingleServiceResponse   => (scrobbler),
+            AuthenticateMultipleServiceRequest                                       => (scrobbler),
+            LogoutSingleServiceRequest                                               => (scrobbler),
 
-            ListLogRequest => (main_db),
-            ClearLogRequest => (main_db),
-            RemoveLogRequest => (main_db),
+            ListLogRequest         | ListLogResponse         => (main_db),
+            ClearLogRequest        | ClearLogResponse        => (main_db),
+            RemoveLogRequest       | RemoveLogResponse       => (main_db),
 
-            SystemInfoRequest => (main_db),
-            RegisterLicenseRequest => (main_db),
-            ValidateLicenseRequest => (main_db),
+            SystemInfoRequest      | SystemInfoResponse      => (main_db),
+            RegisterLicenseRequest | RegisterLicenseResponse => (main_db),
+            ValidateLicenseRequest | ValidateLicenseResponse => (main_db),
         );
     });
 }

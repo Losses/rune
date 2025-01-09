@@ -11,25 +11,20 @@ use crate::messages::*;
 pub async fn if_analyze_exists_request(
     main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<IfAnalyzeExistsRequest>,
-) -> Result<()> {
+) -> Result<Option<IfAnalyzeExistsResponse>> {
     let file_id = dart_signal.message.file_id;
 
     let exists = if_analyze_exists(&main_db, file_id)
         .await
         .with_context(|| format!("Failed to test if analysis exists: {}", file_id))?;
-    IfAnalyzeExistsResponse { file_id, exists }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(IfAnalyzeExistsResponse { file_id, exists }))
 }
 
 pub async fn get_analyze_count_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<GetAnalyzeCountRequest>,
-) -> Result<()> {
-    GetAnalyzeCountResponse {
+) -> Result<Option<GetAnalyzeCountResponse>> {
+    Ok(Some(GetAnalyzeCountResponse {
         count: get_analyze_count(&main_db).await?,
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }

@@ -31,7 +31,7 @@ class _WindowIconButtonState extends State<WindowIconButton> {
           height: 30,
           decoration: BoxDecoration(
             color: isHovered
-                ? theme.resources.textFillColorPrimary.withOpacity(0.08)
+                ? theme.resources.textFillColorPrimary.withValues(alpha: 0.08)
                 : Colors.transparent,
           ),
           child: widget.child,

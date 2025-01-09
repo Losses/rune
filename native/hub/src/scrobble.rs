@@ -14,7 +14,7 @@ use crate::{
 pub async fn authenticate_single_service_request(
     scrobbler: Arc<Mutex<ScrobblingManager>>,
     dart_signal: DartSignal<AuthenticateSingleServiceRequest>,
-) -> Result<()> {
+) -> Result<Option<AuthenticateSingleServiceResponse>> {
     let request = dart_signal.message.request;
 
     if let Some(request) = request {
@@ -31,21 +31,21 @@ pub async fn authenticate_single_service_request(
             )
             .await;
 
-        match result {
+        let response = match result {
             Ok(_) => AuthenticateSingleServiceResponse {
                 success: true,
                 error: None,
-            }
-            .send_signal_to_dart(),
+            },
             Err(e) => AuthenticateSingleServiceResponse {
                 success: false,
                 error: format!("{:#?}", e).into(),
-            }
-            .send_signal_to_dart(),
-        }
+            },
+        };
+
+        return Ok(Some(response));
     }
 
-    Ok(())
+    Ok(None)
 }
 
 pub async fn authenticate_multiple_service_request(

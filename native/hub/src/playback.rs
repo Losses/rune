@@ -217,13 +217,11 @@ pub async fn remove_request(
 pub async fn volume_request(
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<VolumeRequest>,
-) -> Result<()> {
+) -> Result<Option<VolumeResponse>> {
     let volume = dart_signal.message.volume;
     player.lock().await.set_volume(volume);
 
-    VolumeResponse { volume }.send_signal_to_dart();
-
-    Ok(())
+    Ok(Some(VolumeResponse { volume }))
 }
 
 pub async fn move_playlist_item_request(
@@ -307,7 +305,7 @@ pub async fn operate_playback_with_mix_query_request(
     lib_path: Arc<String>,
     player: Arc<Mutex<Player>>,
     dart_signal: DartSignal<OperatePlaybackWithMixQueryRequest>,
-) -> Result<()> {
+) -> Result<Option<OperatePlaybackWithMixQueryResponse>> {
     let request = dart_signal.message;
 
     let items: Vec<PlayingItem> = request
@@ -366,11 +364,9 @@ pub async fn operate_playback_with_mix_query_request(
     // If not required to play instantly, add to playlist and return
     if !request.instantly_play {
         player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
-        OperatePlaybackWithMixQueryResponse {
+        return Ok(Some(OperatePlaybackWithMixQueryResponse {
             playing_items: items.into_iter().map(|x| x.into()).collect(),
-        }
-        .send_signal_to_dart();
-        return Ok(());
+        }));
     }
 
     // Find the nearest index
@@ -401,10 +397,6 @@ pub async fn operate_playback_with_mix_query_request(
     if !tracks.is_empty() {
         player.add_to_playlist(files_to_playback_request(&lib_path, &tracks), add_mode);
     }
-    OperatePlaybackWithMixQueryResponse {
-        playing_items: items.into_iter().map(|x| x.into()).collect(),
-    }
-    .send_signal_to_dart();
 
     // Set playback mode
     if request.playback_mode != 99 {
@@ -417,5 +409,7 @@ pub async fn operate_playback_with_mix_query_request(
         player.play();
     }
 
-    Ok(())
+    Ok(Some(OperatePlaybackWithMixQueryResponse {
+        playing_items: items.into_iter().map(|x| x.into()).collect(),
+    }))
 }

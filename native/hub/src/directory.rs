@@ -24,15 +24,12 @@ fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
 pub async fn fetch_directory_tree_request(
     main_db: Arc<MainDbConnection>,
     _dart_signal: DartSignal<FetchDirectoryTreeRequest>,
-) -> Result<()> {
+) -> Result<Option<FetchDirectoryTreeResponse>> {
     let root = get_directory_tree(&main_db)
         .await
         .with_context(|| "Failed to fetch directory tree")?;
 
-    FetchDirectoryTreeResponse {
+    Ok(Some(FetchDirectoryTreeResponse {
         root: Some(convert_directory_tree(root)),
-    }
-    .send_signal_to_dart();
-
-    Ok(())
+    }))
 }

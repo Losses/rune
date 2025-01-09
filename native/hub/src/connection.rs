@@ -37,44 +37,35 @@ async fn initialize_databases(path: &str, db_path: Option<&str>) -> Result<Datab
 pub async fn test_library_initialized_request(
     _main_db: Arc<MainDbConnection>,
     dart_signal: DartSignal<TestLibraryInitializedRequest>,
-) -> Result<()> {
+) -> Result<Option<TestLibraryInitializedResponse>> {
     let media_library_path = dart_signal.message.path;
     let test_result = check_library_state(&media_library_path);
 
-    match test_result {
+    let result = match test_result {
         Ok(state) => match &state {
-            LibraryState::Uninitialized => {
-                TestLibraryInitializedResponse {
-                    path: media_library_path.clone(),
-                    success: true,
-                    error: None,
-                    not_ready: true,
-                }
-                .send_signal_to_dart();
-            }
-
-            LibraryState::Initialized(_) => {
-                TestLibraryInitializedResponse {
-                    path: media_library_path.clone(),
-                    success: true,
-                    error: None,
-                    not_ready: false,
-                }
-                .send_signal_to_dart();
-            }
-        },
-        Err(e) => {
-            TestLibraryInitializedResponse {
+            LibraryState::Uninitialized => TestLibraryInitializedResponse {
                 path: media_library_path.clone(),
-                success: false,
-                error: Some(format!("{:#?}", e)),
-                not_ready: false,
-            }
-            .send_signal_to_dart();
-        }
-    }
+                success: true,
+                error: None,
+                not_ready: true,
+            },
 
-    Ok(())
+            LibraryState::Initialized(_) => TestLibraryInitializedResponse {
+                path: media_library_path.clone(),
+                success: true,
+                error: None,
+                not_ready: false,
+            },
+        },
+        Err(e) => TestLibraryInitializedResponse {
+            path: media_library_path.clone(),
+            success: false,
+            error: Some(format!("{:#?}", e)),
+            not_ready: false,
+        },
+    };
+
+    Ok(Some(result))
 }
 
 pub async fn receive_media_library_path<F, Fut>(
