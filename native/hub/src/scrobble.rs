@@ -1,83 +1,127 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use rinf::DartSignal;
 use tokio::sync::Mutex;
 
-use scrobbling::manager::{ScrobblingCredential, ScrobblingManager};
+use ::scrobbling::manager::{ScrobblingCredential, ScrobblingManager};
 
 use crate::{
-    AuthenticateMultipleServiceRequest, AuthenticateSingleServiceRequest,
-    AuthenticateSingleServiceResponse, LogoutSingleServiceRequest,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Signal,
 };
 
-pub async fn authenticate_single_service_request(
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
-    dart_signal: DartSignal<AuthenticateSingleServiceRequest>,
-) -> Result<Option<AuthenticateSingleServiceResponse>> {
-    let request = dart_signal.message.request;
+impl ParamsExtractor for AuthenticateSingleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
 
-    if let Some(request) = request {
-        let result = scrobbler
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.scrobbler),)
+    }
+}
+
+impl Signal for AuthenticateSingleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Response = AuthenticateSingleServiceResponse;
+
+    async fn handle(
+        &self,
+        (scrobbler,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let request = &dart_signal.request;
+
+        if let Some(request) = request {
+            let result = scrobbler
+                .lock()
+                .await
+                .authenticate(
+                    &request.service_id.clone().into(),
+                    &request.username,
+                    &request.password,
+                    request.api_key.clone(),
+                    request.api_secret.clone(),
+                    false,
+                )
+                .await;
+
+            let response = match result {
+                Ok(_) => AuthenticateSingleServiceResponse {
+                    success: true,
+                    error: None,
+                },
+                Err(e) => AuthenticateSingleServiceResponse {
+                    success: false,
+                    error: format!("{:#?}", e).into(),
+                },
+            };
+
+            return Ok(Some(response));
+        }
+
+        Ok(None)
+    }
+}
+
+impl ParamsExtractor for AuthenticateMultipleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.scrobbler),)
+    }
+}
+
+impl Signal for AuthenticateMultipleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Response = ();
+
+    async fn handle(
+        &self,
+        (scrobbler,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let requests = &dart_signal.requests;
+
+        ScrobblingManager::authenticate_all(
+            scrobbler,
+            requests
+                .iter()
+                .map(|x| ScrobblingCredential {
+                    service: x.service_id.clone().into(),
+                    username: x.username.clone(),
+                    password: x.password.clone(),
+                    api_key: x.api_key.clone(),
+                    api_secret: x.api_secret.clone(),
+                })
+                .collect(),
+        );
+
+        Ok(None)
+    }
+}
+
+impl ParamsExtractor for LogoutSingleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.scrobbler),)
+    }
+}
+
+impl Signal for LogoutSingleServiceRequest {
+    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Response = ();
+
+    async fn handle(
+        &self,
+        (scrobbler,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        scrobbler
             .lock()
             .await
-            .authenticate(
-                &request.service_id.into(),
-                &request.username,
-                &request.password,
-                request.api_key,
-                request.api_secret,
-                false,
-            )
+            .logout(dart_signal.service_id.clone().into())
             .await;
 
-        let response = match result {
-            Ok(_) => AuthenticateSingleServiceResponse {
-                success: true,
-                error: None,
-            },
-            Err(e) => AuthenticateSingleServiceResponse {
-                success: false,
-                error: format!("{:#?}", e).into(),
-            },
-        };
-
-        return Ok(Some(response));
+        Ok(None)
     }
-
-    Ok(None)
-}
-
-pub async fn authenticate_multiple_service_request(
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
-    dart_signal: DartSignal<AuthenticateMultipleServiceRequest>,
-) -> Result<()> {
-    let requests = dart_signal.message.requests;
-
-    ScrobblingManager::authenticate_all(
-        scrobbler,
-        requests
-            .into_iter()
-            .map(|x| ScrobblingCredential {
-                service: x.service_id.into(),
-                username: x.username,
-                password: x.password,
-                api_key: x.api_key,
-                api_secret: x.api_secret,
-            })
-            .collect(),
-    );
-
-    Ok(())
-}
-
-pub async fn logout_single_service_request(
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
-    dart_signal: DartSignal<LogoutSingleServiceRequest>,
-) -> Result<()> {
-    let service_id = dart_signal.message.service_id;
-
-    scrobbler.lock().await.logout(service_id.into()).await;
-
-    Ok(())
 }

@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use rinf::DartSignal;
 
 use database::actions::directory::get_directory_tree;
 use database::actions::directory::DirectoryTree;
 use database::connection::MainDbConnection;
 
-use crate::messages::*;
+use crate::utils::GlobalParams;
+use crate::utils::ParamsExtractor;
+use crate::{messages::*, Signal};
 
 fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
     DirectoryTreeResponse {
@@ -21,15 +22,28 @@ fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
     }
 }
 
-pub async fn fetch_directory_tree_request(
-    main_db: Arc<MainDbConnection>,
-    _dart_signal: DartSignal<FetchDirectoryTreeRequest>,
-) -> Result<Option<FetchDirectoryTreeResponse>> {
-    let root = get_directory_tree(&main_db)
-        .await
-        .with_context(|| "Failed to fetch directory tree")?;
+impl ParamsExtractor for FetchDirectoryTreeRequest {
+    type Params = (Arc<MainDbConnection>,);
 
-    Ok(Some(FetchDirectoryTreeResponse {
-        root: Some(convert_directory_tree(root)),
-    }))
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
+    }
+}
+
+impl Signal for FetchDirectoryTreeRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = FetchDirectoryTreeResponse;
+    async fn handle(
+        &self,
+        (main_db,): Self::Params,
+        _dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let root = get_directory_tree(&main_db)
+            .await
+            .with_context(|| "Failed to fetch directory tree")?;
+
+        Ok(Some(FetchDirectoryTreeResponse {
+            root: Some(convert_directory_tree(root)),
+        }))
+    }
 }

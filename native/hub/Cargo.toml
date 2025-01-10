@@ -40,6 +40,9 @@ sha2 = "0.10.8"
 tokio-tungstenite = "0.26.1"
 futures-channel = "0.3.31"
 futures-util = "0.3.31"
+strum = "0.26.3"
+strum_macros = "0.26.4"
+requests = { path = "../requests" }
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }

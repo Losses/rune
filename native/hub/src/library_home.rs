@@ -6,7 +6,6 @@ use anyhow::{Error, Result};
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use log::warn;
-use rinf::DartSignal;
 
 use database::actions::collection::{
     CollectionQuery, CollectionQueryListMode, CollectionQueryType, UnifiedCollection,
@@ -18,7 +17,8 @@ use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 use database::entities::{albums, artists, media_files, mixes, playlists};
 
-use crate::messages::*;
+use crate::utils::{GlobalParams, ParamsExtractor};
+use crate::{messages::*, Signal};
 
 #[async_trait]
 pub trait ComplexQuery: Send + Sync {
@@ -204,54 +204,70 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
     }
 }
 
-pub async fn complex_query_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    dart_signal: DartSignal<ComplexQueryRequest>,
-) -> Result<Option<ComplexQueryResponse>> {
-    let queries = dart_signal.message.queries;
+impl ParamsExtractor for ComplexQueryRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
 
-    let futures = queries.into_iter().map(|query| {
-        let main_db = main_db.clone();
-        let recommend_db = recommend_db.clone();
-        async move {
-            let query_executor = create_query(&query.domain, &query.parameter)?;
-            let unified_collections = query_executor.execute(&main_db, &recommend_db).await?;
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.recommend_db),
+        )
+    }
+}
 
-            let entries_futures = unified_collections.into_iter().map(|unified_collection| {
-                let main_db = main_db.clone();
-                let recommend_db = recommend_db.clone();
-                async move {
-                    let collection = Collection::from_unified_collection_bakeable(
-                        &main_db,
-                        recommend_db,
-                        unified_collection,
-                        true,
-                    )
-                    .await?;
+impl Signal for ComplexQueryRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Response = ComplexQueryResponse;
 
-                    Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
-                        id: collection.id,
-                        name: collection.name,
-                        queries: collection.queries,
-                        collection_type: collection.collection_type,
-                        cover_art_map: collection.cover_art_map,
-                        readonly: collection.readonly,
-                    })
-                }
-            });
+    async fn handle(
+        &self,
+        (main_db, recommend_db): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let queries = &dart_signal.queries;
 
-            let entries = try_join_all(entries_futures).await?;
+        let futures = queries.iter().map(|query| {
+            let main_db = main_db.clone();
+            let recommend_db = recommend_db.clone();
+            async move {
+                let query_executor = create_query(&query.domain, &query.parameter)?;
+                let unified_collections = query_executor.execute(&main_db, &recommend_db).await?;
 
-            Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
-                id: query.id,
-                title: query.title,
-                entries,
-            })
-        }
-    });
+                let entries_futures = unified_collections.into_iter().map(|unified_collection| {
+                    let main_db = main_db.clone();
+                    let recommend_db = recommend_db.clone();
+                    async move {
+                        let collection = Collection::from_unified_collection_bakeable(
+                            &main_db,
+                            recommend_db,
+                            unified_collection,
+                            true,
+                        )
+                        .await?;
 
-    let result = try_join_all(futures).await?;
+                        Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
+                            id: collection.id,
+                            name: collection.name,
+                            queries: collection.queries,
+                            collection_type: collection.collection_type,
+                            cover_art_map: collection.cover_art_map,
+                            readonly: collection.readonly,
+                        })
+                    }
+                });
 
-    Ok(Some(ComplexQueryResponse { result }))
+                let entries = try_join_all(entries_futures).await?;
+
+                Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
+                    id: query.id.clone(),
+                    title: query.title.clone(),
+                    entries,
+                })
+            }
+        });
+
+        let result = try_join_all(futures).await?;
+
+        Ok(Some(ComplexQueryResponse { result }))
+    }
 }

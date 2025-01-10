@@ -1,13 +1,13 @@
 use std::{fs::File, io::Read, path::Path, sync::Arc};
 
 use anyhow::Result;
-use rinf::DartSignal;
 
 use database::connection::MainDbConnection;
 
 use crate::{
-    RegisterLicenseRequest, RegisterLicenseResponse, ValidateLicenseRequest,
-    ValidateLicenseResponse,
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Signal,
 };
 use sha2::{Digest, Sha256};
 
@@ -85,45 +85,59 @@ const LICENSES: [&str; 18] = [
     "a3756e26611e76424d262bced05b2d4c0aa73e411b7f65d8347154eecde5ab85",
 ];
 
-pub async fn register_license_request(
-    _main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<RegisterLicenseRequest>,
-) -> Result<Option<RegisterLicenseResponse>> {
-    let path = dart_signal.message.path;
+impl ParamsExtractor for RegisterLicenseRequest {
+    type Params = (Arc<MainDbConnection>,);
 
-    // Read the file content
-    let file_content = match read_file_content(path).await {
-        Ok(content) => content,
-        Err(e) => {
-            return Ok(Some(RegisterLicenseResponse {
-                valid: false,
-                license: None,
-                success: false,
-                error: Some(format!("{:#?}", e)),
-            }))
-        }
-    };
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
+    }
+}
 
-    // Compute the SHA256 hash of the file content
-    let mut hasher = Sha256::new();
-    hasher.update(&file_content);
-    let result = hasher.finalize();
-    let license_hash = format!("{:x}", result);
+impl Signal for RegisterLicenseRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = RegisterLicenseResponse;
 
-    let mut hasher = Sha256::new();
-    hasher.update(license_hash.as_bytes());
-    let result = hasher.finalize();
-    let validation_hash = format!("{:x}", result);
+    async fn handle(
+        &self,
+        (_main_db,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let path = &dart_signal.path;
 
-    // Validate the License
-    let valid = LICENSES.contains(&validation_hash.as_str());
+        // Read the file content
+        let file_content = match read_file_content(path).await {
+            Ok(content) => content,
+            Err(e) => {
+                return Ok(Some(RegisterLicenseResponse {
+                    valid: false,
+                    license: None,
+                    success: false,
+                    error: Some(format!("{:#?}", e)),
+                }))
+            }
+        };
 
-    Ok(Some(RegisterLicenseResponse {
-        valid,
-        license: Some(license_hash),
-        success: true,
-        error: None,
-    }))
+        // Compute the SHA256 hash of the file content
+        let mut hasher = Sha256::new();
+        hasher.update(&file_content);
+        let result = hasher.finalize();
+        let license_hash = format!("{:x}", result);
+
+        let mut hasher = Sha256::new();
+        hasher.update(license_hash.as_bytes());
+        let result = hasher.finalize();
+        let validation_hash = format!("{:x}", result);
+
+        // Validate the License
+        let valid = LICENSES.contains(&validation_hash.as_str());
+
+        Ok(Some(RegisterLicenseResponse {
+            valid,
+            license: Some(license_hash),
+            success: true,
+            error: None,
+        }))
+    }
 }
 
 // Helper function: Asynchronously read file content
@@ -134,53 +148,67 @@ async fn read_file_content<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
     Ok(content)
 }
 
-pub async fn validate_license_request(
-    _main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<ValidateLicenseRequest>,
-) -> Result<Option<ValidateLicenseResponse>> {
-    let license = dart_signal.message.license;
+impl ParamsExtractor for ValidateLicenseRequest {
+    type Params = (Arc<MainDbConnection>,);
 
-    let mut is_pro = false;
-    let mut is_store_mode = false;
-
-    let args: Vec<String> = std::env::args().collect();
-    let pro_via_args = args.contains(&"--pro".to_string());
-    let store_via_args = args.contains(&"--store".to_string());
-
-    is_pro = is_pro || pro_via_args;
-    is_store_mode = is_store_mode || store_via_args;
-
-    if !is_pro {
-        if let Some(license) = license {
-            let mut hasher = Sha256::new();
-            hasher.update(license.as_bytes());
-            let result = hasher.finalize();
-            let hash_str = format!("{:x}", result);
-
-            let pro_via_license = LICENSES.contains(&hash_str.as_str());
-
-            is_pro = is_pro || pro_via_license;
-        }
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
     }
+}
 
-    let store_license = check_store_license().await;
+impl Signal for ValidateLicenseRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = ValidateLicenseResponse;
 
-    let response = match store_license {
-        Ok(license) => match license {
-            Some((_, _, is_trial)) => ValidateLicenseResponse {
-                is_pro: is_pro || !is_trial,
-                is_store_mode: true,
+    async fn handle(
+        &self,
+        (_main_db,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let license = &dart_signal.license;
+
+        let mut is_pro = false;
+        let mut is_store_mode = false;
+
+        let args: Vec<String> = std::env::args().collect();
+        let pro_via_args = args.contains(&"--pro".to_string());
+        let store_via_args = args.contains(&"--store".to_string());
+
+        is_pro = is_pro || pro_via_args;
+        is_store_mode = is_store_mode || store_via_args;
+
+        if !is_pro {
+            if let Some(license) = license {
+                let mut hasher = Sha256::new();
+                hasher.update(license.as_bytes());
+                let result = hasher.finalize();
+                let hash_str = format!("{:x}", result);
+
+                let pro_via_license = LICENSES.contains(&hash_str.as_str());
+
+                is_pro = is_pro || pro_via_license;
+            }
+        }
+
+        let store_license = check_store_license().await;
+
+        let response = match store_license {
+            Ok(license) => match license {
+                Some((_, _, is_trial)) => ValidateLicenseResponse {
+                    is_pro: is_pro || !is_trial,
+                    is_store_mode: true,
+                },
+                _ => ValidateLicenseResponse {
+                    is_pro,
+                    is_store_mode,
+                },
             },
-            _ => ValidateLicenseResponse {
+            Err(_) => ValidateLicenseResponse {
                 is_pro,
                 is_store_mode,
             },
-        },
-        Err(_) => ValidateLicenseResponse {
-            is_pro,
-            is_store_mode,
-        },
-    };
+        };
 
-    Ok(Some(response))
+        Ok(Some(response))
+    }
 }
