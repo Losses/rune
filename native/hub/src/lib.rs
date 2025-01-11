@@ -43,6 +43,7 @@ use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
 use utils::receive_media_library_path;
+use utils::Broadcaster;
 use utils::DatabaseConnections;
 use utils::TaskTokens;
 
@@ -66,6 +67,7 @@ async fn player_loop(
     path: String,
     db_connections: DatabaseConnections,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: Arc<dyn Broadcaster>,
 ) {
     info!("Media Library Received, initialize other receivers");
 
@@ -96,6 +98,7 @@ async fn player_loop(
             main_db.clone(),
             player.clone(),
             scrobbler.clone(),
+            broadcaster.clone(),
         ));
 
         info!("Initializing UI events");
@@ -109,6 +112,7 @@ async fn player_loop(
             player,
             sfx_player,
             scrobbler,
+            broadcaster,
         });
 
         for_all_requests!(listen_local_gui_event, global_params);

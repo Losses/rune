@@ -14,18 +14,17 @@ use database::actions::recommendation::sync_recommendation;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 
+use crate::impl_rinf_rust_signal;
 use crate::utils::determine_batch_size;
+use crate::utils::Broadcaster;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
+use crate::utils::RinfRustSignal;
 use crate::TaskTokens;
 use crate::{messages::*, Signal};
 
 impl ParamsExtractor for CloseLibraryRequest {
-    type Params = (
-        Arc<String>,
-        Arc<CancellationToken>,
-        Arc<Mutex<TaskTokens>>,
-    );
+    type Params = (Arc<String>, Arc<CancellationToken>, Arc<Mutex<TaskTokens>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -68,23 +67,34 @@ impl Signal for CloseLibraryRequest {
 }
 
 impl ParamsExtractor for ScanAudioLibraryRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<TaskTokens>>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.task_tokens),
+            Arc::clone(&all_params.broadcaster),
         )
     }
 }
 
+impl_rinf_rust_signal!(ScanAudioLibraryProgress, ScanAudioLibraryResponse);
+
 impl Signal for ScanAudioLibraryRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<TaskTokens>>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
+    );
     type Response = ();
 
     async fn handle(
         &self,
-        (main_db, task_tokens): Self::Params,
+        (main_db, task_tokens, broadcaster): Self::Params,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
         let mut tokens = task_tokens.lock().await;
@@ -112,13 +122,12 @@ impl Signal for ScanAudioLibraryRequest {
                         true,
                         request.force,
                         |progress| {
-                            ScanAudioLibraryProgress {
+                            broadcaster.broadcast(&ScanAudioLibraryProgress {
                                 task: 0,
                                 path: path.clone(),
                                 progress: progress.try_into().unwrap(),
                                 total: 0,
-                            }
-                            .send_signal_to_dart()
+                            });
                         },
                         Some(new_token.clone()),
                     )
@@ -127,39 +136,37 @@ impl Signal for ScanAudioLibraryRequest {
                     if new_token.is_cancelled() {
                         info!("Operation cancelled during artist processing.");
 
-                        ScanAudioLibraryResponse {
+                        broadcaster.broadcast(&ScanAudioLibraryResponse {
                             path: request.path.clone(),
                             progress: -1,
-                        }
-                        .send_signal_to_dart();
+                        });
 
                         return Ok(());
                     }
 
                     let batch_size = determine_batch_size(0.75);
+                    let cloned_broadcaster = Arc::clone(&broadcaster);
 
                     scan_cover_arts(
                         &main_db_clone,
                         Path::new(&path.clone()),
                         batch_size,
                         move |now, total| {
-                            ScanAudioLibraryProgress {
+                            cloned_broadcaster.broadcast(&ScanAudioLibraryProgress {
                                 task: 1,
                                 path: path.clone(),
                                 progress: now.try_into().unwrap(),
                                 total: total.try_into().unwrap(),
-                            }
-                            .send_signal_to_dart()
+                            });
                         },
                         Some(new_token.clone()),
                     )
                     .await?;
 
-                    ScanAudioLibraryResponse {
+                    broadcaster.broadcast(&ScanAudioLibraryResponse {
                         path: request.path.clone(),
                         progress: file_processed as i32,
-                    }
-                    .send_signal_to_dart();
+                    });
 
                     Ok(())
                 }
@@ -174,11 +181,14 @@ impl Signal for ScanAudioLibraryRequest {
     }
 }
 
+impl_rinf_rust_signal!(AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse);
+
 impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -186,6 +196,7 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
             Arc::clone(&all_params.task_tokens),
+            Arc::clone(&all_params.broadcaster),
         )
     }
 }
@@ -195,12 +206,13 @@ impl Signal for AnalyzeAudioLibraryRequest {
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
     );
     type Response = ();
 
     async fn handle(
         &self,
-        (main_db, recommend_db, task_tokens): Self::Params,
+        (main_db, recommend_db, task_tokens, broadcaster): Self::Params,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let mut tokens = task_tokens.lock().await;
@@ -222,6 +234,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
         task::spawn_blocking(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
+                let cloned_broadcaster = Arc::clone(&broadcaster);
                 let result = async {
                     let total_files = analysis_audio_library(
                         &main_db,
@@ -229,12 +242,11 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         batch_size,
                         request.computing_device.into(),
                         move |progress, total| {
-                            AnalyzeAudioLibraryProgress {
+                            cloned_broadcaster.broadcast(&AnalyzeAudioLibraryProgress {
                                 path: closure_request_path.clone(),
                                 progress: progress.try_into().unwrap(),
                                 total: total.try_into().unwrap(),
-                            }
-                            .send_signal_to_dart()
+                            });
                         },
                         Some(new_token.clone()),
                     )
@@ -245,11 +257,10 @@ impl Signal for AnalyzeAudioLibraryRequest {
                         .await
                         .with_context(|| "Recommendation synchronization failed")?;
 
-                    AnalyzeAudioLibraryResponse {
+                    broadcaster.broadcast(&AnalyzeAudioLibraryResponse {
                         path: request_path.clone(),
                         total: total_files as i32,
-                    }
-                    .send_signal_to_dart();
+                    });
 
                     Ok::<(), anyhow::Error>(())
                 }

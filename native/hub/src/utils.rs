@@ -65,6 +65,7 @@ pub struct GlobalParams {
     pub player: Arc<Mutex<Player>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
+    pub broadcaster: Arc<dyn Broadcaster>,
 }
 
 pub trait ParamsExtractor {
@@ -72,15 +73,49 @@ pub trait ParamsExtractor {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params;
 }
 
+pub trait RinfRustSignal {
+    fn send(&self);
+}
+
+#[macro_export]
+macro_rules! impl_rinf_rust_signal {
+    ($($t:ty),*) => {
+        $(
+            impl RinfRustSignal for $t {
+                fn send(&self) {
+                    self.send_signal_to_dart()
+                }
+            }
+        )*
+    };
+}
+
+pub trait Broadcaster: Send + Sync {
+    fn broadcast(&self, message: &dyn RinfRustSignal);
+}
+
+pub struct LocalGuiBroadcaster;
+
+impl Broadcaster for LocalGuiBroadcaster {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        message.send();
+    }
+}
+
+impl_rinf_rust_signal!(SetMediaLibraryPathResponse);
+
 pub async fn receive_media_library_path<F, Fut>(
     main_loop: F,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
 ) -> Result<()>
 where
-    F: Fn(String, DatabaseConnections, Arc<Mutex<ScrobblingManager>>) -> Fut + Send + Sync,
+    F: Fn(String, DatabaseConnections, Arc<Mutex<ScrobblingManager>>, Arc<dyn Broadcaster>) -> Fut
+        + Send
+        + Sync,
     Fut: std::future::Future<Output = ()> + Send,
 {
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
+    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
 
     loop {
         while let Some(dart_signal) = receiver.recv().await {
@@ -92,13 +127,12 @@ where
             let library_test = match check_library_state(&media_library_path) {
                 Ok(x) => x,
                 Err(e) => {
-                    SetMediaLibraryPathResponse {
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
                         path: media_library_path.clone(),
                         success: false,
                         error: Some(format!("{:#?}", e)),
                         not_ready: false,
-                    }
-                    .send_signal_to_dart();
+                    });
                     continue;
                 }
             };
@@ -106,13 +140,12 @@ where
             if database_mode.is_none() {
                 match &library_test {
                     LibraryState::Uninitialized => {
-                        SetMediaLibraryPathResponse {
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             path: media_library_path.clone(),
                             success: false,
                             error: None,
                             not_ready: true,
-                        }
-                        .send_signal_to_dart();
+                        });
                         continue;
                     }
                     LibraryState::Initialized(_) => {}
@@ -122,13 +155,12 @@ where
             if let Some(mode) = database_mode {
                 if mode == 1 {
                     if let Err(e) = create_redirect(&media_library_path) {
-                        SetMediaLibraryPathResponse {
+                        broadcaster.broadcast(&SetMediaLibraryPathResponse {
                             path: media_library_path.clone(),
                             success: false,
                             error: Some(format!("{:#?}", e)),
                             not_ready: false,
-                        }
-                        .send_signal_to_dart();
+                        });
                         continue;
                     }
                 }
@@ -138,30 +170,34 @@ where
             match initialize_databases(&media_library_path, Some(&database_path)).await {
                 Ok(db_connections) => {
                     // Send success response to Dart
-                    SetMediaLibraryPathResponse {
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
                         path: media_library_path.clone(),
                         success: true,
                         error: None,
                         not_ready: false,
-                    }
-                    .send_signal_to_dart();
+                    });
 
                     // Clone the Arc for this iteration
                     let scrobbler_clone = Arc::clone(&scrobbler);
 
                     // Continue with main loop
-                    main_loop(media_library_path, db_connections, scrobbler_clone).await;
+                    main_loop(
+                        media_library_path,
+                        db_connections,
+                        scrobbler_clone,
+                        broadcaster.clone(),
+                    )
+                    .await;
                 }
                 Err(e) => {
                     error!("Database initialization failed: {:#?}", e);
                     // Send error response to Dart
-                    SetMediaLibraryPathResponse {
+                    broadcaster.broadcast(&SetMediaLibraryPathResponse {
                         path: media_library_path,
                         success: false,
                         error: Some(format!("{:#?}", e)),
                         not_ready: false,
-                    }
-                    .send_signal_to_dart();
+                    });
                 }
             }
         }

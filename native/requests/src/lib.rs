@@ -294,11 +294,23 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         quote! { #ident }
     });
 
+    let response_only = with_response.iter().map(|t| {
+        let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+        quote! { #resp_ident }
+    });
+
     let expanded = quote! {
         #[macro_export]
         macro_rules! for_all_requests {
             ($m:tt, $params:expr) => {
                 $m!($params #(, #response_pairs)* #(, #request_only)*);
+            }
+        }
+
+        #[macro_export]
+        macro_rules! for_all_responses {
+            ($m:tt, $params:expr) => {
+                $m!($params #(, #response_only)*);
             }
         }
     };

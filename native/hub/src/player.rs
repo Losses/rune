@@ -27,9 +27,10 @@ use playback::MediaPosition;
 use scrobbling::manager::ScrobblingManager;
 use scrobbling::ScrobblingTrack;
 
+use crate::utils::{Broadcaster, RinfRustSignal};
 use crate::{
-    CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft,
-    ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
+    impl_rinf_rust_signal, CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate,
+    RealtimeFft, ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
 };
 
 pub fn metadata_summary_to_scrobbling_track(
@@ -50,11 +51,19 @@ pub fn metadata_summary_to_scrobbling_track(
     }
 }
 
+impl_rinf_rust_signal!(
+    PlaybackStatus,
+    ScrobbleServiceStatusUpdated,
+    CrashResponse,
+    RealtimeFft
+);
+
 pub async fn initialize_player(
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<Player>>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
+    broadcaster: Arc<dyn Broadcaster>,
 ) -> Result<()> {
     let status_receiver = player.lock().await.subscribe_status();
     let played_through_receiver = player.lock().await.subscribe_played_through();
@@ -80,6 +89,12 @@ pub async fn initialize_player(
 
     let scrobber_error_receiver = scrobbler.lock().await.subscribe_error();
     let scrobber_status_receiver = scrobbler.lock().await.subscribe_login_status();
+
+    let broadcaster_for_main = Arc::clone(&broadcaster);
+    let broadcaster_for_playlist = Arc::clone(&broadcaster);
+    let broadcaster_for_realtime_fft = Arc::clone(&broadcaster);
+    let broadcaster_for_scrobbler = Arc::clone(&broadcaster);
+    let broadcaster_for_crash = Arc::clone(&broadcaster);
 
     manager.lock().await.initialize()?;
 
@@ -213,15 +228,16 @@ pub async fn initialize_player(
                     .for_each(|cause| eprintln!("because: {}", cause));
             }
 
-            formated_status.send_signal_to_dart();
+            broadcaster_for_main.broadcast(&formated_status);
         }
     });
 
     task::spawn(async move {
         let main_db = Arc::clone(&main_db_for_playlist);
+        let broadcaster = Arc::clone(&broadcaster_for_playlist);
 
         while let Ok(playlist) = playlist_receiver.recv().await {
-            send_playlist_update(&main_db, &playlist).await;
+            send_playlist_update(&main_db, &playlist, &*broadcaster).await;
             match replace_playback_queue(&main_db, extract_in_library_ids(playlist.items)).await {
                 Ok(_) => {}
                 Err(e) => error!("Failed to update playback queue record: {:#?}", e),
@@ -269,7 +285,7 @@ pub async fn initialize_player(
 
     task::spawn(async move {
         while let Ok(value) = scrobber_status_receiver.recv().await {
-            ScrobbleServiceStatusUpdated {
+            broadcaster_for_scrobbler.broadcast(&ScrobbleServiceStatusUpdated {
                 services: value
                     .into_iter()
                     .map(|x| ScrobbleServiceStatus {
@@ -278,14 +294,13 @@ pub async fn initialize_player(
                         error: x.error_message,
                     })
                     .collect(),
-            }
-            .send_signal_to_dart();
+            });
         }
     });
 
     task::spawn(async move {
         while let Ok(value) = realtime_fft_receiver.recv().await {
-            send_realtime_fft(value).await;
+            broadcaster_for_realtime_fft.broadcast(&RealtimeFft { value });
         }
     });
 
@@ -367,14 +382,20 @@ pub async fn initialize_player(
 
     task::spawn(async move {
         while let Ok(value) = crash_receiver.recv().await {
-            CrashResponse { detail: value }.send_signal_to_dart();
+            broadcaster_for_crash.broadcast(&CrashResponse { detail: value });
         }
     });
 
     Ok(())
 }
 
-pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistStatus) {
+impl_rinf_rust_signal!(PlaylistUpdate);
+
+pub async fn send_playlist_update(
+    db: &DatabaseConnection,
+    playlist: &PlaylistStatus,
+    broadcaster: &dyn Broadcaster,
+) {
     let items: Vec<PlayingItem> = playlist.items.clone();
 
     let dispatcher = PlayingItemActionDispatcher::new();
@@ -400,16 +421,12 @@ pub async fn send_playlist_update(db: &DatabaseConnection, playlist: &PlaylistSt
                 })
                 .collect();
 
-            PlaylistUpdate { items }.send_signal_to_dart(); // GENERATED
+            broadcaster.broadcast(&PlaylistUpdate { items });
         }
         Err(e) => {
             error!("Error happened while updating playlist: {:?}", e)
         }
     }
-}
-
-pub async fn send_realtime_fft(value: Vec<f32>) {
-    RealtimeFft { value }.send_signal_to_dart(); // GENERATED
 }
 
 async fn update_media_controls_metadata(
