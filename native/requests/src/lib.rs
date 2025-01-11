@@ -283,21 +283,30 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
     let (with_response, without_response): (Vec<_>, Vec<_>) =
         types.into_iter().partition(|t| t.response.is_some());
 
-    let response_pairs = with_response.iter().map(|t| {
-        let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-        let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-        quote! { (#req_ident, #resp_ident) }
-    });
+    let response_pairs: Vec<_> = with_response
+        .iter()
+        .map(|t| {
+            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+            quote! { (#req_ident, #resp_ident) }
+        })
+        .collect();
 
-    let request_only = without_response.iter().map(|t| {
-        let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-        quote! { #ident }
-    });
+    let request_only: Vec<_> = without_response
+        .iter()
+        .map(|t| {
+            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            quote! { #ident }
+        })
+        .collect();
 
-    let response_only = with_response.iter().map(|t| {
-        let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-        quote! { #resp_ident }
-    });
+    let response_only: Vec<_> = with_response
+        .iter()
+        .map(|t| {
+            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+            quote! { #resp_ident }
+        })
+        .collect();
 
     let expanded = quote! {
         #[macro_export]
@@ -305,6 +314,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             ($m:tt, $params:expr) => {
                 $m!($params #(, #response_pairs)* #(, #request_only)*);
             }
+        }
+
+        #[macro_export]
+        macro_rules! for_all_requests2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
+            };
         }
 
         #[macro_export]

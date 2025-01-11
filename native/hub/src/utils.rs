@@ -34,7 +34,7 @@ pub struct DatabaseConnections {
     pub recommend_db: Arc<RecommendationDbConnection>,
 }
 
-async fn initialize_databases(path: &str, db_path: Option<&str>) -> Result<DatabaseConnections> {
+pub async fn initialize_databases(path: &str, db_path: Option<&str>) -> Result<DatabaseConnections> {
     info!("Initializing databases");
 
     let main_db = connect_main_db(path, db_path)
