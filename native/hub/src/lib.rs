@@ -1,27 +1,8 @@
-mod request;
-
-mod analyze;
 mod apple_bridge;
-mod collection;
-mod connection;
-mod cover_art;
-mod directory;
-mod library_home;
-mod library_manage;
-mod license;
-mod logging;
-mod lyric;
-mod media_file;
+mod handlers;
 pub mod messages;
-mod mix;
-mod playback;
 pub mod player;
-mod playlist;
-mod scrobble;
-mod search;
-mod sfx;
-mod stat;
-mod system;
+mod request;
 pub mod utils;
 
 use std::future::Future;
