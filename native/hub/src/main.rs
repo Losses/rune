@@ -1,10 +1,19 @@
 use std::{
-    collections::HashMap, future::Future, io::Error as IoError, net::SocketAddr, pin::Pin,
-    sync::Arc, time::Duration,
+    collections::HashMap, future::Future, io::Error as IoError, net::SocketAddr, path::PathBuf,
+    pin::Pin, sync::Arc, time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use axum::{
+    body::Body,
+    extract::{Path, State},
+    http::{Request, StatusCode},
+    response::{IntoResponse, Response},
+    routing::get,
+    Router,
+};
 use clap::{Arg, Command};
+use dunce::canonicalize;
 use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
 use log::{error, info};
@@ -15,6 +24,8 @@ use tokio::{
 };
 use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
 use tokio_util::sync::CancellationToken;
+use tower::util::ServiceExt;
+use tower_http::services::ServeDir;
 
 use hub::{
     for_all_requests2,
@@ -27,6 +38,7 @@ use hub::{
     Signal,
 };
 
+use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
@@ -120,7 +132,7 @@ macro_rules! handle_server_response {
     };
 }
 
-impl Broadcaster for Server {
+impl Broadcaster for WebSocketService {
     fn broadcast(&self, message: &dyn RinfRustSignal) {
         let peer_map = self.peer_map.clone();
 
@@ -145,14 +157,14 @@ impl Broadcaster for Server {
     }
 }
 
-struct Server {
+struct WebSocketService {
     handlers: HandlerMap,
     peer_map: PeerMap,
 }
 
-impl Server {
+impl WebSocketService {
     fn new() -> Self {
-        Server {
+        WebSocketService {
             handlers: Arc::new(Mutex::new(HashMap::new())),
             peer_map: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -247,13 +259,69 @@ impl Server {
     }
 }
 
-impl Clone for Server {
+impl Clone for WebSocketService {
     fn clone(&self) -> Self {
-        Server {
+        WebSocketService {
             handlers: self.handlers.clone(),
             peer_map: self.peer_map.clone(),
         }
     }
+}
+
+async fn serve_file(
+    Path(file_path): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let lib_path = &state.lib_path;
+    let cover_temp_dir = &state.cover_temp_dir;
+
+    let requested_path = PathBuf::from(file_path);
+
+    let canonical_path = match canonicalize(&requested_path) {
+        Ok(path) => path,
+        Err(_) => return StatusCode::FORBIDDEN.into_response(),
+    };
+
+    if !canonical_path.starts_with(lib_path) && !canonical_path.starts_with(cover_temp_dir) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    let service = ServeDir::new(".");
+    let request = Request::builder()
+        .uri(format!("/{}", canonical_path.to_string_lossy()))
+        .body(axum::body::Body::empty())
+        .unwrap();
+
+    match service.oneshot(request).await {
+        Ok(response) => {
+            let (parts, body) = response.into_parts();
+            let boxed_body = Body::new(body);
+            Response::from_parts(parts, boxed_body)
+        }
+        Err(_) => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+struct AppState {
+    lib_path: PathBuf,
+    cover_temp_dir: PathBuf,
+}
+
+async fn serve_http(app_state: Arc<AppState>, addr: SocketAddr) {
+    let app = Router::new()
+        .route("/files/*file_path", get(serve_file))
+        .with_state(app_state);
+
+    info!("Starting HTTP server on {}", addr);
+    axum_server::bind(addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn serve_websocket(server: Arc<WebSocketService>, addr: SocketAddr) {
+    info!("Starting WebSocket server on {}", addr);
+    server.run(&addr.to_string()).await.unwrap();
 }
 
 #[tokio::main]
@@ -277,17 +345,35 @@ async fn main() -> Result<()> {
         )
         .get_matches();
 
-    let addr = matches.get_one::<String>("addr").unwrap();
+    let addr: SocketAddr = matches.get_one::<String>("addr").unwrap().parse()?;
     let default_lib_path = "/".to_string();
     let lib_path = matches
         .get_one::<String>("lib_path")
         .unwrap_or(&default_lib_path);
 
-    initialize_server(addr, lib_path).await
+    let app_state = Arc::new(AppState {
+        lib_path: PathBuf::from(lib_path),
+        cover_temp_dir: COVER_TEMP_DIR.to_path_buf(),
+    });
+
+    let http_state = app_state.clone();
+    let http_addr = addr;
+    let http_handle = tokio::spawn(async move {
+        serve_http(http_state, http_addr).await;
+    });
+
+    let websocket_service = initialize_websocket_service(lib_path).await?;
+    let ws_handle = tokio::spawn(async move {
+        serve_websocket(websocket_service, addr).await;
+    });
+
+    tokio::try_join!(http_handle, ws_handle)?;
+
+    Ok(())
 }
 
-async fn initialize_server(addr: &str, lib_path: &str) -> Result<()> {
-    let server = Server::new();
+async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketService>> {
+    let server = WebSocketService::new();
 
     let db_path = format!("{}/.rune", lib_path);
     let db_connections = initialize_databases(lib_path, Some(&db_path)).await?;
@@ -338,8 +424,5 @@ async fn initialize_server(addr: &str, lib_path: &str) -> Result<()> {
 
     for_all_requests2!(listen_server_event, server, global_params);
 
-    server
-        .run(addr)
-        .await
-        .with_context(|| "Failed to start the server")
+    Ok(server)
 }
