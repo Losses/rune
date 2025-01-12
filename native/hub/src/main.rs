@@ -42,6 +42,7 @@ use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
+use uuid::Uuid;
 
 type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, Vec<u8>> + Send + Sync>;
 type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
@@ -59,6 +60,37 @@ pub trait RequestHandler: Send + Sync + 'static {
 
 pub trait WebSocketMessage {
     fn get_type() -> &'static str;
+}
+
+fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
+    let type_len = type_name.len() as u8;
+    let mut message_data = vec![type_len];
+    message_data.extend_from_slice(type_name.as_bytes());
+    message_data.extend_from_slice(payload);
+
+    let request_id = match uuid {
+        Some(x) => x,
+        None => Uuid::new_v4(),
+    };
+    message_data.extend_from_slice(request_id.as_bytes());
+
+    message_data
+}
+
+fn decode_message(payload: &[u8]) -> Option<(String, Vec<u8>, Uuid)> {
+    if payload.len() < 17 {
+        return None;
+    }
+
+    let type_len = payload[0] as usize;
+    if payload.len() < 1 + type_len + 16 {
+        return None;
+    }
+
+    let msg_type = String::from_utf8_lossy(&payload[1..1 + type_len]).to_string();
+    let msg_payload = payload[1 + type_len..payload.len() - 16].to_vec();
+    let request_id = Uuid::from_slice(&payload[payload.len() - 16..]).ok()?;
+    Some((msg_type, msg_payload, request_id))
 }
 
 #[macro_export]
@@ -139,10 +171,7 @@ impl Broadcaster for WebSocketService {
         let type_name = message.name();
         let payload = message.encode_message();
 
-        let type_len = type_name.len() as u8;
-        let mut message_data = vec![type_len];
-        message_data.extend_from_slice(type_name.as_bytes());
-        message_data.extend_from_slice(&payload);
+        let message_data = encode_message(&type_name, &payload, None);
 
         let ws_message = TungsteniteMessage::Binary(message_data.into());
 
@@ -213,21 +242,18 @@ impl WebSocketService {
                 return Ok(());
             }
 
-            let msg_type = String::from_utf8_lossy(&payload[1..1 + type_len]).to_string();
-            let msg_payload = payload[1 + type_len..].to_vec();
+            if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
+                info!("Received message type: {} from: {}", msg_type, addr);
 
-            info!("Received message type: {} from: {}", msg_type, addr);
+                if let Some(response) = self.handle_message(&msg_type, msg_payload).await {
+                    // Building response
+                    let response_payload = encode_message(&msg_type, &response, Some(uuid));
 
-            if let Some(response) = self.handle_message(&msg_type, msg_payload).await {
-                // Building response
-                let mut response_payload = vec![type_len as u8];
-                response_payload.extend_from_slice(msg_type.as_bytes());
-                response_payload.extend_from_slice(&response);
-
-                if let Some(peer_tx) = self.peer_map.lock().await.get(&addr) {
-                    peer_tx
-                        .unbounded_send(TungsteniteMessage::Binary(response_payload.into()))
-                        .unwrap_or_else(|e| error!("Failed to send response: {}", e));
+                    if let Some(peer_tx) = self.peer_map.lock().await.get(&addr) {
+                        peer_tx
+                            .unbounded_send(TungsteniteMessage::Binary(response_payload.into()))
+                            .unwrap_or_else(|e| error!("Failed to send response: {}", e));
+                    }
                 }
             }
 
