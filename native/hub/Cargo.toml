@@ -43,6 +43,7 @@ futures-util = "0.3.31"
 strum = "0.26.3"
 strum_macros = "0.26.4"
 requests = { path = "../requests" }
+clap = "4.5.26"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }

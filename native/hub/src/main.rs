@@ -1,9 +1,10 @@
 use std::{
-    collections::HashMap, env, future::Future, io::Error as IoError, net::SocketAddr, pin::Pin,
+    collections::HashMap, future::Future, io::Error as IoError, net::SocketAddr, pin::Pin,
     sync::Arc, time::Duration,
 };
 
 use anyhow::{Context, Result};
+use clap::{Arg, Command};
 use futures_channel::mpsc::{unbounded, UnboundedSender};
 use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
 use log::{error, info};
@@ -257,20 +258,42 @@ impl Clone for Server {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let addr = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+    let matches = Command::new("Rune")
+        .author("Rune Developers")
+        .arg(
+            Arg::new("addr")
+                .short('a')
+                .long("addr")
+                .value_name("ADDRESS")
+                .default_value("127.0.0.1:7863")
+                .help("Address to run the server on"),
+        )
+        .arg(
+            Arg::new("lib_path")
+                .short('l')
+                .long("lib_path")
+                .value_name("LIB_PATH")
+                .help("Library path"),
+        )
+        .get_matches();
 
+    let addr = matches.get_one::<String>("addr").unwrap();
+    let default_lib_path = "/".to_string();
+    let lib_path = matches
+        .get_one::<String>("lib_path")
+        .unwrap_or(&default_lib_path);
+
+    initialize_server(addr, lib_path).await
+}
+
+async fn initialize_server(addr: &str, lib_path: &str) -> Result<()> {
     let server = Server::new();
 
-    let lib_path = "/";
-    let database_path = "/";
-    let db_connections = initialize_databases(lib_path, Some(database_path)).await?;
+    let db_path = format!("{}/.rune", lib_path);
+    let db_connections = initialize_databases(lib_path, Some(&db_path)).await?;
 
     let main_db: Arc<MainDbConnection> = db_connections.main_db;
-
     let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
-
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
 
     let main_cancel_token = CancellationToken::new();
@@ -301,7 +324,6 @@ async fn main() -> Result<()> {
     ));
 
     info!("Initializing UI events");
-
     let global_params = Arc::new(GlobalParams {
         lib_path,
         main_db,
@@ -317,7 +339,7 @@ async fn main() -> Result<()> {
     for_all_requests2!(listen_server_event, server, global_params);
 
     server
-        .run(&addr)
+        .run(addr)
         .await
         .with_context(|| "Failed to start the server")
 }
