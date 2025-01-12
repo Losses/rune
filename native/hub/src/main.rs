@@ -20,7 +20,7 @@ use hub::{
     messages::*,
     player::initialize_player,
     utils::{
-        initialize_databases, Broadcaster, GlobalParams, LocalGuiBroadcaster, ParamsExtractor,
+        initialize_databases, Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal,
         TaskTokens,
     },
     Signal,
@@ -117,6 +117,31 @@ macro_rules! handle_server_response {
     ($response:expr, without_response) => {
         Vec::new()
     };
+}
+
+impl Broadcaster for Server {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        let peer_map = self.peer_map.clone();
+
+        let type_name = message.name();
+        let payload = message.encode_message();
+
+        let type_len = type_name.len() as u8;
+        let mut message_data = vec![type_len];
+        message_data.extend_from_slice(type_name.as_bytes());
+        message_data.extend_from_slice(&payload);
+
+        let ws_message = TungsteniteMessage::Binary(message_data.into());
+
+        tokio::spawn(async move {
+            let peers = peer_map.lock().await;
+            for (addr, tx) in peers.iter() {
+                if let Err(e) = tx.unbounded_send(ws_message.clone()) {
+                    error!("Failed to broadcast message to {}: {}", addr, e);
+                }
+            }
+        });
+    }
 }
 
 struct Server {
@@ -263,7 +288,8 @@ async fn main() -> Result<()> {
     let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
     let scrobbler = Arc::new(Mutex::new(scrobbler));
 
-    let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
+    let server = Arc::new(server);
+    let broadcaster = Arc::clone(&server);
 
     info!("Initializing Player events");
     tokio::spawn(initialize_player(

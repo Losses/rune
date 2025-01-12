@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
+use prost::Message;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -34,7 +35,10 @@ pub struct DatabaseConnections {
     pub recommend_db: Arc<RecommendationDbConnection>,
 }
 
-pub async fn initialize_databases(path: &str, db_path: Option<&str>) -> Result<DatabaseConnections> {
+pub async fn initialize_databases(
+    path: &str,
+    db_path: Option<&str>,
+) -> Result<DatabaseConnections> {
     info!("Initializing databases");
 
     let main_db = connect_main_db(path, db_path)
@@ -73,17 +77,27 @@ pub trait ParamsExtractor {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params;
 }
 
-pub trait RinfRustSignal {
+pub trait RinfRustSignal: ::prost::Message {
     fn send(&self);
+    fn name(&self) -> String;
+    fn encode_message(&self) -> Vec<u8>;
 }
 
 #[macro_export]
-macro_rules! impl_rinf_rust_signal {
+macro_rules! broadcastable {
     ($($t:ty),*) => {
         $(
             impl RinfRustSignal for $t {
                 fn send(&self) {
                     self.send_signal_to_dart()
+                }
+
+                fn name(&self) -> String {
+                    stringify!($t).to_string()
+                }
+
+                fn encode_message(&self) -> Vec<u8> {
+                    self.encode_to_vec()
                 }
             }
         )*
@@ -102,7 +116,7 @@ impl Broadcaster for LocalGuiBroadcaster {
     }
 }
 
-impl_rinf_rust_signal!(SetMediaLibraryPathResponse);
+broadcastable!(SetMediaLibraryPathResponse);
 
 pub async fn receive_media_library_path<F, Fut>(
     main_loop: F,
