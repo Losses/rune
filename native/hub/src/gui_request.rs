@@ -3,25 +3,25 @@ use requests::define_request_types;
 #[macro_export]
 macro_rules! listen_local_gui_event {
     ($global_params:expr, $($req:tt)*) => {
-        process_requests!(@internal $global_params, $($req)*);
+        process_gui_requests!(@internal $global_params, $($req)*);
     };
 }
 
 #[macro_export]
-macro_rules! process_requests {
+macro_rules! process_gui_requests {
     (@internal $global_params:expr, ($request:ty, $response:ty) $(, $rest:tt)*) => {
-        handle_single_event!($global_params, $request, with_response);
-        process_requests!(@internal $global_params $(, $rest)*);
+        handle_single_gui_event!($global_params, $request, with_response);
+        process_gui_requests!(@internal $global_params $(, $rest)*);
     };
     (@internal $global_params:expr, $request:ty $(, $rest:tt)*) => {
-        handle_single_event!($global_params, $request, without_response);
-        process_requests!(@internal $global_params $(, $rest)*);
+        handle_single_gui_event!($global_params, $request, without_response);
+        process_gui_requests!(@internal $global_params $(, $rest)*);
     };
     (@internal $global_params:expr $(,)?) => {};
 }
 
 #[macro_export]
-macro_rules! handle_single_event {
+macro_rules! handle_single_gui_event {
     ($global_params:expr, $request:ty, $response_type:tt) => {
         paste::paste! {
             async fn [<handle_event_ $request:snake>](global_params: Arc<GlobalParams>) {

@@ -2,7 +2,7 @@ mod apple_bridge;
 mod handlers;
 pub mod messages;
 pub mod player;
-mod request;
+mod gui_request;
 pub mod server;
 pub mod utils;
 
