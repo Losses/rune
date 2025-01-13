@@ -28,7 +28,7 @@ use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
 
 use hub::{
-    for_all_requests2,
+    for_all_request_pairs2,
     messages::*,
     player::initialize_player,
     server::{decode_message, encode_message},
@@ -417,7 +417,7 @@ async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketSer
         broadcaster,
     });
 
-    for_all_requests2!(listen_server_event, server, global_params);
+    for_all_request_pairs2!(listen_server_event, server, global_params);
 
     Ok(server)
 }
