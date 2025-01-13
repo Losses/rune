@@ -149,7 +149,17 @@ pub async fn server_player_loop(url: String) {
         let main_cancel_token = CancellationToken::new();
         let main_cancel_token = Arc::new(main_cancel_token);
 
+        // Clone token for the closure
+        let token_clone = main_cancel_token.clone();
+
         for_all_responses!(register_server_handlers, bridge);
+
+        bridge.handlers.lock().await.insert(
+            "CloseLibraryRequest".to_owned(),
+            Box::new(move |_payload: Vec<u8>| {
+                token_clone.cancel();
+            }),
+        );
 
         bridge.run(&url, main_cancel_token).await
     });
