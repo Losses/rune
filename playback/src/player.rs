@@ -76,6 +76,34 @@ impl std::fmt::Display for PlaybackState {
     }
 }
 
+pub trait Playable: Send {
+    fn load(&self, index: usize);
+    fn play(&self);
+    fn pause(&self);
+    fn stop(&self);
+    fn next(&self);
+    fn previous(&self);
+    fn switch(&self, index: usize);
+    fn seek(&self, position_ms: f64);
+    fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode);
+    fn remove_from_playlist(&self, index: usize);
+    fn clear_playlist(&self);
+    fn move_playlist_item(&self, old_index: usize, new_index: usize);
+    fn set_playback_mode(&mut self, mode: PlaybackMode);
+    fn set_volume(&mut self, volume: f32);
+    fn set_realtime_fft_enabled(&mut self, enabled: bool);
+    fn set_adaptive_switching_enabled(&mut self, enabled: bool);
+    fn terminate(&self);
+    fn get_status(&self) -> PlayerStatus;
+    fn get_playlist(&self) -> Vec<PlayingItem>;
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus>;
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem>;
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus>;
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>>;
+    fn subscribe_crash(&self) -> SimpleReceiver<String>;
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog>;
+}
+
 // Define the Player struct, which includes a channel sender for sending commands
 pub struct Player {
     commands: Arc<Mutex<mpsc::UnboundedSender<PlayerCommand>>>,
@@ -287,38 +315,6 @@ impl Player {
         player
     }
 
-    pub fn get_status(&self) -> PlayerStatus {
-        self.current_status.lock().unwrap().clone()
-    }
-
-    pub fn get_playlist(&self) -> Vec<PlayingItem> {
-        self.current_status.lock().unwrap().playlist.clone()
-    }
-
-    pub fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
-        self.status_sender.subscribe()
-    }
-
-    pub fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
-        self.played_through_sender.subscribe()
-    }
-
-    pub fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
-        self.playlist_sender.subscribe()
-    }
-
-    pub fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
-        self.realtime_fft_sender.subscribe()
-    }
-
-    pub fn subscribe_crash(&self) -> SimpleReceiver<String> {
-        self.crash_sender.subscribe()
-    }
-
-    pub fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
-        self.log_sender.subscribe()
-    }
-
     // Send a command to the internal player
     pub fn command(&self, cmd: PlayerCommand) {
         // Acquire the lock and send the command
@@ -330,77 +326,165 @@ impl Player {
             error!("Failed to lock commands for sending");
         }
     }
-
-    pub fn terminate(&self) {
-        self.cancellation_token.cancel();
-    }
 }
 
-impl Player {
-    pub fn load(&self, index: usize) {
+impl Playable for Player {
+    fn load(&self, index: usize) {
         self.command(PlayerCommand::Load { index });
     }
 
-    pub fn play(&self) {
+    fn play(&self) {
         self.command(PlayerCommand::Play);
     }
 
-    pub fn pause(&self) {
+    fn pause(&self) {
         self.command(PlayerCommand::Pause);
     }
 
-    pub fn stop(&self) {
+    fn stop(&self) {
         self.command(PlayerCommand::Stop);
     }
 
-    pub fn next(&self) {
+    fn next(&self) {
         self.command(PlayerCommand::Next);
     }
 
-    pub fn previous(&self) {
+    fn previous(&self) {
         self.command(PlayerCommand::Previous);
     }
 
-    pub fn switch(&self, index: usize) {
+    fn switch(&self, index: usize) {
         self.command(PlayerCommand::Switch(index));
     }
 
-    pub fn seek(&self, position_ms: f64) {
+    fn seek(&self, position_ms: f64) {
         self.command(PlayerCommand::Seek(position_ms));
     }
 
-    pub fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
+    fn add_to_playlist(&self, tracks: Vec<(PlayingItem, PathBuf)>, mode: AddMode) {
         self.command(PlayerCommand::AddToPlaylist { tracks, mode });
     }
 
-    pub fn remove_from_playlist(&self, index: usize) {
+    fn remove_from_playlist(&self, index: usize) {
         self.command(PlayerCommand::RemoveFromPlaylist { index });
     }
 
-    pub fn clear_playlist(&self) {
+    fn clear_playlist(&self) {
         self.command(PlayerCommand::ClearPlaylist);
     }
 
-    pub fn move_playlist_item(&self, old_index: usize, new_index: usize) {
+    fn move_playlist_item(&self, old_index: usize, new_index: usize) {
         self.command(PlayerCommand::MovePlayListItem {
             old_index,
             new_index,
         });
     }
 
-    pub fn set_playback_mode(&mut self, mode: PlaybackMode) {
+    fn set_playback_mode(&mut self, mode: PlaybackMode) {
         self.command(PlayerCommand::SetPlaybackMode(mode));
     }
 
-    pub fn set_volume(&mut self, volume: f32) {
+    fn set_volume(&mut self, volume: f32) {
         self.command(PlayerCommand::SetVolume(volume));
     }
 
-    pub fn set_realtime_fft_enabled(&mut self, enabled: bool) {
+    fn set_realtime_fft_enabled(&mut self, enabled: bool) {
         self.command(PlayerCommand::SetRealtimeFFTEnabled(enabled));
     }
 
-    pub fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
+    fn set_adaptive_switching_enabled(&mut self, enabled: bool) {
         self.command(PlayerCommand::SetAdaptiveSwitchingEnabled(enabled));
+    }
+
+    fn terminate(&self) {
+        self.cancellation_token.cancel();
+    }
+
+    fn get_status(&self) -> PlayerStatus {
+        self.current_status.lock().unwrap().clone()
+    }
+
+    fn get_playlist(&self) -> Vec<PlayingItem> {
+        self.current_status.lock().unwrap().playlist.clone()
+    }
+
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+        self.status_sender.subscribe()
+    }
+
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
+        self.played_through_sender.subscribe()
+    }
+
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+        self.playlist_sender.subscribe()
+    }
+
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+        self.realtime_fft_sender.subscribe()
+    }
+
+    fn subscribe_crash(&self) -> SimpleReceiver<String> {
+        self.crash_sender.subscribe()
+    }
+
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        self.log_sender.subscribe()
+    }
+}
+
+pub struct MockPlayer;
+
+impl Playable for MockPlayer {
+    fn load(&self, _index: usize) {}
+    fn play(&self) {}
+    fn pause(&self) {}
+    fn stop(&self) {}
+    fn next(&self) {}
+    fn previous(&self) {}
+    fn switch(&self, _index: usize) {}
+    fn seek(&self, _position_ms: f64) {}
+    fn add_to_playlist(&self, _tracks: Vec<(PlayingItem, PathBuf)>, _mode: AddMode) {}
+    fn remove_from_playlist(&self, _index: usize) {}
+    fn clear_playlist(&self) {}
+    fn move_playlist_item(&self, _old_index: usize, _new_index: usize) {}
+    fn set_playback_mode(&mut self, _mode: PlaybackMode) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn set_realtime_fft_enabled(&mut self, _enabled: bool) {}
+    fn set_adaptive_switching_enabled(&mut self, _enabled: bool) {}
+    fn terminate(&self) {}
+    fn get_status(&self) -> PlayerStatus {
+        PlayerStatus {
+            item: None,
+            index: None,
+            path: None,
+            position: Duration::new(0, 0),
+            state: PlaybackState::Stopped,
+            playlist: Vec::new(),
+            playback_mode: PlaybackMode::Sequential,
+            ready: false,
+            volume: 1.0,
+        }
+    }
+    fn get_playlist(&self) -> Vec<PlayingItem> {
+        Vec::new()
+    }
+    fn subscribe_status(&self) -> SimpleReceiver<PlayerStatus> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_played_through(&self) -> SimpleReceiver<PlayingItem> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_playlist(&self) -> SimpleReceiver<PlaylistStatus> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_realtime_fft(&self) -> SimpleReceiver<Vec<f32>> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_crash(&self) -> SimpleReceiver<String> {
+        SimpleChannel::channel(1).1
+    }
+    fn subscribe_log(&self) -> SimpleReceiver<InternalLog> {
+        SimpleChannel::channel(1).1
     }
 }

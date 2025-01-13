@@ -21,7 +21,7 @@ use souvlaki::{MediaControlEvent, MediaControls, PlatformConfig, SeekDirection};
 
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 
-use crate::player::{PlaybackState, Player};
+use crate::player::{Playable, PlaybackState};
 
 // Use include_bytes! to embed the image into the binary
 const IMAGE_DATA: &[u8] = include_bytes!("default_cover_art.png");
@@ -119,7 +119,7 @@ impl MediaControlManager {
 }
 
 pub async fn handle_media_control_event(
-    player: &Arc<Mutex<Player>>,
+    player: &Arc<Mutex<dyn Playable>>,
     event: MediaControlEvent,
 ) -> Result<()> {
     debug!("Received media control event: {:?}", event);
@@ -143,13 +143,7 @@ pub async fn handle_media_control_event(
                 SeekDirection::Backward => -10.0,
             };
 
-            let current_position = player
-                .lock()
-                .await
-                .current_status
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Unable to lock the player: {}", e))?
-                .position;
+            let current_position = player.lock().await.get_status().position;
 
             player
                 .lock()

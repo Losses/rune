@@ -3,15 +3,14 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use futures::future::join_all;
-use rinf::DartSignal;
 
 use database::actions::collection::{CollectionQuery, CollectionQueryListMode, UnifiedCollection};
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, mix_queries, mixes, playlists};
 
-use crate::messages::*;
+use crate::{messages::*, Signal};
 
-use crate::utils::inject_cover_art_map;
+use crate::utils::{inject_cover_art_map, GlobalParams, ParamsExtractor};
 
 #[derive(Default)]
 pub struct CollectionActionParams {
@@ -234,72 +233,132 @@ impl Collection {
     }
 }
 
-pub async fn fetch_collection_group_summary_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<FetchCollectionGroupSummaryRequest>,
-) -> Result<Option<CollectionGroupSummaryResponse>> {
-    match dart_signal.message.collection_type {
-        0 => handle_fetch_group_summary::<albums::Model>(&main_db).await,
-        1 => handle_fetch_group_summary::<artists::Model>(&main_db).await,
-        2 => handle_fetch_group_summary::<playlists::Model>(&main_db).await,
-        3 => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
-        _ => Err(anyhow::anyhow!("Invalid collection type")),
+impl ParamsExtractor for FetchCollectionGroupSummaryRequest {
+    type Params = (Arc<MainDbConnection>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
     }
 }
 
-pub async fn fetch_collection_groups_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    dart_signal: DartSignal<FetchCollectionGroupsRequest>,
-) -> Result<Option<CollectionGroups>> {
-    let params = CollectionActionParams {
-        group_titles: Some(dart_signal.message.group_titles),
-        bake_cover_arts: dart_signal.message.bake_cover_arts,
-        ..Default::default()
-    };
+impl Signal for FetchCollectionGroupSummaryRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = CollectionGroupSummaryResponse;
 
-    match dart_signal.message.collection_type {
-        0 => handle_fetch_groups::<albums::Model>(&main_db, &recommend_db, params).await,
-        1 => handle_fetch_groups::<artists::Model>(&main_db, &recommend_db, params).await,
-        2 => handle_fetch_groups::<playlists::Model>(&main_db, &recommend_db, params).await,
-        3 => handle_fetch_groups::<mixes::Model>(&main_db, &recommend_db, params).await,
-        _ => Err(anyhow::anyhow!("Invalid collection type")),
+    async fn handle(
+        &self,
+        (main_db,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        match dart_signal.collection_type {
+            0 => handle_fetch_group_summary::<albums::Model>(&main_db).await,
+            1 => handle_fetch_group_summary::<artists::Model>(&main_db).await,
+            2 => handle_fetch_group_summary::<playlists::Model>(&main_db).await,
+            3 => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
+            _ => Err(anyhow::anyhow!("Invalid collection type")),
+        }
     }
 }
 
-pub async fn fetch_collection_by_ids_request(
-    main_db: Arc<MainDbConnection>,
-    recommend_db: Arc<RecommendationDbConnection>,
-    dart_signal: DartSignal<FetchCollectionByIdsRequest>,
-) -> Result<Option<FetchCollectionByIdsResponse>> {
-    let params = CollectionActionParams {
-        ids: Some(dart_signal.message.ids),
-        ..Default::default()
-    };
+impl ParamsExtractor for FetchCollectionGroupsRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
 
-    match dart_signal.message.collection_type {
-        0 => handle_fetch_by_id::<albums::Model>(&main_db, &recommend_db, params).await,
-        1 => handle_fetch_by_id::<artists::Model>(&main_db, &recommend_db, params).await,
-        2 => handle_fetch_by_id::<playlists::Model>(&main_db, &recommend_db, params).await,
-        3 => handle_fetch_by_id::<mixes::Model>(&main_db, &recommend_db, params).await,
-        _ => Err(anyhow::anyhow!("Invalid collection type")),
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.recommend_db),
+        )
     }
 }
 
-pub async fn search_collection_summary_request(
-    main_db: Arc<MainDbConnection>,
-    dart_signal: DartSignal<SearchCollectionSummaryRequest>,
-) -> Result<Option<SearchCollectionSummaryResponse>> {
-    let params = CollectionActionParams {
-        n: Some(dart_signal.message.n.try_into()?),
-        ..Default::default()
-    };
+impl Signal for FetchCollectionGroupsRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Response = CollectionGroups;
 
-    match dart_signal.message.collection_type {
-        0 => handle_search::<albums::Model>(&main_db, params).await,
-        1 => handle_search::<artists::Model>(&main_db, params).await,
-        2 => handle_search::<playlists::Model>(&main_db, params).await,
-        3 => handle_search::<mixes::Model>(&main_db, params).await,
-        _ => Err(anyhow::anyhow!("Invalid collection type")),
+    async fn handle(
+        &self,
+        (main_db, recommend_db): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let params = CollectionActionParams {
+            group_titles: Some(dart_signal.group_titles.clone()),
+            bake_cover_arts: dart_signal.bake_cover_arts,
+            ..Default::default()
+        };
+
+        match dart_signal.collection_type {
+            0 => handle_fetch_groups::<albums::Model>(&main_db, &recommend_db, params).await,
+            1 => handle_fetch_groups::<artists::Model>(&main_db, &recommend_db, params).await,
+            2 => handle_fetch_groups::<playlists::Model>(&main_db, &recommend_db, params).await,
+            3 => handle_fetch_groups::<mixes::Model>(&main_db, &recommend_db, params).await,
+            _ => Err(anyhow::anyhow!("Invalid collection type")),
+        }
+    }
+}
+
+impl ParamsExtractor for FetchCollectionByIdsRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.recommend_db),
+        )
+    }
+}
+
+impl Signal for FetchCollectionByIdsRequest {
+    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Response = FetchCollectionByIdsResponse;
+
+    async fn handle(
+        &self,
+        (main_db, recommend_db): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let params = CollectionActionParams {
+            ids: Some(dart_signal.ids.clone()),
+            ..Default::default()
+        };
+
+        match dart_signal.collection_type {
+            0 => handle_fetch_by_id::<albums::Model>(&main_db, &recommend_db, params).await,
+            1 => handle_fetch_by_id::<artists::Model>(&main_db, &recommend_db, params).await,
+            2 => handle_fetch_by_id::<playlists::Model>(&main_db, &recommend_db, params).await,
+            3 => handle_fetch_by_id::<mixes::Model>(&main_db, &recommend_db, params).await,
+            _ => Err(anyhow::anyhow!("Invalid collection type")),
+        }
+    }
+}
+
+impl ParamsExtractor for SearchCollectionSummaryRequest {
+    type Params = (Arc<MainDbConnection>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
+    }
+}
+
+impl Signal for SearchCollectionSummaryRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = SearchCollectionSummaryResponse;
+
+    async fn handle(
+        &self,
+        (main_db,): Self::Params,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let params = CollectionActionParams {
+            n: Some(dart_signal.n.try_into()?),
+            ..Default::default()
+        };
+
+        match dart_signal.collection_type {
+            0 => handle_search::<albums::Model>(&main_db, params).await,
+            1 => handle_search::<artists::Model>(&main_db, params).await,
+            2 => handle_search::<playlists::Model>(&main_db, params).await,
+            3 => handle_search::<mixes::Model>(&main_db, params).await,
+            _ => Err(anyhow::anyhow!("Invalid collection type")),
+        }
     }
 }
