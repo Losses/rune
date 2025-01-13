@@ -31,6 +31,7 @@ use hub::{
     for_all_requests2,
     messages::*,
     player::initialize_player,
+    server::{decode_message, encode_message},
     utils::{
         initialize_databases, Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal,
         TaskTokens,
@@ -42,7 +43,6 @@ use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
-use uuid::Uuid;
 
 type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, Vec<u8>> + Send + Sync>;
 type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
@@ -60,37 +60,6 @@ pub trait RequestHandler: Send + Sync + 'static {
 
 pub trait WebSocketMessage {
     fn get_type() -> &'static str;
-}
-
-fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
-    let type_len = type_name.len() as u8;
-    let mut message_data = vec![type_len];
-    message_data.extend_from_slice(type_name.as_bytes());
-    message_data.extend_from_slice(payload);
-
-    let request_id = match uuid {
-        Some(x) => x,
-        None => Uuid::new_v4(),
-    };
-    message_data.extend_from_slice(request_id.as_bytes());
-
-    message_data
-}
-
-fn decode_message(payload: &[u8]) -> Option<(String, Vec<u8>, Uuid)> {
-    if payload.len() < 17 {
-        return None;
-    }
-
-    let type_len = payload[0] as usize;
-    if payload.len() < 1 + type_len + 16 {
-        return None;
-    }
-
-    let msg_type = String::from_utf8_lossy(&payload[1..1 + type_len]).to_string();
-    let msg_payload = payload[1 + type_len..payload.len() - 16].to_vec();
-    let request_id = Uuid::from_slice(&payload[payload.len() - 16..]).ok()?;
-    Some((msg_type, msg_payload, request_id))
 }
 
 #[macro_export]

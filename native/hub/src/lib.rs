@@ -3,6 +3,7 @@ mod handlers;
 pub mod messages;
 pub mod player;
 mod request;
+pub mod server;
 pub mod utils;
 
 use std::future::Future;
@@ -83,7 +84,6 @@ async fn player_loop(
         ));
 
         info!("Initializing UI events");
-
         let global_params = Arc::new(GlobalParams {
             lib_path,
             main_db,
