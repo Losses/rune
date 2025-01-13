@@ -14,3 +14,16 @@ macro_rules! process_server_handlers {
     };
     (@internal $bridge:expr $(,)?) => {};
 }
+
+#[macro_export]
+macro_rules! implement_rinf_dart_signal_trait {
+    ($($request:ty),*) => {
+        $(
+            impl RinfDartSignal for $request {
+                fn name(&self) -> String {
+                    stringify!($request).to_string()
+                }
+            }
+        )*
+    };
+}
