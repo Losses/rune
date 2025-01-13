@@ -356,7 +356,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #[macro_export]
         macro_rules! for_all_requests2 {
             ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2 #(, #all_requests)*);
+                $m!($param1, $param2);
             };
         }
     };
