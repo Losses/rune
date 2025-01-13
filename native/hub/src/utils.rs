@@ -22,6 +22,7 @@ use ::playback::player::{Playable, PlayingItem};
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
+use crate::local::player_loop;
 use crate::messages::*;
 
 #[cfg(target_os = "android")]
@@ -118,16 +119,7 @@ impl Broadcaster for LocalGuiBroadcaster {
 
 broadcastable!(SetMediaLibraryPathResponse);
 
-pub async fn receive_media_library_path<F, Fut>(
-    main_loop: F,
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
-) -> Result<()>
-where
-    F: Fn(String, DatabaseConnections, Arc<Mutex<ScrobblingManager>>, Arc<dyn Broadcaster>) -> Fut
-        + Send
-        + Sync,
-    Fut: std::future::Future<Output = ()> + Send,
-{
+pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>) -> Result<()> {
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
     let broadcaster: Arc<dyn Broadcaster> = Arc::new(LocalGuiBroadcaster);
 
@@ -195,7 +187,7 @@ where
                     let scrobbler_clone = Arc::clone(&scrobbler);
 
                     // Continue with main loop
-                    main_loop(
+                    player_loop(
                         media_library_path,
                         db_connections,
                         scrobbler_clone,
