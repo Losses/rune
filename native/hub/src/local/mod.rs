@@ -64,7 +64,7 @@ pub async fn local_player_loop(
             lib_path,
             main_db,
             recommend_db,
-            main_token: main_cancel_token,
+            main_token: Arc::clone(&main_cancel_token),
             task_tokens,
             player,
             sfx_player,
@@ -72,6 +72,6 @@ pub async fn local_player_loop(
             broadcaster,
         });
 
-        for_all_request_pairs!(listen_local_gui_event, global_params);
+        for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     });
 }
