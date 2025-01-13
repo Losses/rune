@@ -49,6 +49,7 @@ tower = "0.5.2"
 tower-http ={ version = "0.6.2", features = ["fs"] }
 axum-server = "0.7.1"
 uuid = "1.11.1"
+url = "2.5.4"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }

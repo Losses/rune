@@ -21,7 +21,7 @@ use crate::utils::ParamsExtractor;
 use crate::utils::TaskTokens;
 use crate::Signal;
 
-pub async fn player_loop(
+pub async fn local_player_loop(
     path: String,
     db_connections: DatabaseConnections,
     scrobbler: Arc<Mutex<ScrobblingManager>>,

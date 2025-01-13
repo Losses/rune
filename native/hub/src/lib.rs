@@ -6,6 +6,7 @@ mod local;
 pub mod messages;
 pub mod player;
 pub mod server;
+#[macro_use]
 mod server_request;
 pub mod utils;
 

@@ -22,7 +22,7 @@ use ::playback::player::{Playable, PlayingItem};
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::local::player_loop;
+use crate::local::local_player_loop;
 use crate::messages::*;
 
 #[cfg(target_os = "android")]
@@ -187,7 +187,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     let scrobbler_clone = Arc::clone(&scrobbler);
 
                     // Continue with main loop
-                    player_loop(
+                    local_player_loop(
                         media_library_path,
                         db_connections,
                         scrobbler_clone,

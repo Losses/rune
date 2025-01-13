@@ -300,14 +300,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let response_only: Vec<_> = with_response
-        .iter()
-        .map(|t| {
-            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-            quote! { #resp_ident }
-        })
-        .collect();
-
     let expanded = quote! {
         #[macro_export]
         macro_rules! for_all_requests {
@@ -326,8 +318,15 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         #[macro_export]
         macro_rules! for_all_responses {
             ($m:tt, $params:expr) => {
-                $m!($params #(, #response_only)*);
+                $m!($params);
             }
+        }
+
+        #[macro_export]
+        macro_rules! for_all_responses2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2);
+            };
         }
     };
 
