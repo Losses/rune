@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use ::playback::player::Playable;
 use anyhow::{Context, Result};
 use tokio::sync::Mutex;
 
@@ -9,7 +10,6 @@ use ::database::actions::stats::increase_skipped;
 use ::database::connection::MainDbConnection;
 use ::database::connection::RecommendationDbConnection;
 use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
-use ::playback::player::Player;
 use ::playback::player::PlayingItem;
 use ::playback::strategies::AddMode;
 
@@ -59,7 +59,7 @@ impl From<PlayingItemRequest> for PlayingItem {
 }
 
 impl ParamsExtractor for LoadRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -67,7 +67,7 @@ impl ParamsExtractor for LoadRequest {
 }
 
 impl Signal for LoadRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -82,7 +82,7 @@ impl Signal for LoadRequest {
 }
 
 impl ParamsExtractor for PlayRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -90,7 +90,7 @@ impl ParamsExtractor for PlayRequest {
 }
 
 impl Signal for PlayRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(&self, (player,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
@@ -100,7 +100,7 @@ impl Signal for PlayRequest {
 }
 
 impl ParamsExtractor for PauseRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -108,7 +108,7 @@ impl ParamsExtractor for PauseRequest {
 }
 
 impl Signal for PauseRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(&self, (player,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
@@ -118,7 +118,7 @@ impl Signal for PauseRequest {
 }
 
 impl ParamsExtractor for NextRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -129,7 +129,7 @@ impl ParamsExtractor for NextRequest {
 }
 
 impl Signal for NextRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
@@ -151,7 +151,7 @@ impl Signal for NextRequest {
 }
 
 impl ParamsExtractor for PreviousRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -162,7 +162,7 @@ impl ParamsExtractor for PreviousRequest {
 }
 
 impl Signal for PreviousRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
@@ -184,7 +184,7 @@ impl Signal for PreviousRequest {
 }
 
 impl ParamsExtractor for SetPlaybackModeRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -192,7 +192,7 @@ impl ParamsExtractor for SetPlaybackModeRequest {
 }
 
 impl Signal for SetPlaybackModeRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -207,7 +207,7 @@ impl Signal for SetPlaybackModeRequest {
 }
 
 impl ParamsExtractor for SwitchRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -218,7 +218,7 @@ impl ParamsExtractor for SwitchRequest {
 }
 
 impl Signal for SwitchRequest {
-    type Params = (Arc<MainDbConnection>, Arc<Mutex<Player>>);
+    type Params = (Arc<MainDbConnection>, Arc<Mutex<dyn Playable>>);
     type Response = ();
 
     async fn handle(
@@ -242,7 +242,7 @@ impl Signal for SwitchRequest {
 }
 
 impl ParamsExtractor for SeekRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -250,7 +250,7 @@ impl ParamsExtractor for SeekRequest {
 }
 
 impl Signal for SeekRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -264,7 +264,7 @@ impl Signal for SeekRequest {
 }
 
 impl ParamsExtractor for RemoveRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -272,7 +272,7 @@ impl ParamsExtractor for RemoveRequest {
 }
 
 impl Signal for RemoveRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -289,7 +289,7 @@ impl Signal for RemoveRequest {
 }
 
 impl ParamsExtractor for VolumeRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -297,7 +297,7 @@ impl ParamsExtractor for VolumeRequest {
 }
 
 impl Signal for VolumeRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = VolumeResponse;
 
     async fn handle(
@@ -312,7 +312,7 @@ impl Signal for VolumeRequest {
 }
 
 impl ParamsExtractor for MovePlaylistItemRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -320,7 +320,7 @@ impl ParamsExtractor for MovePlaylistItemRequest {
 }
 
 impl Signal for MovePlaylistItemRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -341,7 +341,7 @@ impl Signal for MovePlaylistItemRequest {
 }
 
 impl ParamsExtractor for SetRealtimeFftEnabledRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -349,7 +349,7 @@ impl ParamsExtractor for SetRealtimeFftEnabledRequest {
 }
 
 impl Signal for SetRealtimeFftEnabledRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -364,7 +364,7 @@ impl Signal for SetRealtimeFftEnabledRequest {
 }
 
 impl ParamsExtractor for SetAdaptiveSwitchingEnabledRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.player),)
@@ -372,7 +372,7 @@ impl ParamsExtractor for SetAdaptiveSwitchingEnabledRequest {
 }
 
 impl Signal for SetAdaptiveSwitchingEnabledRequest {
-    type Params = (Arc<Mutex<Player>>,);
+    type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
     async fn handle(
@@ -391,7 +391,7 @@ impl ParamsExtractor for OperatePlaybackWithMixQueryRequest {
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
-        Arc<Mutex<Player>>,
+        Arc<Mutex<dyn Playable>>,
     );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -409,7 +409,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
         Arc<MainDbConnection>,
         Arc<RecommendationDbConnection>,
         Arc<String>,
-        Arc<Mutex<Player>>,
+        Arc<Mutex<dyn Playable>>,
     );
     type Response = OperatePlaybackWithMixQueryResponse;
 

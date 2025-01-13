@@ -18,7 +18,7 @@ use ::database::connection::{
 };
 use ::database::entities::media_files;
 use ::database::playing_item::MediaFileHandle;
-use ::playback::player::{Player, PlayingItem};
+use ::playback::player::{Playable, PlayingItem};
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -66,7 +66,7 @@ pub struct GlobalParams {
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
     pub task_tokens: Arc<Mutex<TaskTokens>>,
-    pub player: Arc<Mutex<Player>>,
+    pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,

@@ -20,8 +20,8 @@ use database::playing_item::PlayingItemMetadataSummary;
 use playback::controller::get_default_cover_art_path;
 use playback::controller::handle_media_control_event;
 use playback::controller::MediaControlManager;
-use playback::player::PlaylistStatus;
-use playback::player::{Player, PlayingItem};
+use playback::player::PlayingItem;
+use playback::player::{Playable, PlaylistStatus};
 use playback::MediaMetadata;
 use playback::MediaPlayback;
 use playback::MediaPosition;
@@ -62,7 +62,7 @@ broadcastable!(
 pub async fn initialize_player(
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
-    player: Arc<Mutex<Player>>,
+    player: Arc<Mutex<dyn Playable>>,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
     broadcaster: Arc<dyn Broadcaster>,
 ) -> Result<()> {
