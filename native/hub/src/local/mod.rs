@@ -72,6 +72,6 @@ pub async fn local_player_loop(
             broadcaster,
         });
 
-        for_all_requests!(listen_local_gui_event, global_params);
+        for_all_request_pairs!(listen_local_gui_event, global_params);
     });
 }

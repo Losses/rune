@@ -280,19 +280,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
     ];
 
-    let (with_response, without_response): (Vec<_>, Vec<_>) =
-        types.into_iter().partition(|t| t.response.is_some());
-
-    let response_pairs: Vec<_> = with_response
-        .iter()
-        .map(|t| {
-            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
-            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
-            quote! { (#req_ident, #resp_ident) }
-        })
-        .collect();
-
-    let request_only: Vec<_> = without_response
+    let request_idents: Vec<_> = types
         .iter()
         .map(|t| {
             let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
@@ -302,16 +290,30 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
 
     let expanded = quote! {
         #[macro_export]
+        macro_rules! for_all_request_pairs {
+            ($m:tt, $params:expr) => {
+                $m!($params #(, #request_idents)*);
+            }
+        }
+
+        #[macro_export]
+        macro_rules! for_all_request_pairs2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2 #(, #request_idents)*);
+            };
+        }
+
+        #[macro_export]
         macro_rules! for_all_requests {
             ($m:tt, $params:expr) => {
-                $m!($params #(, #response_pairs)* #(, #request_only)*);
+                $m!($params #(, #request_idents)*);
             }
         }
 
         #[macro_export]
         macro_rules! for_all_requests2 {
             ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
+                $m!($param1, $param2 #(, #request_idents)*);
             };
         }
 
