@@ -1,3 +1,6 @@
+#[macro_use]
+mod gui_request;
+
 use std::sync::Arc;
 
 use log::{error, info};
