@@ -1190,8 +1190,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: e0fd539785d2f656a8efd76376c6f2225848b9be
-      resolved-ref: e0fd539785d2f656a8efd76376c6f2225848b9be
+      ref: ddbf360835b1db404fbd52b07b250e0e2c950266
+      resolved-ref: ddbf360835b1db404fbd52b07b250e0e2c950266
       url: "https://github.com/Losses/system_tray.git"
     source: git
     version: "2.0.3"
