@@ -431,6 +431,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         #[macro_export]
+        macro_rules! for_all_non_local_requests {
+            ($m:tt, $params:expr) => {
+                $m!($params, #(#non_local_requests),*);
+            }
+        }
+
+        #[macro_export]
         macro_rules! for_all_non_local_requests2 {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2, #(#non_local_requests),*);
