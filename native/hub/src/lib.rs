@@ -7,6 +7,8 @@ mod local;
 pub mod messages;
 #[macro_use]
 pub mod remote;
+#[macro_use]
+pub mod server;
 pub mod utils;
 
 use std::future::Future;
