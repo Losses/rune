@@ -18,10 +18,17 @@ import 'l10n.dart';
 
 final SystemTray systemTray = SystemTray();
 
+class TrayIcon {
+  final String path;
+  final bool isInstalled;
+
+  TrayIcon(this.path, this.isInstalled);
+}
+
 class TrayManager {
-  static String getTrayIconPath() {
+  static TrayIcon getTrayIcon() {
     if (Platform.isMacOS) {
-      return 'assets/mac-tray.svg';
+      return TrayIcon('assets/mac-tray.svg', false);
     }
 
     final brightness =
@@ -31,14 +38,14 @@ class TrayManager {
             : Brightness.light.name;
 
     if (Platform.isWindows) {
-      return 'assets/tray_icon_$brightness.ico';
+      return TrayIcon('assets/tray_icon_$brightness.ico', false);
     }
 
     if (Platform.isLinux && Platform.environment.containsKey('FLATPAK_ID')) {
-      return 'ci.not.Rune-tray-$brightness';
+      return TrayIcon('ci.not.Rune-tray-$brightness', true);
     }
 
-    return 'assets/linux-tray-$brightness.svg';
+    return TrayIcon('assets/linux-tray-$brightness.svg', false);
   }
 
   bool? _cachedPlaying;
@@ -106,8 +113,8 @@ class TrayManager {
   }
 
   Future<void> updateTrayIcon() async {
-    final iconPath = getTrayIconPath();
-    await systemTray.setImage(iconPath, isTemplate: true);
+    final icon = getTrayIcon();
+    await systemTray.setImage(icon.path, isTemplate: true, isInstalled: icon.isInstalled);
   }
 
   static void registerEventHandlers() {
