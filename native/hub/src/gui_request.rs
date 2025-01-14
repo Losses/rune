@@ -1,5 +1,3 @@
-use requests::define_request_types;
-
 #[macro_export]
 macro_rules! listen_local_gui_event {
     ($global_params:expr, $cancel_token:expr, $($req:tt)*) => {
@@ -71,5 +69,3 @@ macro_rules! handle_response {
     };
     ($response:expr, without_response) => {};
 }
-
-define_request_types!();

@@ -1,6 +1,8 @@
 mod apple_bridge;
 #[macro_use]
 mod gui_request;
+#[macro_use]
+mod macros;
 mod handlers;
 mod local;
 pub mod messages;
