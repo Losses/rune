@@ -5,7 +5,6 @@ mod handlers;
 #[macro_use]
 mod local;
 pub mod messages;
-pub mod player;
 #[macro_use]
 pub mod remote;
 pub mod utils;

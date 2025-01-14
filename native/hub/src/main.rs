@@ -30,11 +30,10 @@ use tower_http::services::ServeDir;
 use hub::{
     for_all_request_pairs2,
     messages::*,
-    player::initialize_player,
     remote::{decode_message, encode_message},
     utils::{
-        initialize_databases, Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal,
-        TaskTokens,
+        initialize_databases, player::initialize_player, Broadcaster, GlobalParams,
+        ParamsExtractor, RinfRustSignal, TaskTokens,
     },
     Signal,
 };

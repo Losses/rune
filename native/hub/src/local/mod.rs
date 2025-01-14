@@ -16,7 +16,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::listen_local_gui_event;
 use crate::messages::*;
-use crate::player::initialize_player;
+use crate::utils::player::initialize_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
 use crate::utils::GlobalParams;
