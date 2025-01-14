@@ -31,7 +31,7 @@ use hub::{
     for_all_request_pairs2,
     messages::*,
     player::initialize_player,
-    server::{decode_message, encode_message},
+    remote::{decode_message, encode_message},
     utils::{
         initialize_databases, Broadcaster, GlobalParams, ParamsExtractor, RinfRustSignal,
         TaskTokens,
