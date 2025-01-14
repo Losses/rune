@@ -443,6 +443,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
                 $m!($param1, $param2, #(#non_local_requests),*);
             };
         }
+
+        #[macro_export]
+        macro_rules! for_all_non_local_requests3 {
+            ($m:tt, $param1:expr, $param2:expr, $param3:expr) => {
+                $m!($param1, $param2, $param3, #(#non_local_requests),*);
+            };
+        }
     };
 
     TokenStream::from(expanded)
