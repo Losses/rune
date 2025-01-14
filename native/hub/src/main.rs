@@ -65,19 +65,19 @@ pub trait WebSocketMessage {
 #[macro_export]
 macro_rules! listen_server_event {
     ($server:expr, $global_params:expr, $($req:tt)*) => {
-        process_server_handlers!(@internal $server, $global_params, $($req)*);
+        process_remote_handlers!(@internal $server, $global_params, $($req)*);
     };
 }
 
 #[macro_export]
-macro_rules! process_server_handlers {
+macro_rules! process_remote_handlers {
     (@internal $server:expr, $global_params:expr, ($request:ty, $response:ty) $(, $rest:tt)*) => {
         register_single_handler!($server, $global_params, $request, with_response);
-        process_server_handlers!(@internal $server, $global_params $(, $rest)*);
+        process_remote_handlers!(@internal $server, $global_params $(, $rest)*);
     };
     (@internal $server:expr, $global_params:expr, $request:ty $(, $rest:tt)*) => {
         register_single_handler!($server, $global_params, $request, without_response);
-        process_server_handlers!(@internal $server, $global_params $(, $rest)*);
+        process_remote_handlers!(@internal $server, $global_params $(, $rest)*);
     };
     (@internal $server:expr, $global_params:expr $(,)?) => {};
 }

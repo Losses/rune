@@ -8,7 +8,7 @@ pub mod messages;
 pub mod player;
 pub mod remote;
 #[macro_use]
-mod server_request;
+mod remote_request;
 pub mod utils;
 
 use std::future::Future;

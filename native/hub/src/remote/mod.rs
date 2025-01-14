@@ -18,8 +18,8 @@ use crate::handle_single_to_remote_event;
 use crate::implement_rinf_dart_signal_trait;
 use crate::messages::*;
 use crate::process_forward_event_to_remote_handlers;
-use crate::process_server_handlers;
-use crate::register_server_handlers;
+use crate::process_remote_handlers;
+use crate::register_remote_handlers;
 use crate::utils::RinfRustSignal;
 use crate::CrashResponse;
 use crate::SfxPlayRequest;
@@ -223,7 +223,7 @@ pub async fn server_player_loop(url: String) {
         info!("Initializing bridge");
         let bridge = WebSocketDartBridge::new();
 
-        for_all_responses!(register_server_handlers, bridge);
+        for_all_responses!(register_remote_handlers, bridge);
 
         bridge.run(&url).await
     });

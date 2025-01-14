@@ -1,12 +1,12 @@
 #[macro_export]
-macro_rules! register_server_handlers {
+macro_rules! register_remote_handlers {
     ($bridge:expr) => {
-        process_server_handlers!(@internal $bridge);
+        process_remote_handlers!(@internal $bridge);
     };
 }
 
 #[macro_export]
-macro_rules! process_server_handlers {
+macro_rules! process_remote_handlers {
     (@internal $bridge:expr, $response:ty) => {
         paste::paste! {
             $bridge.register_handler::<$response>(stringify!($response)).await;
