@@ -11,10 +11,24 @@ use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use ::playback::sfx_player::SfxPlayer;
+
+use crate::forward_event_to_remote;
+use crate::handle_single_to_remote_event;
+use crate::implement_rinf_dart_signal_trait;
+use crate::messages::*;
+use crate::process_forward_event_to_remote_handlers;
 use crate::process_server_handlers;
 use crate::register_server_handlers;
 use crate::utils::RinfRustSignal;
 use crate::CrashResponse;
+use crate::SfxPlayRequest;
+
+pub trait RinfDartSignal: ProstMessage {
+    fn name(&self) -> String;
+}
+
+for_all_requests0!(implement_rinf_dart_signal_trait);
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
     let type_len = type_name.len() as u8;
@@ -99,41 +113,104 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(&self, url: &str, token: Arc<CancellationToken>) -> Result<()> {
+    pub async fn run(&self, url: &str) -> Result<()> {
         info!("Connecting to {}", url);
 
         let (ws_stream, _) = connect_async(url).await?;
         info!("WebSocket connection established");
 
-        let (mut write, mut read) = ws_stream.split();
+        let (write, mut read) = ws_stream.split();
+        let write = Arc::new(Mutex::new(write)); // Wrap `write` in Arc<Mutex<>>.
 
-        loop {
-            tokio::select! {
-                message = read.next() => {
-                    match message {
-                        Some(Ok(msg)) => {
-                            if let TungsteniteMessage::Binary(payload) = msg {
-                                if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
-                                    self.handle_message(&msg_type, msg_payload).await;
-                                }
-                            }
-                        }
-                        Some(Err(e)) => {
-                            error!("Error receiving message: {}", e);
-                            break;
-                        }
-                        None => break,
+        let cancel_token: CancellationToken = CancellationToken::new();
+
+        let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
+        let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
+
+        let cancel_token = Arc::new(cancel_token);
+
+        let cancel_token_clone = Arc::clone(&cancel_token);
+        let handle_event_close_library_request = || async move {
+            let receiver = CloseLibraryRequest::get_dart_signal_receiver();
+            loop {
+                tokio::select! {
+                    _ = cancel_token_clone.cancelled() => {
+                        break;
                     }
-                }
-                _ = token.cancelled() => {
-                    info!("Received cancel signal, closing connection");
-                    if let Err(e) = write.close().await {
-                        error!("Error closing websocket connection: {}", e);
+                    Some(_) = receiver.recv() => {
+                        cancel_token_clone.cancel();
                     }
-                    break;
                 }
             }
-        }
+        };
+
+        tokio::spawn(handle_event_close_library_request());
+
+        let cancel_token_clone = Arc::clone(&cancel_token);
+        let handle_event_sfx_play_request = || async move {
+            let receiver = SfxPlayRequest::get_dart_signal_receiver();
+            loop {
+                tokio::select! {
+                    _ = cancel_token_clone.cancelled() => {
+                        break;
+                    }
+                    Some(dart_signal) = receiver.recv() => {
+                        sfx_player
+                        .lock()
+                        .await
+                        .load(dart_signal.message.path.clone().into());
+                    }
+                }
+            }
+        };
+
+        tokio::spawn(handle_event_sfx_play_request());
+
+        for_all_non_local_requests3!(
+            forward_event_to_remote,
+            self_arc,
+            cancel_token,
+            write.clone()
+        );
+
+        let handlers = self.handlers.clone();
+        let write_clone = Arc::clone(&write);
+        let message_loop = || async move {
+            loop {
+                tokio::select! {
+                    message = read.next() => {
+                        match message {
+                            Some(Ok(msg)) => {
+                                if let TungsteniteMessage::Binary(payload) = msg {
+                                    if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
+                                        if let Some(handler) = handlers.lock().await.get(&msg_type) {
+                                            handler(msg_payload);
+                                        } else {
+                                            error!("No handler registered for message type: {}", msg_type);
+                                        }
+                                    }
+                                }
+                            }
+                            Some(Err(e)) => {
+                                error!("Error receiving message: {}", e);
+                                break;
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = cancel_token.cancelled() => {
+                        info!("Received cancel signal, closing connection");
+                        let mut write = write_clone.lock().await;
+                        if let Err(e) = write.close().await {
+                            error!("Error closing websocket connection: {}", e);
+                        }
+                        break;
+                    }
+                }
+            }
+        };
+
+        tokio::spawn(message_loop());
 
         Ok(())
     }
@@ -146,21 +223,8 @@ pub async fn server_player_loop(url: String) {
         info!("Initializing bridge");
         let bridge = WebSocketDartBridge::new();
 
-        let main_cancel_token = CancellationToken::new();
-        let main_cancel_token = Arc::new(main_cancel_token);
-
-        // Clone token for the closure
-        let token_clone = main_cancel_token.clone();
-
         for_all_responses!(register_server_handlers, bridge);
 
-        bridge.handlers.lock().await.insert(
-            "CloseLibraryRequest".to_owned(),
-            Box::new(move |_payload: Vec<u8>| {
-                token_clone.cancel();
-            }),
-        );
-
-        bridge.run(&url, main_cancel_token).await
+        bridge.run(&url).await
     });
 }

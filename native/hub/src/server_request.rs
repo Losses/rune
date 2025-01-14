@@ -30,43 +30,59 @@ macro_rules! implement_rinf_dart_signal_trait {
 
 #[macro_export]
 macro_rules! forward_event_to_remote {
-    ($bridge:expr, $cancel_token: expr) => {
-        process_forward_event_to_remote_handlers!(@internal $bridge, $cancel_token);
+    ($bridge:expr, $cancel_token:expr, $write:expr, $($request:ty),* $(,)?) => {
+        $(
+            process_forward_event_to_remote_handlers!(@internal $bridge, $cancel_token, $write, $request);
+        )*
     };
 }
 
 #[macro_export]
 macro_rules! process_forward_event_to_remote_handlers {
-    (@internal $bridge:expr, $cancel_token: expr, $response:ty) => {
+    (@internal $bridge:expr, $cancel_token:expr, $write:expr, $request:ty) => {
         paste::paste! {
-            handle_single_to_remote_event!($bridge, $response).await;
+            handle_single_to_remote_event!($bridge, $cancel_token, $write, $request);
         }
     };
-    (@internal $bridge:expr, $cancel_token: expr $(,)?) => {};
+    (@internal $bridge:expr, $cancel_token:expr, $write:expr $(,)?) => {};
 }
 
 #[macro_export]
 macro_rules! handle_single_to_remote_event {
-    (@internal $bridge:expr, $cancel_token:expr, $response:ty) => {
+    ($bridge:expr, $cancel_token:expr, $write:expr, $request:ty) => {
         paste::paste! {
-            async fn [<handle_event_ $request:snake>](global_params: Arc<GlobalParams>) {
+            let [<cancel_token_ $request:snake>] = Arc::clone(&$cancel_token);
+            let write_clone = Arc::clone(&$write);
+            let [<handle_event_ $request:snake>] = || async move {
                 let receiver = <$request>::get_dart_signal_receiver();
                 loop {
                     tokio::select! {
-                        // Check if cancel token is triggered
-                        _ = $cancel_token.cancelled() => {
+                        _ = [<cancel_token_ $request:snake>].cancelled() => {
                             break;
                         }
-                        // Try to receive message
                         Some(dart_signal) = receiver.recv() => {
-                            $bridge.send_message(dart_signal);
+                            // Encode the message
+                            let payload = dart_signal.binary;
+
+                            let type_name = dart_signal.message.name();
+                            let encoded_message = encode_message(&type_name, &payload, Some(Uuid::new_v4()));
+
+                            // Send the message
+                            let result = write_clone.lock().await
+                                .send(TungsteniteMessage::Binary(encoded_message.into()))
+                                .await;
+
+                            if let Err(e) = result {
+                                CrashResponse {
+                                    detail: format!("Failed to send message: {}", e),
+                                }.send();
+                            }
                         }
-                        // If channel is closed
-                        else => break
                     }
                 }
-            }
-            tokio::spawn([<handle_event_ $request:snake>]($global_params.clone()));
+            };
+
+            tokio::spawn([<handle_event_ $request:snake>]());
         }
     };
     (@internal $bridge:expr $(,)?) => {};
