@@ -6,9 +6,8 @@ mod handlers;
 mod local;
 pub mod messages;
 pub mod player;
-pub mod remote;
 #[macro_use]
-mod remote_request;
+pub mod remote;
 pub mod utils;
 
 use std::future::Future;

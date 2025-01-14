@@ -1,3 +1,6 @@
+#[macro_use]
+mod remote_request;
+
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
