@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
 use tokio_util::sync::CancellationToken;
 use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
+use tracing_subscriber::EnvFilter;
 
 use hub::{
     for_all_request_pairs2, handle_server_response, listen_server_event,
@@ -250,6 +251,15 @@ async fn serve_websocket(server: Arc<WebSocketService>, addr: SocketAddr) {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let filter = EnvFilter::new(
+        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",
+    );
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_test_writer()
+        .init();
+
     let matches = Command::new("Rune")
         .author("Rune Developers")
         .arg(
@@ -262,18 +272,15 @@ async fn main() -> Result<()> {
         )
         .arg(
             Arg::new("lib_path")
-                .short('l')
-                .long("lib_path")
                 .value_name("LIB_PATH")
-                .help("Library path"),
+                .help("Library path")
+                .required(true)
+                .index(1),
         )
         .get_matches();
 
     let addr: SocketAddr = matches.get_one::<String>("addr").unwrap().parse()?;
-    let default_lib_path = "/".to_string();
-    let lib_path = matches
-        .get_one::<String>("lib_path")
-        .unwrap_or(&default_lib_path);
+    let lib_path = matches.get_one::<String>("lib_path").unwrap();
 
     let app_state = Arc::new(AppState {
         lib_path: PathBuf::from(lib_path),
