@@ -234,7 +234,7 @@ struct AppState {
 
 async fn serve_http(app_state: Arc<AppState>, addr: SocketAddr) {
     let app = Router::new()
-        .route("/files/*file_path", get(serve_file))
+        .route("/files/{*file_path}", get(serve_file))
         .with_state(app_state);
 
     info!("Starting HTTP server on {}", addr);
