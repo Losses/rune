@@ -1,12 +1,15 @@
 use std::{
-    collections::HashMap, future::Future, io::Error as IoError, net::SocketAddr, path::PathBuf,
-    pin::Pin, sync::Arc, time::Duration,
+    collections::HashMap, future::Future, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc,
+    time::Duration,
 };
 
 use anyhow::Result;
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{
+        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+        Path, State,
+    },
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -14,15 +17,13 @@ use axum::{
 };
 use clap::{Arg, Command};
 use dunce::canonicalize;
-use futures_channel::mpsc::{unbounded, UnboundedSender};
-use futures_util::{future, pin_mut, stream::TryStreamExt, StreamExt};
+use futures_util::SinkExt;
+use futures_util::StreamExt;
 use log::{error, info};
 use prost::Message;
-use tokio::{
-    net::{TcpListener, TcpStream},
-    sync::Mutex,
-};
-use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
@@ -49,8 +50,7 @@ type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, Vec<u8>> + Send + Syn
 type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-type Tx = UnboundedSender<TungsteniteMessage>;
-type PeerMap = Arc<Mutex<HashMap<SocketAddr, Tx>>>;
+type BroadcastTx = broadcast::Sender<Vec<u8>>;
 
 pub trait RequestHandler: Send + Sync + 'static {
     type Params;
@@ -59,42 +59,17 @@ pub trait RequestHandler: Send + Sync + 'static {
     fn handle(&self, params: Self::Params) -> Result<Option<Self::Response>, anyhow::Error>;
 }
 
-pub trait WebSocketMessage {
-    fn get_type() -> &'static str;
-}
-
-impl Broadcaster for WebSocketService {
-    fn broadcast(&self, message: &dyn RinfRustSignal) {
-        let peer_map = self.peer_map.clone();
-
-        let type_name = message.name();
-        let payload = message.encode_message();
-
-        let message_data = encode_message(&type_name, &payload, None);
-
-        let ws_message = TungsteniteMessage::Binary(message_data.into());
-
-        tokio::spawn(async move {
-            let peers = peer_map.lock().await;
-            for (addr, tx) in peers.iter() {
-                if let Err(e) = tx.unbounded_send(ws_message.clone()) {
-                    error!("Failed to broadcast message to {}: {}", addr, e);
-                }
-            }
-        });
-    }
-}
-
 struct WebSocketService {
     handlers: HandlerMap,
-    peer_map: PeerMap,
+    broadcast_tx: BroadcastTx,
 }
 
 impl WebSocketService {
     fn new() -> Self {
+        let (broadcast_tx, _) = broadcast::channel(100);
         WebSocketService {
             handlers: Arc::new(Mutex::new(HashMap::new())),
-            peer_map: Arc::new(Mutex::new(HashMap::new())),
+            broadcast_tx,
         }
     }
 
@@ -114,73 +89,17 @@ impl WebSocketService {
         let handler = handlers.get(msg_type)?;
         Some(handler(payload).await)
     }
+}
 
-    async fn handle_connection(&self, raw_stream: TcpStream, addr: SocketAddr) {
-        info!("Incoming TCP connection from: {}", addr);
+impl Broadcaster for WebSocketService {
+    fn broadcast(&self, message: &dyn RinfRustSignal) {
+        let type_name = message.name();
+        let payload = message.encode_message();
+        let message_data = encode_message(&type_name, &payload, None);
 
-        let ws_stream = tokio_tungstenite::accept_async(raw_stream)
-            .await
-            .expect("Error during the websocket handshake occurred");
-        info!("WebSocket connection established: {}", addr);
-
-        let (tx, rx) = unbounded();
-        self.peer_map.lock().await.insert(addr, tx);
-
-        let (outgoing, incoming) = ws_stream.split();
-
-        let broadcast_incoming = incoming.try_for_each_concurrent(None, |msg| async move {
-            let payload = msg.into_data();
-
-            // The format of the message is: [type_length(1 byte)][type_string][payload]
-            if payload.is_empty() {
-                return Ok(());
-            }
-
-            let type_len = payload[0] as usize;
-            if payload.len() < 1 + type_len {
-                return Ok(());
-            }
-
-            if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
-                info!("Received message type: {} from: {}", msg_type, addr);
-
-                if let Some(response) = self.handle_message(&msg_type, msg_payload).await {
-                    // Building response
-                    let response_payload = encode_message(&msg_type, &response, Some(uuid));
-
-                    if let Some(peer_tx) = self.peer_map.lock().await.get(&addr) {
-                        peer_tx
-                            .unbounded_send(TungsteniteMessage::Binary(response_payload.into()))
-                            .unwrap_or_else(|e| error!("Failed to send response: {}", e));
-                    }
-                }
-            }
-
-            Ok(())
-        });
-
-        let receive_from_others = rx.map(Ok).forward(outgoing);
-
-        pin_mut!(broadcast_incoming, receive_from_others);
-        future::select(broadcast_incoming, receive_from_others).await;
-
-        info!("{} disconnected", &addr);
-        self.peer_map.lock().await.remove(&addr);
-    }
-
-    async fn run(&self, addr: &str) -> Result<(), IoError> {
-        let try_socket = TcpListener::bind(addr).await;
-        let listener = try_socket.expect("Failed to bind");
-        info!("Listening on: {}", addr);
-
-        while let Ok((stream, addr)) = listener.accept().await {
-            let server = self.clone();
-            tokio::spawn(async move {
-                server.handle_connection(stream, addr).await;
-            });
+        if let Err(e) = self.broadcast_tx.send(message_data) {
+            error!("Failed to broadcast message: {}", e);
         }
-
-        Ok(())
     }
 }
 
@@ -188,17 +107,101 @@ impl Clone for WebSocketService {
     fn clone(&self) -> Self {
         WebSocketService {
             handlers: self.handlers.clone(),
-            peer_map: self.peer_map.clone(),
+            broadcast_tx: self.broadcast_tx.clone(),
         }
     }
 }
 
+struct ServerState {
+    app_state: Arc<AppState>,
+    websocket_service: Arc<WebSocketService>,
+}
+
+async fn websocket_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<ServerState>>,
+) -> Response {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
+    let (tx, mut rx) = mpsc::channel(32);
+
+    // Spawn a task to handle sending messages
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if let Err(e) = sender.send(msg).await {
+                error!("Failed to send message: {}", e);
+                break;
+            }
+        }
+    });
+
+    // Handle incoming messages
+    let incoming_tx = tx.clone();
+    let incoming = async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            if let WsMessage::Binary(payload) = msg {
+                if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
+                    info!("Received message type: {}", msg_type);
+
+                    if let Some(response) = state
+                        .websocket_service
+                        .handle_message(&msg_type, msg_payload)
+                        .await
+                    {
+                        let response_payload = encode_message(&msg_type, &response, Some(uuid));
+                        if let Err(e) = incoming_tx
+                            .send(WsMessage::Binary(response_payload.into()))
+                            .await
+                        {
+                            error!("Failed to queue response: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(incoming_tx);
+    };
+
+    // Handle broadcast messages
+    let broadcast_tx = tx.clone();
+    let outgoing = async move {
+        while let Ok(msg) = broadcast_rx.recv().await {
+            if let Err(e) = broadcast_tx.send(WsMessage::Binary(msg.into())).await {
+                error!("Failed to queue broadcast: {}", e);
+                break;
+            }
+        }
+
+        drop(broadcast_tx);
+    };
+
+    // Drop the original tx as we've cloned it for both tasks
+    drop(tx);
+
+    // Run tasks concurrently
+    tokio::select! {
+        _ = incoming => {},
+        _ = outgoing => {},
+    };
+
+    // Wait for the send task to complete
+    let _ = send_task.await;
+
+    info!("WebSocket connection closed");
+}
+
 async fn serve_file(
     Path(file_path): Path<String>,
-    State(state): State<Arc<AppState>>,
+    State(state): State<Arc<ServerState>>,
 ) -> impl IntoResponse {
-    let lib_path = &state.lib_path;
-    let cover_temp_dir = &state.cover_temp_dir;
+    let lib_path = &state.app_state.lib_path;
+    let cover_temp_dir = &state.app_state.cover_temp_dir;
 
     let requested_path = PathBuf::from(file_path);
 
@@ -232,21 +235,26 @@ struct AppState {
     cover_temp_dir: PathBuf,
 }
 
-async fn serve_http(app_state: Arc<AppState>, addr: SocketAddr) {
-    let app = Router::new()
-        .route("/files/{*file_path}", get(serve_file))
-        .with_state(app_state);
+async fn serve_combined(
+    app_state: Arc<AppState>,
+    websocket_service: Arc<WebSocketService>,
+    addr: SocketAddr,
+) {
+    let server_state = Arc::new(ServerState {
+        app_state: app_state.clone(),
+        websocket_service,
+    });
 
-    info!("Starting HTTP server on {}", addr);
+    let app = Router::new()
+        .route("/ws", get(websocket_handler))
+        .route("/files/{*file_path}", get(serve_file))
+        .with_state(server_state);
+
+    info!("Starting combined HTTP/WebSocket server on {}", addr);
     axum_server::bind(addr)
         .serve(app.into_make_service())
         .await
         .unwrap();
-}
-
-async fn serve_websocket(server: Arc<WebSocketService>, addr: SocketAddr) {
-    info!("Starting WebSocket server on {}", addr);
-    server.run(&addr.to_string()).await.unwrap();
 }
 
 #[tokio::main]
@@ -287,18 +295,8 @@ async fn main() -> Result<()> {
         cover_temp_dir: COVER_TEMP_DIR.to_path_buf(),
     });
 
-    let http_state = app_state.clone();
-    let http_addr = addr;
-    let http_handle = tokio::spawn(async move {
-        serve_http(http_state, http_addr).await;
-    });
-
     let websocket_service = initialize_websocket_service(lib_path).await?;
-    let ws_handle = tokio::spawn(async move {
-        serve_websocket(websocket_service, addr).await;
-    });
-
-    tokio::try_join!(http_handle, ws_handle)?;
+    serve_combined(app_state, websocket_service, addr).await;
 
     Ok(())
 }

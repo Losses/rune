@@ -44,7 +44,7 @@ strum = "0.26.3"
 strum_macros = "0.26.4"
 requests = { path = "../requests" }
 clap = "4.5.26"
-axum = "0.8.1"
+axum = { version = "0.8.1", features = ["ws"] }
 tower = "0.5.2"
 tower-http ={ version = "0.6.2", features = ["fs"] }
 axum-server = "0.7.1"
