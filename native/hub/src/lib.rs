@@ -1,13 +1,14 @@
 mod apple_bridge;
 #[macro_use]
-mod gui_request;
+mod macros;
 mod handlers;
+#[macro_use]
 mod local;
 pub mod messages;
-pub mod player;
-pub mod server;
 #[macro_use]
-mod server_request;
+pub mod remote;
+#[macro_use]
+pub mod server;
 pub mod utils;
 
 use std::future::Future;

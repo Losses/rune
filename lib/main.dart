@@ -170,10 +170,12 @@ void main(List<String> arguments) async {
   );
 
   if (isDesktop) {
+    final icon = TrayManager.getTrayIcon();
     await systemTray.initSystemTray(
       title: Platform.isMacOS ? null : 'Rune',
-      iconPath: TrayManager.getTrayIconPath(),
+      iconPath: icon.path,
       isTemplate: true,
+      isInstalled: icon.isInstalled,
     );
 
     final Menu menu = Menu();

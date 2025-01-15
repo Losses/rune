@@ -1,3 +1,6 @@
+#[macro_use]
+mod gui_request;
+
 use std::sync::Arc;
 
 use log::{error, info};
@@ -13,7 +16,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::listen_local_gui_event;
 use crate::messages::*;
-use crate::player::initialize_player;
+use crate::utils::player::initialize_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
 use crate::utils::GlobalParams;
@@ -64,7 +67,7 @@ pub async fn local_player_loop(
             lib_path,
             main_db,
             recommend_db,
-            main_token: main_cancel_token,
+            main_token: Arc::clone(&main_cancel_token),
             task_tokens,
             player,
             sfx_player,
@@ -72,6 +75,6 @@ pub async fn local_player_loop(
             broadcaster,
         });
 
-        for_all_request_pairs!(listen_local_gui_event, global_params);
+        for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     });
 }
