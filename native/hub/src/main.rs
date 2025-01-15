@@ -17,13 +17,10 @@ use axum::{
 };
 use clap::{Arg, Command};
 use dunce::canonicalize;
-use futures_util::SinkExt;
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use log::{error, info};
 use prost::Message;
-use tokio::sync::broadcast;
-use tokio::sync::mpsc;
-use tokio::sync::Mutex;
+use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tower::util::ServiceExt;
 use tower_http::services::ServeDir;
