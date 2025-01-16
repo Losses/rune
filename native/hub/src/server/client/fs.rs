@@ -127,6 +127,104 @@ impl VirtualFS {
         Ok(Vec::new())
     }
 
+    pub async fn verify_group_exists(
+        &self,
+        collection_type: CollectionType,
+        group_name: &str,
+    ) -> Result<bool> {
+        let request = FetchCollectionGroupSummaryRequest {
+            collection_type: collection_type as i32,
+        };
+
+        let response: CollectionGroupSummaryResponse = self
+            .connection
+            .request("FetchCollectionGroupSummaryRequest", request)
+            .await?;
+
+        Ok(response
+            .groups
+            .iter()
+            .any(|group| group.group_title == group_name))
+    }
+
+    pub async fn verify_collection_exists(
+        &self,
+        collection_type: CollectionType,
+        group_name: &str,
+        collection_name: &str,
+    ) -> Result<bool> {
+        let request = FetchCollectionGroupsRequest {
+            collection_type: collection_type as i32,
+            bake_cover_arts: false,
+            group_titles: vec![group_name.to_string()],
+        };
+
+        let response: FetchCollectionGroupsResponse = self
+            .connection
+            .request("FetchCollectionGroupsRequest", request)
+            .await?;
+
+        Ok(response
+            .groups
+            .iter()
+            .flat_map(|group| &group.collections)
+            .any(|collection| collection.name == collection_name))
+    }
+
+    pub async fn validate_path(&self, new_path: &Path) -> Result<bool> {
+        match new_path.components().count() {
+            // Root path is always valid
+            1 => Ok(true),
+            // First level directories must be in root_dirs
+            2 => Ok(self.root_dirs.contains(
+                &new_path
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_string_lossy()
+                    .to_string(),
+            )),
+            // Second level directories (groups) must exist in the server
+            3 => {
+                let collection_type = self
+                    .path_to_collection_type(new_path)
+                    .ok_or_else(|| anyhow!("Invalid collection type"))?;
+                let group_name = new_path
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Invalid group name"))?;
+                self.verify_group_exists(collection_type, group_name).await
+            }
+            // Third level (individual collections) must exist in the server
+            4 => {
+                let collection_type = self
+                    .path_to_collection_type(new_path)
+                    .ok_or_else(|| anyhow!("Invalid collection type"))?;
+                let group_name = new_path
+                    .components()
+                    .nth(2)
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Invalid group name"))?;
+                let collection_name = new_path
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Invalid collection name"))?;
+                self.verify_collection_exists(collection_type, group_name, collection_name)
+                    .await
+            }
+            _ => Ok(false),
+        }
+    }
+
     pub fn current_dir(&self) -> &Path {
         &self.current_path
     }

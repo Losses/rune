@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
@@ -26,26 +27,34 @@ pub async fn execute(
         }
         Command::Pwd => {
             let fs = fs.read().await;
-            println!("Current directory: {:?}", fs.current_dir());
+            println!("Current directory: {}", fs.current_dir().to_string_lossy());
             Ok(true)
         }
         Command::Cd { path } => {
             let mut fs = fs.write().await;
-            match path.as_str() {
+            let new_path = match path.as_str() {
                 ".." => {
                     if fs.current_path != std::path::Path::new("/") {
-                        fs.current_path.pop();
-                    }
-                }
-                "/" => {
-                    fs.current_path = std::path::PathBuf::from("/");
-                }
-                _ => {
-                    if fs.root_dirs.contains(&path) {
-                        fs.current_path = std::path::PathBuf::from("/").join(path);
+                        let mut new_path = fs.current_path.clone();
+                        new_path.pop();
+                        new_path
                     } else {
-                        println!("Directory not found: {}", path);
+                        fs.current_path.clone()
                     }
+                }
+                "/" => PathBuf::from("/"),
+                path => fs.current_path.join(path),
+            };
+
+            match fs.validate_path(&new_path).await {
+                Ok(true) => {
+                    fs.current_path = new_path;
+                }
+                Ok(false) => {
+                    println!("Directory not found: {}", path);
+                }
+                Err(e) => {
+                    println!("Error validating path: {}", e);
                 }
             }
             Ok(true)

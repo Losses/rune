@@ -250,7 +250,6 @@ impl Signal for FetchCollectionGroupSummaryRequest {
         (main_db,): Self::Params,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
-        println!("!!!!!!!!!!!!!!!11");
         match dart_signal.collection_type {
             0 => handle_fetch_group_summary::<albums::Model>(&main_db).await,
             1 => handle_fetch_group_summary::<artists::Model>(&main_db).await,
