@@ -12,6 +12,10 @@ build = "build.rs"
 # `staticlib` is for iOS and macOS.
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[[bin]]
+name = "rune-server"
+path = "src/server/main.rs"
+
 [dependencies]
 rinf = "7.0.2"
 prost = "0.12.6"
