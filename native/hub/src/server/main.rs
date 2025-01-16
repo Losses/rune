@@ -139,6 +139,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
     // Handle incoming messages
     let incoming_tx = tx.clone();
     let incoming = async move {
+        info!("WebSocket connection established");
         while let Some(Ok(msg)) = receiver.next().await {
             if let WsMessage::Binary(payload) = msg {
                 if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
