@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use clap::Parser;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
@@ -14,14 +15,31 @@ use cli::Command;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
 
+/// Program arguments
+#[derive(Parser)]
+struct Args {
+    /// Service URL
+    #[arg(help = "The URL of the service")]
+    service_url: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging()?;
+
+    // Parse command line arguments
+    let args = Args::parse();
+
+    // Use the service URL from arguments
+    let service_url = args.service_url;
+
     let config = EditorConfig::default();
     let fs = Arc::new(RwLock::new(VirtualFS::new()));
     let mut editor = create_editor(config, fs.clone())?;
 
     println!("Welcome to the Rune Speaker Command Line Interface");
+    println!("Service URL: {}", service_url);
+    println!();
     println!("Type 'help' to see available commands");
 
     loop {
