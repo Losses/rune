@@ -36,10 +36,17 @@ pub async fn execute(
                         let column_spacing = 2;
 
                         // Calculate the width of the longest entry
-                        let max_name_width =
-                            entries.iter().map(|e| e.name.width()).max().unwrap_or(0);
+                        let max_display_width = entries
+                            .iter()
+                            .map(|e| {
+                                let id_width =
+                                    e.id.map(|id| format!("[{}] ", id).width()).unwrap_or(0);
+                                e.name.width() + id_width
+                            })
+                            .max()
+                            .unwrap_or(0);
 
-                        let column_width = max_name_width + column_spacing;
+                        let column_width = max_display_width + column_spacing;
 
                         // Calculate the number of entries per line
                         let cols = std::cmp::max(1, term_width / column_width);
@@ -47,15 +54,21 @@ pub async fn execute(
                         // Prepare for display
                         let mut current_col = 0;
                         for entry in entries {
+                            let id_str = entry
+                                .id
+                                .map(|id| format!("[{}] ", id).yellow().to_string())
+                                .unwrap_or_default();
+
                             let name = if entry.is_directory {
                                 entry.name.blue().bold().to_string()
                             } else {
                                 entry.name.clone()
                             };
 
-                            let display_width = entry.name.width();
+                            let display_width = id_str.width() + entry.name.width();
 
-                            print!("{}", name);
+                            print!("{}{}", id_str, name);
+
                             for _ in 0..(column_width - display_width) {
                                 print!(" ");
                             }
