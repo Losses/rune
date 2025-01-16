@@ -23,7 +23,7 @@ pub async fn execute(
                             let entry_type = if entry.is_directory { "DIR" } else { "FILE" };
                             let id_str =
                                 entry.id.map(|id| format!(" [{}]", id)).unwrap_or_default();
-                            println!("{:<4} {}{}", entry_type, entry.name, id_str);
+                            println!("{:<4} {}{}", entry_type, id_str, entry.name);
                         }
                     } else {
                         // Simple mode (ls)
