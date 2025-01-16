@@ -1089,6 +1089,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b63caa9aa9397e2d9480a9b13673856c78d8ac123288526c37d7839f2a86990"
 
 [[package]]
+name = "colored"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
+dependencies = [
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "combine"
 version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2338,6 +2347,7 @@ dependencies = [
  "axum-server",
  "chrono",
  "clap",
+ "colored",
  "database",
  "dunce",
  "futures",
@@ -2364,6 +2374,7 @@ dependencies = [
  "strum_macros",
  "swift-rs",
  "sysinfo",
+ "term_size",
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
@@ -2372,6 +2383,7 @@ dependencies = [
  "tracing-appender",
  "tracing-logcat",
  "tracing-subscriber",
+ "unicode-width 0.2.0",
  "url",
  "uuid",
  "vergen-git2",
@@ -5957,6 +5969,16 @@ checksum = "c59df8ac95d96ff9bede18eb7300b0fda5e5d8d90960e76f8e14ae765eedbf1f"
 dependencies = [
  "dirs-next",
  "rustversion",
+ "winapi",
+]
+
+[[package]]
+name = "term_size"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e4129646ca0ed8f45d09b929036bafad5377103edd06e50bf574b353d2b08d9"
+dependencies = [
+ "libc",
  "winapi",
 ]
 

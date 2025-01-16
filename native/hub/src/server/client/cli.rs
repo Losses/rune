@@ -4,7 +4,11 @@ use clap::{CommandFactory, FromArgMatches, Parser};
 #[command(name = "rune-speaker-client")]
 pub enum Command {
     /// List contents of current directory
-    Ls,
+    Ls {
+        /// Use long listing format
+        #[arg(short = 'l', default_value_t = false)]
+        long: bool,
+    },
     /// Print current working directory
     Pwd,
     /// Change directory
