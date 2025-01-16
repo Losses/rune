@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use clap::CommandFactory;
 use tokio::sync::RwLock;
 
 use crate::cli::Command;
@@ -45,11 +44,6 @@ pub async fn execute(
                     }
                 }
             }
-            Ok(true)
-        }
-        Command::Help => {
-            let mut cmd = Command::command();
-            cmd.print_help()?;
             Ok(true)
         }
         Command::Quit => Ok(false),

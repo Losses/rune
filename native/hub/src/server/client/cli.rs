@@ -1,7 +1,7 @@
 use clap::{CommandFactory, FromArgMatches, Parser};
 
 #[derive(Debug, Parser)]
-#[command(name = "rune-speaker")]
+#[command(name = "rune-speaker-client")]
 pub enum Command {
     /// List contents of current directory
     Ls,
@@ -12,8 +12,6 @@ pub enum Command {
         /// Directory to change to
         path: String,
     },
-    /// Show help information
-    Help,
     /// Exit the program
     Quit,
 }

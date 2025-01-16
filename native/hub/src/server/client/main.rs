@@ -1,4 +1,3 @@
-// src/main.rs
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -31,6 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs.current_dir()
         };
         let prompt = format!("{}> ", current_dir);
+
+        if let Some(helper) = editor.helper_mut() {
+            helper.set_colored_prompt(prompt.clone());
+        }
 
         match editor.readline(&prompt) {
             Ok(line) => {

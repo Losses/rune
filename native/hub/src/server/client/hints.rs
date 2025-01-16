@@ -29,6 +29,10 @@ impl DIYHinter {
             fs,
         }
     }
+
+    pub fn set_colored_prompt(&mut self, prompt: String) {
+        self.colored_prompt = format!("\x1b[1;32m{}\x1b[0m", prompt);
+    }
 }
 
 impl Hinter for DIYHinter {
