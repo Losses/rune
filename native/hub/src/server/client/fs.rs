@@ -119,7 +119,7 @@ impl VirtualFS {
                 .map(|collection| VirtualEntry {
                     name: collection.name,
                     id: Some(collection.id),
-                    is_directory: false,
+                    is_directory: true,
                 })
                 .collect());
         }
