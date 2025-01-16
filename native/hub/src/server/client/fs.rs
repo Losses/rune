@@ -76,7 +76,7 @@ impl VirtualFS {
 
             let response: CollectionGroupSummaryResponse = self
                 .connection
-                .request("FetchCollectionGroupSummary", request)
+                .request("FetchCollectionGroupSummaryRequest", request)
                 .await?;
 
             return Ok(response
@@ -109,7 +109,7 @@ impl VirtualFS {
 
             let response: FetchCollectionGroupsResponse = self
                 .connection
-                .request("FetchCollectionGroups", request)
+                .request("FetchCollectionGroupsRequest", request)
                 .await?;
 
             return Ok(response
