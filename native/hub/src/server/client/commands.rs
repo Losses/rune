@@ -12,17 +12,21 @@ pub async fn execute(
     match command {
         Command::Ls => {
             let fs = fs.read().await;
-            let entries = fs.list_current_dir().await;
-            for entry in entries {
-                let entry_type = if entry.is_directory { "DIR" } else { "FILE" };
-                let id_str = entry.id.map(|id| format!(" [{}]", id)).unwrap_or_default();
-                println!("{:<4} {}{}", entry_type, entry.name, id_str);
+            match fs.list_current_dir().await {
+                Ok(entries) => {
+                    for entry in entries {
+                        let entry_type = if entry.is_directory { "DIR" } else { "FILE" };
+                        let id_str = entry.id.map(|id| format!(" [{}]", id)).unwrap_or_default();
+                        println!("{:<4} {}{}", entry_type, entry.name, id_str);
+                    }
+                }
+                Err(e) => eprintln!("Error listing directory: {}", e),
             }
             Ok(true)
         }
         Command::Pwd => {
             let fs = fs.read().await;
-            println!("Current directory: {}", fs.current_dir());
+            println!("Current directory: {:?}", fs.current_dir());
             Ok(true)
         }
         Command::Cd { path } => {

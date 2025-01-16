@@ -1,5 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use anyhow::{anyhow, Result};
+
+use hub::messages::*;
+
+use crate::connection::WSConnection;
 
 #[derive(Clone, Debug)]
 pub struct VirtualEntry {
@@ -12,10 +19,11 @@ pub struct VirtualFS {
     pub current_path: PathBuf,
     pub root_dirs: Vec<String>,
     pub subdirs: HashMap<String, Vec<VirtualEntry>>,
+    connection: Arc<WSConnection>,
 }
 
 impl VirtualFS {
-    pub fn new() -> Self {
+    pub fn new(connection: Arc<WSConnection>) -> Self {
         let root_dirs = vec![
             "Artists".to_string(),
             "Playlists".to_string(),
@@ -28,16 +36,24 @@ impl VirtualFS {
             current_path: PathBuf::from("/"),
             root_dirs,
             subdirs: HashMap::new(),
+            connection,
         }
     }
 
-    pub fn current_dir(&self) -> String {
-        self.current_path.to_string_lossy().to_string()
+    fn path_to_collection_type(&self, path: &Path) -> Option<CollectionType> {
+        match path.components().nth(1)?.as_os_str().to_str()? {
+            "Albums" => Some(CollectionType::Album),
+            "Artists" => Some(CollectionType::Artist),
+            "Playlists" => Some(CollectionType::Playlist),
+            "Mixes" => Some(CollectionType::Mix),
+            "Tracks" => Some(CollectionType::Track),
+            _ => None,
+        }
     }
 
-    pub async fn list_current_dir(&self) -> Vec<VirtualEntry> {
+    pub async fn list_current_dir(&self) -> Result<Vec<VirtualEntry>> {
         if self.current_path == Path::new("/") {
-            return self
+            return Ok(self
                 .root_dirs
                 .iter()
                 .map(|name| VirtualEntry {
@@ -45,23 +61,73 @@ impl VirtualFS {
                     id: None,
                     is_directory: true,
                 })
-                .collect();
+                .collect());
         }
 
-        let current_dir = self
-            .current_path
-            .components()
-            .last()
-            .unwrap()
-            .as_os_str()
-            .to_string_lossy()
-            .to_string();
+        let collection_type = self
+            .path_to_collection_type(&self.current_path)
+            .ok_or_else(|| anyhow!("Invalid path"))?;
 
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        // If we're at the root of a collection type (e.g., /Artists)
+        if self.current_path.components().count() == 2 {
+            let request = FetchCollectionGroupSummaryRequest {
+                collection_type: collection_type as i32,
+            };
 
-        self.subdirs
-            .get(&current_dir)
-            .cloned()
-            .unwrap_or_else(std::vec::Vec::new)
+            let response: CollectionGroupSummaryResponse = self
+                .connection
+                .request("FetchCollectionGroupSummary", request)
+                .await?;
+
+            return Ok(response
+                .groups
+                .into_iter()
+                .map(|group| VirtualEntry {
+                    name: group.group_title,
+                    id: None,
+                    is_directory: true,
+                })
+                .collect());
+        }
+
+        // If we're in a group (e.g., /Artists/Rock)
+        if self.current_path.components().count() == 3 {
+            let group_title = self
+                .current_path
+                .components()
+                .last()
+                .unwrap()
+                .as_os_str()
+                .to_str()
+                .unwrap();
+
+            let request = FetchCollectionGroupsRequest {
+                collection_type: collection_type as i32,
+                bake_cover_arts: false,
+                group_titles: vec![group_title.to_string()],
+            };
+
+            let response: FetchCollectionGroupsResponse = self
+                .connection
+                .request("FetchCollectionGroups", request)
+                .await?;
+
+            return Ok(response
+                .groups
+                .into_iter()
+                .flat_map(|group| group.collections)
+                .map(|collection| VirtualEntry {
+                    name: collection.name,
+                    id: Some(collection.id),
+                    is_directory: false,
+                })
+                .collect());
+        }
+
+        Ok(Vec::new())
+    }
+
+    pub fn current_dir(&self) -> &Path {
+        &self.current_path
     }
 }
