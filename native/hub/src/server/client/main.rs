@@ -66,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fs_read_guard.current_dir().to_owned()
         };
 
-        let prompt = format!("{:?}> ", current_dir);
+        let prompt = format!("{}> ", current_dir.to_string_lossy());
 
         if let Some(helper) = editor.helper_mut() {
             helper.set_colored_prompt(prompt.clone());
