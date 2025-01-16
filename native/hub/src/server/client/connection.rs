@@ -1,8 +1,9 @@
-use std::collections::HashMap;
 use std::sync::Arc;
+use std::{collections::HashMap, process::exit};
 
 use anyhow::{anyhow, Result};
 use futures::{SinkExt, StreamExt};
+use log::error;
 use prost::Message as ProstMessage;
 use tokio::sync::{mpsc, RwLock};
 use tokio_tungstenite::{connect_async, tungstenite};
@@ -52,8 +53,8 @@ impl WSConnection {
                     }
                     Ok(Message::Close(_)) => break,
                     Err(e) => {
-                        eprintln!("Error receiving message: {}", e);
-                        break;
+                        error!("Error receiving message: {}", e);
+                        exit(0);
                     }
                     _ => {}
                 }

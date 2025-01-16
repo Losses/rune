@@ -158,6 +158,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
                             error!("Failed to queue response: {}", e);
                             break;
                         }
+                    } else {
+                        info!("No result returned: {}", msg_type);
                     }
                 }
             }
