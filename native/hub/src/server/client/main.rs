@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use clap::Parser;
+use log::error;
 use regex::Regex;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
@@ -32,15 +33,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Validate and format the service URL
-    let service_url = validate_and_format_url(&args.service_url)?;
+    let service_url = match validate_and_format_url(&args.service_url) {
+        Ok(x) => x,
+        Err(e) => {
+            error!("{}", e);
+            return Ok(());
+        }
+    };
 
-    println!("Service URL: {}", service_url);
-
+    
     let config = EditorConfig::default();
     let fs = Arc::new(RwLock::new(VirtualFS::new()));
     let mut editor = create_editor(config, fs.clone())?;
-
+    
     println!("Welcome to the Rune Speaker Command Line Interface");
+    println!("Service URL: {}", service_url);
+    println!();
     println!("Type 'help' to see available commands");
 
     loop {
