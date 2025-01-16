@@ -43,15 +43,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    let config = EditorConfig::default();
-    let connection = Arc::new(WSConnection::connect(service_url.clone()).await?);
-    let fs = Arc::new(RwLock::new(VirtualFS::new(connection)));
-    let mut editor = create_editor(config, fs.clone())?;
-
     println!("Welcome to the Rune Speaker Command Line Interface");
     println!("Service URL: {}", service_url);
     println!();
     println!("Type 'help' to see available commands");
+
+    let config = EditorConfig::default();
+    let connection = match WSConnection::connect(service_url.clone()).await {
+        Ok(x) => x,
+        Err(e) => {
+            error!("{}", e);
+            return Ok(());
+        }
+    };
+    let connection = Arc::new(connection);
+    let fs = Arc::new(RwLock::new(VirtualFS::new(connection)));
+    let mut editor = create_editor(config, fs.clone())?;
 
     loop {
         let current_dir = {
@@ -128,7 +135,7 @@ fn validate_and_format_url(input: &str) -> Result<String> {
             ));
         }
 
-        let formatted_url = format!("{}:{}/ws", host, port);
+        let formatted_url = format!("ws://{}:{}/ws", host, port);
         Ok(formatted_url)
     } else {
         Err(anyhow!("Invalid URL format"))
