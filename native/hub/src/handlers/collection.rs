@@ -51,7 +51,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
     params: CollectionActionParams,
-) -> Result<Option<CollectionGroups>> {
+) -> Result<Option<FetchCollectionGroupsResponse>> {
     let entry = T::get_groups(
         main_db,
         params
@@ -87,7 +87,7 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     .into_iter()
     .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Some(CollectionGroups {
+    Ok(Some(FetchCollectionGroupsResponse {
         groups: collection_groups,
     }))
 }
@@ -273,7 +273,7 @@ impl ParamsExtractor for FetchCollectionGroupsRequest {
 
 impl Signal for FetchCollectionGroupsRequest {
     type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
-    type Response = CollectionGroups;
+    type Response = FetchCollectionGroupsResponse;
 
     async fn handle(
         &self,

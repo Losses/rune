@@ -49,7 +49,7 @@ message CollectionGroup {
 }
 
 // [RUST-SIGNAL]
-message CollectionGroups {
+message FetchCollectionGroupsResponse {
   repeated CollectionGroup groups = 1;
 }
 

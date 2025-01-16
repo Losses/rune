@@ -154,7 +154,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
-            response: Some("CollectionGroups".to_string()),
+            response: Some("FetchCollectionGroupsResponse".to_string()),
             local_only: false,
         },
         RequestResponse {
