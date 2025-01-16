@@ -43,7 +43,7 @@ async-trait = "0.1.83"
 sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 tracing-appender = "0.2.3"
 chrono = "0.4.38"
-windows = { version = "0.58.0", features = ["Services", "Services_Store" ] }
+windows = { version = "0.58.0", features = ["Services", "Services_Store"] }
 sha2 = "0.10.8"
 tokio-tungstenite = "0.26.1"
 futures-channel = "0.3.31"
@@ -54,11 +54,11 @@ requests = { path = "../requests" }
 clap = "4.5.26"
 axum = { version = "0.8.1", features = ["ws"] }
 tower = "0.5.2"
-tower-http ={ version = "0.6.2", features = ["fs"] }
+tower-http = { version = "0.6.2", features = ["fs"] }
 axum-server = "0.7.1"
 uuid = "1.11.1"
 url = "2.5.4"
-rustyline = "15.0.0"
+rustyline = { version = "15.0.0", features = ["with-sqlite-history"] }
 rustyline-derive = "0.11.0"
 radix_trie = "0.2.1"
 

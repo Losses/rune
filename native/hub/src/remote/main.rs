@@ -1,14 +1,13 @@
-use std::borrow::Cow::{self, Borrowed, Owned};
-
 use radix_trie::{Trie, TrieCommon};
 use rustyline::completion::FilenameCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{CmdKind, Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::Hint;
-use rustyline::history::DefaultHistory;
+use rustyline::sqlite_history::SQLiteHistory;
 use rustyline::validate::MatchingBracketValidator;
 use rustyline::{Cmd, CompletionType, Config, Context, EditMode, Editor, KeyEvent, Result};
 use rustyline_derive::{Completer, Helper, Validator};
+use std::borrow::Cow::{self, Borrowed, Owned};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Helper, Completer, Validator)]
@@ -130,7 +129,10 @@ fn main() -> Result<()> {
         .history_ignore_space(true)
         .completion_type(CompletionType::List)
         .edit_mode(EditMode::Emacs)
+        .auto_add_history(true)
         .build();
+
+    let history = SQLiteHistory::with_config(config)?;
 
     let h = DIYHinter {
         completer: FilenameCompleter::new(),
@@ -140,14 +142,10 @@ fn main() -> Result<()> {
         validator: MatchingBracketValidator::new(),
     };
 
-    let mut rl: Editor<DIYHinter, DefaultHistory> = Editor::with_config(config)?;
+    let mut rl: Editor<DIYHinter, _> = Editor::with_history(config, history)?;
     rl.set_helper(Some(h));
     rl.bind_sequence(KeyEvent::alt('n'), Cmd::HistorySearchForward);
     rl.bind_sequence(KeyEvent::alt('p'), Cmd::HistorySearchBackward);
-
-    if rl.load_history("history.txt").is_err() {
-        println!("No previous history.");
-    }
 
     println!("Welcome to the Rune Speaker Command Line Interface");
 
@@ -158,7 +156,6 @@ fn main() -> Result<()> {
         let readline = rl.readline(&p);
         match readline {
             Ok(line) => {
-                rl.add_history_entry(line.as_str())?;
                 println!("input: {line}");
             }
             Err(ReadlineError::Interrupted) => {
@@ -177,5 +174,5 @@ fn main() -> Result<()> {
         count += 1;
     }
 
-    rl.append_history("history.txt")
+    Ok(())
 }
