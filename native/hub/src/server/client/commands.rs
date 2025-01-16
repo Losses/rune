@@ -33,6 +33,7 @@ pub async fn execute(
         Command::Cd { path } => {
             let mut fs = fs.write().await;
             let new_path = match path.as_str() {
+                "." => fs.current_path.clone(),
                 ".." => {
                     if fs.current_path != std::path::Path::new("/") {
                         let mut new_path = fs.current_path.clone();
