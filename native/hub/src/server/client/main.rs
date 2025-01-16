@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
+use regex::Regex;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
@@ -19,7 +20,7 @@ use fs::VirtualFS;
 #[derive(Parser)]
 struct Args {
     /// Service URL
-    #[arg(help = "The URL of the service")]
+    #[arg(help = "The URL of the service, e.g., example.com:1234 or 192.168.1.1:1234")]
     service_url: String,
 }
 
@@ -30,16 +31,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
     let args = Args::parse();
 
-    // Use the service URL from arguments
-    let service_url = args.service_url;
+    // Validate and format the service URL
+    let service_url = validate_and_format_url(&args.service_url)?;
+
+    println!("Service URL: {}", service_url);
 
     let config = EditorConfig::default();
     let fs = Arc::new(RwLock::new(VirtualFS::new()));
     let mut editor = create_editor(config, fs.clone())?;
 
     println!("Welcome to the Rune Speaker Command Line Interface");
-    println!("Service URL: {}", service_url);
-    println!();
     println!("Type 'help' to see available commands");
 
     loop {
@@ -100,4 +101,33 @@ fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     Ok(())
+}
+
+fn validate_and_format_url(input: &str) -> Result<String> {
+    let re = Regex::new(r"^(?P<host>[^:]+)(:(?P<port>\d+))?$").unwrap();
+
+    if let Some(caps) = re.captures(input) {
+        let host = caps.name("host").unwrap().as_str();
+        let port = caps.name("port").map_or("7863", |m| m.as_str());
+
+        // Validate host as a domain or IP address
+        if !is_valid_host(host) {
+            return Err(anyhow!(
+                "Invalid host: must be a valid domain or IP address"
+            ));
+        }
+
+        let formatted_url = format!("{}:{}/ws", host, port);
+        Ok(formatted_url)
+    } else {
+        Err(anyhow!("Invalid URL format"))
+    }
+}
+
+fn is_valid_host(host: &str) -> bool {
+    // Simple validation for domain or IP
+    let domain_re = Regex::new(r"^([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}$").unwrap();
+    let ip_re = Regex::new(r"^\d{1,3}(\.\d{1,3}){3}$").unwrap();
+
+    domain_re.is_match(host) || ip_re.is_match(host)
 }
