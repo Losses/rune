@@ -35,14 +35,33 @@ pub async fn execute(
 
                         let column_spacing = 2;
 
-                        // Calculate the width of the longest entry
-                        let max_display_width = entries
+                        // Calculate full display string and its width for each entry
+                        let entry_displays: Vec<(String, usize)> = entries
                             .iter()
                             .map(|e| {
-                                let id_width =
-                                    e.id.map(|id| format!("[{}] ", id).width()).unwrap_or(0);
-                                e.name.width() + id_width
+                                let id_str =
+                                    e.id.map(|id| format!("[{}] ", id).yellow().to_string())
+                                        .unwrap_or_default();
+
+                                let name = if e.is_directory {
+                                    e.name.blue().bold().to_string()
+                                } else {
+                                    e.name.clone()
+                                };
+
+                                let display = format!("{}{}", id_str, name);
+                                let width =
+                                    e.id.map(|id| format!("[{}] ", id).width()).unwrap_or(0)
+                                        + e.name.width();
+
+                                (display, width)
                             })
+                            .collect();
+
+                        // Calculate the width of the longest entry
+                        let max_display_width = entry_displays
+                            .iter()
+                            .map(|(_, width)| *width)
                             .max()
                             .unwrap_or(0);
 
@@ -51,27 +70,14 @@ pub async fn execute(
                         // Calculate the number of entries per line
                         let cols = std::cmp::max(1, term_width / column_width);
 
-                        // Prepare for display
+                        // Display entries
                         let mut current_col = 0;
-                        for entry in entries {
-                            let id_str = entry
-                                .id
-                                .map(|id| format!("[{}] ", id).yellow().to_string())
-                                .unwrap_or_default();
+                        for (display, width) in entry_displays {
+                            print!("{}", display);
 
-                            let name = if entry.is_directory {
-                                entry.name.blue().bold().to_string()
-                            } else {
-                                entry.name.clone()
-                            };
-
-                            let display_width = id_str.width() + entry.name.width();
-
-                            print!("{}{}", id_str, name);
-
-                            for _ in 0..(column_width - display_width) {
-                                print!(" ");
-                            }
+                            // Calculate and print padding
+                            let padding = column_width.saturating_sub(width);
+                            print!("{}", " ".repeat(padding));
 
                             current_col += 1;
                             if current_col >= cols {
