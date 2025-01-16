@@ -2358,6 +2358,7 @@ dependencies = [
  "scrobbling",
  "sea-orm",
  "sha2",
+ "shlex",
  "strum",
  "strum_macros",
  "swift-rs",
