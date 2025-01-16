@@ -1,13 +1,14 @@
+use std::borrow::Cow::{self, Borrowed, Owned};
+
 use radix_trie::{Trie, TrieCommon};
 use rustyline::completion::FilenameCompleter;
 use rustyline::error::ReadlineError;
 use rustyline::highlight::{CmdKind, Highlighter, MatchingBracketHighlighter};
-use rustyline::hint::Hint;
+use rustyline::hint::{Hint, Hinter, HistoryHinter};
 use rustyline::sqlite_history::SQLiteHistory;
 use rustyline::validate::MatchingBracketValidator;
 use rustyline::{Cmd, CompletionType, Config, Context, EditMode, Editor, KeyEvent, Result};
 use rustyline_derive::{Completer, Helper, Validator};
-use std::borrow::Cow::{self, Borrowed, Owned};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Helper, Completer, Validator)]
@@ -19,6 +20,7 @@ struct DIYHinter {
     validator: MatchingBracketValidator,
     hints: Trie<String, CommandHint>,
     colored_prompt: String,
+    history_hinter: HistoryHinter,
 }
 
 #[derive(Hash, Debug, PartialEq, Eq, Clone)]
@@ -58,18 +60,32 @@ impl CommandHint {
     }
 }
 
-impl rustyline::hint::Hinter for DIYHinter {
+impl Hinter for DIYHinter {
     type Hint = CommandHint;
 
-    fn hint(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Option<CommandHint> {
+    fn hint(&self, line: &str, pos: usize, ctx: &Context<'_>) -> Option<CommandHint> {
         if line.is_empty() || pos < line.len() {
             return None;
         }
 
-        self.hints
+        // First try to get command hint
+        let command_hint = self
+            .hints
             .get_raw_descendant(line)
             .and_then(|node| node.value())
-            .map(|hint| hint.suffix(pos))
+            .map(|hint| hint.suffix(pos));
+
+        // If no command hint found, try history hint
+        if command_hint.is_none() {
+            if let Some(history_hint) = self.history_hinter.hint(line, pos, ctx) {
+                return Some(CommandHint {
+                    display: history_hint,
+                    complete_up_to: 0, // History hints don't auto-complete
+                });
+            }
+        }
+
+        command_hint
     }
 }
 
@@ -140,6 +156,7 @@ fn main() -> Result<()> {
         hints: diy_hints(),
         colored_prompt: "".to_owned(),
         validator: MatchingBracketValidator::new(),
+        history_hinter: HistoryHinter::new(),
     };
 
     let mut rl: Editor<DIYHinter, _> = Editor::with_history(config, history)?;
@@ -159,7 +176,6 @@ fn main() -> Result<()> {
                 println!("input: {line}");
             }
             Err(ReadlineError::Interrupted) => {
-                println!("Interrupted");
                 break;
             }
             Err(ReadlineError::Eof) => {
