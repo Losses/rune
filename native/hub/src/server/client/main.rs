@@ -8,6 +8,7 @@ use regex::Regex;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
+mod api;
 mod cli;
 mod commands;
 mod connection;

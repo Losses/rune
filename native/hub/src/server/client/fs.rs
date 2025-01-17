@@ -6,6 +6,9 @@ use anyhow::{anyhow, Result};
 
 use hub::messages::*;
 
+use crate::api::{
+    build_query, fetch_collection_group_summary, fetch_collection_groups, path_to_collection_type,
+};
 use crate::connection::WSConnection;
 
 #[derive(Clone, Debug)]
@@ -71,16 +74,16 @@ impl VirtualFS {
         let root_path = PathBuf::from("/").join(root_dir);
 
         // Fetch the group summary
-        let summary = self.fetch_collection_group_summary(collection_type).await?;
+        let summary = fetch_collection_group_summary(collection_type, &self.connection).await?;
 
         // Iterate through each group
         for group in summary.groups {
             let group_path = root_path.join(&group.group_title);
 
             // Fetch the collections within the group
-            let collections = self
-                .fetch_collection_groups(collection_type, vec![group.group_title])
-                .await?;
+            let collections =
+                fetch_collection_groups(collection_type, vec![group.group_title], &self.connection)
+                    .await?;
 
             // Search for the matching id within the collections
             for group in collections.groups {
@@ -105,7 +108,7 @@ impl VirtualFS {
         if self.current_path == PathBuf::from("/") {
             None
         } else {
-            self.path_to_collection_type(&self.current_path)
+            path_to_collection_type(&self.current_path)
         }
     }
 
@@ -127,7 +130,7 @@ impl VirtualFS {
                 if current != PathBuf::from("/") {
                     current.pop();
                     // Update collection type after moving up
-                    collection_type = self.path_to_collection_type(&current);
+                    collection_type = path_to_collection_type(&current);
                 }
             } else if component_str == "/" {
                 current = PathBuf::from("/");
@@ -173,93 +176,12 @@ impl VirtualFS {
                 } else {
                     current = current.join(component_str);
                     // Update collection type after joining new component
-                    collection_type = self.path_to_collection_type(&current);
+                    collection_type = path_to_collection_type(&current);
                 }
             }
         }
 
         Ok(current)
-    }
-
-    fn path_to_collection_type(&self, path: &Path) -> Option<CollectionType> {
-        match path.components().nth(1)?.as_os_str().to_str()? {
-            "Albums" => Some(CollectionType::Album),
-            "Artists" => Some(CollectionType::Artist),
-            "Playlists" => Some(CollectionType::Playlist),
-            "Mixes" => Some(CollectionType::Mix),
-            "Tracks" => Some(CollectionType::Track),
-            _ => None,
-        }
-    }
-
-    async fn fetch_collection_group_summary(
-        &self,
-        collection_type: CollectionType,
-    ) -> Result<CollectionGroupSummaryResponse> {
-        let request = FetchCollectionGroupSummaryRequest {
-            collection_type: collection_type as i32,
-        };
-        self.connection
-            .request("FetchCollectionGroupSummaryRequest", request)
-            .await
-    }
-
-    async fn fetch_collection_groups(
-        &self,
-        collection_type: CollectionType,
-        group_titles: Vec<String>,
-    ) -> Result<FetchCollectionGroupsResponse> {
-        let request = FetchCollectionGroupsRequest {
-            collection_type: collection_type as i32,
-            bake_cover_arts: false,
-            group_titles,
-        };
-        self.connection
-            .request("FetchCollectionGroupsRequest", request)
-            .await
-    }
-
-    async fn fetch_mix_queries_by_mix_id(&self, mix_id: i32) -> Result<Vec<MixQuery>> {
-        let request = FetchMixQueriesRequest { mix_id };
-        let response: FetchMixQueriesResponse = self
-            .connection
-            .request("FetchMixQueriesRequest", request)
-            .await?;
-        Ok(response.result)
-    }
-
-    fn build_collection_query(
-        &self,
-        collection_type: CollectionType,
-        id: i32,
-    ) -> Result<Vec<(String, String)>> {
-        if collection_type == CollectionType::Mix {
-            return Err(anyhow!("Not Allow"));
-        }
-        let operator = match collection_type {
-            CollectionType::Album => "lib::album",
-            CollectionType::Artist => "lib::artist",
-            CollectionType::Playlist => "lib::playlist",
-            CollectionType::Track => "lib::track",
-            _ => return Err(anyhow!("Invalid collection type")),
-        };
-        Ok(vec![(operator.to_string(), id.to_string())])
-    }
-
-    async fn build_query(
-        &self,
-        collection_type: CollectionType,
-        id: i32,
-    ) -> Result<Vec<(String, String)>> {
-        if collection_type == CollectionType::Mix {
-            let queries = self.fetch_mix_queries_by_mix_id(id).await?;
-            Ok(queries
-                .into_iter()
-                .map(|q| (q.operator, q.parameter))
-                .collect())
-        } else {
-            self.build_collection_query(collection_type, id)
-        }
     }
 
     pub async fn list_current_dir(&mut self) -> Result<Vec<VirtualEntry>> {
@@ -275,9 +197,8 @@ impl VirtualFS {
                 .collect());
         }
 
-        let collection_type = self
-            .path_to_collection_type(&self.current_path)
-            .ok_or_else(|| anyhow!("Invalid path"))?;
+        let collection_type =
+            path_to_collection_type(&self.current_path).ok_or_else(|| anyhow!("Invalid path"))?;
 
         let entries = if self.current_path == Path::new("/") {
             // Root directory
@@ -296,7 +217,8 @@ impl VirtualFS {
             match self.current_path.components().count() {
                 // If we're at the root of a collection type (e.g., /Artists)
                 2 => {
-                    let response = self.fetch_collection_group_summary(collection_type).await?;
+                    let response =
+                        fetch_collection_group_summary(collection_type, &self.connection).await?;
 
                     Ok(response
                         .groups
@@ -319,9 +241,12 @@ impl VirtualFS {
                         .to_str()
                         .unwrap()
                         .to_string();
-                    let response = self
-                        .fetch_collection_groups(collection_type, vec![group_title])
-                        .await?;
+                    let response = fetch_collection_groups(
+                        collection_type,
+                        vec![group_title],
+                        &self.connection,
+                    )
+                    .await?;
 
                     Ok(response
                         .groups
@@ -349,7 +274,8 @@ impl VirtualFS {
                         return Err(anyhow!("Parent directory not cached"));
                     };
 
-                    let queries = self.build_query(collection_type, collection_id).await?;
+                    let queries =
+                        build_query(collection_type, collection_id, &self.connection).await?;
                     let request = MixQueryRequest {
                         queries: queries
                             .into_iter()
@@ -379,7 +305,7 @@ impl VirtualFS {
             }
         };
 
-        if let Some(collection_type) = self.path_to_collection_type(&self.current_path) {
+        if let Some(collection_type) = path_to_collection_type(&self.current_path) {
             if let Ok(ref entries) = entries {
                 self.cache_entries(self.current_path.clone(), entries.clone(), collection_type);
             }
@@ -393,7 +319,7 @@ impl VirtualFS {
         collection_type: CollectionType,
         group_name: &str,
     ) -> Result<bool> {
-        let response = self.fetch_collection_group_summary(collection_type).await?;
+        let response = fetch_collection_group_summary(collection_type, &self.connection).await?;
         Ok(response
             .groups
             .iter()
@@ -406,9 +332,12 @@ impl VirtualFS {
         group_name: &str,
         collection_name: &str,
     ) -> Result<bool> {
-        let response = self
-            .fetch_collection_groups(collection_type, vec![group_name.to_string()])
-            .await?;
+        let response = fetch_collection_groups(
+            collection_type,
+            vec![group_name.to_string()],
+            &self.connection,
+        )
+        .await?;
         Ok(response
             .groups
             .iter()
@@ -432,8 +361,7 @@ impl VirtualFS {
             )),
             // Second level directories (groups) must exist in the server
             3 => {
-                let collection_type = self
-                    .path_to_collection_type(new_path)
+                let collection_type = path_to_collection_type(new_path)
                     .ok_or_else(|| anyhow!("Invalid collection type"))?;
                 let group_name = new_path
                     .components()
@@ -446,8 +374,7 @@ impl VirtualFS {
             }
             // Third level (individual collections) must exist in the server
             4 => {
-                let collection_type = self
-                    .path_to_collection_type(new_path)
+                let collection_type = path_to_collection_type(new_path)
                     .ok_or_else(|| anyhow!("Invalid collection type"))?;
                 let group_name = new_path
                     .components()
