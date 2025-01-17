@@ -14,7 +14,7 @@ pub async fn execute(
 ) -> Result<bool, Box<dyn std::error::Error>> {
     match command {
         Command::Ls { long } => {
-            let fs = fs.read().await;
+            let mut fs = fs.write().await;
             match fs.list_current_dir().await {
                 Ok(entries) => {
                     if long {
