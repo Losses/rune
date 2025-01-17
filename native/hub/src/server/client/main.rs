@@ -8,13 +8,13 @@ use regex::Regex;
 use tokio::sync::RwLock;
 use tracing_subscriber::EnvFilter;
 
-mod api;
-mod cli;
-mod commands;
-mod connection;
-mod editor;
-mod fs;
-mod hints;
+pub mod api;
+pub mod cli;
+pub mod commands;
+pub mod connection;
+pub mod editor;
+pub mod fs;
+pub mod hints;
 
 use cli::Command;
 use editor::{create_editor, EditorConfig};
