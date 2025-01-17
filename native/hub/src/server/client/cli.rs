@@ -18,6 +18,7 @@ pub enum Command {
     },
     /// Exit the program
     Quit,
+    Exit,
 }
 
 impl Command {

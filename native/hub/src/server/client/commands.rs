@@ -132,5 +132,6 @@ pub async fn execute(
             Ok(true)
         }
         Command::Quit => Ok(false),
+        Command::Exit => Ok(false),
     }
 }
