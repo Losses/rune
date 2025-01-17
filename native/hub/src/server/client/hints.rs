@@ -1,4 +1,5 @@
 use std::borrow::Cow::{self, Borrowed, Owned};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rustyline::completion::FilenameCompleter;
@@ -36,16 +37,63 @@ impl DIYHinter {
     pub fn set_colored_prompt(&mut self, prompt: String) {
         self.colored_prompt = format!("\x1b[1;32m{}\x1b[0m", prompt);
     }
+
+    // Helper function to find the common prefix between the current input and directory entry
+    fn find_matching_entry(&self, current_path: &Path, partial_input: &str) -> Option<String> {
+        // Get read lock on filesystem
+        if let Ok(fs) = self.fs.try_read() {
+            // Check if we have cache entry for current path
+            if let Some(cache_entry) = fs.cache.get(current_path) {
+                // Find first entry that starts with our partial input
+                if let Some(entry) = cache_entry
+                    .entries
+                    .iter()
+                    .find(|e| e.name.starts_with(partial_input))
+                {
+                    // Return remaining part of the matching entry name
+                    return Some(entry.name[partial_input.len()..].to_string());
+                }
+            }
+        }
+        None
+    }
+
+    // Parse the input line to extract current directory path and partial input
+    fn parse_input(&self, line: &str) -> Option<(PathBuf, String)> {
+        // Get last component from input as partial text
+        let parts: Vec<&str> = line.rsplitn(2, '/').collect();
+        let (partial, path_str) = match parts.as_slice() {
+            [partial] => (partial.to_string(), "/"),
+            [partial, path] => (partial.to_string(), *path),
+            _ => return None,
+        };
+
+        // Convert path string to PathBuf
+        let path = if path_str.starts_with('/') {
+            PathBuf::from(path_str)
+        } else {
+            // If relative path, combine with current directory
+            if let Ok(fs) = self.fs.try_read() {
+                fs.current_path.join(path_str)
+            } else {
+                return None;
+            }
+        };
+
+        Some((path, partial))
+    }
 }
 
 impl Hinter for DIYHinter {
     type Hint = String;
 
     fn hint(&self, line: &str, pos: usize, ctx: &rustyline::Context<'_>) -> Option<String> {
+        // Return early if line is empty or cursor is not at end
         if line.is_empty() || pos < line.len() {
             return None;
         }
 
+        // First try history-based completion
         let start = if ctx.history_index() == ctx.history().len() {
             ctx.history_index().saturating_sub(1)
         } else {
@@ -57,15 +105,17 @@ impl Hinter for DIYHinter {
             .starts_with(line, start, SearchDirection::Reverse)
             .unwrap_or(None)
         {
-            if sr.entry == line {
-                return None;
+            if sr.entry != line {
+                let char_pos = line.chars().take(pos).count();
+                return Some(sr.entry.chars().skip(char_pos).collect());
             }
-
-            // Convert byte index to character index
-            let char_pos = line.chars().take(pos).count();
-            let hint = sr.entry.chars().skip(char_pos).collect::<String>();
-            return Some(hint);
         }
+
+        // If no history match, try filesystem-based completion
+        if let Some((current_path, partial)) = self.parse_input(line) {
+            return self.find_matching_entry(&current_path, &partial);
+        }
+
         None
     }
 }
