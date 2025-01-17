@@ -61,6 +61,80 @@ impl VirtualFS {
         );
     }
 
+    async fn find_entry_by_id(&self, id: i32) -> Result<Option<(PathBuf, VirtualEntry)>> {
+        // Iterate through all possible paths to find the entry with the specified id
+        for root_dir in &self.root_dirs {
+            let root_path = PathBuf::from("/").join(root_dir);
+
+            if let Some(collection_type) = self.path_to_collection_type(&root_path) {
+                // Fetch the group summary
+                let summary = self.fetch_collection_group_summary(collection_type).await?;
+
+                // Iterate through each group
+                for group in summary.groups {
+                    let group_path = root_path.join(&group.group_title);
+
+                    // Fetch the collections within the group
+                    let collections = self
+                        .fetch_collection_groups(collection_type, vec![group.group_title])
+                        .await?;
+
+                    // Search for the matching id within the collections
+                    for group in collections.groups {
+                        for collection in group.collections {
+                            if collection.id == id {
+                                return Ok(Some((
+                                    group_path.join(&collection.name),
+                                    VirtualEntry {
+                                        name: collection.name,
+                                        id: Some(collection.id),
+                                        is_directory: true,
+                                    },
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    pub async fn resolve_path_with_ids(&self, path: &str) -> Result<PathBuf> {
+        let mut current = self.current_path.clone();
+
+        for component in Path::new(path).components() {
+            let component_str = component
+                .as_os_str()
+                .to_str()
+                .ok_or_else(|| anyhow!("Invalid path component"))?;
+
+            if component_str == "." {
+                continue;
+            } else if component_str == ".." {
+                if current != PathBuf::from("/") {
+                    current.pop();
+                }
+            } else if component_str == "/" {
+                current = PathBuf::from("/");
+            } else {
+                // Attempt to parse the component as an ID
+                if let Ok(id) = component_str.parse::<i32>() {
+                    if let Some((path, _)) = self.find_entry_by_id(id).await? {
+                        current = path;
+                    } else {
+                        // If no corresponding ID is found, treat it as a normal path
+                        current = current.join(component_str);
+                    }
+                } else {
+                    current = current.join(component_str);
+                }
+            }
+        }
+
+        Ok(current)
+    }
+
     fn path_to_collection_type(&self, path: &Path) -> Option<CollectionType> {
         match path.components().nth(1)?.as_os_str().to_str()? {
             "Albums" => Some(CollectionType::Album),

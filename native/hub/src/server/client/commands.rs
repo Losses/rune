@@ -101,21 +101,28 @@ pub async fn execute(
             println!("Current directory: {}", fs.current_dir().to_string_lossy());
             Ok(true)
         }
-        Command::Cd { path } => {
+        Command::Cd { path, id } => {
             let mut fs = fs.write().await;
-            let new_path = match path.as_str() {
-                "." => fs.current_path.clone(),
-                ".." => {
-                    if fs.current_path != std::path::Path::new("/") {
-                        let mut new_path = fs.current_path.clone();
-                        new_path.pop();
-                        new_path
-                    } else {
-                        fs.current_path.clone()
+
+            let new_path = if id {
+                // Resolve the path using ID mode
+                fs.resolve_path_with_ids(&path).await?
+            } else {
+                // Original path resolution logic
+                match path.as_str() {
+                    "." => fs.current_path.clone(),
+                    ".." => {
+                        if fs.current_path != std::path::Path::new("/") {
+                            let mut new_path = fs.current_path.clone();
+                            new_path.pop();
+                            new_path
+                        } else {
+                            fs.current_path.clone()
+                        }
                     }
+                    "/" => PathBuf::from("/"),
+                    path => fs.current_path.join(path),
                 }
-                "/" => PathBuf::from("/"),
-                path => fs.current_path.join(path),
             };
 
             match fs.validate_path(&new_path).await {

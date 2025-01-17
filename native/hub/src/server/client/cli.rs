@@ -15,6 +15,8 @@ pub enum Command {
     Cd {
         /// Directory to change to
         path: String,
+        #[arg(long)]
+        id: bool,
     },
     /// Exit the program
     Quit,
