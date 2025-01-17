@@ -61,38 +61,39 @@ impl VirtualFS {
         );
     }
 
-    async fn find_entry_by_id(&self, id: i32) -> Result<Option<(PathBuf, VirtualEntry)>> {
-        // Iterate through all possible paths to find the entry with the specified id
-        for root_dir in &self.root_dirs {
-            let root_path = PathBuf::from("/").join(root_dir);
+    async fn find_entry_by_id_and_type(
+        &self,
+        id: i32,
+        collection_type: CollectionType,
+    ) -> Result<Option<(PathBuf, VirtualEntry)>> {
+        let root_dir = collection_type.as_str();
 
-            if let Some(collection_type) = self.path_to_collection_type(&root_path) {
-                // Fetch the group summary
-                let summary = self.fetch_collection_group_summary(collection_type).await?;
+        let root_path = PathBuf::from("/").join(root_dir);
 
-                // Iterate through each group
-                for group in summary.groups {
-                    let group_path = root_path.join(&group.group_title);
+        // Fetch the group summary
+        let summary = self.fetch_collection_group_summary(collection_type).await?;
 
-                    // Fetch the collections within the group
-                    let collections = self
-                        .fetch_collection_groups(collection_type, vec![group.group_title])
-                        .await?;
+        // Iterate through each group
+        for group in summary.groups {
+            let group_path = root_path.join(&group.group_title);
 
-                    // Search for the matching id within the collections
-                    for group in collections.groups {
-                        for collection in group.collections {
-                            if collection.id == id {
-                                return Ok(Some((
-                                    group_path.join(&collection.name),
-                                    VirtualEntry {
-                                        name: collection.name,
-                                        id: Some(collection.id),
-                                        is_directory: true,
-                                    },
-                                )));
-                            }
-                        }
+            // Fetch the collections within the group
+            let collections = self
+                .fetch_collection_groups(collection_type, vec![group.group_title])
+                .await?;
+
+            // Search for the matching id within the collections
+            for group in collections.groups {
+                for collection in group.collections {
+                    if collection.id == id {
+                        return Ok(Some((
+                            group_path.join(&collection.name),
+                            VirtualEntry {
+                                name: collection.name,
+                                id: Some(collection.id),
+                                is_directory: true,
+                            },
+                        )));
                     }
                 }
             }
@@ -100,8 +101,19 @@ impl VirtualFS {
         Ok(None)
     }
 
+    fn get_collection_type_from_current_path(&self) -> Option<CollectionType> {
+        if self.current_path == PathBuf::from("/") {
+            None
+        } else {
+            self.path_to_collection_type(&self.current_path)
+        }
+    }
+
     pub async fn resolve_path_with_ids(&self, path: &str) -> Result<PathBuf> {
         let mut current = self.current_path.clone();
+
+        // Get the collection type from the current path
+        let mut collection_type = self.get_collection_type_from_current_path();
 
         for component in Path::new(path).components() {
             let component_str = component
@@ -114,20 +126,54 @@ impl VirtualFS {
             } else if component_str == ".." {
                 if current != PathBuf::from("/") {
                     current.pop();
+                    // Update collection type after moving up
+                    collection_type = self.path_to_collection_type(&current);
                 }
             } else if component_str == "/" {
                 current = PathBuf::from("/");
+                collection_type = None;
             } else {
                 // Attempt to parse the component as an ID
                 if let Ok(id) = component_str.parse::<i32>() {
-                    if let Some((path, _)) = self.find_entry_by_id(id).await? {
-                        current = path;
+                    let ctype = if let Some(ct) = collection_type {
+                        ct
                     } else {
-                        // If no corresponding ID is found, treat it as a normal path
-                        current = current.join(component_str);
+                        // If we're at root or collection type is unknown,
+                        // try to determine from the first directory component
+                        let root_dir = current
+                            .components()
+                            .nth(1)
+                            .and_then(|c| c.as_os_str().to_str())
+                            .ok_or_else(|| anyhow!("Cannot determine collection type"))?;
+
+                        match root_dir {
+                            "Albums" => CollectionType::Album,
+                            "Artists" => CollectionType::Artist,
+                            "Playlists" => CollectionType::Playlist,
+                            "Mixes" => CollectionType::Mix,
+                            "Tracks" => CollectionType::Track,
+                            _ => return Err(anyhow!("Invalid collection type")),
+                        }
+                    };
+
+                    if let Some((path, _)) = self.find_entry_by_id_and_type(id, ctype).await? {
+                        // Important: Don't use the full path returned by find_entry_by_id_and_type
+                        // Instead, preserve the current path's structure and only use the final component
+                        let name = path
+                            .file_name()
+                            .ok_or_else(|| anyhow!("Invalid path structure"))?;
+                        current = current.join(name);
+                    } else {
+                        return Err(anyhow!(
+                            "ID {} not found in {} collection",
+                            id,
+                            ctype.as_str()
+                        ));
                     }
                 } else {
                     current = current.join(component_str);
+                    // Update collection type after joining new component
+                    collection_type = self.path_to_collection_type(&current);
                 }
             }
         }
@@ -426,5 +472,21 @@ impl VirtualFS {
 
     pub fn current_dir(&self) -> &Path {
         &self.current_path
+    }
+}
+
+trait AsStr {
+    fn as_str(&self) -> &'static str;
+}
+
+impl AsStr for CollectionType {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CollectionType::Album => "Album",
+            CollectionType::Artist => "Artist",
+            CollectionType::Playlist => "Playlist",
+            CollectionType::Mix => "Mix",
+            CollectionType::Track => "Track",
+        }
     }
 }
