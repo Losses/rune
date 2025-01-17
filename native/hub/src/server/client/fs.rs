@@ -51,6 +51,33 @@ impl VirtualFS {
         }
     }
 
+    async fn fetch_collection_group_summary(
+        &self,
+        collection_type: CollectionType,
+    ) -> Result<CollectionGroupSummaryResponse> {
+        let request = FetchCollectionGroupSummaryRequest {
+            collection_type: collection_type as i32,
+        };
+        self.connection
+            .request("FetchCollectionGroupSummaryRequest", request)
+            .await
+    }
+
+    async fn fetch_collection_groups(
+        &self,
+        collection_type: CollectionType,
+        group_titles: Vec<String>,
+    ) -> Result<FetchCollectionGroupsResponse> {
+        let request = FetchCollectionGroupsRequest {
+            collection_type: collection_type as i32,
+            bake_cover_arts: false,
+            group_titles,
+        };
+        self.connection
+            .request("FetchCollectionGroupsRequest", request)
+            .await
+    }
+
     pub async fn list_current_dir(&self) -> Result<Vec<VirtualEntry>> {
         if self.current_path == Path::new("/") {
             return Ok(self
@@ -68,63 +95,47 @@ impl VirtualFS {
             .path_to_collection_type(&self.current_path)
             .ok_or_else(|| anyhow!("Invalid path"))?;
 
-        // If we're at the root of a collection type (e.g., /Artists)
-        if self.current_path.components().count() == 2 {
-            let request = FetchCollectionGroupSummaryRequest {
-                collection_type: collection_type as i32,
-            };
-
-            let response: CollectionGroupSummaryResponse = self
-                .connection
-                .request("FetchCollectionGroupSummaryRequest", request)
-                .await?;
-
-            return Ok(response
-                .groups
-                .into_iter()
-                .map(|group| VirtualEntry {
-                    name: group.group_title,
-                    id: None,
-                    is_directory: true,
-                })
-                .collect());
+        match self.current_path.components().count() {
+            // If we're at the root of a collection type (e.g., /Artists)
+            2 => {
+                let response = self.fetch_collection_group_summary(collection_type).await?;
+                Ok(response
+                    .groups
+                    .into_iter()
+                    .map(|group| VirtualEntry {
+                        name: group.group_title,
+                        id: None,
+                        is_directory: true,
+                    })
+                    .collect())
+            }
+            // If we're in a group (e.g., /Artists/:Group)
+            3 => {
+                let group_title = self
+                    .current_path
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .unwrap()
+                    .to_string();
+                let response = self
+                    .fetch_collection_groups(collection_type, vec![group_title])
+                    .await?;
+                Ok(response
+                    .groups
+                    .into_iter()
+                    .flat_map(|group| group.collections)
+                    .map(|collection| VirtualEntry {
+                        name: collection.name,
+                        id: Some(collection.id),
+                        is_directory: true,
+                    })
+                    .collect())
+            }
+            _ => Ok(Vec::new()),
         }
-
-        // If we're in a group (e.g., /Artists/Rock)
-        if self.current_path.components().count() == 3 {
-            let group_title = self
-                .current_path
-                .components()
-                .last()
-                .unwrap()
-                .as_os_str()
-                .to_str()
-                .unwrap();
-
-            let request = FetchCollectionGroupsRequest {
-                collection_type: collection_type as i32,
-                bake_cover_arts: false,
-                group_titles: vec![group_title.to_string()],
-            };
-
-            let response: FetchCollectionGroupsResponse = self
-                .connection
-                .request("FetchCollectionGroupsRequest", request)
-                .await?;
-
-            return Ok(response
-                .groups
-                .into_iter()
-                .flat_map(|group| group.collections)
-                .map(|collection| VirtualEntry {
-                    name: collection.name,
-                    id: Some(collection.id),
-                    is_directory: true,
-                })
-                .collect());
-        }
-
-        Ok(Vec::new())
     }
 
     pub async fn verify_group_exists(
@@ -132,15 +143,7 @@ impl VirtualFS {
         collection_type: CollectionType,
         group_name: &str,
     ) -> Result<bool> {
-        let request = FetchCollectionGroupSummaryRequest {
-            collection_type: collection_type as i32,
-        };
-
-        let response: CollectionGroupSummaryResponse = self
-            .connection
-            .request("FetchCollectionGroupSummaryRequest", request)
-            .await?;
-
+        let response = self.fetch_collection_group_summary(collection_type).await?;
         Ok(response
             .groups
             .iter()
@@ -153,17 +156,9 @@ impl VirtualFS {
         group_name: &str,
         collection_name: &str,
     ) -> Result<bool> {
-        let request = FetchCollectionGroupsRequest {
-            collection_type: collection_type as i32,
-            bake_cover_arts: false,
-            group_titles: vec![group_name.to_string()],
-        };
-
-        let response: FetchCollectionGroupsResponse = self
-            .connection
-            .request("FetchCollectionGroupsRequest", request)
+        let response = self
+            .fetch_collection_groups(collection_type, vec![group_name.to_string()])
             .await?;
-
         Ok(response
             .groups
             .iter()

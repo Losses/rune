@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             Err(err) => match err {
-                rustyline::error::ReadlineError::Interrupted => break,
+                rustyline::error::ReadlineError::Interrupted => continue,
                 rustyline::error::ReadlineError::Eof => {
                     println!("Encountered Eof");
                     break;
