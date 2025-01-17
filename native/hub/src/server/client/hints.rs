@@ -1,4 +1,5 @@
 use std::borrow::Cow::{self, Borrowed, Owned};
+use std::sync::Arc;
 
 use rustyline::completion::FilenameCompleter;
 use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
@@ -6,6 +7,9 @@ use rustyline::hint::Hinter;
 use rustyline::history::SearchDirection;
 use rustyline::validate::MatchingBracketValidator;
 use rustyline_derive::{Completer, Helper, Validator};
+use tokio::sync::RwLock;
+
+use crate::fs::VirtualFS;
 
 #[derive(Helper, Completer, Validator)]
 pub struct DIYHinter {
@@ -15,11 +19,11 @@ pub struct DIYHinter {
     #[rustyline(Validator)]
     validator: MatchingBracketValidator,
     colored_prompt: String,
-    pub fs: std::sync::Arc<tokio::sync::RwLock<crate::fs::VirtualFS>>,
+    pub fs: Arc<RwLock<VirtualFS>>,
 }
 
 impl DIYHinter {
-    pub fn new(fs: std::sync::Arc<tokio::sync::RwLock<crate::fs::VirtualFS>>) -> Self {
+    pub fn new(fs: Arc<RwLock<VirtualFS>>) -> Self {
         Self {
             completer: FilenameCompleter::new(),
             highlighter: MatchingBracketHighlighter::new(),
