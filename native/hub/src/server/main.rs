@@ -18,7 +18,7 @@ use axum::{
 use clap::{Arg, Command};
 use dunce::canonicalize;
 use futures_util::{SinkExt, StreamExt};
-use log::{error, info};
+use log::{debug, error, info};
 use prost::Message;
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
@@ -143,7 +143,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
         while let Some(Ok(msg)) = receiver.next().await {
             if let WsMessage::Binary(payload) = msg {
                 if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
-                    info!("Received message type: {}", msg_type);
+                    debug!("Received message type: {}", msg_type);
 
                     if let Some(response) = state
                         .websocket_service
