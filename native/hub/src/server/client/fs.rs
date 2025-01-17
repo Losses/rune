@@ -78,6 +78,49 @@ impl VirtualFS {
             .await
     }
 
+    async fn fetch_mix_queries_by_mix_id(&self, mix_id: i32) -> Result<Vec<MixQuery>> {
+        let request = FetchMixQueriesRequest { mix_id };
+        let response: FetchMixQueriesResponse = self
+            .connection
+            .request("FetchMixQueriesRequest", request)
+            .await?;
+        Ok(response.result)
+    }
+
+    fn build_collection_query(
+        &self,
+        collection_type: CollectionType,
+        id: i32,
+    ) -> Result<Vec<(String, String)>> {
+        if collection_type == CollectionType::Mix {
+            return Err(anyhow!("Not Allow"));
+        }
+        let operator = match collection_type {
+            CollectionType::Album => "album",
+            CollectionType::Artist => "artist",
+            CollectionType::Playlist => "playlist",
+            CollectionType::Track => "track",
+            _ => return Err(anyhow!("Invalid collection type")),
+        };
+        Ok(vec![(operator.to_string(), id.to_string())])
+    }
+
+    async fn build_query(
+        &self,
+        collection_type: CollectionType,
+        id: i32,
+    ) -> Result<Vec<(String, String)>> {
+        if collection_type == CollectionType::Mix {
+            let queries = self.fetch_mix_queries_by_mix_id(id).await?;
+            Ok(queries
+                .into_iter()
+                .map(|q| (q.operator, q.parameter))
+                .collect())
+        } else {
+            self.build_collection_query(collection_type, id)
+        }
+    }
+
     pub async fn list_current_dir(&self) -> Result<Vec<VirtualEntry>> {
         if self.current_path == Path::new("/") {
             return Ok(self
@@ -133,6 +176,61 @@ impl VirtualFS {
                         is_directory: true,
                     })
                     .collect())
+            }
+            4 => {
+                println!("AAAAA");
+                let group_name = self
+                    .current_path
+                    .components()
+                    .nth(2)
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .unwrap();
+                let collection_name = self
+                    .current_path
+                    .components()
+                    .last()
+                    .unwrap()
+                    .as_os_str()
+                    .to_str()
+                    .unwrap();
+
+                let response = self
+                    .fetch_collection_groups(collection_type, vec![group_name.to_string()])
+                    .await?;
+                if let Some(collection) = response
+                    .groups
+                    .into_iter()
+                    .flat_map(|group| group.collections)
+                    .find(|c| c.name == collection_name)
+                {
+                    let queries = self.build_query(collection_type, collection.id).await?;
+                    let request = MixQueryRequest {
+                        queries: queries
+                            .into_iter()
+                            .map(|(operator, parameter)| MixQuery {
+                                operator,
+                                parameter,
+                            })
+                            .collect(),
+                        cursor: 0,
+                        page_size: 100,
+                        bake_cover_arts: false,
+                    };
+                    let mix_response: MixQueryResponse =
+                        self.connection.request("MixQueryRequest", request).await?;
+                    return Ok(mix_response
+                        .files
+                        .into_iter()
+                        .map(|file| VirtualEntry {
+                            name: file.title,
+                            id: Some(file.id),
+                            is_directory: false,
+                        })
+                        .collect());
+                }
+                Ok(Vec::new())
             }
             _ => Ok(Vec::new()),
         }
