@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
+use colored::Colorize;
 
 use hub::messages::*;
 
@@ -184,6 +185,39 @@ impl VirtualFS {
         Ok(current)
     }
 
+    pub async fn path_to_query(&self, path: &Path) -> Result<Vec<(String, String)>> {
+        match path.components().count() {
+            3 => {
+                println!(
+                    "{}",
+                    "Unable to parse a collection group, fallback to the whole library".yellow()
+                );
+                Ok(vec![("lib::directory.deep".to_string(), "/".to_string())])
+            }
+            4 => {
+                let collection_type =
+                    path_to_collection_type(path).ok_or_else(|| anyhow!("Invalid path"))?;
+
+                let parent_path = path.parent().unwrap().to_path_buf();
+                let collection_name = path.file_name().unwrap().to_str().unwrap();
+
+                let collection_id = if let Some(parent_cache) = self.cache.get(&parent_path) {
+                    parent_cache
+                        .entries
+                        .iter()
+                        .find(|e| e.name == collection_name)
+                        .and_then(|e| e.id)
+                        .ok_or_else(|| anyhow!("Collection not found in cache"))?
+                } else {
+                    return Err(anyhow!("Parent directory not cached"));
+                };
+
+                build_query(collection_type, collection_id, &self.connection).await
+            }
+            _ => Ok(vec![("lib::path".to_string(), "/".to_string())]),
+        }
+    }
+
     pub async fn list_current_dir(&mut self) -> Result<Vec<VirtualEntry>> {
         if self.current_path == Path::new("/") {
             return Ok(self
@@ -260,22 +294,8 @@ impl VirtualFS {
                         .collect::<Vec<_>>())
                 }
                 4 => {
-                    let parent_path = self.current_path.parent().unwrap().to_path_buf();
-                    let collection_name = self.current_path.file_name().unwrap().to_str().unwrap();
+                    let queries = self.path_to_query(&self.current_path).await?;
 
-                    let collection_id = if let Some(parent_cache) = self.cache.get(&parent_path) {
-                        parent_cache
-                            .entries
-                            .iter()
-                            .find(|e| e.name == collection_name)
-                            .and_then(|e| e.id)
-                            .ok_or_else(|| anyhow!("Collection not found in cache"))?
-                    } else {
-                        return Err(anyhow!("Parent directory not cached"));
-                    };
-
-                    let queries =
-                        build_query(collection_type, collection_id, &self.connection).await?;
                     let request = MixQueryRequest {
                         queries: queries
                             .into_iter()
