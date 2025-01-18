@@ -333,7 +333,7 @@ impl VirtualFS {
             && self.current_path.ends_with("Tracks")
         {
             // Special handling for /Tracks directory - list files directly
-            let query = vec![("lib::track".to_string(), "/".to_string())];
+            let query = vec![("lib::directory.deep".to_string(), "/".to_string())];
             let mix_response = send_mix_query_request(query, &self.connection).await?;
 
             Ok(mix_response
