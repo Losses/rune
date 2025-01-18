@@ -145,9 +145,14 @@ pub async fn execute(
             playback_mode,
             instant_play,
             operate_mode,
+            id,
         } => {
             let fs = fs.read().await;
-            let path = fs.current_path.join(path).clean();
+            let mut path = fs.current_path.join(path).clean();
+
+            if id {
+                path = fs.resolve_path_with_ids(&path.to_string_lossy()).await?;
+            }
 
             match fs.path_to_query(&path).await {
                 Ok(queries) => match operate_playback_with_mix_query_request(
@@ -169,5 +174,11 @@ pub async fn execute(
         Command::Quit => Ok(false),
         Command::Exit => todo!(),
         Command::Cdi { path: _ } => todo!(),
+        Command::Opqi {
+            path: _,
+            playback_mode: _,
+            instant_play: _,
+            operate_mode: _,
+        } => todo!(),
     }
 }

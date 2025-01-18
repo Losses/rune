@@ -102,6 +102,22 @@ pub enum Command {
         /// Operation mode (append, next, replace)
         #[arg(long, default_value = "append")]
         operate_mode: OperateMode,
+        #[arg(long)]
+        id: bool,
+    },
+    /// Alias for `opq --id`
+    Opqi {
+        /// Path to create query from
+        path: String,
+        /// Playback mode (sequential, repeatone, repeatall, shuffle, nochange)
+        #[arg(long, default_value = "nochange")]
+        playback_mode: PlaybackMode,
+        /// Whether to start playing instantly
+        #[arg(long, default_value_t = true)]
+        instant_play: bool,
+        /// Operation mode (append, next, replace)
+        #[arg(long, default_value = "append")]
+        operate_mode: OperateMode,
     },
     /// Exit the program
     Quit,
@@ -127,6 +143,18 @@ impl Command {
         Ok(match command {
             Command::Cdi { path } => Command::Cd { path, id: true },
             Command::Exit => Command::Quit,
+            Command::Opqi {
+                path,
+                playback_mode,
+                instant_play,
+                operate_mode,
+            } => Command::Opq {
+                path,
+                id: true,
+                playback_mode,
+                instant_play,
+                operate_mode,
+            },
             _ => command,
         })
     }
