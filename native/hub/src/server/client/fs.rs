@@ -75,6 +75,27 @@ impl VirtualFS {
 
         let root_path = PathBuf::from("/").join(root_dir);
 
+        if collection_type == CollectionType::Track {
+            let query = vec![("lib::directory.deep".to_string(), "/".to_string())];
+
+            let mix_response = send_mix_query_request(query, &self.connection).await?;
+
+            for file in mix_response.files {
+                if file.id == id {
+                    return Ok(Some((
+                        root_path.join(&file.title),
+                        VirtualEntry {
+                            name: file.title,
+                            id: Some(file.id),
+                            is_directory: false,
+                        },
+                    )));
+                }
+            }
+
+            return Ok(None);
+        }
+
         // Fetch the group summary
         let summary = fetch_collection_group_summary(collection_type, &self.connection).await?;
 

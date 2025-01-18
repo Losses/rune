@@ -134,7 +134,7 @@ pub async fn send_mix_query_request(
             })
             .collect(),
         cursor: 0,
-        page_size: 999,
+        page_size: 9999,
         bake_cover_arts: false,
     };
 
