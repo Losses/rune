@@ -119,6 +119,19 @@ pub enum Command {
         #[arg(long, default_value = "append")]
         operate_mode: OperateMode,
     },
+    /// Play the current track
+    Play,
+    /// Pause the current track
+    Pause,
+    /// Skip to the next track
+    Next,
+    /// Go back to the previous track
+    Previous,
+    /// Set playback mode
+    SetMode {
+        /// Playback mode (sequential, repeatone, repeatall, shuffle)
+        mode: PlaybackMode,
+    },
     /// Exit the program
     Quit,
     /// Alias for `quit`

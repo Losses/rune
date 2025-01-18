@@ -140,3 +140,40 @@ pub async fn send_mix_query_request(
 
     connection.request("MixQueryRequest", request).await
 }
+
+pub async fn send_play_request(connection: &WSConnection) -> Result<()> {
+    let request = PlayRequest {};
+
+    connection.request_simple("PlayRequest", request).await
+}
+
+pub async fn send_pause_request(connection: &WSConnection) -> Result<()> {
+    let request = PauseRequest {};
+
+    connection.request_simple("PauseRequest", request).await
+}
+
+pub async fn send_next_request(connection: &WSConnection) -> Result<()> {
+    let request = NextRequest {};
+
+    connection.request_simple("NextRequest", request).await
+}
+
+pub async fn send_previous_request(connection: &WSConnection) -> Result<()> {
+    let request = PreviousRequest {};
+
+    connection.request_simple("PreviousRequest", request).await
+}
+
+pub async fn send_set_playback_mode_request(
+    playback_mode: PlaybackMode,
+    connection: &WSConnection,
+) -> Result<()> {
+    let request = SetPlaybackModeRequest {
+        mode: playback_mode.into(),
+    };
+
+    connection
+        .request_simple("SetPlaybackModeRequest", request)
+        .await
+}

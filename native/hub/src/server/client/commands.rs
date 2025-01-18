@@ -6,7 +6,10 @@ use colored::*;
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr;
 
-use crate::api::operate_playback_with_mix_query_request;
+use crate::api::{
+    operate_playback_with_mix_query_request, send_next_request, send_pause_request,
+    send_play_request, send_previous_request, send_set_playback_mode_request,
+};
 use crate::cli::Command;
 use crate::fs::VirtualFS;
 
@@ -169,6 +172,36 @@ pub async fn execute(
                 },
                 Err(e) => eprintln!("Error creating query from path: {}", e),
             }
+            Ok(true)
+        }
+        Command::Play => {
+            let fs = fs.read().await;
+            send_play_request(&fs.connection).await?;
+
+            Ok(true)
+        }
+        Command::Pause => {
+            let fs = fs.read().await;
+            send_pause_request(&fs.connection).await?;
+
+            Ok(true)
+        }
+        Command::Next => {
+            let fs = fs.read().await;
+            send_next_request(&fs.connection).await?;
+
+            Ok(true)
+        }
+        Command::Previous => {
+            let fs = fs.read().await;
+            send_previous_request(&fs.connection).await?;
+
+            Ok(true)
+        }
+        Command::SetMode { mode } => {
+            let fs = fs.read().await;
+            send_set_playback_mode_request(mode, &fs.connection).await?;
+
             Ok(true)
         }
         Command::Quit => Ok(false),

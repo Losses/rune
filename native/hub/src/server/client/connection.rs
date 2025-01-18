@@ -96,4 +96,19 @@ impl WSConnection {
 
         Ok(decoded)
     }
+
+    pub async fn request_simple<T: ProstMessage>(&self, type_name: &str, request: T) -> Result<()> {
+        let (response_tx, _) = mpsc::channel(1);
+        let uuid = Uuid::new_v4();
+
+        {
+            let mut channels = self.response_channels.write().await;
+            channels.insert(uuid, response_tx);
+        }
+
+        let payload = request.encode_to_vec();
+        self.tx.send((type_name.to_string(), payload, uuid)).await?;
+
+        Ok(())
+    }
 }
