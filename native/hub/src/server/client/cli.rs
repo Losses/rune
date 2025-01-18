@@ -84,6 +84,11 @@ pub enum Command {
         #[arg(long)]
         id: bool,
     },
+    /// Alias for `cd --id`
+    Cdi {
+        /// Directory to change to
+        path: String,
+    },
     /// Operate playback with mix query
     Opq {
         /// Path to create query from
@@ -100,6 +105,7 @@ pub enum Command {
     },
     /// Exit the program
     Quit,
+    /// Alias for `quit`
     Exit,
 }
 
@@ -113,9 +119,15 @@ impl Command {
 
         let matches = Command::command()
             .override_usage("> [COMMAND]")
-            .disable_help_flag(true)
             .try_get_matches_from(args)?;
 
-        Command::from_arg_matches(&matches)
+        let command = Command::from_arg_matches(&matches)?;
+
+        // Convert `Cdi` to `Cd` with `id` set to true
+        Ok(match command {
+            Command::Cdi { path } => Command::Cd { path, id: true },
+            Command::Exit => Command::Quit,
+            _ => command,
+        })
     }
 }

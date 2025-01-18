@@ -167,6 +167,7 @@ pub async fn execute(
             Ok(true)
         }
         Command::Quit => Ok(false),
-        Command::Exit => Ok(false),
+        Command::Exit => todo!(),
+        Command::Cdi { path: _ } => todo!(),
     }
 }
