@@ -214,6 +214,30 @@ impl VirtualFS {
 
                 build_query(collection_type, collection_id, &self.connection).await
             }
+            5 => {
+                // At this level, we're dealing with a specific media file
+                let file_name = path
+                    .file_name()
+                    .ok_or_else(|| anyhow!("Invalid path: no file name"))?
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Invalid file name encoding"))?;
+
+                // Get the parent directory's cache to find the file ID
+                let parent_path = path.parent().unwrap().to_path_buf();
+                if let Some(parent_cache) = self.cache.get(&parent_path) {
+                    // Find the file entry in the cache
+                    if let Some(file_entry) =
+                        parent_cache.entries.iter().find(|e| e.name == file_name)
+                    {
+                        // Get the file ID
+                        if let Some(file_id) = file_entry.id {
+                            return Ok(vec![("lib::track".to_string(), file_id.to_string())]);
+                        }
+                    }
+                    return Err(anyhow!("File not found in cache"));
+                }
+                Err(anyhow!("Parent directory not cached"))
+            }
             _ => Ok(vec![("lib::directory.deep".to_string(), "/".to_string())]),
         }
     }
