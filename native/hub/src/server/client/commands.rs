@@ -1,10 +1,12 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use clean_path::Clean;
 use colored::*;
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr;
 
+use crate::api::operate_playback_with_mix_query_request;
 use crate::cli::Command;
 use crate::fs::VirtualFS;
 
@@ -121,7 +123,7 @@ pub async fn execute(
                         }
                     }
                     "/" => PathBuf::from("/"),
-                    path => fs.current_path.join(path),
+                    path => fs.current_path.join(path).clean(),
                 }
             };
 
@@ -135,6 +137,32 @@ pub async fn execute(
                 Err(e) => {
                     println!("Error validating path: {}", e);
                 }
+            }
+            Ok(true)
+        }
+        Command::Opq {
+            path,
+            playback_mode,
+            instant_play,
+            operate_mode,
+        } => {
+            let fs = fs.read().await;
+            let path = fs.current_path.join(path).clean();
+
+            match fs.path_to_query(&path).await {
+                Ok(queries) => match operate_playback_with_mix_query_request(
+                    queries,
+                    playback_mode,
+                    instant_play,
+                    operate_mode,
+                    &fs.connection,
+                )
+                .await
+                {
+                    Ok(_) => println!("Successfully updated playback queue"),
+                    Err(e) => eprintln!("Failed to update playback queue: {}", e),
+                },
+                Err(e) => eprintln!("Error creating query from path: {}", e),
             }
             Ok(true)
         }

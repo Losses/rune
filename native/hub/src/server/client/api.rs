@@ -4,7 +4,10 @@ use anyhow::{anyhow, Result};
 
 use hub::messages::*;
 
-use crate::connection::WSConnection;
+use crate::{
+    cli::{OperateMode, PlaybackMode},
+    connection::WSConnection,
+};
 
 pub async fn fetch_mix_queries_by_mix_id(
     mix_id: i32,
@@ -87,5 +90,33 @@ pub async fn fetch_collection_groups(
 
     connection
         .request("FetchCollectionGroupsRequest", request)
+        .await
+}
+
+pub async fn operate_playback_with_mix_query_request(
+    queries: Vec<(String, String)>,
+    playback_mode: PlaybackMode,
+    instant_play: bool,
+    operate_mode: OperateMode,
+    connection: &WSConnection,
+) -> Result<OperatePlaybackWithMixQueryResponse> {
+    let request = OperatePlaybackWithMixQueryRequest {
+        queries: queries
+            .into_iter()
+            .map(|(operator, parameter)| MixQuery {
+                operator,
+                parameter,
+            })
+            .collect(),
+        playback_mode: playback_mode.into(),
+        hint_position: -1,
+        initial_playback_item: Default::default(),
+        instantly_play: instant_play,
+        operate_mode: operate_mode.into(),
+        fallback_playing_items: vec![],
+    };
+
+    connection
+        .request("OperatePlaybackWithMixQueryRequest", request)
         .await
 }

@@ -29,7 +29,7 @@ pub struct VirtualFS {
     pub current_path: PathBuf,
     pub root_dirs: Vec<String>,
     pub cache: HashMap<PathBuf, CacheEntry>,
-    connection: Arc<WSConnection>,
+    pub connection: Arc<WSConnection>,
 }
 
 impl VirtualFS {
@@ -214,7 +214,7 @@ impl VirtualFS {
 
                 build_query(collection_type, collection_id, &self.connection).await
             }
-            _ => Ok(vec![("lib::path".to_string(), "/".to_string())]),
+            _ => Ok(vec![("lib::directory.deep".to_string(), "/".to_string())]),
         }
     }
 
