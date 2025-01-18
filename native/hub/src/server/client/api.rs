@@ -120,3 +120,23 @@ pub async fn operate_playback_with_mix_query_request(
         .request("OperatePlaybackWithMixQueryRequest", request)
         .await
 }
+
+pub async fn send_mix_query_request(
+    queries: Vec<(String, String)>,
+    connection: &WSConnection,
+) -> Result<MixQueryResponse> {
+    let request = MixQueryRequest {
+        queries: queries
+            .into_iter()
+            .map(|(operator, parameter)| MixQuery {
+                operator,
+                parameter,
+            })
+            .collect(),
+        cursor: 0,
+        page_size: 100,
+        bake_cover_arts: false,
+    };
+
+    connection.request("MixQueryRequest", request).await
+}

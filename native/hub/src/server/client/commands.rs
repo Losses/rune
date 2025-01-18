@@ -147,7 +147,7 @@ pub async fn execute(
             operate_mode,
             id,
         } => {
-            let fs = fs.read().await;
+            let mut fs = fs.write().await;
             let mut path = fs.current_path.join(path).clean();
 
             if id {

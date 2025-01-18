@@ -9,6 +9,7 @@ use hub::messages::*;
 
 use crate::api::{
     build_query, fetch_collection_group_summary, fetch_collection_groups, path_to_collection_type,
+    send_mix_query_request,
 };
 use crate::connection::WSConnection;
 
@@ -113,7 +114,7 @@ impl VirtualFS {
         }
     }
 
-    pub async fn resolve_path_with_ids(&self, path: &str) -> Result<PathBuf> {
+    pub async fn resolve_path_with_ids(&mut self, path: &str) -> Result<PathBuf> {
         let mut current = self.current_path.clone();
 
         // Get the collection type from the current path
@@ -137,8 +138,51 @@ impl VirtualFS {
                 current = PathBuf::from("/");
                 collection_type = None;
             } else {
+                // Check if we're already at depth 4 (which would make the next component depth 5)
+                let current_depth = current.components().count();
+
                 // Attempt to parse the component as an ID
                 if let Ok(id) = component_str.parse::<i32>() {
+                    if current_depth == 4 {
+                        // At depth 4, we're dealing with a file - just append the name directly
+                        let parent_path = current.clone();
+
+                        // If cache doesn't exist, build it
+                        if !self.cache.contains_key(&parent_path) {
+                            // We need to build the cache for the parent directory
+                            let queries = self.path_to_query(&parent_path).await?;
+                            let mix_response =
+                                send_mix_query_request(queries, &self.connection).await?;
+
+                            let entries: Vec<VirtualEntry> = mix_response
+                                .files
+                                .into_iter()
+                                .map(|file| VirtualEntry {
+                                    name: file.title,
+                                    id: Some(file.id),
+                                    is_directory: false,
+                                })
+                                .collect();
+
+                            // Cache the entries
+                            let collection_type = path_to_collection_type(&parent_path)
+                                .ok_or_else(|| anyhow!("Invalid collection type"))?;
+
+                            self.cache_entries(parent_path.clone(), entries, collection_type);
+                        }
+
+                        // Now try to find the file in the cache
+                        if let Some(parent_cache) = self.cache.get(&parent_path) {
+                            if let Some(file_entry) =
+                                parent_cache.entries.iter().find(|e| e.id == Some(id))
+                            {
+                                current = current.join(&file_entry.name);
+                                continue;
+                            }
+                        }
+                        return Err(anyhow!("File ID {} not found in parent directory", id));
+                    }
+
                     let ctype = if let Some(ct) = collection_type {
                         ct
                     } else {
@@ -319,21 +363,7 @@ impl VirtualFS {
                 }
                 4 => {
                     let queries = self.path_to_query(&self.current_path).await?;
-
-                    let request = MixQueryRequest {
-                        queries: queries
-                            .into_iter()
-                            .map(|(operator, parameter)| MixQuery {
-                                operator,
-                                parameter,
-                            })
-                            .collect(),
-                        cursor: 0,
-                        page_size: 100,
-                        bake_cover_arts: false,
-                    };
-                    let mix_response: MixQueryResponse =
-                        self.connection.request("MixQueryRequest", request).await?;
+                    let mix_response = send_mix_query_request(queries, &self.connection).await?;
 
                     Ok(mix_response
                         .files
