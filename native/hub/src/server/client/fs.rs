@@ -231,7 +231,34 @@ impl VirtualFS {
 
     pub async fn path_to_query(&self, path: &Path) -> Result<Vec<(String, String)>> {
         match path.components().count() {
+            2 => Ok(vec![("lib::directory.deep".to_string(), "/".to_string())]),
             3 => {
+                // Prevent query generation for paths under /Tracks as they shouldn't exist
+                if path.starts_with("/Tracks") {
+                    // For /Tracks paths, we need to find the file in the cache and create a track query
+                    let file_name = path
+                        .file_name()
+                        .ok_or_else(|| anyhow!("Invalid path: no file name"))?
+                        .to_str()
+                        .ok_or_else(|| anyhow!("Invalid file name encoding"))?;
+
+                    // Since tracks are cached at the /Tracks directory level, we'll look there
+                    let tracks_path = PathBuf::from("/Tracks");
+
+                    if let Some(cache_entry) = self.cache.get(&tracks_path) {
+                        // Find the track in the cache
+                        if let Some(track) =
+                            cache_entry.entries.iter().find(|e| e.name == file_name)
+                        {
+                            if let Some(file_id) = track.id {
+                                return Ok(vec![("lib::track".to_string(), file_id.to_string())]);
+                            }
+                        }
+                        return Err(anyhow!("Track not found in cache"));
+                    }
+                    return Err(anyhow!("Tracks directory not cached"));
+                }
+
                 println!(
                     "{}",
                     "Unable to parse a collection group, fallback to the whole library".yellow()
@@ -259,7 +286,7 @@ impl VirtualFS {
                 build_query(collection_type, collection_id, &self.connection).await
             }
             5 => {
-                // At this level, we're dealing with a specific media file
+                // For files directly under /Tracks or at depth 5 in other paths
                 let file_name = path
                     .file_name()
                     .ok_or_else(|| anyhow!("Invalid path: no file name"))?
@@ -273,7 +300,7 @@ impl VirtualFS {
                     if let Some(file_entry) =
                         parent_cache.entries.iter().find(|e| e.name == file_name)
                     {
-                        // Get the file ID
+                        // Get the file ID and construct the track query
                         if let Some(file_id) = file_entry.id {
                             return Ok(vec![("lib::track".to_string(), file_id.to_string())]);
                         }
@@ -302,35 +329,44 @@ impl VirtualFS {
         let collection_type =
             path_to_collection_type(&self.current_path).ok_or_else(|| anyhow!("Invalid path"))?;
 
-        let entries = if self.current_path == Path::new("/") {
-            // Root directory
-            let entries = self
-                .root_dirs
-                .iter()
-                .map(|name| VirtualEntry {
-                    name: name.clone(),
-                    id: None,
-                    is_directory: true,
-                })
-                .collect::<Vec<_>>();
+        let entries = if self.current_path.components().count() == 2
+            && self.current_path.ends_with("Tracks")
+        {
+            // Special handling for /Tracks directory - list files directly
+            let query = vec![("lib::track".to_string(), "/".to_string())];
+            let mix_response = send_mix_query_request(query, &self.connection).await?;
 
-            Ok(entries)
+            Ok(mix_response
+                .files
+                .into_iter()
+                .map(|file| VirtualEntry {
+                    name: file.title,
+                    id: Some(file.id),
+                    is_directory: false,
+                })
+                .collect::<Vec<_>>())
         } else {
             match self.current_path.components().count() {
                 // If we're at the root of a collection type (e.g., /Artists)
                 2 => {
-                    let response =
-                        fetch_collection_group_summary(collection_type, &self.connection).await?;
+                    // Skip group listing for Tracks
+                    if collection_type == CollectionType::Track {
+                        Ok(Vec::new())
+                    } else {
+                        let response =
+                            fetch_collection_group_summary(collection_type, &self.connection)
+                                .await?;
 
-                    Ok(response
-                        .groups
-                        .into_iter()
-                        .map(|group| VirtualEntry {
-                            name: group.group_title,
-                            id: None,
-                            is_directory: true,
-                        })
-                        .collect::<Vec<_>>())
+                        Ok(response
+                            .groups
+                            .into_iter()
+                            .map(|group| VirtualEntry {
+                                name: group.group_title,
+                                id: None,
+                                is_directory: true,
+                            })
+                            .collect::<Vec<_>>())
+                    }
                 }
                 // If we're in a group (e.g., /Artists/:Group)
                 3 => {
@@ -435,6 +471,11 @@ impl VirtualFS {
             )),
             // Second level directories (groups) must exist in the server
             3 => {
+                // Prevent navigation into subdirectories under /Tracks
+                if new_path.starts_with("/Tracks") {
+                    return Ok(false);
+                }
+
                 let collection_type = path_to_collection_type(new_path)
                     .ok_or_else(|| anyhow!("Invalid collection type"))?;
                 let group_name = new_path
