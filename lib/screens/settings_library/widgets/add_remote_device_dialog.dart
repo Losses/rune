@@ -1,7 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
-import '../../../providers/library_manager.dart';
 import '../../../providers/library_path.dart';
 import '../../../utils/api/close_library.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
