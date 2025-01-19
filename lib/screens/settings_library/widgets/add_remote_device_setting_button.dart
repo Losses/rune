@@ -23,7 +23,7 @@ class AddRemoteDeviceSettingButton extends StatelessWidget {
       icon: Symbols.conversion_path,
       title: S.of(context).addRemoteDevice,
       subtitle: S.of(context).addRemoteDeviceSubtitle,
-      onPressed: () => showAddRemoteDeviceDialog(context),
+      onPressed: () => showAddRemoteDeviceDialog(navigateIfFailed, context),
     );
   }
 }

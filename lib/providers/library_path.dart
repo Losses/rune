@@ -14,6 +14,11 @@ import '../constants/configurations.dart';
 
 final FileStorageService _fileStorageService = FileStorageService();
 
+enum ConnectionType {
+  local,
+  remote,
+}
+
 Future<String?> getInitialPath() async {
   const String libraryPath =
       String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
