@@ -1046,5 +1046,27 @@
   "userToken": "User Token",
   "@userToken": {
     "description": "Input field title of the scrobble login form."
+  },
+  "addRemoteDevice": "Add Remote Device",
+  "@addRemoteDevice": {
+    "description": "Button prompt text in the settings interface for connecting to a remote device."
+  },
+  "addRemoteDeviceSubtitle": "Control a remote player and manage the tracks it plays.",
+  "@addRemoteDeviceSubtitle": {},
+  "hostname": "Hostname",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "Port",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "secured": "Secured",
+  "@secured": {
+    "description": "If the connection is secured."
+  },
+  "addConnection": "Add Connection",
+  "@addConnection": {
+    "description": "The action button of the dialog."
   }
 }

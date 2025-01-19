@@ -219,8 +219,10 @@ impl WebSocketDartBridge {
     }
 }
 
-pub async fn server_player_loop(url: String) {
+pub async fn server_player_loop(url: &String) {
     info!("Media Library Received, initialize other receivers");
+
+    let url = url.to_owned();
 
     tokio::spawn(async move {
         info!("Initializing bridge");

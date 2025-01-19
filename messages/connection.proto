@@ -19,11 +19,18 @@ message TestLibraryInitializedResponse {
   bool notReady = 4;
 }
 
+enum OperationDestination {
+  Local = 0;
+  Remote = 1;
+}
+
 // [DART-SIGNAL]
 message SetMediaLibraryPathRequest {
   string path = 1;
   string db_path = 2;
   optional LibraryInitializeMode mode = 3;
+  OperationDestination plays_on = 4;
+  OperationDestination hosted_on = 5;
 }
 
 // [RUST-SIGNAL]
