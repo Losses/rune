@@ -120,109 +120,139 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(&self, url: &str) -> Result<()> {
+    pub async fn run(&mut self, url: &str) -> Result<()> {
+        let raw_url = url;
         let url = format!("{}/ws", url);
 
         info!("Connecting to {}", url);
 
-        let (ws_stream, _) = connect_async(url).await?;
-        info!("WebSocket connection established");
+        match connect_async(url.clone()).await {
+            Ok((ws_stream, _)) => {
+                info!("WebSocket connection established");
 
-        let (write, mut read) = ws_stream.split();
-        let write = Arc::new(Mutex::new(write)); // Wrap `write` in Arc<Mutex<>>.
-
-        let cancel_token: CancellationToken = CancellationToken::new();
-
-        let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
-        let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
-
-        let cancel_token = Arc::new(cancel_token);
-
-        let cancel_token_clone = Arc::clone(&cancel_token);
-        let handle_event_close_library_request = || async move {
-            let receiver = CloseLibraryRequest::get_dart_signal_receiver();
-            loop {
-                tokio::select! {
-                    _ = cancel_token_clone.cancelled() => {
-                        break;
-                    }
-                    Some(_) = receiver.recv() => {
-                        cancel_token_clone.cancel();
-                    }
+                SetMediaLibraryPathResponse {
+                    path: raw_url.to_owned(),
+                    success: true,
+                    error: None,
+                    not_ready: false,
                 }
-            }
-        };
+                .send_signal_to_dart();
 
-        tokio::spawn(handle_event_close_library_request());
+                info!("Connection success signal sent");
 
-        let cancel_token_clone = Arc::clone(&cancel_token);
-        let handle_event_sfx_play_request = || async move {
-            let receiver = SfxPlayRequest::get_dart_signal_receiver();
-            loop {
-                tokio::select! {
-                    _ = cancel_token_clone.cancelled() => {
-                        break;
-                    }
-                    Some(dart_signal) = receiver.recv() => {
-                        sfx_player
-                        .lock()
-                        .await
-                        .load(dart_signal.message.path.clone().into());
-                    }
-                }
-            }
-        };
+                let (write, mut read) = ws_stream.split();
+                let write = Arc::new(Mutex::new(write));
 
-        tokio::spawn(handle_event_sfx_play_request());
+                let cancel_token: CancellationToken = CancellationToken::new();
 
-        for_all_non_local_requests3!(
-            forward_event_to_remote,
-            self_arc,
-            cancel_token,
-            write.clone()
-        );
+                let sfx_player = SfxPlayer::new(Some(cancel_token.clone()));
+                let sfx_player: Arc<Mutex<SfxPlayer>> = Arc::new(Mutex::new(sfx_player));
 
-        let handlers = self.handlers.clone();
-        let write_clone = Arc::clone(&write);
-        let message_loop = || async move {
-            loop {
-                tokio::select! {
-                    message = read.next() => {
-                        match message {
-                            Some(Ok(msg)) => {
-                                if let TungsteniteMessage::Binary(payload) = msg {
-                                    if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
-                                        warn!("{}", msg_type);
-                                        if let Some(handler) = handlers.lock().await.get(&msg_type) {
-                                            handler(msg_payload);
-                                        } else {
-                                            error!("No handler registered for message type while receiving response: {}", msg_type);
-                                        }
-                                    }
-                                }
-                            }
-                            Some(Err(e)) => {
-                                error!("Error receiving message: {}", e);
+                let cancel_token = Arc::new(cancel_token);
+
+                let cancel_token_clone = Arc::clone(&cancel_token);
+                let handle_event_close_library_request = || async move {
+                    let receiver = CloseLibraryRequest::get_dart_signal_receiver();
+                    loop {
+                        tokio::select! {
+                            _ = cancel_token_clone.cancelled() => {
                                 break;
                             }
-                            None => break,
+                            Some(_) = receiver.recv() => {
+                                cancel_token_clone.cancel();
+                            }
                         }
                     }
-                    _ = cancel_token.cancelled() => {
-                        info!("Received cancel signal, closing connection");
-                        let mut write = write_clone.lock().await;
-                        if let Err(e) = write.close().await {
-                            error!("Error closing websocket connection: {}", e);
+                };
+
+                tokio::spawn(handle_event_close_library_request());
+
+                let cancel_token_clone = Arc::clone(&cancel_token);
+                let handle_event_sfx_play_request = || async move {
+                    let receiver = SfxPlayRequest::get_dart_signal_receiver();
+                    loop {
+                        tokio::select! {
+                            _ = cancel_token_clone.cancelled() => {
+                                break;
+                            }
+                            Some(dart_signal) = receiver.recv() => {
+                                sfx_player
+                                .lock()
+                                .await
+                                .load(dart_signal.message.path.clone().into());
+                            }
                         }
-                        break;
                     }
-                }
+                };
+
+                tokio::spawn(handle_event_sfx_play_request());
+
+                for_all_non_local_requests3!(
+                    forward_event_to_remote,
+                    self_arc,
+                    cancel_token,
+                    write.clone()
+                );
+
+                let handlers = self.handlers.clone();
+                let write_clone = Arc::clone(&write);
+                let message_loop = || async move {
+                    loop {
+                        tokio::select! {
+                            message = read.next() => {
+                                match message {
+                                    Some(Ok(msg)) => {
+                                        if let TungsteniteMessage::Binary(payload) = msg {
+                                            if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
+                                                warn!("{}", msg_type);
+                                                if let Some(handler) = handlers.lock().await.get(&msg_type) {
+                                                    handler(msg_payload);
+                                                } else {
+                                                    error!("No handler registered for message type while receiving response: {}", msg_type);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Some(Err(e)) => {
+                                        error!("Error receiving message: {}", e);
+                                        break;
+                                    }
+                                    None => break,
+                                }
+                            }
+                            _ = cancel_token.cancelled() => {
+                                info!("Received cancel signal, closing connection");
+                                let mut write = write_clone.lock().await;
+                                if let Err(e) = write.close().await {
+                                    error!("Error closing websocket connection: {}", e);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                };
+
+                tokio::spawn(message_loop());
+
+                Ok(())
             }
-        };
+            Err(e) => {
+                let error_msg = format!("Failed to connect: {}", e);
+                error!("{}", error_msg);
 
-        tokio::spawn(message_loop());
+                SetMediaLibraryPathResponse {
+                    path: raw_url.to_owned(),
+                    success: false,
+                    error: Some(format!("{:#?}", e)),
+                    not_ready: false,
+                }
+                .send_signal_to_dart();
 
-        Ok(())
+                info!("Connection failed signal sent");
+
+                Err(e.into())
+            }
+        }
     }
 }
 
@@ -233,7 +263,7 @@ pub async fn server_player_loop(url: &String) {
 
     tokio::spawn(async move {
         info!("Initializing bridge");
-        let bridge = WebSocketDartBridge::new();
+        let mut bridge = WebSocketDartBridge::new();
 
         for_all_responses!(register_remote_handlers, bridge);
 

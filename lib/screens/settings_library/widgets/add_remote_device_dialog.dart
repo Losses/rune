@@ -7,7 +7,6 @@ import '../../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 import '../../../widgets/no_shortcuts.dart';
-import '../../../messages/all.dart';
 
 import '../utils/add_remote_device_form_controller.dart';
 
@@ -15,7 +14,7 @@ import 'add_remote_device_form.dart';
 
 class AddRemoteDeviceDialog extends StatefulWidget {
   final bool navigateIfFailed;
-  final void Function(LoginRequestItem?) $close;
+  final void Function(void) $close;
 
   const AddRemoteDeviceDialog({
     super.key,
@@ -43,7 +42,8 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
   }
 
   _addConnection() async {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: false);
+    final libraryPath =
+        Provider.of<LibraryPathProvider>(context, listen: false);
 
     await closeLibrary(context);
 
@@ -52,6 +52,7 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
     final (switched, cancelled, error) = await libraryPath.setLibraryPath(
         context, '@RR|${controller.toWebSocketUrl()}', null);
 
+    widget.$close(null);
     if (!cancelled) {
       if (!context.mounted) return;
       await showFailedToInitializeLibrary(context, error);
