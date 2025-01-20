@@ -1,6 +1,5 @@
 import '../../messages/all.dart';
 
-import '../rune_log.dart';
 import '../settings_manager.dart';
 
 (OperationDestination, OperationDestination) determineConnectionType(
