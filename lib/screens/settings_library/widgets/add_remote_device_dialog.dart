@@ -43,7 +43,7 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
   }
 
   _addConnection() async {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
+    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: false);
 
     await closeLibrary(context);
 
