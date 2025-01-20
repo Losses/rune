@@ -117,6 +117,8 @@ impl WebSocketDartBridge {
     }
 
     pub async fn run(&self, url: &str) -> Result<()> {
+        let url = format!("{}/ws", url);
+
         info!("Connecting to {}", url);
 
         let (ws_stream, _) = connect_async(url).await?;
