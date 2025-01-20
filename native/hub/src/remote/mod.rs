@@ -21,7 +21,6 @@ use crate::handle_single_to_remote_event;
 use crate::implement_rinf_dart_signal_trait;
 use crate::messages::*;
 use crate::process_forward_event_to_remote_handlers;
-use crate::process_remote_handlers;
 use crate::register_remote_handlers;
 use crate::utils::RinfRustSignal;
 use crate::CrashResponse;
@@ -32,7 +31,7 @@ pub trait RinfDartSignal: ProstMessage {
 }
 
 for_all_requests0!(implement_rinf_dart_signal_trait);
-for_all_responses0!(implement_rinf_dart_signal_trait);
+for_all_responses0!(implement_rinf_rust_signal_trait);
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
     let type_len = type_name.len() as u8;
@@ -257,7 +256,7 @@ impl WebSocketDartBridge {
 }
 
 pub async fn server_player_loop(url: &String) {
-    info!("Media Library Received, initialize other receivers");
+    info!("Media Library Received, initialize the server loop");
 
     let url = url.to_owned();
 
@@ -265,6 +264,7 @@ pub async fn server_player_loop(url: &String) {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
 
+        info!("Registering remote handlers");
         for_all_responses!(register_remote_handlers, bridge);
 
         bridge.run(&url).await

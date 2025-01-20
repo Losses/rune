@@ -1,18 +1,33 @@
 #[macro_export]
 macro_rules! register_remote_handlers {
-    ($bridge:expr) => {
-        process_remote_handlers!(@internal $bridge);
+    ($bridge:expr, $($response:ty),*) => {
+        $(
+            $bridge
+                .register_handler::<$response>(stringify!($response))
+                .await;
+        )*
     };
 }
 
 #[macro_export]
-macro_rules! process_remote_handlers {
-    (@internal $bridge:expr, $response:ty) => {
-        paste::paste! {
-            $bridge.register_handler::<$response>(stringify!($response)).await;
-        }
+macro_rules! implement_rinf_rust_signal_trait {
+    ($($request:ty),*) => {
+        $(
+            impl RinfRustSignal for $request {
+                fn send(&self) {
+                    self.send_signal_to_dart()
+                }
+
+                fn name(&self) -> String {
+                    stringify!($request).to_string()
+                }
+
+                fn encode_message(&self) -> Vec<u8> {
+                    self.encode_to_vec()
+                }
+            }
+        )*
     };
-    (@internal $bridge:expr $(,)?) => {};
 }
 
 #[macro_export]
