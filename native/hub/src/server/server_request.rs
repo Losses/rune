@@ -20,7 +20,7 @@ macro_rules! process_server_handlers {
 
 #[macro_export]
 macro_rules! register_single_handler {
-    ($server:expr, $global_params:expr, $request:ty, $response_type:tt) => {
+    ($server:expr, $global_params:expr, $request:ty, $with_response:tt) => {
         paste::paste! {
             let global_params = $global_params.clone();
             $server.register_handler(stringify!($request), move |payload| {
@@ -40,7 +40,7 @@ macro_rules! register_single_handler {
                     let params = request.extract_params(&global_params);
                     match request.handle(params, &request).await {
                         Ok(_response) => {
-                            handle_server_response!(_response, $response_type)
+                            handle_server_response!(_response, $with_response)
                         }
                         Err(e) => {
                             error!("Error handling request: {:?}", e);
@@ -59,9 +59,9 @@ macro_rules! register_single_handler {
 macro_rules! handle_server_response {
     ($response:expr, with_response) => {
         if let Some(response) = $response {
-            (stringify!($response).to_owned(), response.encode_to_vec())
+            (response.name(), response.encode_to_vec())
         } else {
-            (stringify!($response).to_owned(), Vec::new())
+            ("".to_owned(), Vec::new())
         }
     };
     ($response:expr, without_response) => {

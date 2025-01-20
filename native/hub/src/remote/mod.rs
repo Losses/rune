@@ -32,6 +32,7 @@ pub trait RinfDartSignal: ProstMessage {
 }
 
 for_all_requests0!(implement_rinf_dart_signal_trait);
+for_all_responses0!(implement_rinf_dart_signal_trait);
 
 pub fn encode_message(type_name: &str, payload: &[u8], uuid: Option<Uuid>) -> Vec<u8> {
     let type_len = type_name.len() as u8;

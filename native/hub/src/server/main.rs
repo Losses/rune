@@ -30,7 +30,7 @@ use hub::{
     for_all_request_pairs2, handle_server_response, listen_server_event,
     messages::*,
     process_server_handlers, register_single_handler,
-    remote::{decode_message, encode_message},
+    remote::{decode_message, encode_message, RinfDartSignal},
     utils::{
         initialize_databases, player::initialize_player, Broadcaster, GlobalParams,
         ParamsExtractor, RinfRustSignal, TaskTokens,

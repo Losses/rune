@@ -364,6 +364,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let all_responses: Vec<_> = with_response
+        .iter()
+        .map(|t| syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap())
+        .collect();
+
     let all_requests: Vec<_> = with_response
         .iter()
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
@@ -393,6 +398,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
             };
+        }
+
+        #[macro_export]
+        macro_rules! for_all_responses0 {
+            ($m:tt) => {
+                $m!(#(#all_responses),*);
+            }
         }
 
         #[macro_export]
