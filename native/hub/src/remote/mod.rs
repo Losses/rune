@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use futures::SinkExt;
 use futures::StreamExt;
+use log::warn;
 use log::{error, info};
 use prost::Message as ProstMessage;
 use tokio::sync::Mutex;
@@ -112,7 +113,10 @@ impl WebSocketDartBridge {
         if let Some(handler) = self.handlers.lock().await.get(msg_type) {
             handler(payload);
         } else {
-            error!("No handler registered for message type: {}", msg_type);
+            error!(
+                "No handler registered for message type in the message bridge: {}",
+                msg_type
+            );
         }
     }
 
@@ -188,10 +192,11 @@ impl WebSocketDartBridge {
                             Some(Ok(msg)) => {
                                 if let TungsteniteMessage::Binary(payload) = msg {
                                     if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
+                                        warn!("{}", msg_type);
                                         if let Some(handler) = handlers.lock().await.get(&msg_type) {
                                             handler(msg_payload);
                                         } else {
-                                            error!("No handler registered for message type: {}", msg_type);
+                                            error!("No handler registered for message type while receiving response: {}", msg_type);
                                         }
                                     }
                                 }

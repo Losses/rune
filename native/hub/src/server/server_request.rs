@@ -31,9 +31,9 @@ macro_rules! register_single_handler {
                         Ok(req) => req,
                         Err(e) => {
                             error!("Failed to deserialize request: {:?}", e);
-                            return CrashResponse {
+                            return ("CrashResponse".to_owned(), CrashResponse {
                                 detail: format!("Failed to deserialize request: {:?}", e),
-                            }.encode_to_vec();
+                            }.encode_to_vec());
                         }
                     };
 
@@ -44,9 +44,9 @@ macro_rules! register_single_handler {
                         }
                         Err(e) => {
                             error!("Error handling request: {:?}", e);
-                            CrashResponse {
+                            ("CrashResponse".to_owned(), CrashResponse {
                                 detail: format!("{:#?}", e),
-                            }.encode_to_vec()
+                            }.encode_to_vec())
                         }
                     }
                 }
@@ -59,12 +59,12 @@ macro_rules! register_single_handler {
 macro_rules! handle_server_response {
     ($response:expr, with_response) => {
         if let Some(response) = $response {
-            response.encode_to_vec()
+            (stringify!($response).to_owned(), response.encode_to_vec())
         } else {
-            Vec::new()
+            (stringify!($response).to_owned(), Vec::new())
         }
     };
     ($response:expr, without_response) => {
-        Vec::new()
+        ("".to_owned(), Vec::new())
     };
 }

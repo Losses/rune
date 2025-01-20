@@ -43,7 +43,7 @@ use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
-type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, Vec<u8>> + Send + Sync>;
+type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
 type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -73,7 +73,7 @@ impl WebSocketService {
     async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
         F: Fn(Vec<u8>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Vec<u8>> + Send + 'static,
+        Fut: Future<Output = (String, Vec<u8>)> + Send + 'static,
     {
         self.handlers.lock().await.insert(
             msg_type.to_string(),
@@ -81,7 +81,7 @@ impl WebSocketService {
         );
     }
 
-    async fn handle_message(&self, msg_type: &str, payload: Vec<u8>) -> Option<Vec<u8>> {
+    async fn handle_message(&self, msg_type: &str, payload: Vec<u8>) -> Option<(String, Vec<u8>)> {
         let handlers = self.handlers.lock().await;
         let handler = handlers.get(msg_type)?;
         Some(handler(payload).await)
@@ -145,18 +145,21 @@ async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
                 if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
                     debug!("Received message type: {}", msg_type);
 
-                    if let Some(response) = state
+                    if let Some((resp_type, response)) = state
                         .websocket_service
                         .handle_message(&msg_type, msg_payload)
                         .await
                     {
-                        let response_payload = encode_message(&msg_type, &response, Some(uuid));
-                        if let Err(e) = incoming_tx
-                            .send(WsMessage::Binary(response_payload.into()))
-                            .await
-                        {
-                            error!("Failed to queue response: {}", e);
-                            break;
+                        if !resp_type.is_empty() {
+                            let response_payload =
+                                encode_message(&resp_type, &response, Some(uuid));
+                            if let Err(e) = incoming_tx
+                                .send(WsMessage::Binary(response_payload.into()))
+                                .await
+                            {
+                                error!("Failed to queue response: {}", e);
+                                break;
+                            }
                         }
                     } else {
                         info!("No result returned: {}", msg_type);
