@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use prost::Message;
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio_util::sync::CancellationToken;
@@ -15,12 +14,10 @@ use database::actions::recommendation::sync_recommendation;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
 
-use crate::broadcastable;
 use crate::utils::determine_batch_size;
 use crate::utils::Broadcaster;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
-use crate::utils::RinfRustSignal;
 use crate::TaskTokens;
 use crate::{messages::*, Signal};
 
@@ -82,8 +79,6 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
         )
     }
 }
-
-broadcastable!(ScanAudioLibraryProgress, ScanAudioLibraryResponse);
 
 impl Signal for ScanAudioLibraryRequest {
     type Params = (
@@ -181,8 +176,6 @@ impl Signal for ScanAudioLibraryRequest {
         Ok(None)
     }
 }
-
-broadcastable!(AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse);
 
 impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     type Params = (

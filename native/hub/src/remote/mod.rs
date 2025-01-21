@@ -264,6 +264,19 @@ pub async fn server_player_loop(url: &String) {
 
         info!("Registering remote handlers");
         for_all_responses!(register_remote_handlers, bridge);
+        register_remote_handlers!(
+            bridge,
+            ScanAudioLibraryProgress,
+            ScanAudioLibraryResponse,
+            SetMediaLibraryPathResponse,
+            AnalyzeAudioLibraryProgress,
+            AnalyzeAudioLibraryResponse,
+            PlaybackStatus,
+            ScrobbleServiceStatusUpdated,
+            CrashResponse,
+            RealtimeFft,
+            PlaylistUpdate
+        );
 
         bridge.run(&url).await
     });

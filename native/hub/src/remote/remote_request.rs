@@ -61,8 +61,6 @@ macro_rules! forward_event_to_remote {
                                 // Encode the message
                                 let payload = dart_signal.message.encode_to_vec();
 
-                                println!("SENDING MESSAGE: {:#?}", payload);
-
                                 let type_name = dart_signal.message.name();
                                 let encoded_message = encode_message(&type_name, &payload, Some(Uuid::new_v4()));
 

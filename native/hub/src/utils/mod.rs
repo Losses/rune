@@ -1,3 +1,4 @@
+pub mod broadcastable;
 pub mod player;
 
 use std::path::{Path, PathBuf};
@@ -6,7 +7,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
-use prost::Message;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -119,8 +119,6 @@ impl Broadcaster for LocalGuiBroadcaster {
         message.send();
     }
 }
-
-broadcastable!(SetMediaLibraryPathResponse);
 
 pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>) -> Result<()> {
     let receiver = SetMediaLibraryPathRequest::get_dart_signal_receiver();
