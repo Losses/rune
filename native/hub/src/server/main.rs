@@ -1,7 +1,4 @@
-use std::{
-    collections::HashMap, future::Future, net::SocketAddr, path::PathBuf, pin::Pin, sync::Arc,
-    time::Duration,
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use axum::{
@@ -20,9 +17,9 @@ use dunce::canonicalize;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use prost::Message;
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex};
 use tokio_util::sync::CancellationToken;
-use tower::util::ServiceExt;
+use tower::ServiceExt;
 use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
@@ -31,9 +28,10 @@ use hub::{
     messages::*,
     process_server_handlers, register_single_handler,
     remote::{decode_message, encode_message},
+    server::{AppState, ServerState, WebSocketService},
     utils::{
-        initialize_databases, player::initialize_player, Broadcaster, GlobalParams,
-        ParamsExtractor, RinfRustSignal, TaskTokens,
+        initialize_databases, player::initialize_player, GlobalParams, ParamsExtractor,
+        RinfRustSignal, TaskTokens,
     },
     Signal,
 };
@@ -43,75 +41,11 @@ use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
-type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
-type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
-type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-type BroadcastTx = broadcast::Sender<Vec<u8>>;
-
 pub trait RequestHandler: Send + Sync + 'static {
     type Params;
     type Response;
 
     fn handle(&self, params: Self::Params) -> Result<Option<Self::Response>, anyhow::Error>;
-}
-
-struct WebSocketService {
-    handlers: HandlerMap,
-    broadcast_tx: BroadcastTx,
-}
-
-impl WebSocketService {
-    fn new() -> Self {
-        let (broadcast_tx, _) = broadcast::channel(100);
-        WebSocketService {
-            handlers: Arc::new(Mutex::new(HashMap::new())),
-            broadcast_tx,
-        }
-    }
-
-    async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
-    where
-        F: Fn(Vec<u8>) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = (String, Vec<u8>)> + Send + 'static,
-    {
-        self.handlers.lock().await.insert(
-            msg_type.to_string(),
-            Box::new(move |payload| Box::pin(handler(payload))),
-        );
-    }
-
-    async fn handle_message(&self, msg_type: &str, payload: Vec<u8>) -> Option<(String, Vec<u8>)> {
-        let handlers = self.handlers.lock().await;
-        let handler = handlers.get(msg_type)?;
-        Some(handler(payload).await)
-    }
-}
-
-impl Broadcaster for WebSocketService {
-    fn broadcast(&self, message: &dyn RinfRustSignal) {
-        let type_name = message.name();
-        let payload = message.encode_message();
-        let message_data = encode_message(&type_name, &payload, None);
-
-        if let Err(e) = self.broadcast_tx.send(message_data) {
-            error!("Failed to broadcast message: {}", e);
-        }
-    }
-}
-
-impl Clone for WebSocketService {
-    fn clone(&self) -> Self {
-        WebSocketService {
-            handlers: self.handlers.clone(),
-            broadcast_tx: self.broadcast_tx.clone(),
-        }
-    }
-}
-
-struct ServerState {
-    app_state: Arc<AppState>,
-    websocket_service: Arc<WebSocketService>,
 }
 
 async fn websocket_handler(
@@ -254,11 +188,6 @@ async fn serve_file(
         }
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
-}
-
-struct AppState {
-    lib_path: PathBuf,
-    cover_temp_dir: PathBuf,
 }
 
 async fn serve_combined(
