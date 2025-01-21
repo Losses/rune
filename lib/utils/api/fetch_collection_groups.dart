@@ -12,7 +12,7 @@ Future<List<CollectionGroup>> fetchCollectionGroups(
   fetchGroupsRequest.sendSignalToRust(); // GENERATED
 
   // Listen for the response from Rust
-  final rustSignal = await CollectionGroups.rustSignalStream.first;
+  final rustSignal = await FetchCollectionGroupsResponse.rustSignalStream.first;
   final groups = rustSignal.message.groups;
 
   return groups;

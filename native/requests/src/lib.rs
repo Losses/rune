@@ -154,7 +154,7 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         },
         RequestResponse {
             request: "FetchCollectionGroupsRequest".to_string(),
-            response: Some("CollectionGroups".to_string()),
+            response: Some("FetchCollectionGroupsResponse".to_string()),
             local_only: false,
         },
         RequestResponse {
@@ -364,6 +364,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let all_responses: Vec<_> = with_response
+        .iter()
+        .map(|t| syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap())
+        .collect();
+
     let all_requests: Vec<_> = with_response
         .iter()
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
@@ -396,9 +401,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         }
 
         #[macro_export]
+        macro_rules! for_all_responses0 {
+            ($m:tt) => {
+                $m!(#(#all_responses),*);
+            }
+        }
+
+        #[macro_export]
         macro_rules! for_all_responses {
             ($m:tt, $params:expr) => {
-                $m!($params);
+                $m!($params, #(#all_responses),*);
             }
         }
 

@@ -20,7 +20,7 @@ macro_rules! process_server_handlers {
 
 #[macro_export]
 macro_rules! register_single_handler {
-    ($server:expr, $global_params:expr, $request:ty, $response_type:tt) => {
+    ($server:expr, $global_params:expr, $request:ty, $with_response:tt) => {
         paste::paste! {
             let global_params = $global_params.clone();
             $server.register_handler(stringify!($request), move |payload| {
@@ -31,22 +31,22 @@ macro_rules! register_single_handler {
                         Ok(req) => req,
                         Err(e) => {
                             error!("Failed to deserialize request: {:?}", e);
-                            return CrashResponse {
+                            return ("CrashResponse".to_owned(), CrashResponse {
                                 detail: format!("Failed to deserialize request: {:?}", e),
-                            }.encode_to_vec();
+                            }.encode_to_vec());
                         }
                     };
 
                     let params = request.extract_params(&global_params);
                     match request.handle(params, &request).await {
                         Ok(_response) => {
-                            handle_server_response!(_response, $response_type)
+                            handle_server_response!(_response, $with_response)
                         }
                         Err(e) => {
                             error!("Error handling request: {:?}", e);
-                            CrashResponse {
+                            ("CrashResponse".to_owned(), CrashResponse {
                                 detail: format!("{:#?}", e),
-                            }.encode_to_vec()
+                            }.encode_to_vec())
                         }
                     }
                 }
@@ -59,12 +59,12 @@ macro_rules! register_single_handler {
 macro_rules! handle_server_response {
     ($response:expr, with_response) => {
         if let Some(response) = $response {
-            response.encode_to_vec()
+            (response.name(), response.encode_to_vec())
         } else {
-            Vec::new()
+            ("".to_owned(), Vec::new())
         }
     };
     ($response:expr, without_response) => {
-        Vec::new()
+        ("".to_owned(), Vec::new())
     };
 }

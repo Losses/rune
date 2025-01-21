@@ -18,6 +18,7 @@ import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
 
 import 'utils/show_reset_library_dialog.dart';
+import 'widgets/add_remote_device_setting_button.dart';
 import 'widgets/settings_button.dart';
 import 'widgets/settings_tile_title.dart';
 
@@ -67,6 +68,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const AddLibrarySettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                  ),
+                  const AddRemoteDeviceSettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
                   ),

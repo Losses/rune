@@ -5,7 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
 use log::{debug, error, info};
-use prost::Message;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio::sync::Mutex;
 use tokio::task;
@@ -28,9 +27,9 @@ use ::playback::MediaPosition;
 use ::scrobbling::manager::ScrobblingManager;
 use ::scrobbling::ScrobblingTrack;
 
-use crate::utils::{Broadcaster, RinfRustSignal};
+use crate::utils::Broadcaster;
 use crate::{
-    broadcastable, CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft,
+    CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft,
     ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
 };
 
@@ -51,13 +50,6 @@ pub fn metadata_summary_to_scrobbling_track(
         ),
     }
 }
-
-broadcastable!(
-    PlaybackStatus,
-    ScrobbleServiceStatusUpdated,
-    CrashResponse,
-    RealtimeFft
-);
 
 pub async fn initialize_player(
     lib_path: Arc<String>,
@@ -389,8 +381,6 @@ pub async fn initialize_player(
 
     Ok(())
 }
-
-broadcastable!(PlaylistUpdate);
 
 pub async fn send_playlist_update(
     db: &DatabaseConnection,
