@@ -1,34 +1,22 @@
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use axum::{
-    body::Body,
-    extract::{
-        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        Path, State,
-    },
-    http::{Request, StatusCode},
-    response::{IntoResponse, Response},
-    routing::get,
-    Router,
-};
+use axum::{routing::get, Router};
 use clap::{Arg, Command};
-use dunce::canonicalize;
-use futures_util::{SinkExt, StreamExt};
-use log::{debug, error, info};
+use log::{error, info};
 use prost::Message;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tower::ServiceExt;
-use tower_http::services::ServeDir;
 use tracing_subscriber::EnvFilter;
 
 use hub::{
     for_all_request_pairs2, handle_server_response, listen_server_event,
     messages::*,
     process_server_handlers, register_single_handler,
-    remote::{decode_message, encode_message},
-    server::{AppState, ServerState, WebSocketService},
+    server::{
+        handlers::{file_handler::file_handler, websocket_handler::websocket_handler},
+        AppState, ServerState, WebSocketService,
+    },
     utils::{
         initialize_databases, player::initialize_player, GlobalParams, ParamsExtractor,
         RinfRustSignal, TaskTokens,
@@ -40,155 +28,6 @@ use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
-
-pub trait RequestHandler: Send + Sync + 'static {
-    type Params;
-    type Response;
-
-    fn handle(&self, params: Self::Params) -> Result<Option<Self::Response>, anyhow::Error>;
-}
-
-async fn websocket_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<ServerState>>,
-) -> Response {
-    ws.on_upgrade(|socket| handle_socket(socket, state))
-}
-
-async fn handle_socket(socket: WebSocket, state: Arc<ServerState>) {
-    let (mut sender, mut receiver) = socket.split();
-    let mut broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
-    let (tx, mut rx) = mpsc::channel(32);
-
-    // Spawn a task to handle sending messages
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            if let Err(e) = sender.send(msg).await {
-                error!("Failed to send message: {}", e);
-                break;
-            }
-        }
-    });
-
-    // Handle incoming messages
-    let incoming_tx = tx.clone();
-    let incoming = async move {
-        info!("WebSocket connection established");
-        while let Some(Ok(msg)) = receiver.next().await {
-            if let WsMessage::Binary(payload) = msg {
-                if let Some((msg_type, msg_payload, uuid)) = decode_message(&payload) {
-                    debug!("Received message type: {}", msg_type);
-
-                    if let Some((resp_type, response)) = state
-                        .websocket_service
-                        .handle_message(&msg_type, msg_payload)
-                        .await
-                    {
-                        if !resp_type.is_empty() {
-                            let response_payload =
-                                encode_message(&resp_type, &response, Some(uuid));
-                            if let Err(e) = incoming_tx
-                                .send(WsMessage::Binary(response_payload.into()))
-                                .await
-                            {
-                                error!("Failed to queue response: {}", e);
-                                break;
-                            }
-                        }
-                    } else {
-                        info!("No result returned: {}", msg_type);
-                    }
-                }
-            }
-        }
-
-        drop(incoming_tx);
-    };
-
-    // Handle broadcast messages
-    let broadcast_tx = tx.clone();
-    let outgoing = async move {
-        while let Ok(msg) = broadcast_rx.recv().await {
-            if let Err(e) = broadcast_tx.send(WsMessage::Binary(msg.into())).await {
-                error!("Failed to queue broadcast: {}", e);
-                break;
-            }
-        }
-
-        drop(broadcast_tx);
-    };
-
-    // Drop the original tx as we've cloned it for both tasks
-    drop(tx);
-
-    // Run tasks concurrently
-    tokio::select! {
-        _ = incoming => {},
-        _ = outgoing => {},
-    };
-
-    // Wait for the send task to complete
-    let _ = send_task.await;
-
-    info!("WebSocket connection closed");
-}
-
-async fn serve_file(
-    Path(file_path): Path<String>,
-    State(state): State<Arc<ServerState>>,
-) -> impl IntoResponse {
-    let lib_path = &state.app_state.lib_path;
-    let cover_temp_dir = &state.app_state.cover_temp_dir;
-
-    // Parse the request path, splitting it into prefix and actual file path
-    let path_parts: Vec<&str> = file_path.splitn(2, '/').collect();
-    if path_parts.len() != 2 {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
-
-    let (prefix, relative_path) = (path_parts[0], path_parts[1]);
-
-    // Determine the actual root directory based on the prefix
-    let root_dir = match prefix {
-        "library" => lib_path,
-        "cache" => cover_temp_dir,
-        _ => return StatusCode::NOT_FOUND.into_response(),
-    };
-
-    // Construct the full file path and normalize it
-    let requested_path = root_dir.join(relative_path);
-    let canonical_path = match canonicalize(&requested_path) {
-        Ok(path) => path,
-        Err(_) => return StatusCode::FORBIDDEN.into_response(),
-    };
-
-    // Security check: Ensure the accessed path does not go beyond the specified directory
-    if !canonical_path.starts_with(root_dir) {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-
-    // Get the relative path
-    let relative_path = match canonical_path.strip_prefix(root_dir) {
-        Ok(path) => path,
-        Err(_) => return StatusCode::FORBIDDEN.into_response(),
-    };
-
-    // Serve the file using ServeDir
-    let service = ServeDir::new(root_dir);
-    let request = Request::builder()
-        .uri(format!("/{}", relative_path.to_string_lossy()))
-        .body(axum::body::Body::empty())
-        .unwrap();
-
-    match service.oneshot(request).await {
-        Ok(response) => {
-            let (parts, body) = response.into_parts();
-            let boxed_body = Body::new(body);
-            Response::from_parts(parts, boxed_body)
-        }
-        Err(_) => StatusCode::NOT_FOUND.into_response(),
-    }
-}
 
 async fn serve_combined(
     app_state: Arc<AppState>,
@@ -202,7 +41,7 @@ async fn serve_combined(
 
     let app = Router::new()
         .route("/ws", get(websocket_handler))
-        .route("/files/{*file_path}", get(serve_file))
+        .route("/files/{*file_path}", get(file_handler))
         .with_state(server_state);
 
     let lib_path = &app_state.lib_path;

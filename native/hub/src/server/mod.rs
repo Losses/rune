@@ -1,5 +1,6 @@
 #[macro_use]
 mod server_request;
+pub mod handlers;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
