@@ -206,30 +206,41 @@ async fn serve_file(
     let lib_path = &state.app_state.lib_path;
     let cover_temp_dir = &state.app_state.cover_temp_dir;
 
-    let requested_path = PathBuf::from(&file_path);
+    // Parse the request path, splitting it into prefix and actual file path
+    let path_parts: Vec<&str> = file_path.splitn(2, '/').collect();
+    if path_parts.len() != 2 {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
 
-    info!("Required file: {}", requested_path.to_string_lossy());
+    let (prefix, relative_path) = (path_parts[0], path_parts[1]);
 
+    // Determine the actual root directory based on the prefix
+    let root_dir = match prefix {
+        "library" => lib_path,
+        "cache" => cover_temp_dir,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+
+    // Construct the full file path and normalize it
+    let requested_path = root_dir.join(relative_path);
     let canonical_path = match canonicalize(&requested_path) {
         Ok(path) => path,
         Err(_) => return StatusCode::FORBIDDEN.into_response(),
     };
 
-    if !canonical_path.starts_with(lib_path) && !canonical_path.starts_with(cover_temp_dir) {
+    // Security check: Ensure the accessed path does not go beyond the specified directory
+    if !canonical_path.starts_with(root_dir) {
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let (root_dir, relative_path) = if canonical_path.starts_with(lib_path) {
-        (lib_path, canonical_path.strip_prefix(lib_path).unwrap())
-    } else {
-        (
-            cover_temp_dir,
-            canonical_path.strip_prefix(cover_temp_dir).unwrap(),
-        )
+    // Get the relative path
+    let relative_path = match canonical_path.strip_prefix(root_dir) {
+        Ok(path) => path,
+        Err(_) => return StatusCode::FORBIDDEN.into_response(),
     };
 
+    // Serve the file using ServeDir
     let service = ServeDir::new(root_dir);
-
     let request = Request::builder()
         .uri(format!("/{}", relative_path.to_string_lossy()))
         .body(axum::body::Body::empty())
