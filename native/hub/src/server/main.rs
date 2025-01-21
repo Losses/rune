@@ -1,7 +1,6 @@
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use axum::{routing::get, Router};
 use clap::{Arg, Command};
 use log::{error, info};
 use prost::Message;
@@ -13,10 +12,7 @@ use hub::{
     for_all_request_pairs2, handle_server_response, listen_server_event,
     messages::*,
     process_server_handlers, register_single_handler,
-    server::{
-        handlers::{file_handler::file_handler, websocket_handler::websocket_handler},
-        AppState, ServerState, WebSocketService,
-    },
+    server::{handlers::serve_combined, AppState, WebSocketService},
     utils::{
         initialize_databases, player::initialize_player, GlobalParams, ParamsExtractor,
         RinfRustSignal, TaskTokens,
@@ -28,40 +24,6 @@ use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
-
-async fn serve_combined(
-    app_state: Arc<AppState>,
-    websocket_service: Arc<WebSocketService>,
-    addr: SocketAddr,
-) {
-    let server_state = Arc::new(ServerState {
-        app_state: app_state.clone(),
-        websocket_service,
-    });
-
-    let app = Router::new()
-        .route("/ws", get(websocket_handler))
-        .route("/files/{*file_path}", get(file_handler))
-        .with_state(server_state);
-
-    let lib_path = &app_state.lib_path;
-    let cover_temp_dir = &app_state.cover_temp_dir;
-
-    info!(
-        "Libaray files path: {}",
-        lib_path.to_string_lossy().to_string()
-    );
-    info!(
-        "Temporary files path: {}",
-        cover_temp_dir.to_string_lossy().to_string()
-    );
-
-    info!("Starting combined HTTP/WebSocket server on {}", addr);
-    axum_server::bind(addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
