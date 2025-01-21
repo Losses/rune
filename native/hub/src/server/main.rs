@@ -206,7 +206,9 @@ async fn serve_file(
     let lib_path = &state.app_state.lib_path;
     let cover_temp_dir = &state.app_state.cover_temp_dir;
 
-    let requested_path = PathBuf::from(file_path);
+    let requested_path = PathBuf::from(&file_path);
+
+    info!("Required file: {}", requested_path.to_string_lossy());
 
     let canonical_path = match canonicalize(&requested_path) {
         Ok(path) => path,
@@ -217,9 +219,19 @@ async fn serve_file(
         return StatusCode::FORBIDDEN.into_response();
     }
 
-    let service = ServeDir::new(".");
+    let (root_dir, relative_path) = if canonical_path.starts_with(lib_path) {
+        (lib_path, canonical_path.strip_prefix(lib_path).unwrap())
+    } else {
+        (
+            cover_temp_dir,
+            canonical_path.strip_prefix(cover_temp_dir).unwrap(),
+        )
+    };
+
+    let service = ServeDir::new(root_dir);
+
     let request = Request::builder()
-        .uri(format!("/{}", canonical_path.to_string_lossy()))
+        .uri(format!("/{}", relative_path.to_string_lossy()))
         .body(axum::body::Body::empty())
         .unwrap();
 
@@ -252,6 +264,18 @@ async fn serve_combined(
         .route("/ws", get(websocket_handler))
         .route("/files/{*file_path}", get(serve_file))
         .with_state(server_state);
+
+    let lib_path = &app_state.lib_path;
+    let cover_temp_dir = &app_state.cover_temp_dir;
+
+    info!(
+        "Libaray files path: {}",
+        lib_path.to_string_lossy().to_string()
+    );
+    info!(
+        "Temporary files path: {}",
+        cover_temp_dir.to_string_lossy().to_string()
+    );
 
     info!("Starting combined HTTP/WebSocket server on {}", addr);
     axum_server::bind(addr)
