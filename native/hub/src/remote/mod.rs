@@ -6,6 +6,7 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::Result;
 use futures::SinkExt;
 use futures::StreamExt;
+use log::debug;
 use log::{error, info};
 use prost::Message as ProstMessage;
 use tokio::sync::Mutex;
@@ -201,7 +202,7 @@ impl WebSocketDartBridge {
                                     Some(Ok(msg)) => {
                                         if let TungsteniteMessage::Binary(payload) = msg {
                                             if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
-                                                info!("Received message with type: {}", msg_type);
+                                                debug!("Received message with type: {}", msg_type);
                                                 if let Some(handler) = handlers.lock().await.get(&msg_type) {
                                                     handler(msg_payload);
                                                 } else {
