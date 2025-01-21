@@ -66,8 +66,6 @@ macro_rules! forward_event_to_remote {
                                 let type_name = dart_signal.message.name();
                                 let encoded_message = encode_message(&type_name, &payload, Some(Uuid::new_v4()));
 
-                                println!("ENCODED: {:#?}", payload);
-
                                 // Send the message
                                 let result = write_clone.lock().await
                                     .send(TungsteniteMessage::Binary(encoded_message.into()))
