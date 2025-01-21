@@ -1046,5 +1046,27 @@
   "userToken": "使用者証票",
   "@userToken": {
     "description": "Input field title of the scrobble login form."
+  },
+  "addRemoteDevice": "遠隔設備を追加",
+  "@addRemoteDevice": {
+    "description": "Button prompt text in the settings interface for connecting to a remote device."
+  },
+  "addRemoteDeviceSubtitle": "再生設備を遠隔操作し、再生曲を管理。",
+  "@addRemoteDeviceSubtitle": {},
+  "hostname": "宿主名",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "接続端子",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "secured": "安全接続",
+  "@secured": {
+    "description": "If the connection is secured."
+  },
+  "addConnection": "接続を追加する",
+  "@addConnection": {
+    "description": "The action button of the dialog."
   }
 }
