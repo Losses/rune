@@ -10,6 +10,12 @@ pub trait PinValidationState: Send + Sync {
     fn pin_config(&self) -> &Arc<RwLock<PinConfig>>;
 }
 
+impl<T: PinValidationState> PinValidationState for Arc<T> {
+    fn pin_config(&self) -> &Arc<RwLock<PinConfig>> {
+        (**self).pin_config()
+    }
+}
+
 #[derive(Clone)]
 pub struct PinConfig {
     pub enabled: bool,

@@ -20,7 +20,7 @@ use crate::{
 
 #[async_trait]
 pub trait DiscoveryState: Clone + Send + Sync + 'static {
-    type FileProvider: FileProvider;
+    type FileProvider: FileProvider + ?Sized;
 
     fn device_info(&self) -> &DeviceInfo;
     fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>>;
@@ -39,7 +39,7 @@ pub struct SessionInfo {
     pub tokens: HashMap<String, String>,
 }
 
-pub fn discovery_router<S: DiscoveryState + PinValidationState>() -> Router<S> {
+pub fn create_discovery_router<S: DiscoveryState + PinValidationState>() -> Router<Arc<S>> {
     Router::new()
         .route("/api/rune/v2/register", post(register::<S>))
         .route("/api/rune/v2/prepare-upload", post(prepare_upload::<S>))
@@ -52,7 +52,7 @@ pub fn discovery_router<S: DiscoveryState + PinValidationState>() -> Router<S> {
 }
 
 async fn register<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Json(_): Json<DeviceInfo>,
 ) -> impl IntoResponse {
     Json(state.device_info().clone())
@@ -73,7 +73,7 @@ pub struct PrepareUploadResponse {
 }
 
 async fn prepare_upload<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Query(_): Query<HashMap<String, String>>,
     Json(request): Json<PrepareUploadRequest>,
 ) -> impl IntoResponse {
@@ -99,7 +99,7 @@ async fn prepare_upload<S: DiscoveryState>(
 }
 
 async fn cancel<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Query(params): Query<HashMap<String, String>>,
     _pin_auth: PinAuth,
 ) -> impl IntoResponse {
@@ -123,7 +123,7 @@ struct PrepareDownloadResponse {
 }
 
 async fn prepare_download<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Query(params): Query<HashMap<String, String>>,
     _pin_auth: PinAuth,
 ) -> Result<Json<PrepareDownloadResponse>, StatusCode> {
@@ -163,6 +163,6 @@ async fn prepare_download<S: DiscoveryState>(
     }))
 }
 
-async fn info<S: DiscoveryState>(State(state): State<S>) -> impl IntoResponse {
+async fn info<S: DiscoveryState>(State(state): State<Arc<S>>) -> impl IntoResponse {
     Json(state.device_info().clone())
 }

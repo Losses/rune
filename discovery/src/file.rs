@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     body::Body,
@@ -37,7 +37,7 @@ impl IntoResponse for AppError {
 }
 
 pub async fn upload<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Query(params): Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Result<(), AppError> {
@@ -74,7 +74,7 @@ pub async fn upload<S: DiscoveryState>(
 }
 
 pub async fn download<S: DiscoveryState>(
-    State(state): State<S>,
+    State(state): State<Arc<S>>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let result: Result<Vec<u8>, AppError> = async {
