@@ -27,12 +27,9 @@ pub struct DeviceInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileMetadata {
-    pub id: String,
     pub file_name: String,
     pub size: u64,
     pub file_type: String,
-    pub sha256: Option<String>,
-    pub preview: Option<String>,
     pub metadata: Option<FileExtraMetadata>,
 }
 

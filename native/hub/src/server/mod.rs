@@ -2,10 +2,23 @@
 mod server_request;
 pub mod handlers;
 
-use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    future::Future,
+    path::{Path, PathBuf},
+    pin::Pin,
+    sync::Arc,
+};
 
+use anyhow::Result;
+use async_trait::async_trait;
+use discovery::{
+    http_api::{DiscoveryState, FileProvider, SessionInfo},
+    pin::{PinConfig, PinValidationState},
+    utils::{DeviceInfo, FileMetadata},
+};
 use log::error;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
     remote::encode_message,
@@ -23,9 +36,59 @@ pub struct AppState {
     pub cover_temp_dir: PathBuf,
 }
 
+#[derive(Clone)]
 pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
+    pub discovery_device_info: DeviceInfo,
+    pub discovery_active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
+    pub discovery_pin_config: Arc<RwLock<PinConfig>>,
+    pub discovery_file_provider: Arc<dyn FileProvider>,
+}
+
+impl PinValidationState for ServerState {
+    fn pin_config(&self) -> &Arc<RwLock<PinConfig>> {
+        &self.discovery_pin_config
+    }
+}
+
+impl DiscoveryState for ServerState {
+    type FileProvider = dyn FileProvider;
+
+    fn device_info(&self) -> &DeviceInfo {
+        &self.discovery_device_info
+    }
+
+    fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>> {
+        self.discovery_active_sessions.clone()
+    }
+
+    fn pin_config(&self) -> Arc<RwLock<PinConfig>> {
+        self.discovery_pin_config.clone()
+    }
+
+    fn file_provider(&self) -> Arc<Self::FileProvider> {
+        self.discovery_file_provider.clone()
+    }
+}
+
+pub struct LocalFileProvider {
+    pub root_dir: PathBuf,
+}
+
+impl LocalFileProvider {
+    pub fn new<P: AsRef<Path>>(root_dir: P) -> Self {
+        Self {
+            root_dir: root_dir.as_ref().to_path_buf(),
+        }
+    }
+}
+
+#[async_trait]
+impl FileProvider for LocalFileProvider {
+    async fn get_files(&self) -> Result<HashMap<String, FileMetadata>> {
+        Ok(HashMap::new())
+    }
 }
 
 pub struct WebSocketService {

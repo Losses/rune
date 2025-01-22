@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::Result;
 use async_trait::async_trait;
 use axum::{
     extract::{Query, State},
@@ -30,7 +31,7 @@ pub trait DiscoveryState: Clone + Send + Sync + 'static {
 
 #[async_trait]
 pub trait FileProvider: Send + Sync {
-    async fn get_files(&self) -> anyhow::Result<HashMap<String, FileMetadata>>;
+    async fn get_files(&self) -> Result<HashMap<String, FileMetadata>>;
 }
 
 #[derive(Debug, Clone)]

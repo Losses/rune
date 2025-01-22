@@ -2,6 +2,10 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use clap::{Arg, Command};
+use discovery::{
+    utils::{DeviceInfo, DeviceType},
+    DiscoveryParams,
+};
 use log::{error, info};
 use prost::Message;
 use tokio::sync::Mutex;
@@ -12,7 +16,7 @@ use hub::{
     for_all_request_pairs2, handle_server_response, listen_server_event,
     messages::*,
     process_server_handlers, register_single_handler,
-    server::{handlers::serve_combined, AppState, WebSocketService},
+    server::{handlers::serve_combined, AppState, LocalFileProvider, WebSocketService},
     utils::{
         initialize_databases, player::initialize_player, GlobalParams, ParamsExtractor,
         RinfRustSignal, TaskTokens,
@@ -64,7 +68,25 @@ async fn main() -> Result<()> {
     });
 
     let websocket_service = initialize_websocket_service(lib_path).await?;
-    serve_combined(app_state, websocket_service, addr).await;
+
+    let discovery_paramaters = DiscoveryParams {
+        device_info: DeviceInfo {
+            alias: "Rune Server".to_string(),
+            version: "TP".to_string(),
+            device_model: Some("Rune Server".to_string()),
+            device_type: Some(DeviceType::Server),
+            fingerprint: "FINGERPRINT".to_string(),
+            port: 7863,
+            protocol: "http".to_string(),
+            download: Some(false),
+        },
+        pin: None,
+        file_provider: Arc::new(LocalFileProvider {
+            root_dir: app_state.lib_path.clone(),
+        }),
+    };
+
+    serve_combined(app_state, websocket_service, addr, discovery_paramaters).await;
 
     Ok(())
 }
