@@ -14,21 +14,23 @@ use tower_http::cors::CorsLayer;
 
 use crate::{
     file::{download, upload},
-    pin::{PinAuth, PinConfig},
+    pin::{PinAuth, PinConfig, PinValidationState},
     utils::{DeviceInfo, FileMetadata},
 };
 
 #[async_trait]
-pub trait FileProvider: Send + Sync + 'static {
-    async fn get_files(&self) -> anyhow::Result<HashMap<String, FileMetadata>>;
+pub trait DiscoveryState: Clone + Send + Sync + 'static {
+    type FileProvider: FileProvider;
+
+    fn device_info(&self) -> &DeviceInfo;
+    fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>>;
+    fn pin_config(&self) -> Arc<RwLock<PinConfig>>;
+    fn file_provider(&self) -> Arc<Self::FileProvider>;
 }
 
-#[derive(Clone)]
-pub struct AppState {
-    pub device_info: DeviceInfo,
-    pub active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
-    pub pin_config: Arc<RwLock<PinConfig>>,
-    pub file_provider: Arc<dyn FileProvider>,
+#[async_trait]
+pub trait FileProvider: Send + Sync {
+    async fn get_files(&self) -> anyhow::Result<HashMap<String, FileMetadata>>;
 }
 
 #[derive(Debug, Clone)]
@@ -37,38 +39,23 @@ pub struct SessionInfo {
     pub tokens: HashMap<String, String>,
 }
 
-pub async fn serve(
-    device_info: DeviceInfo,
-    pin: Option<String>,
-    file_provider: impl FileProvider,
-) -> anyhow::Result<()> {
-    let state = AppState {
-        device_info,
-        active_sessions: Arc::new(RwLock::new(HashMap::new())),
-        pin_config: Arc::new(RwLock::new(PinConfig::new(pin))),
-        file_provider: Arc::new(file_provider),
-    };
-
-    let app = Router::new()
-        .route("/api/rune/v2/register", post(register))
-        .route("/api/rune/v2/prepare-upload", post(prepare_upload))
-        .route("/api/rune/v2/upload", post(upload))
-        .route("/api/rune/v2/cancel", post(cancel))
-        .route("/api/rune/v2/prepare-download", post(prepare_download))
-        .route("/api/rune/v2/download", get(download))
-        .route("/api/rune/v2/info", get(info))
+pub fn discovery_router<S: DiscoveryState + PinValidationState>() -> Router<S> {
+    Router::new()
+        .route("/api/rune/v2/register", post(register::<S>))
+        .route("/api/rune/v2/prepare-upload", post(prepare_upload::<S>))
+        .route("/api/rune/v2/upload", post(upload::<S>))
+        .route("/api/rune/v2/cancel", post(cancel::<S>))
+        .route("/api/rune/v2/prepare-download", post(prepare_download::<S>))
+        .route("/api/rune/v2/download", get(download::<S>))
+        .route("/api/rune/v2/info", get(info::<S>))
         .layer(CorsLayer::permissive())
-        .with_state(state);
-
-    axum_server::bind("0.0.0.0:53317".parse()?)
-        .serve(app.into_make_service())
-        .await?;
-
-    Ok(())
 }
 
-async fn register(State(state): State<AppState>, Json(_): Json<DeviceInfo>) -> impl IntoResponse {
-    Json(state.device_info)
+async fn register<S: DiscoveryState>(
+    State(state): State<S>,
+    Json(_): Json<DeviceInfo>,
+) -> impl IntoResponse {
+    Json(state.device_info().clone())
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,12 +72,11 @@ pub struct PrepareUploadResponse {
     pub files: HashMap<String, String>, // file_id -> token
 }
 
-async fn prepare_upload(
-    State(state): State<AppState>,
+async fn prepare_upload<S: DiscoveryState>(
+    State(state): State<S>,
     Query(_): Query<HashMap<String, String>>,
     Json(request): Json<PrepareUploadRequest>,
 ) -> impl IntoResponse {
-    // TODO: Implement PIN verification
     let session_id = uuid::Uuid::new_v4().to_string();
     let mut tokens = HashMap::new();
 
@@ -98,7 +84,7 @@ async fn prepare_upload(
         tokens.insert(file_id.clone(), uuid::Uuid::new_v4().to_string());
     }
 
-    state.active_sessions.write().await.insert(
+    state.active_sessions().write().await.insert(
         session_id.clone(),
         SessionInfo {
             files: request.files,
@@ -112,14 +98,15 @@ async fn prepare_upload(
     })
 }
 
-async fn cancel(
-    State(state): State<AppState>,
+async fn cancel<S: DiscoveryState>(
+    State(state): State<S>,
     Query(params): Query<HashMap<String, String>>,
     _pin_auth: PinAuth,
 ) -> impl IntoResponse {
     let session_id = params.get("sessionId").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let mut sessions = state.active_sessions.write().await;
+    let active_sessions = state.active_sessions();
+    let mut sessions = active_sessions.write().await;
 
     if sessions.remove(session_id).is_some() {
         Ok(StatusCode::OK)
@@ -135,16 +122,17 @@ struct PrepareDownloadResponse {
     files: HashMap<String, FileMetadata>,
 }
 
-async fn prepare_download(
-    State(state): State<AppState>,
+async fn prepare_download<S: DiscoveryState>(
+    State(state): State<S>,
     Query(params): Query<HashMap<String, String>>,
     _pin_auth: PinAuth,
 ) -> Result<Json<PrepareDownloadResponse>, StatusCode> {
     if let Some(session_id) = params.get("sessionId") {
-        let sessions = state.active_sessions.read().await;
+        let active_sessions = state.active_sessions();
+        let sessions = active_sessions.read().await;
         if let Some(session) = sessions.get(session_id) {
             return Ok(Json(PrepareDownloadResponse {
-                info: state.device_info.clone(),
+                info: state.device_info().clone(),
                 session_id: session_id.clone(),
                 files: session.files.clone(),
             }));
@@ -153,12 +141,13 @@ async fn prepare_download(
 
     let session_id = uuid::Uuid::new_v4().to_string();
     let files = state
-        .file_provider
+        .file_provider()
         .get_files()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut sessions = state.active_sessions.write().await;
+    let active_sessions = state.active_sessions();
+    let mut sessions = active_sessions.write().await;
     sessions.insert(
         session_id.clone(),
         SessionInfo {
@@ -168,12 +157,12 @@ async fn prepare_download(
     );
 
     Ok(Json(PrepareDownloadResponse {
-        info: state.device_info.clone(),
+        info: state.device_info().clone(),
         session_id,
         files,
     }))
 }
 
-async fn info(State(state): State<AppState>) -> impl IntoResponse {
-    Json(state.device_info.clone())
+async fn info<S: DiscoveryState>(State(state): State<S>) -> impl IntoResponse {
+    Json(state.device_info().clone())
 }

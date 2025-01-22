@@ -8,7 +8,7 @@ use axum::{
 };
 use tokio::{fs::File, io::AsyncWriteExt};
 
-use crate::http_api::AppState;
+use crate::http_api::DiscoveryState;
 
 #[derive(Debug)]
 pub enum AppError {
@@ -36,8 +36,8 @@ impl IntoResponse for AppError {
     }
 }
 
-pub async fn upload(
-    State(state): State<AppState>,
+pub async fn upload<S: DiscoveryState>(
+    State(state): State<S>,
     Query(params): Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Result<(), AppError> {
@@ -51,7 +51,8 @@ pub async fn upload(
         .get("token")
         .ok_or(AppError::ValidationError("Missing token"))?;
 
-    let sessions = state.active_sessions.read().await;
+    let active_sessions = state.active_sessions();
+    let sessions = active_sessions.read().await;
     let session = sessions
         .get(session_id)
         .ok_or(AppError::ValidationError("Invalid session"))?;
@@ -72,8 +73,8 @@ pub async fn upload(
     Ok(())
 }
 
-pub async fn download(
-    State(state): State<AppState>,
+pub async fn download<S: DiscoveryState>(
+    State(state): State<S>,
     Query(params): Query<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let result: Result<Vec<u8>, AppError> = async {
@@ -84,7 +85,8 @@ pub async fn download(
             .get("fileId")
             .ok_or(AppError::ValidationError("Missing fileId"))?;
 
-        let sessions = state.active_sessions.read().await;
+        let binding = state.active_sessions();
+        let sessions = binding.read().await;
         let session = sessions
             .get(session_id)
             .ok_or(AppError::ValidationError("Invalid session"))?;

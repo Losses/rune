@@ -1,17 +1,19 @@
-use std::collections::HashMap;
-
 use axum::{
-    extract::{FromRequestParts, State},
+    extract::FromRequestParts,
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
 };
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
-use crate::http_api::AppState;
+pub trait PinValidationState: Send + Sync {
+    fn pin_config(&self) -> &Arc<RwLock<PinConfig>>;
+}
 
 #[derive(Clone)]
 pub struct PinConfig {
-    enabled: bool,
-    pin: String,
+    pub enabled: bool,
+    pub pin: String,
 }
 
 impl PinConfig {
@@ -32,17 +34,12 @@ pub struct PinAuth {
 
 impl<S> FromRequestParts<S> for PinAuth
 where
-    S: Send + Sync,
-    AppState: axum::extract::FromRef<S>,
+    S: Send + Sync + PinValidationState,
 {
     type Rejection = Response;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let State(app_state): State<AppState> = State::from_request_parts(parts, state)
-            .await
-            .map_err(|e| e.into_response())?;
-
-        let pin_config = app_state.pin_config.read().await;
+        let pin_config = state.pin_config().read().await;
 
         if !pin_config.enabled {
             return Ok(Self { validated: true });
