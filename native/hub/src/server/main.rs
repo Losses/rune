@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
             device_model: Some("Rune Server".to_string()),
             device_type: Some(DeviceType::Server),
             fingerprint: "FINGERPRINT".to_string(),
-            port: 7863,
+            api_port: 7863,
             protocol: "http".to_string(),
             download: Some(false),
         },

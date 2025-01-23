@@ -19,7 +19,7 @@ pub struct DeviceInfo {
     pub device_model: Option<String>,
     pub device_type: Option<DeviceType>,
     pub fingerprint: String,
-    pub port: u16,
+    pub api_port: u16,
     pub protocol: String,
     pub download: Option<bool>,
 }

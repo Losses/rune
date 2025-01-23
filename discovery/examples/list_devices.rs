@@ -168,7 +168,7 @@ async fn main() -> anyhow::Result<()> {
 
     let alias = args.alias.unwrap_or_else(generate_random_alias);
     let device_model = args.device_model.unwrap_or_else(generate_random_model);
-    let port = args.port.unwrap_or_else(generate_random_port);
+    let api_port = args.port.unwrap_or_else(generate_random_port);
     let fingerprint = generate_fingerprint();
 
     let device_info = DeviceInfo {
@@ -177,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
         device_model: Some(device_model),
         device_type: Some(DeviceType::Headless),
         fingerprint,
-        port,
+        api_port,
         protocol: "http".to_string(),
         download: Some(false),
     };

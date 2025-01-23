@@ -13,14 +13,19 @@ pub struct DiscoveryService {
     http_client: Client,
 }
 
+const MULTICAST_GROUP: &str = "224.0.0.167";
+const MULTICAST_PORT: u16 = 57863;
+
 impl DiscoveryService {
     pub async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
-        let addr: SocketAddr = format!("0.0.0.0:{}", device_info.port).parse()?;
+        let addr: SocketAddr = format!("0.0.0.0:{}", MULTICAST_PORT).parse()?;
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
 
         socket.set_reuse_address(true)?;
         #[cfg(not(target_os = "windows"))]
         socket.set_reuse_port(true)?;
+        socket.set_multicast_ttl_v4(1)?;
+        socket.set_multicast_loop_v4(true)?;
 
         socket.bind(&addr.into())?;
 
@@ -43,7 +48,7 @@ impl DiscoveryService {
             "deviceModel": self.device_info.device_model,
             "deviceType": self.device_info.device_type,
             "fingerprint": self.device_info.fingerprint,
-            "port": self.device_info.port,
+            "api_port": self.device_info.api_port,
             "protocol": self.device_info.protocol,
             "download": self.device_info.download,
             "announce": true
@@ -51,7 +56,7 @@ impl DiscoveryService {
 
         let msg = serde_json::to_vec(&announcement)?;
         self.socket
-            .send_to(&msg, format!("224.0.0.167:{}", self.device_info.port))
+            .send_to(&msg, format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT))
             .await?;
         Ok(())
     }
@@ -100,7 +105,7 @@ impl DiscoveryService {
             "deviceModel": self.device_info.device_model,
             "deviceType": self.device_info.device_type,
             "fingerprint": self.device_info.fingerprint,
-            "port": self.device_info.port,
+            "api_port": self.device_info.api_port,
             "protocol": self.device_info.protocol,
             "download": self.device_info.download,
             "announce": false
@@ -119,7 +124,7 @@ impl DiscoveryService {
             Err(_) => {
                 let msg = serde_json::to_vec(&response)?;
                 self.socket
-                    .send_to(&msg, format!("224.0.0.167:{}", self.device_info.port))
+                    .send_to(&msg, format!("224.0.0.167:{}", self.device_info.api_port))
                     .await?;
             }
         }
