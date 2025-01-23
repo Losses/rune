@@ -14,7 +14,6 @@ use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 use crate::{
-    file::{download, upload},
     pin::{PinAuth, PinConfig, PinValidationState},
     utils::{DeviceInfo, FileMetadata},
 };
@@ -43,11 +42,7 @@ pub struct SessionInfo {
 pub fn create_discovery_router<S: DiscoveryState + PinValidationState>() -> Router<Arc<S>> {
     Router::new()
         .route("/api/rune/v2/register", post(register::<S>))
-        .route("/api/rune/v2/prepare-upload", post(prepare_upload::<S>))
-        .route("/api/rune/v2/upload", post(upload::<S>))
         .route("/api/rune/v2/cancel", post(cancel::<S>))
-        .route("/api/rune/v2/prepare-download", post(prepare_download::<S>))
-        .route("/api/rune/v2/download", get(download::<S>))
         .route("/api/rune/v2/info", get(info::<S>))
         .layer(CorsLayer::permissive())
 }
@@ -73,32 +68,6 @@ pub struct PrepareUploadResponse {
     pub files: HashMap<String, String>, // file_id -> token
 }
 
-async fn prepare_upload<S: DiscoveryState>(
-    State(state): State<Arc<S>>,
-    Query(_): Query<HashMap<String, String>>,
-    Json(request): Json<PrepareUploadRequest>,
-) -> impl IntoResponse {
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let mut tokens = HashMap::new();
-
-    for (file_id, _) in request.files.iter() {
-        tokens.insert(file_id.clone(), uuid::Uuid::new_v4().to_string());
-    }
-
-    state.active_sessions().write().await.insert(
-        session_id.clone(),
-        SessionInfo {
-            files: request.files,
-            tokens: tokens.clone(),
-        },
-    );
-
-    Json(PrepareUploadResponse {
-        session_id,
-        files: tokens,
-    })
-}
-
 async fn cancel<S: DiscoveryState>(
     State(state): State<Arc<S>>,
     Query(params): Query<HashMap<String, String>>,
@@ -114,54 +83,6 @@ async fn cancel<S: DiscoveryState>(
     } else {
         Err(StatusCode::NOT_FOUND)
     }
-}
-
-#[derive(Debug, Serialize)]
-struct PrepareDownloadResponse {
-    info: DeviceInfo,
-    session_id: String,
-    files: HashMap<String, FileMetadata>,
-}
-
-async fn prepare_download<S: DiscoveryState>(
-    State(state): State<Arc<S>>,
-    Query(params): Query<HashMap<String, String>>,
-    _pin_auth: PinAuth,
-) -> Result<Json<PrepareDownloadResponse>, StatusCode> {
-    if let Some(session_id) = params.get("sessionId") {
-        let active_sessions = state.active_sessions();
-        let sessions = active_sessions.read().await;
-        if let Some(session) = sessions.get(session_id) {
-            return Ok(Json(PrepareDownloadResponse {
-                info: state.device_info().clone(),
-                session_id: session_id.clone(),
-                files: session.files.clone(),
-            }));
-        }
-    }
-
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let files = state
-        .file_provider()
-        .get_files()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let active_sessions = state.active_sessions();
-    let mut sessions = active_sessions.write().await;
-    sessions.insert(
-        session_id.clone(),
-        SessionInfo {
-            files: files.clone(),
-            tokens: HashMap::new(),
-        },
-    );
-
-    Ok(Json(PrepareDownloadResponse {
-        info: state.device_info().clone(),
-        session_id,
-        files,
-    }))
 }
 
 async fn info<S: DiscoveryState>(State(state): State<Arc<S>>) -> impl IntoResponse {

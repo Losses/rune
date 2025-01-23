@@ -3,7 +3,6 @@ use std::sync::Arc;
 use http_api::FileProvider;
 use utils::DeviceInfo;
 
-pub mod file;
 pub mod http_api;
 pub mod pin;
 pub mod udp_multicast;

@@ -7,14 +7,14 @@ use tokio::net::UdpSocket;
 use crate::utils::DeviceInfo;
 
 pub struct DiscoveryService {
-    socket: UdpSocket,
-    device_info: DeviceInfo,
+    pub socket: UdpSocket,
+    pub device_info: DeviceInfo,
     http_client: Client,
 }
 
 impl DiscoveryService {
     pub async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:53317").await?;
+        let socket = UdpSocket::bind(format!("0.0.0.0:{}", device_info.port)).await?;
         socket.join_multicast_v4("224.0.0.167".parse()?, "0.0.0.0".parse()?)?;
 
         Ok(Self {
@@ -38,7 +38,9 @@ impl DiscoveryService {
         });
 
         let msg = serde_json::to_vec(&announcement)?;
-        self.socket.send_to(&msg, "224.0.0.167:53317").await?;
+        self.socket
+            .send_to(&msg, format!("224.0.0.167:{}", self.device_info.port))
+            .await?;
         Ok(())
     }
 
@@ -92,12 +94,7 @@ impl DiscoveryService {
             "announce": false
         });
 
-        let target_url = format!(
-            "{}://{}:{}/api/localsend/v2/register",
-            protocol,
-            addr.ip(),
-            port
-        );
+        let target_url = format!("{}://{}:{}/api/rune/v2/register", protocol, addr.ip(), port);
 
         match self
             .http_client
@@ -106,10 +103,12 @@ impl DiscoveryService {
             .send()
             .await
         {
-            Ok(_) => return Ok(()), // HTTP响应成功
+            Ok(_) => return Ok(()),
             Err(_) => {
                 let msg = serde_json::to_vec(&response)?;
-                self.socket.send_to(&msg, "224.0.0.167:53317").await?;
+                self.socket
+                    .send_to(&msg, format!("224.0.0.167:{}", self.device_info.port))
+                    .await?;
             }
         }
 
