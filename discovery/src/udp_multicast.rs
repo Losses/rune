@@ -24,7 +24,7 @@ impl DiscoveryService {
         socket.set_reuse_address(true)?;
         #[cfg(not(target_os = "windows"))]
         socket.set_reuse_port(true)?;
-        socket.set_multicast_ttl_v4(1)?;
+        socket.set_multicast_ttl_v4(2)?;
         socket.set_multicast_loop_v4(true)?;
 
         socket.bind(&addr.into())?;
@@ -32,7 +32,8 @@ impl DiscoveryService {
         let socket: std::net::UdpSocket = socket.into();
         let socket = UdpSocket::from_std(socket)?;
 
-        socket.join_multicast_v4("224.0.0.167".parse()?, "0.0.0.0".parse()?)?;
+        let interface = "0.0.0.0".parse()?;
+        socket.join_multicast_v4(MULTICAST_GROUP.parse()?, interface)?;
 
         Ok(Self {
             socket,
@@ -55,18 +56,33 @@ impl DiscoveryService {
         });
 
         let msg = serde_json::to_vec(&announcement)?;
-        self.socket
+        println!(
+            "Sending announcement to {}:{}",
+            MULTICAST_GROUP, MULTICAST_PORT
+        );
+        let bytes_sent = self
+            .socket
             .send_to(&msg, format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT))
             .await?;
+        println!("Sent {} bytes", bytes_sent);
         Ok(())
     }
 
     pub async fn listen(&self) -> anyhow::Result<()> {
+        println!("Starting to listen for announcements...");
         let mut buf = vec![0u8; 65535];
         loop {
-            let (len, addr) = self.socket.recv_from(&mut buf).await?;
-            if let Ok(announcement) = serde_json::from_slice(&buf[..len]) {
-                self.handle_announcement(announcement, addr).await?;
+            match self.socket.recv_from(&mut buf).await {
+                Ok((len, addr)) => {
+                    println!("Received {} bytes from {}", len, addr);
+                    if let Ok(announcement) = serde_json::from_slice(&buf[..len]) {
+                        println!("GOT ANNOUNCEMENT: {}", announcement);
+                        self.handle_announcement(announcement, addr).await?;
+                    }
+                }
+                Err(e) => {
+                    println!("Error receiving: {}", e);
+                }
             }
         }
     }
@@ -91,7 +107,7 @@ impl DiscoveryService {
         }
 
         let port = announcement
-            .get("port")
+            .get("api_port")
             .and_then(|v| v.as_u64())
             .unwrap_or(53317) as u16;
         let protocol = announcement
@@ -123,9 +139,7 @@ impl DiscoveryService {
             Ok(_) => return Ok(()),
             Err(_) => {
                 let msg = serde_json::to_vec(&response)?;
-                self.socket
-                    .send_to(&msg, format!("224.0.0.167:{}", self.device_info.api_port))
-                    .await?;
+                self.socket.send_to(&msg, addr).await?;
             }
         }
 
