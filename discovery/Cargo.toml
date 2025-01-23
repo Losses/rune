@@ -1,0 +1,24 @@
+[package]
+name = "discovery"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "discovery"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1.0.95"
+async-trait = "0.1.85"
+axum = "0.8.2"
+axum-server = "0.7.1"
+bytes = "1.9.0"
+chrono = "0.4.39"
+reqwest = "0.12.12"
+serde = "1.0.217"
+serde_json = "1.0.137"
+serde_urlencoded = "0.7.1"
+tokio = "1.43.0"
+tower = { version = "0.5.2" }
+tower-http = { version = "0.6.2", features = ["cors", "limit"] }
+uuid = "1.12.1"
