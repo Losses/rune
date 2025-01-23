@@ -2,6 +2,7 @@ use std::net::SocketAddr;
 
 use reqwest::Client;
 use serde_json::json;
+use socket2::{Domain, Socket, Type};
 use tokio::net::UdpSocket;
 
 use crate::utils::DeviceInfo;
@@ -14,7 +15,18 @@ pub struct DiscoveryService {
 
 impl DiscoveryService {
     pub async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
-        let socket = UdpSocket::bind(format!("0.0.0.0:{}", device_info.port)).await?;
+        let addr: SocketAddr = format!("0.0.0.0:{}", device_info.port).parse()?;
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+
+        socket.set_reuse_address(true)?;
+        #[cfg(not(target_os = "windows"))]
+        socket.set_reuse_port(true)?;
+
+        socket.bind(&addr.into())?;
+
+        let socket: std::net::UdpSocket = socket.into();
+        let socket = UdpSocket::from_std(socket)?;
+
         socket.join_multicast_v4("224.0.0.167".parse()?, "0.0.0.0".parse()?)?;
 
         Ok(Self {
