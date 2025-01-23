@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use clap::Parser;
 use rand::Rng;
+use tokio::signal;
 use tokio::sync::RwLock;
 use tokio::time;
 use uuid::Uuid;
@@ -142,6 +143,9 @@ async fn main() -> anyhow::Result<()> {
 
     let discovery = DeviceDiscovery::new(device_info).await?;
     discovery.start().await?;
+
+    signal::ctrl_c().await?;
+    println!("\nReceived Ctrl+C, shutting down...");
 
     Ok(())
 }
