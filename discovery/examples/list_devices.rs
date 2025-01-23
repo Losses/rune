@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use clap::Parser;
+use futures::future::join_all;
 use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time;
@@ -94,50 +95,70 @@ impl DeviceDiscovery {
         &self,
         devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
     ) -> anyhow::Result<()> {
-        let mut buf = vec![0u8; 65535];
-        loop {
-            let (len, _) = self.discovery_service.socket.recv_from(&mut buf).await?;
-            if let Ok(announcement) = serde_json::from_slice::<serde_json::Value>(&buf[..len]) {
-                if let Some(fingerprint) = announcement.get("fingerprint").and_then(|v| v.as_str())
-                {
-                    if fingerprint == self.discovery_service.device_info.fingerprint {
-                        continue;
-                    }
+        let mut join_handles = Vec::new();
 
-                    let device = DiscoveredDevice {
-                        alias: announcement
-                            .get("alias")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string(),
-                        device_model: announcement
-                            .get("deviceModel")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string(),
-                        device_type: announcement
-                            .get("deviceType")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("Unknown")
-                            .to_string(),
-                        last_seen: SystemTime::now(),
-                    };
+        for socket in &self.discovery_service.sockets {
+            let socket = socket.clone();
+            let devices = devices.clone();
+            let fingerprint = self.discovery_service.device_info.fingerprint.clone();
 
-                    let mut devices = devices.write().await;
-                    devices.insert(fingerprint.to_string(), device);
+            join_handles.push(tokio::spawn(async move {
+                let mut buf = vec![0u8; 65535];
+                loop {
+                    match socket.recv_from(&mut buf).await {
+                        Ok((len, _)) => {
+                            if let Ok(announcement) =
+                                serde_json::from_slice::<serde_json::Value>(&buf[..len])
+                            {
+                                if let Some(recv_fingerprint) =
+                                    announcement.get("fingerprint").and_then(|v| v.as_str())
+                                {
+                                    if recv_fingerprint == fingerprint {
+                                        continue;
+                                    }
 
-                    println!("\nDiscovered Devices:");
-                    println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
-                    println!("{:-<52}", "");
-                    for device in devices.values() {
-                        println!(
-                            "{:<20} {:<15} {:<15}",
-                            device.alias, device.device_model, device.device_type
-                        );
+                                    let device = DiscoveredDevice {
+                                        alias: announcement
+                                            .get("alias")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("Unknown")
+                                            .to_string(),
+                                        device_model: announcement
+                                            .get("deviceModel")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("Unknown")
+                                            .to_string(),
+                                        device_type: announcement
+                                            .get("deviceType")
+                                            .and_then(|v| v.as_str())
+                                            .unwrap_or("Unknown")
+                                            .to_string(),
+                                        last_seen: SystemTime::now(),
+                                    };
+
+                                    let mut devices = devices.write().await;
+                                    devices.insert(recv_fingerprint.to_string(), device);
+
+                                    println!("\nDiscovered Devices:");
+                                    println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
+                                    println!("{:-<52}", "");
+                                    for device in devices.values() {
+                                        println!(
+                                            "{:<20} {:<15} {:<15}",
+                                            device.alias, device.device_model, device.device_type
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => eprintln!("Receive error: {}", e),
                     }
                 }
-            }
+            }));
         }
+
+        join_all(join_handles).await;
+        Ok(())
     }
 }
 
