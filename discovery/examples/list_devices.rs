@@ -3,13 +3,12 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use clap::Parser;
-use futures::future::join_all;
 use rand::Rng;
 use tokio::sync::RwLock;
 use tokio::time;
 use uuid::Uuid;
 
-use discovery::udp_multicast::DiscoveryService;
+use discovery::udp_multicast::{DiscoveredDevice, DiscoveryService};
 use discovery::utils::{DeviceInfo, DeviceType};
 
 #[derive(Parser, Debug)]
@@ -25,14 +24,6 @@ struct Args {
     port: Option<u16>,
 }
 
-#[derive(Debug)]
-struct DiscoveredDevice {
-    alias: String,
-    device_model: String,
-    device_type: String,
-    last_seen: SystemTime,
-}
-
 struct DeviceDiscovery {
     discovery_service: Arc<DiscoveryService>,
     devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
@@ -40,8 +31,28 @@ struct DeviceDiscovery {
 
 impl DeviceDiscovery {
     async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
-        let discovery_service = Arc::new(DiscoveryService::new(device_info).await?);
+        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+
+        let discovery_service = Arc::new(DiscoveryService::new(device_info, event_tx).await?);
         let devices = Arc::new(RwLock::new(HashMap::new()));
+
+        let devices_clone = devices.clone();
+        tokio::spawn(async move {
+            while let Some(device) = event_rx.recv().await {
+                let mut devices = devices_clone.write().await;
+                devices.insert(device.fingerprint.clone(), device);
+
+                println!("\nDiscovered Devices:");
+                println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
+                println!("{:-<52}", "");
+                for device in devices.values() {
+                    println!(
+                        "{:<20} {:<15} {:<15}",
+                        device.alias, device.device_model, device.device_type
+                    );
+                }
+            }
+        });
 
         Ok(Self {
             discovery_service,
@@ -74,10 +85,6 @@ impl DeviceDiscovery {
             }
         });
 
-        // Listen for broadcasts
-        let devices_for_listen = devices.clone();
-        self.listen_for_announcements(devices_for_listen).await?;
-
         Ok(())
     }
 
@@ -89,76 +96,6 @@ impl DeviceDiscovery {
                 .map(|duration| duration.as_secs() < 10)
                 .unwrap_or(false)
         });
-    }
-
-    async fn listen_for_announcements(
-        &self,
-        devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
-    ) -> anyhow::Result<()> {
-        let mut join_handles = Vec::new();
-
-        for socket in &self.discovery_service.sockets {
-            let socket = socket.clone();
-            let devices = devices.clone();
-            let fingerprint = self.discovery_service.device_info.fingerprint.clone();
-
-            join_handles.push(tokio::spawn(async move {
-                let mut buf = vec![0u8; 65535];
-                loop {
-                    match socket.recv_from(&mut buf).await {
-                        Ok((len, _)) => {
-                            if let Ok(announcement) =
-                                serde_json::from_slice::<serde_json::Value>(&buf[..len])
-                            {
-                                if let Some(recv_fingerprint) =
-                                    announcement.get("fingerprint").and_then(|v| v.as_str())
-                                {
-                                    if recv_fingerprint == fingerprint {
-                                        continue;
-                                    }
-
-                                    let device = DiscoveredDevice {
-                                        alias: announcement
-                                            .get("alias")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("Unknown")
-                                            .to_string(),
-                                        device_model: announcement
-                                            .get("deviceModel")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("Unknown")
-                                            .to_string(),
-                                        device_type: announcement
-                                            .get("deviceType")
-                                            .and_then(|v| v.as_str())
-                                            .unwrap_or("Unknown")
-                                            .to_string(),
-                                        last_seen: SystemTime::now(),
-                                    };
-
-                                    let mut devices = devices.write().await;
-                                    devices.insert(recv_fingerprint.to_string(), device);
-
-                                    println!("\nDiscovered Devices:");
-                                    println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
-                                    println!("{:-<52}", "");
-                                    for device in devices.values() {
-                                        println!(
-                                            "{:<20} {:<15} {:<15}",
-                                            device.alias, device.device_model, device.device_type
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => eprintln!("Receive error: {}", e),
-                    }
-                }
-            }));
-        }
-
-        join_all(join_handles).await;
-        Ok(())
     }
 }
 

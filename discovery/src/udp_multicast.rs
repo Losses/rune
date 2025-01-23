@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::SystemTime,
 };
 
 use futures::future::join_all;
@@ -8,14 +9,24 @@ use netdev::Interface;
 use reqwest::Client;
 use serde_json::json;
 use socket2::{Domain, Socket, Type};
-use tokio::net::UdpSocket;
+use tokio::{net::UdpSocket, sync::mpsc::Sender};
 
 use crate::utils::DeviceInfo;
+
+#[derive(Debug, Clone)]
+pub struct DiscoveredDevice {
+    pub alias: String,
+    pub device_model: String,
+    pub device_type: String,
+    pub fingerprint: String,
+    pub last_seen: SystemTime,
+}
 
 pub struct DiscoveryService {
     pub sockets: Vec<Arc<UdpSocket>>,
     pub device_info: DeviceInfo,
     http_client: Client,
+    event_tx: Sender<DiscoveredDevice>,
 }
 
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
@@ -29,7 +40,10 @@ fn get_multicast_interfaces() -> Vec<Interface> {
 }
 
 impl DiscoveryService {
-    pub async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
+    pub async fn new(
+        device_info: DeviceInfo,
+        event_tx: Sender<DiscoveredDevice>,
+    ) -> anyhow::Result<Self> {
         let mut sockets = Vec::new();
 
         for iface in get_multicast_interfaces() {
@@ -62,6 +76,7 @@ impl DiscoveryService {
             sockets,
             device_info,
             http_client: Client::new(),
+            event_tx,
         })
     }
 
@@ -98,10 +113,13 @@ impl DiscoveryService {
         let sockets = self.sockets.clone();
         let device_info = self.device_info.clone();
         let http_client = self.http_client.clone();
+        let event_tx = self.event_tx.clone();
 
         for socket in sockets {
+            println!("Listening to {}...", socket.local_addr()?);
             let device_info = device_info.clone();
             let http_client = http_client.clone();
+            let event_tx = event_tx.clone();
 
             join_handles.push(tokio::spawn(async move {
                 let mut buf = vec![0u8; 65535];
@@ -116,6 +134,7 @@ impl DiscoveryService {
                                     &socket,
                                     announcement,
                                     addr,
+                                    &event_tx,
                                 )
                                 .await
                                 {
@@ -139,12 +158,32 @@ impl DiscoveryService {
         socket: &UdpSocket,
         announcement: serde_json::Value,
         addr: SocketAddr,
+        event_tx: &Sender<DiscoveredDevice>,
     ) -> anyhow::Result<()> {
         if let Some(fingerprint) = announcement.get("fingerprint") {
             if *fingerprint == *device_info.fingerprint {
                 return Ok(());
             }
         }
+
+        let discovered = DiscoveredDevice {
+            alias: announcement["alias"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string(),
+            device_model: announcement["deviceModel"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string(),
+            device_type: announcement["deviceType"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string(),
+            fingerprint: announcement["fingerprint"].as_str().unwrap().to_string(),
+            last_seen: SystemTime::now(),
+        };
+
+        let _ = event_tx.send(discovered).await;
 
         if !announcement
             .get("announce")
