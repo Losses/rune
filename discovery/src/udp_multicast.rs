@@ -35,7 +35,7 @@ const MULTICAST_PORT: u16 = 57863;
 fn get_multicast_interfaces() -> Vec<Interface> {
     netdev::get_interfaces()
         .into_iter()
-        .filter(|iface| iface.is_up() && iface.is_multicast() && !iface.is_loopback())
+        .filter(|iface| iface.is_up() && iface.is_multicast()) //  && !iface.is_loopback()
         .collect()
 }
 
@@ -125,8 +125,8 @@ impl DiscoveryService {
                 let mut buf = vec![0u8; 65535];
                 loop {
                     match socket.recv_from(&mut buf).await {
-                        Ok((len, addr)) => {
-                            if let Ok(announcement) = serde_json::from_slice(&buf[..len]) {
+                        Ok((len, addr)) => match serde_json::from_slice(&buf[..len]) {
+                            Ok(announcement) => {
                                 println!("[{:#?}] Received from {}", socket.local_addr(), addr);
                                 if let Err(e) = DiscoveryService::handle_announcement(
                                     &device_info,
@@ -141,7 +141,12 @@ impl DiscoveryService {
                                     eprintln!("Error handling announcement: {}", e);
                                 }
                             }
-                        }
+                            Err(e) => {
+                                eprintln!("Failed to parse announcement: {}", e);
+                                eprintln!("Raw data: {:?}", &buf[..len]);
+                                continue;
+                            }
+                        },
                         Err(e) => eprintln!("Receive error: {}", e),
                     }
                 }
@@ -160,10 +165,16 @@ impl DiscoveryService {
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
     ) -> anyhow::Result<()> {
+        println!("Received announcement from {}: {}", addr, announcement);
+
         if let Some(fingerprint) = announcement.get("fingerprint") {
             if *fingerprint == *device_info.fingerprint {
+                println!("[DEBUG] Received self-announcement, skipping");
                 return Ok(());
             }
+        } else {
+            eprintln!("Announcement missing fingerprint, skipping");
+            return Ok(());
         }
 
         let discovered = DiscoveredDevice {
@@ -218,9 +229,10 @@ impl DiscoveryService {
 
         match http_client.post(&target_url).json(&response).send().await {
             Ok(_) => Ok(()),
-            Err(_) => {
+            Err(e) => {
                 let msg = serde_json::to_vec(&response)?;
                 socket.send_to(&msg, addr).await?;
+                eprintln!("Failed to send discovered device: {}", e);
                 Ok(())
             }
         }

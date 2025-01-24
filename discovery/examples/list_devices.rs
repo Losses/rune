@@ -64,7 +64,13 @@ impl DeviceDiscovery {
     async fn start(&self) -> anyhow::Result<()> {
         let devices = self.devices.clone();
 
-        // Task to clean up old devices
+        let listen_service = self.discovery_service.clone();
+        tokio::spawn(async move {
+            if let Err(e) = listen_service.listen().await {
+                eprintln!("Error in listen task: {}", e);
+            }
+        });
+
         let cleanup_devices = devices.clone();
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(5));
