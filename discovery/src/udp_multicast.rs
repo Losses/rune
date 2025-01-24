@@ -35,7 +35,7 @@ const MULTICAST_PORT: u16 = 57863;
 fn get_multicast_interfaces() -> Vec<Interface> {
     netdev::get_interfaces()
         .into_iter()
-        .filter(|iface| iface.is_up() && iface.is_multicast()) //  && !iface.is_loopback()
+        .filter(|iface| iface.is_up() && iface.is_multicast())
         .collect()
 }
 
@@ -48,22 +48,21 @@ impl DiscoveryService {
 
         for iface in get_multicast_interfaces() {
             for ipv4_net in iface.ipv4 {
-                let ip = ipv4_net.addr();
+                let interface_ip = ipv4_net.addr();
 
                 let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
 
-                let bind_addr = SocketAddr::new(IpAddr::V4(ip), MULTICAST_PORT);
+                let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
 
                 socket.set_reuse_address(true)?;
                 #[cfg(not(target_os = "windows"))]
                 socket.set_reuse_port(true)?;
-                socket.set_multicast_ttl_v4(2)?;
-                socket.set_multicast_loop_v4(true)?;
-                socket.set_multicast_if_v4(&ip)?;
-
-                socket.join_multicast_v4(&MULTICAST_GROUP, &ip)?;
-
                 socket.bind(&bind_addr.into())?;
+
+                socket.set_multicast_ttl_v4(255)?;
+                socket.set_multicast_loop_v4(true)?;
+                socket.set_multicast_if_v4(&interface_ip)?;
+                socket.join_multicast_v4(&MULTICAST_GROUP, &interface_ip)?;
 
                 let std_socket: std::net::UdpSocket = socket.into();
                 let tokio_socket = UdpSocket::from_std(std_socket)?;
