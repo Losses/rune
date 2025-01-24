@@ -15,6 +15,7 @@ axum-server = "0.7.1"
 bytes = "1.9.0"
 chrono = { version = "0.4.39", features = ["serde"] }
 futures = "0.3.31"
+log = "0.4.25"
 netdev = "0.32.0"
 reqwest = { version = "0.12.12", features = ["json"] }
 serde = { version = "1.0.217", features = ["derive"] }

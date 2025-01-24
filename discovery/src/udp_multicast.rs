@@ -5,6 +5,7 @@ use std::{
 };
 
 use futures::future::join_all;
+use log::{debug, error, info, warn};
 use netdev::Interface;
 use reqwest::Client;
 use serde_json::json;
@@ -97,8 +98,8 @@ impl DiscoveryService {
         for socket in &self.sockets {
             let target = format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT);
             match socket.send_to(&msg, &target).await {
-                Ok(bytes_sent) => println!("[{}] Sent {} bytes", socket.local_addr()?, bytes_sent),
-                Err(e) => eprintln!("Send error on {}: {}", socket.local_addr()?, e),
+                Ok(bytes_sent) => debug!("[{}] Sent {} bytes", socket.local_addr()?, bytes_sent),
+                Err(e) => error!("Send error on {}: {}", socket.local_addr()?, e),
             }
         }
 
@@ -106,7 +107,7 @@ impl DiscoveryService {
     }
 
     pub async fn listen(&self) -> anyhow::Result<()> {
-        println!("Starting to listen for announcements...");
+        info!("Starting to listen for announcements...");
         let mut join_handles = Vec::new();
 
         let sockets = self.sockets.clone();
@@ -115,7 +116,7 @@ impl DiscoveryService {
         let event_tx = self.event_tx.clone();
 
         for socket in sockets {
-            println!("Listening to {}...", socket.local_addr()?);
+            info!("Listening to {}...", socket.local_addr()?);
             let device_info = device_info.clone();
             let http_client = http_client.clone();
             let event_tx = event_tx.clone();
@@ -126,7 +127,7 @@ impl DiscoveryService {
                     match socket.recv_from(&mut buf).await {
                         Ok((len, addr)) => match serde_json::from_slice(&buf[..len]) {
                             Ok(announcement) => {
-                                println!("[{:#?}] Received from {}", socket.local_addr(), addr);
+                                debug!("[{:#?}] Received from {}", socket.local_addr(), addr);
                                 if let Err(e) = DiscoveryService::handle_announcement(
                                     &device_info,
                                     &http_client,
@@ -137,16 +138,16 @@ impl DiscoveryService {
                                 )
                                 .await
                                 {
-                                    eprintln!("Error handling announcement: {}", e);
+                                    error!("Error handling announcement: {}", e);
                                 }
                             }
                             Err(e) => {
-                                eprintln!("Failed to parse announcement: {}", e);
-                                eprintln!("Raw data: {:?}", &buf[..len]);
+                                error!("Failed to parse announcement: {}", e);
+                                error!("Raw data: {:?}", &buf[..len]);
                                 continue;
                             }
                         },
-                        Err(e) => eprintln!("Receive error: {}", e),
+                        Err(e) => error!("Receive error: {}", e),
                     }
                 }
             }));
@@ -164,15 +165,15 @@ impl DiscoveryService {
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
     ) -> anyhow::Result<()> {
-        println!("Received announcement from {}: {}", addr, announcement);
+        debug!("Received announcement from {}: {}", addr, announcement);
 
         if let Some(fingerprint) = announcement.get("fingerprint") {
             if *fingerprint == *device_info.fingerprint {
-                println!("[DEBUG] Received self-announcement, skipping");
+                debug!("[DEBUG] Received self-announcement, skipping");
                 return Ok(());
             }
         } else {
-            eprintln!("Announcement missing fingerprint, skipping");
+            warn!("Announcement missing fingerprint, skipping");
             return Ok(());
         }
 
@@ -231,7 +232,7 @@ impl DiscoveryService {
             Err(e) => {
                 let msg = serde_json::to_vec(&response)?;
                 socket.send_to(&msg, addr).await?;
-                eprintln!("Failed to send discovered device: {}", e);
+                error!("Failed to send discovered device: {}", e);
                 Ok(())
             }
         }
