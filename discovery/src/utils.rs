@@ -21,7 +21,6 @@ pub struct DeviceInfo {
     pub fingerprint: String,
     pub api_port: u16,
     pub protocol: String,
-    pub download: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

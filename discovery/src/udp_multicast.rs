@@ -1,16 +1,21 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
-use futures::future::join_all;
+use anyhow::{anyhow, Context};
 use log::{debug, error, info, warn};
 use netdev::Interface;
 use reqwest::Client;
 use serde_json::json;
-use socket2::{Domain, Socket, Type};
-use tokio::{net::UdpSocket, sync::mpsc::Sender};
+use socket2::{Domain, Protocol, Socket, Type};
+use tokio::{
+    net::UdpSocket,
+    sync::{mpsc::Sender, Mutex},
+    task::JoinHandle,
+};
+use tokio_util::sync::CancellationToken;
 
 use crate::utils::DeviceInfo;
 
@@ -23,15 +28,32 @@ pub struct DiscoveredDevice {
     pub last_seen: SystemTime,
 }
 
-pub struct DiscoveryService {
-    pub sockets: Vec<Arc<UdpSocket>>,
-    pub device_info: DeviceInfo,
-    http_client: Client,
-    event_tx: Sender<DiscoveredDevice>,
-}
-
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
 const MULTICAST_PORT: u16 = 57863;
+
+pub struct DiscoveryService {
+    sockets_init: Mutex<Option<anyhow::Result<Vec<Arc<UdpSocket>>>>>,
+    device_info: DeviceInfo,
+    http_client: Client,
+    event_tx: Sender<DiscoveredDevice>,
+    listeners: Mutex<Vec<JoinHandle<()>>>,
+    retry_policy: RetryPolicy,
+}
+
+#[derive(Clone)]
+pub struct RetryPolicy {
+    max_retries: usize,
+    initial_backoff: Duration,
+}
+
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_backoff: Duration::from_secs(1),
+        }
+    }
+}
 
 fn get_multicast_interfaces() -> Vec<Interface> {
     netdev::get_interfaces()
@@ -41,46 +63,101 @@ fn get_multicast_interfaces() -> Vec<Interface> {
 }
 
 impl DiscoveryService {
-    pub async fn new(
-        device_info: DeviceInfo,
-        event_tx: Sender<DiscoveredDevice>,
-    ) -> anyhow::Result<Self> {
+    pub fn new(device_info: DeviceInfo, event_tx: Sender<DiscoveredDevice>) -> Self {
+        Self {
+            sockets_init: Mutex::new(None),
+            device_info,
+            http_client: Client::new(),
+            event_tx,
+            listeners: Mutex::new(Vec::new()),
+            retry_policy: RetryPolicy::default(),
+        }
+    }
+
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry_policy = policy;
+        self
+    }
+
+    async fn get_sockets_with_retry(&self) -> anyhow::Result<Arc<Vec<Arc<UdpSocket>>>> {
+        let mut lock = self.sockets_init.lock().await;
+
+        if let Some(result) = &*lock {
+            return result
+                .as_ref()
+                .map(|sockets| Arc::new(sockets.clone()))
+                .map_err(|e| anyhow!(e.to_string()));
+        }
+
+        let mut retries = self.retry_policy.max_retries;
+        let mut backoff = self.retry_policy.initial_backoff;
+        let mut last_error = None;
+
+        while retries > 0 {
+            match Self::try_init_sockets().await {
+                Ok(sockets) => {
+                    let sockets = Arc::new(sockets);
+                    *lock = Some(Ok(sockets.to_vec()));
+                    return Ok(sockets);
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                    retries -= 1;
+                    tokio::time::sleep(backoff).await;
+                    backoff *= 2;
+                }
+            }
+        }
+
+        let error = last_error.unwrap_or_else(|| anyhow!("Socket initialization failed"));
+        *lock = Some(Err(anyhow!("{}", error)));
+
+        Err(error)
+    }
+
+    async fn try_init_sockets() -> anyhow::Result<Vec<Arc<UdpSocket>>> {
         let mut sockets = Vec::new();
 
         for iface in get_multicast_interfaces() {
             for ipv4_net in iface.ipv4 {
                 let interface_ip = ipv4_net.addr();
 
-                let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+                let socket = tokio::task::spawn_blocking(move || {
+                    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+                    let bind_addr =
+                        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
 
-                let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
+                    socket.set_reuse_address(true)?;
+                    #[cfg(not(target_os = "windows"))]
+                    socket.set_reuse_port(true)?;
+                    socket.bind(&bind_addr.into())?;
 
-                socket.set_reuse_address(true)?;
-                #[cfg(not(target_os = "windows"))]
-                socket.set_reuse_port(true)?;
-                socket.bind(&bind_addr.into())?;
+                    socket.set_multicast_ttl_v4(255)?;
+                    socket.set_multicast_loop_v4(true)?;
+                    socket.set_multicast_if_v4(&interface_ip)?;
+                    socket.join_multicast_v4(&MULTICAST_GROUP, &interface_ip)?;
 
-                socket.set_multicast_ttl_v4(255)?;
-                socket.set_multicast_loop_v4(true)?;
-                socket.set_multicast_if_v4(&interface_ip)?;
-                socket.join_multicast_v4(&MULTICAST_GROUP, &interface_ip)?;
+                    Ok::<_, anyhow::Error>(socket)
+                })
+                .await??;
 
-                let std_socket: std::net::UdpSocket = socket.into();
-                let tokio_socket = UdpSocket::from_std(std_socket)?;
+                let std_socket = socket.into();
+                let tokio_socket =
+                    UdpSocket::from_std(std_socket).context("Failed to convert to tokio socket")?;
 
                 sockets.push(Arc::new(tokio_socket));
             }
         }
 
-        Ok(Self {
-            sockets,
-            device_info,
-            http_client: Client::new(),
-            event_tx,
-        })
+        if sockets.is_empty() {
+            return Err(anyhow!("No valid multicast interfaces found"));
+        }
+
+        Ok(sockets)
     }
 
     pub async fn announce(&self) -> anyhow::Result<()> {
+        let sockets = self.get_sockets_with_retry().await?;
         let announcement = json!({
             "alias": self.device_info.alias,
             "version": self.device_info.version,
@@ -89,13 +166,12 @@ impl DiscoveryService {
             "fingerprint": self.device_info.fingerprint,
             "api_port": self.device_info.api_port,
             "protocol": self.device_info.protocol,
-            "download": self.device_info.download,
             "announce": true
         });
 
         let msg = serde_json::to_vec(&announcement)?;
 
-        for socket in &self.sockets {
+        for socket in sockets.iter() {
             let target = format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT);
             match socket.send_to(&msg, &target).await {
                 Ok(bytes_sent) => debug!("[{}] Sent {} bytes", socket.local_addr()?, bytes_sent),
@@ -106,74 +182,75 @@ impl DiscoveryService {
         Ok(())
     }
 
-    pub async fn listen(&self) -> anyhow::Result<()> {
-        info!("Starting to listen for announcements...");
-        let mut join_handles = Vec::new();
+    pub async fn listen(&self, cancel_token: Option<CancellationToken>) -> anyhow::Result<()> {
+        let sockets = self.get_sockets_with_retry().await?;
+        info!("Starting to listen on {} interfaces", sockets.len());
 
-        let sockets = self.sockets.clone();
-        let device_info = self.device_info.clone();
-        let http_client = self.http_client.clone();
-        let event_tx = self.event_tx.clone();
+        let cancel_token = cancel_token.unwrap_or_default();
 
-        for socket in sockets {
-            info!("Listening to {}...", socket.local_addr()?);
-            let device_info = device_info.clone();
-            let http_client = http_client.clone();
-            let event_tx = event_tx.clone();
+        let mut handles = Vec::with_capacity(sockets.len());
+        for socket in sockets.iter() {
+            let socket = Arc::clone(socket);
+            let device_info = self.device_info.clone();
+            let http_client = self.http_client.clone();
+            let event_tx = self.event_tx.clone();
+            let cancel_token = cancel_token.clone();
 
-            join_handles.push(tokio::spawn(async move {
+            let handle = tokio::spawn(async move {
                 let mut buf = vec![0u8; 65535];
                 loop {
-                    match socket.recv_from(&mut buf).await {
-                        Ok((len, addr)) => match serde_json::from_slice(&buf[..len]) {
-                            Ok(announcement) => {
-                                debug!("[{:#?}] Received from {}", socket.local_addr(), addr);
-                                if let Err(e) = DiscoveryService::handle_announcement(
-                                    &device_info,
-                                    &http_client,
-                                    &socket,
-                                    announcement,
-                                    addr,
-                                    &event_tx,
-                                )
-                                .await
-                                {
-                                    error!("Error handling announcement: {}", e);
+                    tokio::select! {
+                        _ = cancel_token.cancelled() => {
+                            debug!("Listener exiting on {}", socket.local_addr().unwrap());
+                            break;
+                        }
+                        result = socket.recv_from(&mut buf) => {
+                            match result {
+                                Ok((len, addr)) => {
+                                    if let Err(e) = Self::handle_datagram(
+                                        &device_info,
+                                        &http_client,
+                                        &socket,
+                                        &buf[..len],
+                                        addr,
+                                        &event_tx
+                                    ).await {
+                                        error!("Error handling datagram: {}", e);
+                                    }
                                 }
+                                Err(e) => error!("Receive error: {}", e),
                             }
-                            Err(e) => {
-                                error!("Failed to parse announcement: {}", e);
-                                error!("Raw data: {:?}", &buf[..len]);
-                                continue;
-                            }
-                        },
-                        Err(e) => error!("Receive error: {}", e),
+                        }
                     }
                 }
-            }));
+            });
+            handles.push(handle);
         }
 
-        join_all(join_handles).await;
+        self.listeners.lock().await.extend(handles);
         Ok(())
     }
 
-    async fn handle_announcement(
+    async fn handle_datagram(
         device_info: &DeviceInfo,
         http_client: &Client,
         socket: &UdpSocket,
-        announcement: serde_json::Value,
+        data: &[u8],
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
     ) -> anyhow::Result<()> {
+        let announcement: serde_json::Value =
+            serde_json::from_slice(data).context("Failed to parse announcement")?;
+
         debug!("Received announcement from {}: {}", addr, announcement);
 
         if let Some(fingerprint) = announcement.get("fingerprint") {
-            if *fingerprint == *device_info.fingerprint {
-                debug!("[DEBUG] Received self-announcement, skipping");
+            if *fingerprint == device_info.fingerprint {
+                debug!("Ignoring self-announcement");
                 return Ok(());
             }
         } else {
-            warn!("Announcement missing fingerprint, skipping");
+            warn!("Received announcement without fingerprint");
             return Ok(());
         }
 
@@ -190,11 +267,14 @@ impl DiscoveryService {
                 .as_str()
                 .unwrap_or("Unknown")
                 .to_string(),
-            fingerprint: announcement["fingerprint"].as_str().unwrap().to_string(),
+            fingerprint: announcement["fingerprint"]
+                .as_str()
+                .ok_or_else(|| anyhow!("Missing fingerprint"))?
+                .to_string(),
             last_seen: SystemTime::now(),
         };
 
-        let _ = event_tx.send(discovered).await;
+        event_tx.send(discovered).await?;
 
         if !announcement
             .get("announce")
@@ -204,14 +284,8 @@ impl DiscoveryService {
             return Ok(());
         }
 
-        let port = announcement
-            .get("api_port")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(53317) as u16;
-        let protocol = announcement
-            .get("protocol")
-            .and_then(|v| v.as_str())
-            .unwrap_or("http");
+        let port = announcement["api_port"].as_u64().unwrap_or(53317) as u16;
+        let protocol = announcement["protocol"].as_str().unwrap_or("http");
 
         let response = json!({
             "alias": device_info.alias,
@@ -221,20 +295,43 @@ impl DiscoveryService {
             "fingerprint": device_info.fingerprint,
             "api_port": device_info.api_port,
             "protocol": device_info.protocol,
-            "download": device_info.download,
             "announce": false
         });
 
         let target_url = format!("{}://{}:{}/api/rune/v2/register", protocol, addr.ip(), port);
+        let msg = serde_json::to_vec(&response)?;
 
         match http_client.post(&target_url).json(&response).send().await {
             Ok(_) => Ok(()),
             Err(e) => {
-                let msg = serde_json::to_vec(&response)?;
                 socket.send_to(&msg, addr).await?;
-                error!("Failed to send discovered device: {}", e);
-                Ok(())
+                Err(anyhow!("HTTP send failed: {}, fell back to UDP", e))
             }
+        }
+    }
+
+    pub async fn shutdown(&self) {
+        let mut listeners = self.listeners.lock().await;
+        for handle in listeners.drain(..) {
+            handle.abort();
+        }
+    }
+
+    pub async fn is_operational(&self) -> bool {
+        self.sockets_init
+            .lock()
+            .await
+            .as_ref()
+            .map(|r| r.is_ok())
+            .unwrap_or(false)
+    }
+}
+
+impl Drop for DiscoveryService {
+    fn drop(&mut self) {
+        let rt = tokio::runtime::Handle::try_current();
+        if let Ok(rt) = rt {
+            rt.block_on(self.shutdown());
         }
     }
 }

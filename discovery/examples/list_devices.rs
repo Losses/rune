@@ -34,7 +34,7 @@ impl DeviceDiscovery {
     async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
 
-        let discovery_service = Arc::new(DiscoveryService::new(device_info, event_tx).await?);
+        let discovery_service = Arc::new(DiscoveryService::new(device_info, event_tx));
         let devices = Arc::new(RwLock::new(HashMap::new()));
 
         let devices_clone = devices.clone();
@@ -66,7 +66,7 @@ impl DeviceDiscovery {
 
         let listen_service = self.discovery_service.clone();
         tokio::spawn(async move {
-            if let Err(e) = listen_service.listen().await {
+            if let Err(e) = listen_service.listen(None).await {
                 eprintln!("Error in listen task: {}", e);
             }
         });
@@ -144,7 +144,6 @@ async fn main() -> anyhow::Result<()> {
         fingerprint,
         api_port,
         protocol: "http".to_string(),
-        download: Some(false),
     };
 
     let discovery = DeviceDiscovery::new(device_info).await?;
