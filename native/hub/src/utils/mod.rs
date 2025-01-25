@@ -1,10 +1,12 @@
 pub mod broadcastable;
+pub mod device_scanner;
 pub mod player;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use device_scanner::DeviceScanner;
 use dunce::canonicalize;
 use log::{error, info};
 use tokio::sync::Mutex;
@@ -74,6 +76,7 @@ pub struct GlobalParams {
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
+    pub device_scanner: Arc<DeviceScanner>,
 }
 
 pub trait ParamsExtractor {

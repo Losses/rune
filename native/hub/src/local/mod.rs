@@ -3,6 +3,8 @@ mod gui_request;
 
 use std::sync::Arc;
 
+use discovery::utils::DeviceInfo;
+use discovery::utils::DeviceType;
 use log::{error, info};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -16,6 +18,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::listen_local_gui_event;
 use crate::messages::*;
+use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::player::initialize_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
@@ -53,6 +56,21 @@ pub async fn local_player_loop(
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
+        let device_scanner = DeviceScanner::new(
+            DeviceInfo {
+                alias: "RuneAudio".to_string(),
+                device_model: Some("RuneAudio".to_string()),
+                version: "Technical Preview".to_owned(),
+                device_type: Some(DeviceType::Desktop),
+                fingerprint: "1145141919810".to_owned(),
+                api_port: 7863,
+                protocol: "http".to_owned(),
+            },
+            broadcaster.clone(),
+        );
+
+        let device_scanner = Arc::new(device_scanner);
+
         info!("Initializing Player events");
         tokio::spawn(initialize_player(
             lib_path.clone(),
@@ -73,6 +91,7 @@ pub async fn local_player_loop(
             sfx_player,
             scrobbler,
             broadcaster,
+            device_scanner,
         });
 
         for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);

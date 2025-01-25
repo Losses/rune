@@ -1,0 +1,22 @@
+syntax = "proto3";
+package neighbors;
+
+// [DART-SIGNAL]
+message StartBroadcastRequest {
+  uint32 duration_seconds = 1;
+}
+
+// [DART-SIGNAL]
+message StartListeningRequest {}
+
+// [DART-SIGNAL]
+message StopListeningRequest {}
+
+// [RUST-SIGNAL]
+message DiscoveredDeviceMessage {
+  string alias = 1;
+  string device_model = 2;
+  string device_type = 3;
+  string fingerprint = 4;
+  int64 last_seen_unix_epoch = 5;
+}

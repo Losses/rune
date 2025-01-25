@@ -342,6 +342,22 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ValidateLicenseResponse".to_string()),
             local_only: false,
         },
+        // Neighbors
+        RequestResponse {
+            request: "StartBroadcastRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StartListeningRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StopListeningRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
