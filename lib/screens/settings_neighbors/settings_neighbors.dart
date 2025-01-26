@@ -79,11 +79,11 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                         final isSelectedLibrary = itemPath == selectedItem;
 
                         final String fileName =
-                            File(itemPath).uri.pathSegments.first;
+                            File(itemPath).uri.pathSegments.last;
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
-                            icon: Symbols.folder,
+                            icon: Symbols.devices,
                             title: fileName,
                             subtitle: allOpenedFiles[index].cleanPath,
                             showActions: isSelectedLibrary,
