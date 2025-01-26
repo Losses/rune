@@ -4,31 +4,29 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/library_task_button.dart';
-import '../../widgets/settings/settings_button.dart';
-import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
+import '../../utils/l10n.dart';
 
-import 'utils/show_reset_library_dialog.dart';
+import 'widgets/manually_add_remote_device_setting_button.dart';
+import 'widgets/settings_tile_title.dart';
 
-class SettingsLibraryPage extends StatefulWidget {
-  const SettingsLibraryPage({super.key});
+class SettingsNeighborsPage extends StatefulWidget {
+  const SettingsNeighborsPage({super.key});
 
   @override
-  State<SettingsLibraryPage> createState() => _SettingsLibraryPageState();
+  State<SettingsNeighborsPage> createState() => _SettingsNeighborsPageState();
 }
 
-class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
+class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
   String selectedItem = '';
 
   bool requested = false;
@@ -66,24 +64,9 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const AddLibrarySettingButton(
+                  const ManuallyAddRemoteDeviceSettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
-                  ),
-                  SettingsButton(
-                    icon: Symbols.refresh,
-                    title: S.of(context).factoryReset,
-                    subtitle: S.of(context).factoryResetSubtitle,
-                    onPressed: () async {
-                      final result = await showResetLibraryDialog(context);
-
-                      if (!context.mounted) return;
-                      if (result != true) return;
-
-                      await closeLibrary(context);
-                      libraryPath.clearAllOpenedFiles();
-                      $$replace("/");
-                    },
                   ),
                   const SizedBox(height: 2),
                   SizedBox(

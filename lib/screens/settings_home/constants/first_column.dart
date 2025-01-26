@@ -12,6 +12,12 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     false
   ),
   (
+    (context) => S.of(context).neighbors,
+    '/settings/neighbors',
+    Symbols.group,
+    false
+  ),
+  (
     (context) => S.of(context).analysis,
     '/settings/analysis',
     Symbols.grain,

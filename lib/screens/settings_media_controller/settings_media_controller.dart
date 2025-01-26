@@ -11,8 +11,8 @@ import '../../utils/settings_body_padding.dart';
 import '../../utils/build_draggable_feedback.dart';
 import '../../widgets/pointer_type.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/settings/settings_button.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../screens/settings_library/widgets/settings_button.dart';
 import '../../providers/volume.dart';
 import '../../providers/playback_controller.dart';
 

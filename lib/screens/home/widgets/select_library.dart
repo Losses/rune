@@ -5,13 +5,13 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../utils/router/navigation.dart';
 import '../../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../../widgets/settings/settings_button.dart';
 import '../../../providers/library_path.dart';
 import '../../../providers/responsive_providers.dart';
 
-import '../../../utils/router/navigation.dart';
 import '../../settings_library/widgets/add_library_setting_button.dart';
-import '../../settings_library/widgets/settings_button.dart';
 
 class SelectLibraryPage extends StatefulWidget {
   const SelectLibraryPage({super.key});

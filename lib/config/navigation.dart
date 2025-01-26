@@ -115,6 +115,10 @@ final List<NavigationItem> navigationItems = [
             '/settings/library',
           ),
           NavigationItem(
+            (context) => S.of(context).neighbors,
+            '/settings/neighbors',
+          ),
+          NavigationItem(
             (context) => S.of(context).analysis,
             '/settings/analysis',
           ),

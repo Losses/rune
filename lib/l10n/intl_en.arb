@@ -1068,5 +1068,17 @@
   "addConnection": "Add Connection",
   "@addConnection": {
     "description": "The action button of the dialog."
+  },
+  "neighbors": "Neighbors",
+  "@neighbors": {
+    "description": "The settings page that could help users connect with each other."
+  },
+  "searchNeighbors": "Search Neighbors",
+  "@searchNeighbors": {
+    "description": "The item in the neighbors settings page, to discover devices in the local network."
+  },
+  "searchNeighborsSubtitle": "Find and connect to Rune devices in your local network.",
+  "@searchNeighborsSubtitle": {
+    "description": "The subtitle of the search neighbors settings item"
   }
 }
