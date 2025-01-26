@@ -31,7 +31,8 @@ Future<String?> getInitialPath() async {
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
-  Set<String> libraryHistory = {};
+  final Map<String, (OperationDestination, OperationDestination)>
+      _libraryHistory = {};
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
@@ -43,18 +44,21 @@ class LibraryPathProvider with ChangeNotifier {
       });
     }
 
-    getAllOpenedFiles().then((x) {
-      for (final item in x) {
-        libraryHistory.add(item);
+    getAllOpenedFiles().then((paths) {
+      for (final path in paths) {
+        final connectionType = determineConnectionType(path);
+        _libraryHistory[path] = connectionType;
       }
-
-      if (libraryHistory.isNotEmpty) {
+      if (_libraryHistory.isNotEmpty) {
         notifyListeners();
       }
     });
   }
 
   String? get currentPath => _currentPath;
+
+  Map<String, (OperationDestination, OperationDestination)>
+      get libraryHistory => _libraryHistory;
 
   Future<(bool, bool, String?)> setLibraryPath(
     BuildContext? context,
@@ -85,8 +89,9 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
-      if (!libraryHistory.contains(filePath)) {
-        libraryHistory.add(filePath);
+      final connectionType = determineConnectionType(filePath);
+      if (!_libraryHistory.containsKey(filePath)) {
+        _libraryHistory[filePath] = connectionType;
         notifyListeners();
       }
       CollectionCache().clearAll();
@@ -113,30 +118,65 @@ class LibraryPathProvider with ChangeNotifier {
     return (success, false, error);
   }
 
+  List<String> _getPaths({
+    OperationDestination? source,
+    OperationDestination? destination,
+  }) {
+    return _libraryHistory.entries
+        .where((entry) {
+          final (src, dest) = entry.value;
+
+          final sourceMatch = source == null || src == source;
+          final destMatch = destination == null || dest == destination;
+
+          return sourceMatch && destMatch;
+        })
+        .map((entry) => entry.key)
+        .toList();
+  }
+
+  List<String> getDestinationRemotePaths() =>
+      _getPaths(destination: OperationDestination.Remote);
+
+  List<String> getSourceRemotePaths() =>
+      _getPaths(source: OperationDestination.Remote);
+
+  List<String> getRRPaths() => _getPaths(
+        source: OperationDestination.Remote,
+        destination: OperationDestination.Remote,
+      );
+
+  List<String> getLRPaths() => _getPaths(
+        source: OperationDestination.Local,
+        destination: OperationDestination.Remote,
+      );
+
+  List<String> getLLPaths() => _getPaths(
+        source: OperationDestination.Local,
+        destination: OperationDestination.Local,
+      );
+
   Future<List<String>> getAllOpenedFiles() {
     return _fileStorageService.getAllOpenedFiles();
   }
 
-  // Clear all opened files
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
     _currentPath = null;
-    libraryHistory.clear();
-
+    _libraryHistory.clear();
     notifyListeners();
   }
 
-  // Add a method to remove a specific file path
   Future<void> removeOpenedFile(String filePath) async {
     await _fileStorageService.removeFilePath(filePath);
     if (_currentPath == filePath) {
       _currentPath = null;
-      libraryHistory.remove(filePath);
     }
+    _libraryHistory.remove(filePath);
     notifyListeners();
   }
 
-  removeCurrentPath() {
+  void removeCurrentPath() {
     _currentPath = null;
     notifyListeners();
   }
