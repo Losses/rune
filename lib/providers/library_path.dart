@@ -19,6 +19,50 @@ enum ConnectionType {
   remote,
 }
 
+@immutable
+class LibraryPathEntry {
+  final String rawPath;
+  final String cleanPath;
+  final OperationDestination source;
+  final OperationDestination destination;
+
+  const LibraryPathEntry._({
+    required this.rawPath,
+    required this.cleanPath,
+    required this.source,
+    required this.destination,
+  });
+
+  factory LibraryPathEntry(String path) {
+    final (src, dest) = determineConnectionType(path);
+    return LibraryPathEntry._(
+      rawPath: path,
+      cleanPath: _removePrefix(path),
+      source: src,
+      destination: dest,
+    );
+  }
+
+  static String _removePrefix(String path) {
+    if (path.startsWith('@RR|')) return path.substring(4);
+    if (path.startsWith('@LR|')) return path.substring(4);
+    return path;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LibraryPathEntry &&
+          runtimeType == other.runtimeType &&
+          rawPath == other.rawPath;
+
+  @override
+  int get hashCode => rawPath.hashCode;
+
+  @override
+  String toString() => '[$source→$destination] $cleanPath';
+}
+
 Future<String?> getInitialPath() async {
   const String libraryPath =
       String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
@@ -31,8 +75,7 @@ Future<String?> getInitialPath() async {
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
-  final Map<String, (OperationDestination, OperationDestination)>
-      _libraryHistory = {};
+  final Set<LibraryPathEntry> _libraryHistory = {};
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
@@ -45,10 +88,7 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     getAllOpenedFiles().then((paths) {
-      for (final path in paths) {
-        final connectionType = determineConnectionType(path);
-        _libraryHistory[path] = connectionType;
-      }
+      _libraryHistory.addAll(paths.map((p) => LibraryPathEntry(p)));
       if (_libraryHistory.isNotEmpty) {
         notifyListeners();
       }
@@ -57,8 +97,7 @@ class LibraryPathProvider with ChangeNotifier {
 
   String? get currentPath => _currentPath;
 
-  Map<String, (OperationDestination, OperationDestination)>
-      get libraryHistory => _libraryHistory;
+  Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
   Future<(bool, bool, String?)> setLibraryPath(
     BuildContext? context,
@@ -89,9 +128,8 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
-      final connectionType = determineConnectionType(filePath);
-      if (!_libraryHistory.containsKey(filePath)) {
-        _libraryHistory[filePath] = connectionType;
+      final entry = LibraryPathEntry(filePath);
+      if (_libraryHistory.add(entry)) {
         notifyListeners();
       }
       CollectionCache().clearAll();
@@ -118,46 +156,30 @@ class LibraryPathProvider with ChangeNotifier {
     return (success, false, error);
   }
 
-  List<String> _getPaths({
+  List<LibraryPathEntry> _filterEntries({
     OperationDestination? source,
     OperationDestination? destination,
   }) {
-    return _libraryHistory.entries
-        .where((entry) {
-          final (src, dest) = entry.value;
-
-          final sourceMatch = source == null || src == source;
-          final destMatch = destination == null || dest == destination;
-
-          return sourceMatch && destMatch;
-        })
-        .map((entry) => entry.key)
-        .toList();
+    return _libraryHistory.where((entry) {
+      final sourceMatch = source == null || entry.source == source;
+      final destMatch = destination == null || entry.destination == destination;
+      return sourceMatch && destMatch;
+    }).toList();
   }
 
-  List<String> getDestinationRemotePaths() =>
-      _getPaths(destination: OperationDestination.Remote);
-
-  List<String> getSourceRemotePaths() =>
-      _getPaths(source: OperationDestination.Remote);
-
-  List<String> getRRPaths() => _getPaths(
+  List<LibraryPathEntry> getRRPaths() => _filterEntries(
         source: OperationDestination.Remote,
         destination: OperationDestination.Remote,
       );
 
-  List<String> getLRPaths() => _getPaths(
-        source: OperationDestination.Local,
-        destination: OperationDestination.Remote,
-      );
+  List<LibraryPathEntry> getAnySourceRemotePaths() =>
+      _filterEntries(destination: OperationDestination.Remote);
 
-  List<String> getLLPaths() => _getPaths(
-        source: OperationDestination.Local,
-        destination: OperationDestination.Local,
-      );
+  List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
+      _filterEntries(source: OperationDestination.Remote);
 
-  Future<List<String>> getAllOpenedFiles() {
-    return _fileStorageService.getAllOpenedFiles();
+  Future<List<String>> getAllOpenedFiles() async {
+    return _libraryHistory.map((e) => e.rawPath).toList();
   }
 
   Future<void> clearAllOpenedFiles() async {
@@ -169,11 +191,31 @@ class LibraryPathProvider with ChangeNotifier {
 
   Future<void> removeOpenedFile(String filePath) async {
     await _fileStorageService.removeFilePath(filePath);
+
+    final originalCount = _libraryHistory.length;
+
+    _libraryHistory.removeWhere((entry) => entry.rawPath == filePath);
+
+    bool hasChanged = _libraryHistory.length != originalCount;
+
     if (_currentPath == filePath) {
       _currentPath = null;
+      hasChanged = true;
     }
-    _libraryHistory.remove(filePath);
-    notifyListeners();
+
+    if (hasChanged) {
+      notifyListeners();
+    }
+  }
+
+  Future<void> removeOpenedFileByCleanPath(String cleanPath) async {
+    final toRemove =
+        _libraryHistory.where((e) => e.cleanPath == cleanPath).toList();
+
+    for (final entry in toRemove) {
+      await _fileStorageService.removeFilePath(entry.rawPath);
+      _libraryHistory.remove(entry);
+    }
   }
 
   void removeCurrentPath() {
