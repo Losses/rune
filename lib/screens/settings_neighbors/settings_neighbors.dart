@@ -15,6 +15,7 @@ import '../../providers/library_path.dart';
 import '../../utils/l10n.dart';
 
 import 'widgets/manually_add_remote_device_setting_button.dart';
+import 'widgets/search_remote_device_setting_button.dart';
 import 'widgets/settings_tile_title.dart';
 
 class SettingsNeighborsPage extends StatefulWidget {
@@ -57,6 +58,10 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SearchRemoteDeviceSettingButton(
+                    tryClose: true,
+                    navigateIfFailed: true,
+                  ),
                   const ManuallyAddRemoteDeviceSettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
