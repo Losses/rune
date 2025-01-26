@@ -87,10 +87,13 @@ class LibraryPathProvider with ChangeNotifier {
       });
     }
 
-    _libraryHistory.addAll(getAllOpenedFiles().map((p) => LibraryPathEntry(p)));
-    if (_libraryHistory.isNotEmpty) {
-      notifyListeners();
-    }
+    _fileStorageService.getAllOpenedFiles().then((files) {
+      _libraryHistory.addAll(files.map((p) => LibraryPathEntry(p)));
+
+      if (_libraryHistory.isNotEmpty) {
+        notifyListeners();
+      }
+    });
   }
 
   String? get currentPath => _currentPath;
