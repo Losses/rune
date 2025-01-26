@@ -9,11 +9,9 @@ import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
-import '../../widgets/library_task_button.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
-import '../../providers/library_manager.dart';
 import '../../utils/l10n.dart';
 
 import 'widgets/manually_add_remote_device_setting_button.dart';
@@ -30,7 +28,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
   String selectedItem = '';
 
   bool requested = false;
-  List<String> allOpenedFiles = [];
+  List<LibraryPathEntry> allOpenedFiles = [];
 
   @override
   void didChangeDependencies() {
@@ -38,12 +36,9 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
 
     final libraryPath =
         Provider.of<LibraryPathProvider>(context, listen: false);
-    libraryPath.getAllOpenedFiles().then((x) {
-      if (!context.mounted) return;
 
-      setState(() {
-        allOpenedFiles = x.reversed.toList();
-      });
+    setState(() {
+      allOpenedFiles = libraryPath.getAnyDestinationRemotePaths();
     });
 
     super.didChangeDependencies();
@@ -52,8 +47,6 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
   @override
   Widget build(BuildContext context) {
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
-    final libraryManager =
-        Provider.of<LibraryManagerProvider>(context, listen: false);
 
     return PageContentFrame(
       child: UnavailablePageOnBand(
@@ -75,92 +68,67 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                       shrinkWrap: true,
                       itemCount: allOpenedFiles.length,
                       itemBuilder: (context, index) {
-                        final itemPath = allOpenedFiles[index];
+                        final itemPath = allOpenedFiles[index].rawPath;
                         final isCurrentLibrary =
                             itemPath == libraryPath.currentPath;
                         final isSelectedLibrary = itemPath == selectedItem;
 
-                        final scanProgress =
-                            libraryManager.getScanTaskProgress(itemPath);
-                        final analyzeProgress =
-                            libraryManager.getAnalyzeTaskProgress(itemPath);
-
-                        final scanWorking =
-                            scanProgress?.status == TaskStatus.working;
-                        final analyzeWorking =
-                            analyzeProgress?.status == TaskStatus.working;
-
-                        final initializing =
-                            (scanProgress?.initialize ?? false) ||
-                                (analyzeProgress?.isInitializeTask ?? false);
-
-                        String fileName = File(itemPath).uri.pathSegments.last;
-
-                        void Function()? whileWorking(void Function() x) {
-                          return isCurrentLibrary ||
-                                  (initializing &&
-                                      (scanWorking || analyzeWorking))
-                              ? null
-                              : x;
-                        }
+                        final String fileName =
+                            File(itemPath).uri.pathSegments.first;
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
                             icon: Symbols.folder,
                             title: fileName,
-                            subtitle: allOpenedFiles[index],
+                            subtitle: allOpenedFiles[index].cleanPath,
                             showActions: isSelectedLibrary,
                             actionsBuilder: (context) => Row(
                               children: [
                                 Button(
-                                  onPressed: whileWorking(
-                                    () async {
-                                      final result =
-                                          await testAndSelectLibraryMode(
-                                        context,
-                                        allOpenedFiles[index],
-                                      );
+                                  onPressed: !isCurrentLibrary
+                                      ? null
+                                      : () async {
+                                          final result =
+                                              await testAndSelectLibraryMode(
+                                            context,
+                                            allOpenedFiles[index].rawPath,
+                                          );
 
-                                      if (result == null) return;
-                                      final (initialized, initializeMode) =
-                                          result;
-                                      if (!initialized &&
-                                          initializeMode == null) {
-                                        return;
-                                      }
+                                          if (result == null) return;
+                                          final (initialized, initializeMode) =
+                                              result;
+                                          if (!initialized &&
+                                              initializeMode == null) {
+                                            return;
+                                          }
 
-                                      if (!context.mounted) return;
-                                      await closeLibrary(context);
+                                          if (!context.mounted) return;
+                                          await closeLibrary(context);
 
-                                      if (!context.mounted) return;
+                                          if (!context.mounted) return;
 
-                                      libraryPath.setLibraryPath(
-                                        context,
-                                        allOpenedFiles[index],
-                                        initializeMode,
-                                      );
+                                          libraryPath.setLibraryPath(
+                                            context,
+                                            allOpenedFiles[index].rawPath,
+                                            initializeMode,
+                                          );
 
-                                      if (!context.mounted) return;
-                                      $push('/library');
-                                    },
-                                  ),
+                                          if (!context.mounted) return;
+                                          $push('/library');
+                                        },
                                   child: Text(S.of(context).switchTo),
                                 ),
                                 const SizedBox(width: 12),
                                 Button(
-                                  onPressed: whileWorking(() async {
-                                    libraryPath.removeOpenedFile(
-                                      allOpenedFiles[index],
-                                    );
-                                  }),
+                                  onPressed: !isCurrentLibrary
+                                      ? null
+                                      : () async {
+                                          libraryPath.removeOpenedFile(
+                                            allOpenedFiles[index].rawPath,
+                                          );
+                                        },
                                   child: Text(S.of(context).removeLibrary),
                                 ),
-                                if (isCurrentLibrary) ...[
-                                  const SizedBox(width: 12),
-                                  const ScanLibraryButton(),
-                                  const SizedBox(width: 12),
-                                  const AnalyzeLibraryButton(),
-                                ]
                               ],
                             ),
                           ),

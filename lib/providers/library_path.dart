@@ -87,12 +87,10 @@ class LibraryPathProvider with ChangeNotifier {
       });
     }
 
-    getAllOpenedFiles().then((paths) {
-      _libraryHistory.addAll(paths.map((p) => LibraryPathEntry(p)));
-      if (_libraryHistory.isNotEmpty) {
-        notifyListeners();
-      }
-    });
+    _libraryHistory.addAll(getAllOpenedFiles().map((p) => LibraryPathEntry(p)));
+    if (_libraryHistory.isNotEmpty) {
+      notifyListeners();
+    }
   }
 
   String? get currentPath => _currentPath;
@@ -178,7 +176,7 @@ class LibraryPathProvider with ChangeNotifier {
   List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
       _filterEntries(source: OperationDestination.Remote);
 
-  Future<List<String>> getAllOpenedFiles() async {
+  List<String> getAllOpenedFiles() {
     return _libraryHistory.map((e) => e.rawPath).toList();
   }
 

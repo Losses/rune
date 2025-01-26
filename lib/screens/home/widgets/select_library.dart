@@ -30,12 +30,9 @@ class _SelectLibraryPageState extends State<SelectLibraryPage> {
 
     final libraryPath =
         Provider.of<LibraryPathProvider>(context, listen: false);
-    libraryPath.getAllOpenedFiles().then((x) {
-      if (!context.mounted) return;
 
-      setState(() {
-        allOpenedFiles = x;
-      });
+    setState(() {
+      allOpenedFiles = libraryPath.getAllOpenedFiles();
     });
 
     super.didChangeDependencies();
