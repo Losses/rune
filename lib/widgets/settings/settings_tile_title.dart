@@ -33,6 +33,7 @@ class SettingsTileTitle extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              if (!isMini) SizedBox(width: 4),
               if (!isMini)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
@@ -12,9 +13,10 @@ import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dar
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
-import '../../utils/l10n.dart';
 
-import 'widgets/manually_add_remote_device_setting_button.dart';
+import 'widgets/add_neighbor_manually_setting_button.dart';
+import 'widgets/edit_device_information_dialog.dart';
+import 'widgets/enable_broadcast_setting_button.dart';
 import 'widgets/search_remote_device_setting_button.dart';
 import 'widgets/settings_tile_title.dart';
 
@@ -62,10 +64,12 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                     tryClose: true,
                     navigateIfFailed: true,
                   ),
-                  const ManuallyAddRemoteDeviceSettingButton(
+                  const AddNeighborManuallySettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
                   ),
+                  const EditDeviceInformationSettingButton(),
+                  const EnableBroadcastSetting(),
                   const SizedBox(height: 2),
                   SizedBox(
                     width: double.maxFinite,

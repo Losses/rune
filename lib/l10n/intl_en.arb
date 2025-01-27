@@ -1047,12 +1047,6 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "addRemoteDevice": "Add Remote Device",
-  "@addRemoteDevice": {
-    "description": "Button prompt text in the settings interface for connecting to a remote device."
-  },
-  "addRemoteDeviceSubtitle": "Control a remote player and manage the tracks it plays.",
-  "@addRemoteDeviceSubtitle": {},
   "hostname": "Hostname",
   "@hostname": {
     "description": "The host name part of an URL."
@@ -1080,5 +1074,33 @@
   "searchNeighborsSubtitle": "Find and connect to Rune devices in your local network.",
   "@searchNeighborsSubtitle": {
     "description": "The subtitle of the search neighbors settings item"
+  },
+  "editDeviceInformation": "Edit Device Information",
+  "@editDeviceInformation": {
+    "description": "Appears in device settings. Refers to details shown to other users during scanning."
+  },
+  "editDeviceInformationSubtitle": "Customize details shown to other devices during scans.",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
+  },
+  "enableBroadcast": "Enable Broadcast",
+  "@enableBroadcast": {
+    "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
+  },
+  "enableBroadcastSubtitle": "Share your device information publicly for others to discover.",
+  "@enableBroadcastSubtitle": {
+    "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
+  },
+  "addNeighborManually": "Add Neighbor Manually",
+  "@addNeighborManually": {
+    "description": "'Neighbor refers to devices on the same local network. If space allows, 'Manually Add Neighbor' is acceptable. Prioritize brevity."
+  },
+  "addNeighborManuallySubtitle": "Enter a device's local network info manually to connect.",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
+  },
+  "stop": "Stop",
+  "@stop": {
+    "description": "Action button to terminate active."
   }
 }

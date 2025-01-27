@@ -1047,12 +1047,6 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "addRemoteDevice": "リモートデバイスをアド",
-  "@addRemoteDevice": {
-    "description": "Button prompt text in the settings interface for connecting to a remote device."
-  },
-  "addRemoteDeviceSubtitle": "リモートプレーヤーをコントロールし、プレイングをマネージ。",
-  "@addRemoteDeviceSubtitle": {},
   "hostname": "ホスト",
   "@hostname": {
     "description": "The host name part of an URL."

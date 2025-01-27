@@ -6,8 +6,8 @@ import '../../../widgets/settings/settings_button.dart';
 
 import '../utils/show_add_remote_device_dialog.dart';
 
-class ManuallyAddRemoteDeviceSettingButton extends StatelessWidget {
-  const ManuallyAddRemoteDeviceSettingButton({
+class AddNeighborManuallySettingButton extends StatelessWidget {
+  const AddNeighborManuallySettingButton({
     super.key,
     required this.tryClose,
     required this.navigateIfFailed,
@@ -19,9 +19,9 @@ class ManuallyAddRemoteDeviceSettingButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SettingsButton(
-      icon: Symbols.edit,
-      title: S.of(context).addRemoteDevice,
-      subtitle: S.of(context).addRemoteDeviceSubtitle,
+      icon: Symbols.add,
+      title: S.of(context).addNeighborManually,
+      subtitle: S.of(context).addNeighborManuallySubtitle,
       onPressed: () => showAddRemoteDeviceDialog(navigateIfFailed, context),
     );
   }
