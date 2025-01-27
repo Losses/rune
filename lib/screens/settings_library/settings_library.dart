@@ -42,7 +42,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
         Provider.of<LibraryPathProvider>(context, listen: false);
 
     setState(() {
-      allOpenedFiles = libraryPath.getAllOpenedFiles().reversed.toList();
+      allOpenedFiles =
+          libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
     });
 
     super.didChangeDependencies();

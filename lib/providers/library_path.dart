@@ -173,15 +173,16 @@ class LibraryPathProvider with ChangeNotifier {
         destination: OperationDestination.Remote,
       );
 
+  List<LibraryPathEntry> getLLPaths() => _filterEntries(
+        source: OperationDestination.Local,
+        destination: OperationDestination.Local,
+      );
+
   List<LibraryPathEntry> getAnySourceRemotePaths() =>
       _filterEntries(destination: OperationDestination.Remote);
 
   List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
       _filterEntries(source: OperationDestination.Remote);
-
-  List<String> getAllOpenedFiles() {
-    return _libraryHistory.map((e) => e.rawPath).toList();
-  }
 
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
