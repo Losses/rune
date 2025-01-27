@@ -31,10 +31,10 @@ struct DeviceDiscovery {
 }
 
 impl DeviceDiscovery {
-    async fn new(device_info: DeviceInfo) -> anyhow::Result<Self> {
+    async fn new() -> anyhow::Result<Self> {
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
 
-        let discovery_service = Arc::new(DiscoveryService::new(device_info, event_tx));
+        let discovery_service = Arc::new(DiscoveryService::new(event_tx));
         let devices = Arc::new(RwLock::new(HashMap::new()));
 
         let devices_clone = devices.clone();
@@ -61,12 +61,13 @@ impl DeviceDiscovery {
         })
     }
 
-    async fn start(&self) -> anyhow::Result<()> {
+    async fn start(&self, device_info: DeviceInfo) -> anyhow::Result<()> {
         let devices = self.devices.clone();
 
         let listen_service = self.discovery_service.clone();
+        let device_info_for_listen = device_info.clone();
         tokio::spawn(async move {
-            if let Err(e) = listen_service.listen(None).await {
+            if let Err(e) = listen_service.listen(device_info_for_listen, None).await {
                 eprintln!("Error in listen task: {}", e);
             }
         });
@@ -80,13 +81,12 @@ impl DeviceDiscovery {
             }
         });
 
-        // Broadcast task
         let discovery_service = self.discovery_service.clone();
         tokio::spawn(async move {
             let mut interval = time::interval(Duration::from_secs(3));
             loop {
                 interval.tick().await;
-                if let Err(e) = discovery_service.announce().await {
+                if let Err(e) = discovery_service.announce(device_info.clone()).await {
                     eprintln!("Failed to announce: {}", e);
                 }
             }
@@ -146,8 +146,8 @@ async fn main() -> anyhow::Result<()> {
         protocol: "http".to_string(),
     };
 
-    let discovery = DeviceDiscovery::new(device_info).await?;
-    discovery.start().await?;
+    let discovery = DeviceDiscovery::new().await?;
+    discovery.start(device_info).await?;
 
     signal::ctrl_c().await?;
     println!("\nReceived Ctrl+C, shutting down...");

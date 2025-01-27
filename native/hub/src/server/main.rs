@@ -118,18 +118,7 @@ async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketSer
     let server = Arc::new(server);
     let broadcaster = Arc::clone(&server);
 
-    let device_scanner = DeviceScanner::new(
-        DeviceInfo {
-            alias: "RuneAudio".to_string(),
-            device_model: Some("RuneAudio".to_string()),
-            version: "Technical Preview".to_owned(),
-            device_type: Some(DeviceType::Desktop),
-            fingerprint: "1145141919810".to_owned(),
-            api_port: 7863,
-            protocol: "http".to_owned(),
-        },
-        broadcaster.clone(),
-    );
+    let device_scanner = DeviceScanner::new(broadcaster.clone());
 
     let device_scanner = Arc::new(device_scanner);
 

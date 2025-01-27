@@ -24,10 +24,10 @@ pub struct DeviceScanner {
 }
 
 impl DeviceScanner {
-    pub fn new(device_info: DeviceInfo, broadcaster: Arc<dyn Broadcaster>) -> Self {
+    pub fn new(broadcaster: Arc<dyn Broadcaster>) -> Self {
         let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
 
-        let discovery_service = Arc::new(DiscoveryService::new(device_info, event_tx));
+        let discovery_service = Arc::new(DiscoveryService::new(event_tx));
 
         let scanner = Self {
             discovery_service,
@@ -70,7 +70,7 @@ impl DeviceScanner {
         });
     }
 
-    pub async fn start_broadcast(&self, duration_seconds: u32) {
+    pub async fn start_broadcast(&self, device_info: &DeviceInfo, duration_seconds: u32) {
         // Terminate existing task first
         self.stop_broadcast().await;
 
@@ -80,11 +80,13 @@ impl DeviceScanner {
         let discovery_service = self.discovery_service.clone();
         let duration = Duration::from_secs(duration_seconds as u64);
         let is_broadcasting = self.is_broadcasting.clone();
+        let device_info = device_info.clone();
 
         let task = tokio::spawn(async move {
             let start_time = SystemTime::now();
             loop {
-                if let Err(e) = discovery_service.announce().await {
+                let current_device_info = device_info.clone();
+                if let Err(e) = discovery_service.announce(current_device_info).await {
                     error!("Broadcast error: {}", e);
                 }
 
@@ -116,11 +118,12 @@ impl DeviceScanner {
         }
     }
 
-    pub async fn start_listening(&self) {
+    pub async fn start_listening(&self, device_info: &DeviceInfo) {
         let discovery_service = self.discovery_service.clone();
 
+        let device_info = device_info.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = discovery_service.listen(None).await {
+            if let Err(e) = discovery_service.listen(device_info, None).await {
                 error!("Listening error: {}", e);
             }
         });

@@ -33,7 +33,6 @@ const MULTICAST_PORT: u16 = 57863;
 
 pub struct DiscoveryService {
     sockets_init: Mutex<Option<anyhow::Result<Vec<Arc<UdpSocket>>>>>,
-    device_info: DeviceInfo,
     http_client: Client,
     event_tx: Sender<DiscoveredDevice>,
     listeners: Mutex<Vec<JoinHandle<()>>>,
@@ -63,10 +62,9 @@ fn get_multicast_interfaces() -> Vec<Interface> {
 }
 
 impl DiscoveryService {
-    pub fn new(device_info: DeviceInfo, event_tx: Sender<DiscoveredDevice>) -> Self {
+    pub fn new(event_tx: Sender<DiscoveredDevice>) -> Self {
         Self {
             sockets_init: Mutex::new(None),
-            device_info,
             http_client: Client::new(),
             event_tx,
             listeners: Mutex::new(Vec::new()),
@@ -156,16 +154,16 @@ impl DiscoveryService {
         Ok(sockets)
     }
 
-    pub async fn announce(&self) -> anyhow::Result<()> {
+    pub async fn announce(&self, device_info: DeviceInfo) -> anyhow::Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         let announcement = json!({
-            "alias": self.device_info.alias,
-            "version": self.device_info.version,
-            "deviceModel": self.device_info.device_model,
-            "deviceType": self.device_info.device_type,
-            "fingerprint": self.device_info.fingerprint,
-            "api_port": self.device_info.api_port,
-            "protocol": self.device_info.protocol,
+            "alias": device_info.alias,
+            "version": device_info.version,
+            "deviceModel": device_info.device_model,
+            "deviceType": device_info.device_type,
+            "fingerprint": device_info.fingerprint,
+            "api_port": device_info.api_port,
+            "protocol": device_info.protocol,
             "announce": true
         });
 
@@ -182,7 +180,11 @@ impl DiscoveryService {
         Ok(())
     }
 
-    pub async fn listen(&self, cancel_token: Option<CancellationToken>) -> anyhow::Result<()> {
+    pub async fn listen(
+        &self,
+        device_info: DeviceInfo,
+        cancel_token: Option<CancellationToken>,
+    ) -> anyhow::Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         info!("Starting to listen on {} interfaces", sockets.len());
 
@@ -191,7 +193,7 @@ impl DiscoveryService {
         let mut handles = Vec::with_capacity(sockets.len());
         for socket in sockets.iter() {
             let socket = Arc::clone(socket);
-            let device_info = self.device_info.clone();
+            let device_info = device_info.clone();
             let http_client = self.http_client.clone();
             let event_tx = self.event_tx.clone();
             let cancel_token = cancel_token.clone();

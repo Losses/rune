@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use discovery::utils::{DeviceInfo, DeviceType};
+
 use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
@@ -21,7 +23,20 @@ impl Signal for StartBroadcastRequest {
         (scanner,): Self::Params,
         request: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
-        scanner.start_broadcast(request.duration_seconds).await;
+        scanner
+            .start_broadcast(
+                &DeviceInfo {
+                    alias: "RuneAudio".to_string(),
+                    device_model: Some("RuneAudio".to_string()),
+                    version: "Technical Preview".to_owned(),
+                    device_type: Some(DeviceType::Desktop),
+                    fingerprint: "1145141919810".to_owned(),
+                    api_port: 7863,
+                    protocol: "http".to_owned(),
+                },
+                request.duration_seconds,
+            )
+            .await;
         Ok(None)
     }
 }
@@ -65,7 +80,17 @@ impl Signal for StartListeningRequest {
         (scanner,): Self::Params,
         _: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
-        scanner.start_listening().await;
+        scanner
+            .start_listening(&DeviceInfo {
+                alias: "RuneAudio".to_string(),
+                device_model: Some("RuneAudio".to_string()),
+                version: "Technical Preview".to_owned(),
+                device_type: Some(DeviceType::Desktop),
+                fingerprint: "1145141919810".to_owned(),
+                api_port: 7863,
+                protocol: "http".to_owned(),
+            })
+            .await;
         Ok(None)
     }
 }
