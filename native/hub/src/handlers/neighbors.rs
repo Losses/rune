@@ -26,11 +26,11 @@ impl Signal for StartBroadcastRequest {
         scanner
             .start_broadcast(
                 &DeviceInfo {
-                    alias: "RuneAudio".to_string(),
+                    alias: request.alias.clone(),
                     device_model: Some("RuneAudio".to_string()),
                     version: "Technical Preview".to_owned(),
                     device_type: Some(DeviceType::Desktop),
-                    fingerprint: "1145141919810".to_owned(),
+                    fingerprint: request.fingerprint.clone(),
                     api_port: 7863,
                     protocol: "http".to_owned(),
                 },
@@ -78,15 +78,15 @@ impl Signal for StartListeningRequest {
     async fn handle(
         &self,
         (scanner,): Self::Params,
-        _: &Self,
+        request: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
         scanner
             .start_listening(&DeviceInfo {
-                alias: "RuneAudio".to_string(),
+                alias: request.alias.clone(),
                 device_model: Some("RuneAudio".to_string()),
                 version: "Technical Preview".to_owned(),
                 device_type: Some(DeviceType::Desktop),
-                fingerprint: "1145141919810".to_owned(),
+                fingerprint: request.fingerprint.clone(),
                 api_port: 7863,
                 protocol: "http".to_owned(),
             })

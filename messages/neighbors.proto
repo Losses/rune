@@ -4,10 +4,15 @@ package neighbors;
 // [DART-SIGNAL]
 message StartBroadcastRequest {
   uint32 duration_seconds = 1;
+  string alias = 2;
+  string fingerprint = 3;
 }
 
 // [DART-SIGNAL]
-message StartListeningRequest {}
+message StartListeningRequest {
+  string alias = 1;
+  string fingerprint = 2;
+}
 
 // [DART-SIGNAL]
 message StopBroadcastRequest {}
