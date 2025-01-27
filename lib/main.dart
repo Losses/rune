@@ -55,6 +55,7 @@ import 'providers/status.dart';
 import 'providers/license.dart';
 import 'providers/playlist.dart';
 import 'providers/scrobble.dart';
+import 'providers/broadcast.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
@@ -281,10 +282,11 @@ void mainLoop(LicenseProvider licenseProvider) {
         ),
         ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => licenseProvider),
-        ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
-        ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
-        ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(create: (_) => BroadcastProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
       ],
       child: const Rune(),
     ),
