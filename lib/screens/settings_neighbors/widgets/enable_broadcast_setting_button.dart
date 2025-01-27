@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 
+import '../../../providers/broadcast.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_box_base.dart';
 
@@ -17,27 +19,33 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
   final _menuController = FlyoutController();
 
   Widget buildExpanderContent(BuildContext context) {
+    final broadcast = Provider.of<BroadcastProvider>(context, listen: false);
     final s = S.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
-          onPressed: () => {},
-          child: Text(s.start),
+          onPressed: () => broadcast.isBroadcasting
+              ? broadcast.stopBroadcast()
+              : broadcast.startBroadcast(),
+          child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
         ),
       ],
     );
   }
 
   Widget buildDefaultContent(BuildContext context) {
+    final broadcast = Provider.of<BroadcastProvider>(context, listen: false);
     final s = S.of(context);
 
     return FlyoutTarget(
       controller: _menuController,
       child: Button(
-        onPressed: () => {},
-        child: Text(s.start),
+        onPressed: () => broadcast.isBroadcasting
+            ? broadcast.stopBroadcast()
+            : broadcast.startBroadcast(),
+        child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
       ),
     );
   }
@@ -51,6 +59,7 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
+    Provider.of<BroadcastProvider>(context);
 
     return SettingsBoxBase(
       title: s.enableBroadcast,
