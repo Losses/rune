@@ -10,6 +10,9 @@ message StartBroadcastRequest {
 message StartListeningRequest {}
 
 // [DART-SIGNAL]
+message StopBroadcastRequest {}
+
+// [DART-SIGNAL]
 message StopListeningRequest {}
 
 // [RUST-SIGNAL]

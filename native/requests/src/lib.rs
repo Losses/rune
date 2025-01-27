@@ -349,6 +349,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "StopBroadcastRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
             request: "StartListeningRequest".to_string(),
             response: None,
             local_only: true,
