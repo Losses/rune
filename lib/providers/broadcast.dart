@@ -1,10 +1,12 @@
-import 'dart:async';
+import 'dart:io';
 import 'dart:math';
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
-import 'package:uuid/uuid.dart';
 
 import '../messages/all.dart';
 import '../utils/settings_manager.dart';
+import '../utils/ssl.dart';
 
 final SettingsManager _settingsManager = SettingsManager();
 
@@ -31,10 +33,40 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDevice() async {
-    await Future.wait([
-      _initializeDeviceAlias(),
-      _initializeFingerprint(),
-    ]);
+    await _initializeDeviceAlias(); // Ensure device alias is initialized first
+    await _initializeFingerprint(); // Then initialize fingerprint (depends on device alias)
+  }
+
+  Future<void> _initializeFingerprint() async {
+    // Get settings path and file objects
+    final settingsPath = await getSettingsPath();
+    final certFile = File('$settingsPath/certificate.pem');
+    final keyFile = File('$settingsPath/private_key.pem');
+
+    // Check if certificate files and fingerprint exist
+    final certExists = await certFile.exists();
+    final keyExists = await keyFile.exists();
+    _fingerprint = await _settingsManager.getValue<String>(_fingerprintKey);
+
+    // Conditions requiring regeneration of the certificate
+    if (_fingerprint == null || !certExists || !keyExists) {
+      final certResult = await generateSelfSignedCertificate(
+        commonName: _deviceAlias!,
+        organization: 'Rune Device',
+        country: 'NET',
+        validityDays: 3650, // 10-year validity
+      );
+
+      // Save certificate and private key
+      await certFile.writeAsString(certResult.certificate);
+      await keyFile.writeAsString(certResult.privateKey);
+
+      // Update fingerprint information
+      _fingerprint = certResult.publicKeyFingerprint;
+      await _settingsManager.setValue(_fingerprintKey, _fingerprint);
+    }
+
+    notifyListeners();
   }
 
   String _generateRandomAlias() {
@@ -49,14 +81,6 @@ class BroadcastProvider extends ChangeNotifier {
     if (_deviceAlias == null) {
       _deviceAlias = _generateRandomAlias();
       await _settingsManager.setValue(_deviceAliasKey, _deviceAlias);
-    }
-  }
-
-  Future<void> _initializeFingerprint() async {
-    _fingerprint = await _settingsManager.getValue<String>(_fingerprintKey);
-    if (_fingerprint == null) {
-      _fingerprint = const Uuid().v4();
-      await _settingsManager.setValue(_fingerprintKey, _fingerprint);
     }
   }
 
