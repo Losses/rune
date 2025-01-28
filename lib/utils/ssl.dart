@@ -109,7 +109,10 @@ ASN1Sequence _createDistinguishedName({
 }
 
 ASN1Object _createTime(DateTime date) {
-  return date.year >= 2050 ? ASN1GeneralizedTime(date) : ASN1UtcTime(date);
+  final utcDate = date.toUtc();
+  return utcDate.year >= 2050
+      ? ASN1GeneralizedTime(utcDate)
+      : ASN1UtcTime(utcDate);
 }
 
 /// Helper function to encode ASN.1 length
@@ -147,10 +150,26 @@ ASN1Sequence _createCertificate({
   final version = ASN1Object.fromBytes(versionTagBytes);
 
   final random = Random.secure();
-  final serialBytes = List<int>.generate(20, (_) => random.nextInt(256));
+  final serialBytes = List<int>.generate(19, (_) => random.nextInt(256));
+  serialBytes.insert(0, random.nextInt(127));
   final serialNumber = ASN1Integer(BigInt.parse(
       serialBytes.map((e) => e.toRadixString(16).padLeft(2, '0')).join(),
       radix: 16));
+
+  final basicConstraintsExt = ASN1Sequence()
+    ..add(ASN1ObjectIdentifier([2, 5, 29, 19])) // basicConstraints OID
+    ..add(ASN1Boolean(true)) // critical
+    ..add(ASN1OctetString(Uint8List.fromList(
+        (ASN1Sequence()..add(ASN1Boolean(true))).encodedBytes)));
+
+  final extensions = ASN1Sequence();
+  extensions.add(basicConstraintsExt);
+
+  final extensionsBytes = extensions.encodedBytes;
+  final List<int> extensionsTagBytesList =
+      [0xA3] + _encodeLength(extensionsBytes.length) + extensionsBytes;
+  final extensionsTagBytes = Uint8List.fromList(extensionsTagBytesList);
+  final taggedExtensions = ASN1Object.fromBytes(extensionsTagBytes);
 
   // Create TBSCertificate structure (To Be Signed Certificate)
   final tbsCertificate = ASN1Sequence()
@@ -165,10 +184,11 @@ ASN1Sequence _createCertificate({
       ..add(notBefore)
       ..add(notAfter))
     ..add(subject) // Subject
-    ..add(_createSubjectPublicKeyInfo(publicKey)); // Subject public key info
+    ..add(_createSubjectPublicKeyInfo(publicKey))
+    ..add(taggedExtensions); // Subject public key info
 
   // Sign the TBSCertificate using private key
-  final signer = RSASigner(SHA256Digest(), '0609608648016503040201');
+  final signer = RSASigner(SHA256Digest(), '06092a864886f70d01010b');
   final privParams = PrivateKeyParameter<RSAPrivateKey>(privateKey);
   signer.init(true, privParams);
 
