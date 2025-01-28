@@ -223,25 +223,36 @@ ASN1Sequence _createSubjectPublicKeyInfo(RSAPublicKey publicKey) {
     ..add(ASN1BitString(subjectPublicKey.encodedBytes));
 }
 
-/// Encodes private key to PKCS#1 PEM format
+/// Encodes private key to PKCS#8 PEM format
 String _encodePrivateKeyToPem(RSAPrivateKey privateKey, BigInt publicExponent) {
-  // PKCS#1 private key structure
-  final sequence = ASN1Sequence()
-    ..add(ASN1Integer(BigInt.from(0))) // Version (PKCS#1 v1.5)
-    ..add(ASN1Integer(privateKey.modulus!)) // n
-    ..add(ASN1Integer(publicExponent)) // e (public exponent)
-    ..add(ASN1Integer(privateKey.privateExponent!)) // d (private exponent)
-    ..add(ASN1Integer(privateKey.p!)) // p (prime 1)
-    ..add(ASN1Integer(privateKey.q!)) // q (prime 2)
-    ..add(ASN1Integer(privateKey.privateExponent! %
-        (privateKey.p! - BigInt.one))) // d mod (p-1)
-    ..add(ASN1Integer(privateKey.privateExponent! %
-        (privateKey.q! - BigInt.one))) // d mod (q-1)
-    ..add(ASN1Integer(privateKey.q!.modInverse(privateKey.p!))); // q^-1 mod p
+  // First create PKCS#1 RSAPrivateKey structure
+  final pkcs1PrivateKey = ASN1Sequence()
+    ..add(ASN1Integer(BigInt.from(0))) // Version
+    ..add(ASN1Integer(privateKey.modulus!))
+    ..add(ASN1Integer(publicExponent))
+    ..add(ASN1Integer(privateKey.privateExponent!))
+    ..add(ASN1Integer(privateKey.p!))
+    ..add(ASN1Integer(privateKey.q!))
+    ..add(
+        ASN1Integer(privateKey.privateExponent! % (privateKey.p! - BigInt.one)))
+    ..add(
+        ASN1Integer(privateKey.privateExponent! % (privateKey.q! - BigInt.one)))
+    ..add(ASN1Integer(privateKey.q!.modInverse(privateKey.p!)));
 
-  final bytes = sequence.encodedBytes;
+  // Create algorithm identifier for RSA
+  final algorithmSeq = ASN1Sequence()
+    ..add(ASN1ObjectIdentifier([1, 2, 840, 113549, 1, 1, 1])) // rsaEncryption
+    ..add(ASN1Null());
+
+  // Wrap PKCS#1 in PKCS#8 structure
+  final pkcs8PrivateKey = ASN1Sequence()
+    ..add(ASN1Integer(BigInt.from(0))) // Version (v1)
+    ..add(algorithmSeq)
+    ..add(ASN1OctetString(pkcs1PrivateKey.encodedBytes));
+
+  final bytes = pkcs8PrivateKey.encodedBytes;
   final base64 = base64Encode(bytes);
-  return '''-----BEGIN RSA PRIVATE KEY-----\n${_wrapBase64(base64)}\n-----END RSA PRIVATE KEY-----''';
+  return '''-----BEGIN PRIVATE KEY-----\n${_wrapBase64(base64)}\n-----END PRIVATE KEY-----''';
 }
 
 /// Encodes public key to X.509 SubjectPublicKeyInfo PEM format
