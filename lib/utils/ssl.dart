@@ -44,7 +44,7 @@ Future<CertificateResult> generateSelfSignedCertificate({
   );
 
   // Convert all components to PEM format
-  final privateKeyPem = _encodePrivateKeyToPem(privateKey);
+  final privateKeyPem = _encodePrivateKeyToPem(privateKey, publicKey.exponent!);
   final publicKeyPem = _encodePublicKeyToPem(publicKey);
   final certificatePem = _encodeCertificateToPem(cert);
 
@@ -108,6 +108,26 @@ ASN1Sequence _createDistinguishedName({
   return sequence;
 }
 
+ASN1Object _createTime(DateTime date) {
+  return date.year >= 2050 ? ASN1GeneralizedTime(date) : ASN1UtcTime(date);
+}
+
+/// Helper function to encode ASN.1 length
+List<int> _encodeLength(int length) {
+  if (length < 128) {
+    return [length];
+  }
+
+  final bytes = <int>[];
+  var len = length;
+  while (len > 0) {
+    bytes.insert(0, len & 0xff);
+    len >>= 8;
+  }
+
+  return [0x80 | bytes.length] + bytes;
+}
+
 /// Constructs X.509 certificate structure
 ASN1Sequence _createCertificate({
   required ASN1Sequence subject,
@@ -116,17 +136,20 @@ ASN1Sequence _createCertificate({
   required int validityDays,
 }) {
   final now = DateTime.now();
-  // Note: This implementation uses raw octet strings for time fields.
-  // In production, consider using ASN1UTCTime or ASN1GeneralizedTime instead.
-  final notBefore =
-      ASN1OctetString(Uint8List.fromList(utf8.encode(now.toUtc().toString())));
-  final notAfter = ASN1OctetString(Uint8List.fromList(
-      utf8.encode(now.add(Duration(days: validityDays)).toUtc().toString())));
+  final notBefore = _createTime(now);
+  final notAfter = _createTime(now.add(Duration(days: validityDays)));
+
+  // Create version as explicit tagged object manually
+  final versionBytes = ASN1Integer(BigInt.from(2)).encodedBytes;
+  final List<int> versionTagBytesList =
+      [0xA0] + _encodeLength(versionBytes.length) + versionBytes;
+  final versionTagBytes = Uint8List.fromList(versionTagBytesList);
+  final version = ASN1Object.fromBytes(versionTagBytes);
 
   // Create TBSCertificate structure (To Be Signed Certificate)
   final tbsCertificate = ASN1Sequence()
-    ..add(ASN1Integer(BigInt.from(2))) // Version (v3, value is 2)
-    ..add(ASN1Integer(BigInt.from(1))) // Serial number
+    ..add(version) // isExplicit = true
+    ..add(ASN1Integer(BigInt.from(Random().nextInt(1 << 32)))) // Serial number
     ..add(ASN1Sequence() // Signature algorithm identifier
       ..add(ASN1ObjectIdentifier(
           [1, 2, 840, 113549, 1, 1, 11])) // SHA-256 with RSA Encryption OID
@@ -175,12 +198,12 @@ ASN1Sequence _createSubjectPublicKeyInfo(RSAPublicKey publicKey) {
 }
 
 /// Encodes private key to PKCS#1 PEM format
-String _encodePrivateKeyToPem(RSAPrivateKey privateKey) {
+String _encodePrivateKeyToPem(RSAPrivateKey privateKey, BigInt publicExponent) {
   // PKCS#1 private key structure
   final sequence = ASN1Sequence()
     ..add(ASN1Integer(BigInt.from(0))) // Version (PKCS#1 v1.5)
     ..add(ASN1Integer(privateKey.modulus!)) // n
-    ..add(ASN1Integer(BigInt.parse('65537'))) // e (public exponent)
+    ..add(ASN1Integer(publicExponent)) // e (public exponent)
     ..add(ASN1Integer(privateKey.privateExponent!)) // d (private exponent)
     ..add(ASN1Integer(privateKey.p!)) // p (prime 1)
     ..add(ASN1Integer(privateKey.q!)) // q (prime 2)
