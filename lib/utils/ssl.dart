@@ -9,11 +9,13 @@ class CertificateResult {
   final String privateKey;
   final String publicKey;
   final String certificate;
+  final String publicKeyFingerprint;
 
   CertificateResult({
     required this.privateKey,
     required this.publicKey,
     required this.certificate,
+    required this.publicKeyFingerprint,
   });
 }
 
@@ -48,10 +50,13 @@ Future<CertificateResult> generateSelfSignedCertificate({
   final publicKeyPem = _encodePublicKeyToPem(publicKey);
   final certificatePem = _encodeCertificateToPem(cert);
 
+  final publicKeyFingerprint = getPublicKeyFingerprintBase85(publicKey);
+
   return CertificateResult(
     privateKey: privateKeyPem,
     publicKey: publicKeyPem,
     certificate: certificatePem,
+    publicKeyFingerprint: publicKeyFingerprint,
   );
 }
 
@@ -277,4 +282,75 @@ String _wrapBase64(String input) {
     chunks.add(input.substring(i, min(i + 64, input.length)));
   }
   return chunks.join('\n');
+}
+
+String getPublicKeyFingerprint(RSAPublicKey publicKey) {
+  // 1. Get the DER encoding of the public key (using the existing SPKI structure)
+  final spki = _createSubjectPublicKeyInfo(publicKey);
+  final derBytes = spki.encodedBytes;
+
+  // 2. Calculate the SHA-256 hash
+  final hash = SHA256Digest().process(Uint8List.fromList(derBytes));
+
+  // 3. Convert to a hexadecimal string with colon separators
+  return _bytesToHexColon(hash);
+}
+
+// Helper method: Convert a byte array to a colon-separated hexadecimal string
+String _bytesToHexColon(List<int> bytes) {
+  return bytes
+      .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+      .join(':')
+      .toUpperCase();
+}
+
+const _base85 = [
+  'ᚠ', 'ᚡ', 'ᚢ', 'ᚣ', 'ᚤ', 'ᚥ', 'ᚦ', 'ᚧ', 'ᚨ', 'ᚩ', // 0-9
+  'ᚪ', 'ᚫ', 'ᚬ', 'ᚭ', 'ᚮ', 'ᚯ', 'ᚰ', 'ᚱ', 'ᚲ', 'ᚳ', // 10-19
+  'ᚴ', 'ᚵ', 'ᚶ', 'ᚷ', 'ᚸ', 'ᚹ', 'ᚺ', 'ᚻ', 'ᚼ', 'ᚽ', // 20-29
+  'ᚾ', 'ᚿ', 'ᛀ', 'ᛁ', 'ᛂ', 'ᛃ', 'ᛄ', 'ᛅ', 'ᛆ', 'ᛇ', // 30-39
+  'ᛈ', 'ᛉ', 'ᛊ', 'ᛋ', 'ᛌ', 'ᛍ', 'ᛎ', 'ᛏ', 'ᛐ', 'ᛑ', // 40-49
+  'ᛒ', 'ᛓ', 'ᛔ', 'ᛕ', 'ᛖ', 'ᛗ', 'ᛘ', 'ᛙ', 'ᛚ', 'ᛛ', // 50-59
+  'ᛜ', 'ᛝ', 'ᛞ', 'ᛟ', 'ᛠ', 'ᛡ', 'ᛢ', 'ᛣ', 'ᛤ', 'ᛥ', // 60-69
+  'ᛦ', 'ᛨ', 'ᛩ', 'ᛪ', 'ᛮ', 'ᛯ', 'ᛰ', 'ᛱ', 'ᛲ', 'ᛳ', // 70-79
+  'ᛴ', 'ᛵ', 'ᛶ', 'ᛷ', 'ᛸ' // 80-84
+];
+
+const log85 = 6.40939093613770175612438544029979452987609867536940130018136546020263128565;
+
+String getPublicKeyFingerprintBase85(RSAPublicKey publicKey) {
+  // 1. Get DER encoding
+  final spki = _createSubjectPublicKeyInfo(publicKey);
+  final derBytes = spki.encodedBytes;
+
+  // 2. Calculate SHA-256 hash
+  final hash = SHA256Digest().process(Uint8List.fromList(derBytes));
+
+  // 3. Convert to custom base-85 string
+  return _bytesToBase85(hash);
+}
+
+/// Convert a byte array to an Ogham base-85 string
+String _bytesToBase85(List<int> bytes) {
+  BigInt number = BigInt.zero;
+
+  for (var byte in bytes) {
+    number = (number << 8) | BigInt.from(byte);
+  }
+
+  final result = <String>[];
+  final base = BigInt.from(85);
+
+  while (number > BigInt.zero) {
+    final remainder = number % base;
+    result.insert(0, _base85[remainder.toInt()]);
+    number = number ~/ base;
+  }
+
+  final expectedLength = (bytes.length * 8 / log85).ceil();
+  while (result.length < expectedLength) {
+    result.insert(0, _base85[0]);
+  }
+
+  return result.join();
 }
