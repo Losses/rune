@@ -146,10 +146,16 @@ ASN1Sequence _createCertificate({
   final versionTagBytes = Uint8List.fromList(versionTagBytesList);
   final version = ASN1Object.fromBytes(versionTagBytes);
 
+  final random = Random.secure();
+  final serialBytes = List<int>.generate(20, (_) => random.nextInt(256));
+  final serialNumber = ASN1Integer(BigInt.parse(
+      serialBytes.map((e) => e.toRadixString(16).padLeft(2, '0')).join(),
+      radix: 16));
+
   // Create TBSCertificate structure (To Be Signed Certificate)
   final tbsCertificate = ASN1Sequence()
     ..add(version) // isExplicit = true
-    ..add(ASN1Integer(BigInt.from(Random().nextInt(1 << 32)))) // Serial number
+    ..add(serialNumber) // Serial number
     ..add(ASN1Sequence() // Signature algorithm identifier
       ..add(ASN1ObjectIdentifier(
           [1, 2, 840, 113549, 1, 1, 11])) // SHA-256 with RSA Encryption OID
@@ -235,6 +241,9 @@ String _encodeCertificateToPem(ASN1Sequence certificate) {
 
 /// Helper to split base64 string into 64-character chunks
 String _wrapBase64(String input) {
-  return input.replaceAllMapped(
-      RegExp('.{64}'), (match) => '${match.group(0)}\n');
+  final chunks = <String>[];
+  for (var i = 0; i < input.length; i += 64) {
+    chunks.add(input.substring(i, min(i + 64, input.length)));
+  }
+  return chunks.join('\n');
 }
