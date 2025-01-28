@@ -1102,5 +1102,13 @@
   "stop": "Stop",
   "@stop": {
     "description": "Action button to terminate active."
+  },
+  "deviceFingerprint": "Device Fingerprint",
+  "@deviceFingerprint": {
+    "description": "A unique identifier for the device, used for secure identification and connection."
+  },
+  "deviceName": "Device Name",
+  "@deviceName": {
+    "description": "The user-defined name of the device, displayed to other users during scanning and connection."
   }
 }

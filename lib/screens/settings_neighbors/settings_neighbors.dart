@@ -15,7 +15,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 
 import 'widgets/add_neighbor_manually_setting_button.dart';
-import 'widgets/edit_device_information_dialog.dart';
+import 'widgets/edit_device_information_setting_button.dart';
 import 'widgets/enable_broadcast_setting_button.dart';
 import 'widgets/search_remote_device_setting_button.dart';
 import 'widgets/settings_tile_title.dart';

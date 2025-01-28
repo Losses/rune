@@ -142,6 +142,12 @@ flutter:
     - assets/watermark.png
     - assets/bandcamp.svg
     - assets/itch.svg
+
+  fonts:
+    - family: NotoRunic
+      fonts:
+        - asset: assets/NotoSansRunic-Regular.ttf
+
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/assets-and-images/#resolution-aware
   # For details regarding adding assets from package dependencies, see
