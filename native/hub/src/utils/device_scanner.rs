@@ -63,6 +63,7 @@ impl DeviceScanner {
                         .duration_since(UNIX_EPOCH)
                         .unwrap()
                         .as_secs() as i64,
+                    ips: device.ips.iter().map(|x| x.to_string()).collect(),
                 };
 
                 broadcaster.broadcast(&message);

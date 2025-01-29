@@ -27,4 +27,5 @@ message DiscoveredDeviceMessage {
   string device_type = 3;
   string fingerprint = 4;
   int64 last_seen_unix_epoch = 5;
+  repeated string ips = 6;
 }
