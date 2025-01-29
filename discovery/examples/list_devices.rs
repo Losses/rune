@@ -1,3 +1,20 @@
+/// Important Note for Local Development
+/// 
+/// When testing device discovery functionality on a single machine (localhost),
+/// you must enable multicast on the loopback interface first.
+/// 
+/// Run the following command:
+/// 
+/// ```bash
+/// sudo ip link set lo multicast on
+/// ```
+/// 
+/// This is necessary because:
+/// 1. The discovery service uses UDP multicast for device announcements
+/// 2. By default, the loopback interface (lo) has multicast disabled
+/// 3. Without enabling multicast on loopback, the service won't be able to receive
+///    its own announcements during local testing
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
