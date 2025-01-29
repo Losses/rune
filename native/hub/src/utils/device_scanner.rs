@@ -59,7 +59,7 @@ impl DeviceScanner {
                 let message = DiscoveredDeviceMessage {
                     alias: device.alias,
                     device_model: device.device_model,
-                    device_type: device.device_type,
+                    device_type: device.device_type.to_string(),
                     fingerprint: device.fingerprint,
                     last_seen_unix_epoch: device
                         .last_seen

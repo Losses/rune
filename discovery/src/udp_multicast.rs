@@ -17,13 +17,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::utils::DeviceInfo;
+use crate::utils::{DeviceInfo, DeviceType};
 
 #[derive(Debug, Clone)]
 pub struct DiscoveredDevice {
     pub alias: String,
     pub device_model: String,
-    pub device_type: String,
+    pub device_type: DeviceType,
     pub fingerprint: String,
     pub last_seen: SystemTime,
     pub ips: Vec<IpAddr>,
@@ -270,6 +270,12 @@ impl DiscoveryService {
         let current_ips = ips_entry.clone();
         drop(ips_map);
 
+        let device_type_value = announcement
+            .get("deviceType")
+            .ok_or_else(|| anyhow!("Announcement missing deviceType"))?;
+        let device_type: DeviceType = serde_json::from_value(device_type_value.clone())
+            .context("Failed to parse deviceType")?;
+
         let discovered = DiscoveredDevice {
             alias: announcement["alias"]
                 .as_str()
@@ -279,10 +285,7 @@ impl DiscoveryService {
                 .as_str()
                 .unwrap_or("Unknown")
                 .to_string(),
-            device_type: announcement["deviceType"]
-                .as_str()
-                .unwrap_or("Unknown")
-                .to_string(),
+            device_type,
             fingerprint,
             ips: current_ips,
             last_seen: SystemTime::now(),
