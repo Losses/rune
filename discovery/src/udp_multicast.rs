@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{Duration, SystemTime},
@@ -26,6 +27,7 @@ pub struct DiscoveredDevice {
     pub device_type: String,
     pub fingerprint: String,
     pub last_seen: SystemTime,
+    pub ips: Vec<IpAddr>,
 }
 
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
@@ -37,6 +39,7 @@ pub struct DiscoveryService {
     event_tx: Sender<DiscoveredDevice>,
     listeners: Mutex<Vec<JoinHandle<()>>>,
     retry_policy: RetryPolicy,
+    device_ips: Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
 }
 
 #[derive(Clone)]
@@ -69,6 +72,7 @@ impl DiscoveryService {
             event_tx,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
+            device_ips: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -189,6 +193,7 @@ impl DiscoveryService {
         info!("Starting to listen on {} interfaces", sockets.len());
 
         let cancel_token = cancel_token.unwrap_or_default();
+        let device_ips = self.device_ips.clone();
 
         let mut handles = Vec::with_capacity(sockets.len());
         for socket in sockets.iter() {
@@ -197,6 +202,7 @@ impl DiscoveryService {
             let http_client = self.http_client.clone();
             let event_tx = self.event_tx.clone();
             let cancel_token = cancel_token.clone();
+            let device_ips = device_ips.clone();
 
             let handle = tokio::spawn(async move {
                 let mut buf = vec![0u8; 65535];
@@ -215,7 +221,8 @@ impl DiscoveryService {
                                         &socket,
                                         &buf[..len],
                                         addr,
-                                        &event_tx
+                                        &event_tx,
+                                        &device_ips
                                     ).await {
                                         error!("Error handling datagram: {}", e);
                                     }
@@ -240,21 +247,36 @@ impl DiscoveryService {
         data: &[u8],
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
+        device_ips: &Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
     ) -> anyhow::Result<()> {
         let announcement: serde_json::Value =
             serde_json::from_slice(data).context("Failed to parse announcement")?;
 
         debug!("Received announcement from {}: {}", addr, announcement);
 
-        if let Some(fingerprint) = announcement.get("fingerprint") {
-            if *fingerprint == device_info.fingerprint {
-                debug!("Ignoring self-announcement");
+        let fingerprint = match announcement.get("fingerprint") {
+            Some(v) => v.as_str().unwrap_or_default().to_string(),
+            None => {
+                warn!("Received announcement without fingerprint");
                 return Ok(());
             }
-        } else {
-            warn!("Received announcement without fingerprint");
+        };
+
+        if fingerprint == device_info.fingerprint {
+            debug!("Ignoring self-announcement");
             return Ok(());
         }
+
+        let source_ip = addr.ip();
+        let mut ips_map = device_ips.lock().await;
+        let ips_entry = ips_map.entry(fingerprint.clone()).or_default();
+
+        let is_new_ip = !ips_entry.contains(&source_ip);
+        if is_new_ip {
+            ips_entry.push(source_ip);
+        }
+        let current_ips = ips_entry.clone();
+        drop(ips_map);
 
         let discovered = DiscoveredDevice {
             alias: announcement["alias"]
@@ -269,14 +291,14 @@ impl DiscoveryService {
                 .as_str()
                 .unwrap_or("Unknown")
                 .to_string(),
-            fingerprint: announcement["fingerprint"]
-                .as_str()
-                .ok_or_else(|| anyhow!("Missing fingerprint"))?
-                .to_string(),
+            fingerprint,
+            ips: current_ips,
             last_seen: SystemTime::now(),
         };
 
-        event_tx.send(discovered).await?;
+        if is_new_ip {
+            event_tx.send(discovered).await?;
+        }
 
         if !announcement
             .get("announce")
