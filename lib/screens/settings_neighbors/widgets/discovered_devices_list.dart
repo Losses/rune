@@ -13,7 +13,6 @@ class DiscoveredDevicesList extends StatefulWidget {
 
 class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   late final DiscoveryProvider _provider;
-  String selectedFingerprint = "";
 
   String? _selectedFingerprint;
 
@@ -57,9 +56,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
             return ListTile.selectable(
               title: _DeviceTitle(
                 alias: device.alias,
-                isSelected: isSelected,
                 device: device,
-                onPairPressed: () => _handlePairDevice(device),
               ),
               subtitle: isSelected
                   ? Column(
@@ -69,23 +66,19 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
                         _buildDetailItem(s.type, device.deviceType),
                         _buildDetailItem(s.fingerprint, device.fingerprint),
                         _buildDetailItem(
-                          s.lastSeen,
-                          '${device.lastSeen.toLocal()}',
-                        ),
-                        _buildDetailItem(
                           s.ipAddresses,
                           device.ips.join(', '),
                         ),
-                        FilledButton(
+                        Button(
                           onPressed: () => _handlePairDevice(device),
                           child: Text(S.of(context).pair),
                         ),
                       ],
                     )
-                  : Text(device.fingerprint),
+                  : Text(device.deviceModel),
               selected: isSelected,
               onSelectionChange: (v) =>
-                  setState(() => selectedFingerprint = device.fingerprint),
+                  setState(() => _selectedFingerprint = device.fingerprint),
             );
           },
         );
@@ -98,7 +91,6 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(fontWeight: FontWeight.w600),
           children: [
             TextSpan(
               text: '$label: ',
@@ -121,15 +113,11 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
 
 class _DeviceTitle extends StatelessWidget {
   final String alias;
-  final bool isSelected;
   final DiscoveredDevice device;
-  final VoidCallback onPairPressed;
 
   const _DeviceTitle({
     required this.alias,
-    required this.isSelected,
     required this.device,
-    required this.onPairPressed,
   });
 
   @override
@@ -141,17 +129,7 @@ class _DeviceTitle extends StatelessWidget {
             alias,
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
-        ),
-        if (isSelected)
-          Row(
-            children: [
-              FilledButton(
-                onPressed: onPairPressed,
-                child: Text(S.of(context).pair),
-              ),
-              const SizedBox(width: 12),
-            ],
-          ),
+        )
       ],
     );
   }
