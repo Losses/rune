@@ -4,7 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_button.dart';
 
-import '../utils/show_add_remote_device_dialog.dart';
+import '../utils/show_search_remote_device_dialog.dart';
 
 class SearchRemoteDeviceSettingButton extends StatelessWidget {
   const SearchRemoteDeviceSettingButton({
@@ -22,7 +22,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
       icon: Symbols.search,
       title: S.of(context).searchNeighbors,
       subtitle: S.of(context).searchNeighborsSubtitle,
-      onPressed: () => showAddRemoteDeviceDialog(navigateIfFailed, context),
+      onPressed: () => showSearchRemoteDeviceDialog(context),
     );
   }
 }
