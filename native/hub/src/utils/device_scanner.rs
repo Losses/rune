@@ -5,7 +5,8 @@ use std::sync::{
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use log::error;
+use log::{error, info};
+use tokio::sync::mpsc::{channel, Receiver};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
@@ -25,7 +26,7 @@ pub struct DeviceScanner {
 
 impl DeviceScanner {
     pub fn new(broadcaster: Arc<dyn Broadcaster>) -> Self {
-        let (event_tx, event_rx) = tokio::sync::mpsc::channel(100);
+        let (event_tx, event_rx) = channel(100);
 
         let discovery_service = Arc::new(DiscoveryService::new(event_tx));
 
@@ -42,7 +43,7 @@ impl DeviceScanner {
         scanner
     }
 
-    fn start_event_forwarder(&self, mut event_rx: tokio::sync::mpsc::Receiver<DiscoveredDevice>) {
+    fn start_event_forwarder(&self, mut event_rx: Receiver<DiscoveredDevice>) {
         let devices = self.devices.clone();
         let broadcaster = self.broadcaster.clone();
 
@@ -51,6 +52,8 @@ impl DeviceScanner {
                 // Update local cache
                 let mut devices_map = devices.write().await;
                 devices_map.insert(device.fingerprint.clone(), device.clone());
+
+                info!("Found device: {}", device.fingerprint);
 
                 // Convert to proto message
                 let message = DiscoveredDeviceMessage {
