@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../../providers/discovery.dart';
@@ -13,6 +13,8 @@ class DiscoveredDevicesList extends StatefulWidget {
 
 class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   late final DiscoveryProvider _provider;
+  String selectedFingerprint = "";
+
   String? _selectedFingerprint;
 
   @override
@@ -50,16 +52,16 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
           itemCount: provider.devices.length,
           itemBuilder: (context, index) {
             final device = provider.devices.values.elementAt(index);
-            final isExpanded = _selectedFingerprint == device.fingerprint;
+            final isSelected = _selectedFingerprint == device.fingerprint;
 
-            return ListTile(
+            return ListTile.selectable(
               title: _DeviceTitle(
                 alias: device.alias,
-                isExpanded: isExpanded,
+                isSelected: isSelected,
                 device: device,
                 onPairPressed: () => _handlePairDevice(device),
               ),
-              subtitle: isExpanded
+              subtitle: isSelected
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -74,12 +76,16 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
                           s.ipAddresses,
                           device.ips.join(', '),
                         ),
+                        FilledButton(
+                          onPressed: () => _handlePairDevice(device),
+                          child: Text(S.of(context).pair),
+                        ),
                       ],
                     )
-                  : null,
-              onTap: () => setState(() {
-                _selectedFingerprint = isExpanded ? null : device.fingerprint;
-              }),
+                  : Text(device.fingerprint),
+              selected: isSelected,
+              onSelectionChange: (v) =>
+                  setState(() => selectedFingerprint = device.fingerprint),
             );
           },
         );
@@ -92,7 +98,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: RichText(
         text: TextSpan(
-          style: Theme.of(context).textTheme.bodyMedium,
+          style: TextStyle(fontWeight: FontWeight.w600),
           children: [
             TextSpan(
               text: '$label: ',
@@ -110,24 +116,18 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     //   fingerprint: device.fingerprint,
     //   alias: device.alias,
     // ).sendSignalToRust();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(S.of(context).pairingWith(device.alias)),
-      ),
-    );
   }
 }
 
 class _DeviceTitle extends StatelessWidget {
   final String alias;
-  final bool isExpanded;
+  final bool isSelected;
   final DiscoveredDevice device;
   final VoidCallback onPairPressed;
 
   const _DeviceTitle({
     required this.alias,
-    required this.isExpanded,
+    required this.isSelected,
     required this.device,
     required this.onPairPressed,
   });
@@ -139,10 +139,10 @@ class _DeviceTitle extends StatelessWidget {
         Expanded(
           child: Text(
             alias,
-            style: Theme.of(context).textTheme.titleMedium,
+            style: TextStyle(fontWeight: FontWeight.w600),
           ),
         ),
-        if (isExpanded)
+        if (isSelected)
           Row(
             children: [
               FilledButton(

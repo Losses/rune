@@ -29,8 +29,8 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Container(
-              constraints: BoxConstraints(minHeight: 420),
+            SizedBox(
+              height: 420,
               child: DiscoveredDevicesList(),
             )
           ],
