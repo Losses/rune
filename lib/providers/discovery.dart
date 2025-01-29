@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:rinf/rinf.dart';
+import 'package:flutter/foundation.dart';
 
 import '../utils/settings_manager.dart';
 import '../messages/all.dart';
@@ -13,6 +13,7 @@ class DiscoveredDevice {
   final String deviceType;
   final String fingerprint;
   final DateTime lastSeen;
+  final List<String> ips;
 
   DiscoveredDevice({
     required this.alias,
@@ -20,6 +21,7 @@ class DiscoveredDevice {
     required this.deviceType,
     required this.fingerprint,
     required this.lastSeen,
+    required this.ips,
   });
 
   factory DiscoveredDevice.fromMessage(DiscoveredDeviceMessage message) {
@@ -31,6 +33,7 @@ class DiscoveredDevice {
       lastSeen: DateTime.fromMillisecondsSinceEpoch(
         message.lastSeenUnixEpoch.toInt() * 1000,
       ),
+      ips: message.ips.toList(),
     );
   }
 }
