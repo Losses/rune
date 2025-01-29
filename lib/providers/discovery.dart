@@ -38,7 +38,7 @@ class DiscoveredDevice {
   }
 }
 
-class DeviceListenerProvider with ChangeNotifier {
+class DiscoveryProvider with ChangeNotifier {
   final Map<String, DiscoveredDevice> _devices = {};
   final SettingsManager _settingsManager = SettingsManager();
   StreamSubscription<RustSignal<DiscoveredDeviceMessage>>? _subscription;
