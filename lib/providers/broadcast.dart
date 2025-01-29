@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../constants/configurations.dart';
 import '../messages/all.dart';
 import '../utils/settings_manager.dart';
 import '../utils/ssl.dart';
@@ -11,8 +12,6 @@ import '../utils/ssl.dart';
 final SettingsManager _settingsManager = SettingsManager();
 
 class BroadcastProvider extends ChangeNotifier {
-  static const String _deviceAliasKey = 'device_alias';
-  static const String _fingerprintKey = 'device_fingerprint';
   static const int _defaultDuration = 300;
 
   Timer? _countdownTimer;
@@ -46,7 +45,7 @@ class BroadcastProvider extends ChangeNotifier {
     // Check if certificate files and fingerprint exist
     final certExists = await certFile.exists();
     final keyExists = await keyFile.exists();
-    _fingerprint = await _settingsManager.getValue<String>(_fingerprintKey);
+    _fingerprint = await _settingsManager.getValue<String>(kFingerprintKey);
 
     // Conditions requiring regeneration of the certificate
     if (_fingerprint == null || !certExists || !keyExists) {
@@ -63,7 +62,7 @@ class BroadcastProvider extends ChangeNotifier {
 
       // Update fingerprint information
       _fingerprint = certResult.publicKeyFingerprint;
-      await _settingsManager.setValue(_fingerprintKey, _fingerprint);
+      await _settingsManager.setValue(kFingerprintKey, _fingerprint);
     }
 
     notifyListeners();
@@ -77,15 +76,15 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeDeviceAlias() async {
-    _deviceAlias = await _settingsManager.getValue<String>(_deviceAliasKey);
+    _deviceAlias = await _settingsManager.getValue<String>(kDeviceAliasKey);
     if (_deviceAlias == null) {
       _deviceAlias = _generateRandomAlias();
-      await _settingsManager.setValue(_deviceAliasKey, _deviceAlias);
+      await _settingsManager.setValue(kDeviceAliasKey, _deviceAlias);
     }
   }
 
   Future<void> updateDeviceAlias(String newAlias) async {
-    await _settingsManager.setValue(_deviceAliasKey, newAlias);
+    await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
     notifyListeners();
   }

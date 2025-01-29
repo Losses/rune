@@ -97,3 +97,15 @@ const kCafeModeKey = 'cafe_mode';
 /// This key is used to tweak the animation speed and intensity of the spectrum
 /// visualizer.
 const kMildSpectrumKey = 'mild_spectrum';
+
+/// The primary purpose of this key is to configure a human-readable identifier
+/// for this device during Neighbor Discovery, allowing users to recognize their
+/// own device in network lists through a friendly name rather than technical identifiers.
+/// This alias will be broadcasted to nearby peers and displayed in discovery UIs.
+const kDeviceAliasKey = 'device_alias';
+
+/// This key stores the fingerprint of the SSL public certificate used to authenticate
+/// secure communication channels during Neighbor Discovery. The fingerprint serves
+/// as a trust anchor for peer verification, ensuring connections are established only 
+/// with cryptographically validated devices.
+const kFingerprintKey = 'device_fingerprint';
