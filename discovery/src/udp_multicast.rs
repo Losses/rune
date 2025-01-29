@@ -8,7 +8,6 @@ use std::{
 use anyhow::{anyhow, Context};
 use log::{debug, error, info, warn};
 use netdev::Interface;
-use reqwest::Client;
 use serde_json::json;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
@@ -35,7 +34,6 @@ const MULTICAST_PORT: u16 = 57863;
 
 pub struct DiscoveryService {
     sockets_init: Mutex<Option<anyhow::Result<Vec<Arc<UdpSocket>>>>>,
-    http_client: Client,
     event_tx: Sender<DiscoveredDevice>,
     listeners: Mutex<Vec<JoinHandle<()>>>,
     retry_policy: RetryPolicy,
@@ -68,7 +66,6 @@ impl DiscoveryService {
     pub fn new(event_tx: Sender<DiscoveredDevice>) -> Self {
         Self {
             sockets_init: Mutex::new(None),
-            http_client: Client::new(),
             event_tx,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
@@ -199,7 +196,6 @@ impl DiscoveryService {
         for socket in sockets.iter() {
             let socket = Arc::clone(socket);
             let device_info = device_info.clone();
-            let http_client = self.http_client.clone();
             let event_tx = self.event_tx.clone();
             let cancel_token = cancel_token.clone();
             let device_ips = device_ips.clone();
@@ -217,8 +213,6 @@ impl DiscoveryService {
                                 Ok((len, addr)) => {
                                     if let Err(e) = Self::handle_datagram(
                                         &device_info,
-                                        &http_client,
-                                        &socket,
                                         &buf[..len],
                                         addr,
                                         &event_tx,
@@ -242,8 +236,6 @@ impl DiscoveryService {
 
     async fn handle_datagram(
         device_info: &DeviceInfo,
-        http_client: &Client,
-        socket: &UdpSocket,
         data: &[u8],
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
@@ -300,38 +292,7 @@ impl DiscoveryService {
             event_tx.send(discovered).await?;
         }
 
-        if !announcement
-            .get("announce")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false)
-        {
-            return Ok(());
-        }
-
-        let port = announcement["api_port"].as_u64().unwrap_or(53317) as u16;
-        let protocol = announcement["protocol"].as_str().unwrap_or("http");
-
-        let response = json!({
-            "alias": device_info.alias,
-            "version": device_info.version,
-            "deviceModel": device_info.device_model,
-            "deviceType": device_info.device_type,
-            "fingerprint": device_info.fingerprint,
-            "api_port": device_info.api_port,
-            "protocol": device_info.protocol,
-            "announce": false
-        });
-
-        let target_url = format!("{}://{}:{}/api/rune/v2/register", protocol, addr.ip(), port);
-        let msg = serde_json::to_vec(&response)?;
-
-        match http_client.post(&target_url).json(&response).send().await {
-            Ok(_) => Ok(()),
-            Err(e) => {
-                socket.send_to(&msg, addr).await?;
-                Err(anyhow!("HTTP send failed: {}, fell back to UDP", e))
-            }
-        }
+        Ok(())
     }
 
     pub async fn shutdown(&self) {
