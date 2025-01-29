@@ -1110,5 +1110,53 @@
   "deviceName": "Device Name",
   "@deviceName": {
     "description": "The user-defined name of the device, displayed to other users during scanning and connection."
+  },
+  "noDevicesFound": "No devices found",
+  "@noDevicesFound": {
+    "description": "Message shown when no devices are discovered during scanning"
+  },
+  "error": "Error: {error}",
+  "@error": {
+    "description": "Error message shown when device discovery fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "Permission denied"
+      }
+    }
+  },
+  "model": "Model",
+  "@model": {
+    "description": "Label for device model information"
+  },
+  "type": "Type",
+  "@type": {
+    "description": "Label for device type information"
+  },
+  "fingerprint": "Fingerprint",
+  "@fingerprint": {
+    "description": "Label for device fingerprint information"
+  },
+  "lastSeen": "Last Seen",
+  "@lastSeen": {
+    "description": "Label for when device was last detected"
+  },
+  "ipAddresses": "IP Addresses",
+  "@ipAddresses": {
+    "description": "Label for device IP addresses"
+  },
+  "pair": "Pair",
+  "@pair": {
+    "description": "Button text for initiating device pairing"
+  },
+  "pairingWith": "Pairing with {deviceName}...",
+  "@pairingWith": {
+    "description": "Message shown when pairing process starts",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "Living Room TV"
+      }
+    }
   }
 }
