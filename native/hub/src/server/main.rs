@@ -1,4 +1,8 @@
-use std::{net::SocketAddr, path::PathBuf, sync::{Arc, OnceLock}, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
 use anyhow::Result;
 use clap::{Arg, Command};
@@ -12,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
 use hub::{
-    server::{LocalFileProvider, ServerManager, WebSocketService},
+    server::{ServerManager, WebSocketService},
     utils::{
         device_scanner::DeviceScanner, initialize_databases, player::initialize_player,
         GlobalParams, TaskTokens,
@@ -69,10 +73,6 @@ async fn main() -> Result<()> {
             api_port: 7863,
             protocol: "http".to_string(),
         },
-        pin: None,
-        file_provider: Arc::new(LocalFileProvider {
-            root_dir: PathBuf::from(lib_path),
-        }),
     };
 
     server_manager.start(addr, discovery_params).await?;

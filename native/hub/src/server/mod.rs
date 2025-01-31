@@ -4,13 +4,7 @@ pub mod handlers;
 mod manager;
 pub use manager::ServerManager;
 
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    pin::Pin,
-    sync::Arc,
-};
+use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 use discovery::{
     http_api::{DiscoveryState, SessionInfo},
@@ -50,18 +44,6 @@ impl DiscoveryState for ServerState {
 
     fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>> {
         self.discovery_active_sessions.clone()
-    }
-}
-
-pub struct LocalFileProvider {
-    pub root_dir: PathBuf,
-}
-
-impl LocalFileProvider {
-    pub fn new<P: AsRef<Path>>(root_dir: P) -> Self {
-        Self {
-            root_dir: root_dir.as_ref().to_path_buf(),
-        }
     }
 }
 
