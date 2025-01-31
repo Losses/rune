@@ -2,8 +2,9 @@ pub mod broadcastable;
 pub mod device_scanner;
 pub mod player;
 
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
 use device_scanner::DeviceScanner;
@@ -29,6 +30,7 @@ use ::scrobbling::manager::ScrobblingManager;
 use crate::local::local_player_loop;
 use crate::messages::*;
 use crate::remote::server_player_loop;
+use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
@@ -60,7 +62,7 @@ pub async fn initialize_databases(
     })
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TaskTokens {
     pub scan_token: Option<CancellationToken>,
     pub analyze_token: Option<CancellationToken>,
@@ -77,6 +79,15 @@ pub struct GlobalParams {
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub device_scanner: Arc<DeviceScanner>,
+    pub server_manager: OnceLock<Arc<ServerManager>>,
+}
+
+impl Debug for GlobalParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobalParams")
+            .field("lib_path", &self.lib_path)
+            .finish()
+    }
 }
 
 pub trait ParamsExtractor {

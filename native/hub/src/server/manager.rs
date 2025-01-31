@@ -21,6 +21,7 @@ use crate::{
     Signal,
 };
 
+#[derive(Debug)]
 pub struct ServerManager {
     global_params: Arc<GlobalParams>,
     server_handle: Mutex<Option<JoinHandle<()>>>,
