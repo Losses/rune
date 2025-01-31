@@ -2,6 +2,7 @@
 mod gui_request;
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use log::{error, info};
 use tokio::sync::Mutex;
@@ -16,6 +17,7 @@ use ::scrobbling::manager::ScrobblingManager;
 
 use crate::listen_local_gui_event;
 use crate::messages::*;
+use crate::server::ServerManager;
 use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::player::initialize_player;
 use crate::utils::Broadcaster;
@@ -68,7 +70,7 @@ pub async fn local_player_loop(
         ));
 
         info!("Initializing UI events");
-        let global_params = Arc::new(GlobalParams {
+        let global_params = GlobalParams {
             lib_path,
             main_db,
             recommend_db,
@@ -79,7 +81,16 @@ pub async fn local_player_loop(
             scrobbler,
             broadcaster,
             device_scanner,
-        });
+            server_manager: OnceLock::new(),
+        };
+
+        let global_params = Arc::new(global_params);
+        let server_manager = Arc::new(ServerManager::new(global_params.clone()));
+
+        global_params
+            .server_manager
+            .set(server_manager.clone())
+            .expect("Failed to set server manager in global params");
 
         for_all_request_pairs2!(listen_local_gui_event, global_params, main_cancel_token);
     });

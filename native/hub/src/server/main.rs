@@ -1,3 +1,5 @@
+use std::{net::SocketAddr, path::PathBuf, sync::{Arc, OnceLock}, time::Duration};
+
 use anyhow::Result;
 use clap::{Arg, Command};
 use discovery::{
@@ -5,7 +7,6 @@ use discovery::{
     DiscoveryParams,
 };
 use log::info;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -118,7 +119,7 @@ async fn initialize_global_params(lib_path: &str) -> Result<Arc<GlobalParams>> {
         broadcaster.clone(),
     ));
 
-    Ok(Arc::new(GlobalParams {
+    let global_params = Arc::new(GlobalParams {
         lib_path,
         main_db,
         recommend_db,
@@ -129,5 +130,14 @@ async fn initialize_global_params(lib_path: &str) -> Result<Arc<GlobalParams>> {
         scrobbler,
         broadcaster,
         device_scanner,
-    }))
+        server_manager: OnceLock::new(),
+    });
+
+    let server_manager = Arc::new(ServerManager::new(global_params.clone()));
+    global_params
+        .server_manager
+        .set(server_manager.clone())
+        .expect("Failed to set server manager in global params");
+
+    Ok(global_params)
 }
