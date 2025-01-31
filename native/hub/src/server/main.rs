@@ -1,30 +1,23 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
-
 use anyhow::Result;
 use clap::{Arg, Command};
 use discovery::{
     utils::{DeviceInfo, DeviceType},
     DiscoveryParams,
 };
-use log::{error, info};
-use prost::Message;
+use log::info;
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
 use hub::{
-    for_all_request_pairs2, handle_server_response, listen_server_event,
-    messages::*,
-    process_server_handlers, register_single_handler,
-    server::{handlers::serve_combined, AppState, LocalFileProvider, WebSocketService},
+    server::{LocalFileProvider, ServerManager, WebSocketService},
     utils::{
         device_scanner::DeviceScanner, initialize_databases, player::initialize_player,
-        GlobalParams, ParamsExtractor, RinfRustSignal, TaskTokens,
+        GlobalParams, TaskTokens,
     },
-    Signal,
 };
 
-use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
@@ -62,14 +55,10 @@ async fn main() -> Result<()> {
     let addr: SocketAddr = matches.get_one::<String>("addr").unwrap().parse()?;
     let lib_path = matches.get_one::<String>("lib_path").unwrap();
 
-    let app_state = Arc::new(AppState {
-        lib_path: PathBuf::from(lib_path),
-        cover_temp_dir: COVER_TEMP_DIR.to_path_buf(),
-    });
+    let global_params = initialize_global_params(lib_path).await?;
+    let server_manager = Arc::new(ServerManager::new(global_params));
 
-    let websocket_service = initialize_websocket_service(lib_path).await?;
-
-    let discovery_paramaters = DiscoveryParams {
+    let discovery_params = DiscoveryParams {
         device_info: DeviceInfo {
             alias: "Rune Server".to_string(),
             version: "TP".to_string(),
@@ -81,18 +70,20 @@ async fn main() -> Result<()> {
         },
         pin: None,
         file_provider: Arc::new(LocalFileProvider {
-            root_dir: app_state.lib_path.clone(),
+            root_dir: PathBuf::from(lib_path),
         }),
     };
 
-    serve_combined(app_state, websocket_service, addr, discovery_paramaters).await;
+    server_manager.start(addr, discovery_params).await?;
+
+    // Keep the main thread alive
+    tokio::signal::ctrl_c().await?;
+    server_manager.stop().await?;
 
     Ok(())
 }
 
-async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketService>> {
-    let server = WebSocketService::new();
-
+async fn initialize_global_params(lib_path: &str) -> Result<Arc<GlobalParams>> {
     let db_path = format!("{}/.rune", lib_path);
     let db_connections = initialize_databases(lib_path, Some(&db_path)).await?;
 
@@ -115,12 +106,8 @@ async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketSer
     let scrobbler = ScrobblingManager::new(10, Duration::new(5, 0));
     let scrobbler = Arc::new(Mutex::new(scrobbler));
 
-    let server = Arc::new(server);
-    let broadcaster = Arc::clone(&server);
-
-    let device_scanner = DeviceScanner::new(broadcaster.clone());
-
-    let device_scanner = Arc::new(device_scanner);
+    let broadcaster = Arc::new(WebSocketService::new());
+    let device_scanner = Arc::new(DeviceScanner::new(broadcaster.clone()));
 
     info!("Initializing Player events");
     tokio::spawn(initialize_player(
@@ -131,8 +118,7 @@ async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketSer
         broadcaster.clone(),
     ));
 
-    info!("Initializing UI events");
-    let global_params = Arc::new(GlobalParams {
+    Ok(Arc::new(GlobalParams {
         lib_path,
         main_db,
         recommend_db,
@@ -143,9 +129,5 @@ async fn initialize_websocket_service(lib_path: &str) -> Result<Arc<WebSocketSer
         scrobbler,
         broadcaster,
         device_scanner,
-    });
-
-    for_all_request_pairs2!(listen_server_event, server, global_params);
-
-    Ok(server)
+    }))
 }
