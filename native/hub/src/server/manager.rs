@@ -1,15 +1,17 @@
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+
 use anyhow::Result;
 use axum::{routing::get, Router};
 use axum_server::Handle;
-use database::actions::cover_art::COVER_TEMP_DIR;
-use discovery::{http_api::create_discovery_router, pin::PinConfig, DiscoveryParams};
 use log::{error, info};
 use prost::Message;
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
 use tokio::{
     sync::{Mutex, RwLock},
     task::JoinHandle,
 };
+
+use database::actions::cover_art::COVER_TEMP_DIR;
+use discovery::{http_api::create_discovery_router, DiscoveryParams};
 
 use crate::{
     messages::*,
@@ -64,8 +66,6 @@ impl ServerManager {
             websocket_service: websocket_service.clone(),
             discovery_device_info: discovery_params.device_info,
             discovery_active_sessions: Arc::new(RwLock::new(HashMap::new())),
-            discovery_pin_config: Arc::new(RwLock::new(PinConfig::new(discovery_params.pin))),
-            discovery_file_provider: discovery_params.file_provider,
         });
 
         let app = Router::new()

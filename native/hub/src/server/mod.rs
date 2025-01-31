@@ -1,7 +1,7 @@
 #[macro_use]
 mod server_request;
-mod manager;
 pub mod handlers;
+mod manager;
 pub use manager::ServerManager;
 
 use std::{
@@ -12,12 +12,9 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Result;
-use async_trait::async_trait;
 use discovery::{
-    http_api::{DiscoveryState, FileProvider, SessionInfo},
-    pin::{PinConfig, PinValidationState},
-    utils::{DeviceInfo, FileMetadata},
+    http_api::{DiscoveryState, SessionInfo},
+    utils::DeviceInfo,
 };
 use log::error;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -44,33 +41,15 @@ pub struct ServerState {
     pub websocket_service: Arc<WebSocketService>,
     pub discovery_device_info: DeviceInfo,
     pub discovery_active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
-    pub discovery_pin_config: Arc<RwLock<PinConfig>>,
-    pub discovery_file_provider: Arc<dyn FileProvider>,
-}
-
-impl PinValidationState for ServerState {
-    fn pin_config(&self) -> &Arc<RwLock<PinConfig>> {
-        &self.discovery_pin_config
-    }
 }
 
 impl DiscoveryState for ServerState {
-    type FileProvider = dyn FileProvider;
-
     fn device_info(&self) -> &DeviceInfo {
         &self.discovery_device_info
     }
 
     fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>> {
         self.discovery_active_sessions.clone()
-    }
-
-    fn pin_config(&self) -> Arc<RwLock<PinConfig>> {
-        self.discovery_pin_config.clone()
-    }
-
-    fn file_provider(&self) -> Arc<Self::FileProvider> {
-        self.discovery_file_provider.clone()
     }
 }
 
@@ -83,13 +62,6 @@ impl LocalFileProvider {
         Self {
             root_dir: root_dir.as_ref().to_path_buf(),
         }
-    }
-}
-
-#[async_trait]
-impl FileProvider for LocalFileProvider {
-    async fn get_files(&self) -> Result<HashMap<String, FileMetadata>> {
-        Ok(HashMap::new())
     }
 }
 
