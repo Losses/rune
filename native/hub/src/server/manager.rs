@@ -43,7 +43,10 @@ impl ServerManager {
         }
     }
 
-    pub async fn start(&self, addr: SocketAddr, discovery_params: DiscoveryParams) -> Result<()> {
+    pub async fn start(&self, addr: SocketAddr, discovery_params: DiscoveryParams) -> Result<()>
+    where
+        Self: Send,
+    {
         if self.is_running.load(std::sync::atomic::Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server already running"));
         }

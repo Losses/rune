@@ -29,3 +29,25 @@ message DiscoveredDeviceMessage {
   int64 last_seen_unix_epoch = 5;
   repeated string ips = 6;
 }
+
+// [DART-SIGNAL]
+message StartServerRequest {
+  string interface = 1;
+  string alias = 2;
+  string fingerprint = 3;
+}
+
+// [RUST-SIGNAL]
+message StartServerResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// [DART-SIGNAL]
+message StopServerRequest {}
+
+// [RUST-SIGNAL]
+message StopServerResponse {
+  bool success = 1;
+  string error = 2;
+}

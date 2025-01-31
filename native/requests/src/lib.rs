@@ -363,6 +363,16 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             local_only: true,
         },
+        RequestResponse {
+            request: "StartServerRequest".to_string(),
+            response: Some("StartServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StopServerRequest".to_string(),
+            response: Some("StopServerResponse".to_string()),
+            local_only: true,
+        }
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
