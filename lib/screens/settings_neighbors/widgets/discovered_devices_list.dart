@@ -1,8 +1,10 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../../../providers/discovery.dart';
 import '../../../utils/l10n.dart';
+import '../../../widgets/settings/settings_tile_title.dart';
 
 class DiscoveredDevicesList extends StatefulWidget {
   const DiscoveredDevicesList({super.key});
@@ -54,28 +56,32 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
             final isSelected = _selectedFingerprint == device.fingerprint;
 
             return ListTile.selectable(
-              title: _DeviceTitle(
-                alias: device.alias,
-                device: device,
-              ),
-              subtitle: isSelected
-                  ? Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              title: SettingsTileTitle(
+                icon: deviceTypeToIcon(device.deviceType),
+                title: device.alias,
+                subtitle: device.deviceModel,
+                showActions: isSelected,
+                actionsBuilder: (context) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildDetailItem(s.fingerprint, device.fingerprint),
+                    _buildDetailItem(
+                      s.ipAddresses,
+                      device.ips.join(', '),
+                    ),
+                    SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        _buildDetailItem(s.model, device.deviceModel),
-                        _buildDetailItem(s.type, device.deviceType),
-                        _buildDetailItem(s.fingerprint, device.fingerprint),
-                        _buildDetailItem(
-                          s.ipAddresses,
-                          device.ips.join(', '),
-                        ),
                         Button(
                           onPressed: () => _handlePairDevice(device),
                           child: Text(S.of(context).pair),
                         ),
                       ],
                     )
-                  : Text(device.deviceModel),
+                  ],
+                ),
+              ),
               selected: isSelected,
               onSelectionChange: (v) =>
                   setState(() => _selectedFingerprint = device.fingerprint),
@@ -91,6 +97,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: RichText(
         text: TextSpan(
+          style: TextStyle(height: 1.4),
           children: [
             TextSpan(
               text: '$label: ',
@@ -111,26 +118,26 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 }
 
-class _DeviceTitle extends StatelessWidget {
-  final String alias;
-  final DiscoveredDevice device;
-
-  const _DeviceTitle({
-    required this.alias,
-    required this.device,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            alias,
-            style: TextStyle(fontWeight: FontWeight.w600),
-          ),
-        )
-      ],
-    );
+IconData deviceTypeToIcon(String deviceType) {
+  if (deviceType == "Mobile") {
+    return Symbols.smartphone;
   }
+
+  if (deviceType == "Desktop") {
+    return Symbols.computer;
+  }
+
+  if (deviceType == "Web") {
+    return Symbols.public;
+  }
+
+  if (deviceType == "Headless") {
+    return Symbols.psychology_alt;
+  }
+
+  if (deviceType == "Server") {
+    return Symbols.host;
+  }
+
+  return Symbols.help;
 }
