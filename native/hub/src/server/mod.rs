@@ -1,6 +1,8 @@
 #[macro_use]
 mod server_request;
+mod manager;
 pub mod handlers;
+pub use manager::ServerManager;
 
 use std::{
     collections::HashMap,
