@@ -1158,5 +1158,9 @@
         "example": "Living Room TV"
       }
     }
+  },
+  "server": "Server",
+  "@server": {
+    "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
   }
 }

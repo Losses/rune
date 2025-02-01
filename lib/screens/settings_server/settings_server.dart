@@ -10,23 +10,21 @@ import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
+import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 
-import 'widgets/add_neighbor_manually_setting_button.dart';
-import 'widgets/edit_device_information_setting_button.dart';
-import 'widgets/search_remote_device_setting_button.dart';
-import 'widgets/settings_tile_title.dart';
+import 'widgets/enable_broadcast_setting_button.dart';
 
-class SettingsNeighborsPage extends StatefulWidget {
-  const SettingsNeighborsPage({super.key});
+class SettingsServerPage extends StatefulWidget {
+  const SettingsServerPage({super.key});
 
   @override
-  State<SettingsNeighborsPage> createState() => _SettingsNeighborsPageState();
+  State<SettingsServerPage> createState() => _SettingsServerPageState();
 }
 
-class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
+class _SettingsServerPageState extends State<SettingsServerPage> {
   String selectedItem = '';
 
   bool requested = false;
@@ -59,15 +57,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const SearchRemoteDeviceSettingButton(
-                    tryClose: true,
-                    navigateIfFailed: true,
-                  ),
-                  const AddNeighborManuallySettingButton(
-                    tryClose: true,
-                    navigateIfFailed: true,
-                  ),
-                  const EditDeviceInformationSettingButton(),
+                  const EnableBroadcastSetting(),
                   const SizedBox(height: 2),
                   SizedBox(
                     width: double.maxFinite,

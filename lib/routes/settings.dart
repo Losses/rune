@@ -3,6 +3,7 @@ export '../screens/settings_home/settings_home.dart';
 export '../screens/settings_test/settings_test.dart';
 export '../screens/settings_about/settings_about.dart';
 export '../screens/settings_theme/settings_theme.dart';
+export '../screens/settings_server/settings_server.dart';
 export '../screens/settings_library/settings_library.dart';
 export '../screens/settings_language/settings_language.dart';
 export '../screens/settings_playback/settings_playback.dart';

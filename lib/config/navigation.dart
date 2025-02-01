@@ -119,6 +119,10 @@ final List<NavigationItem> navigationItems = [
             '/settings/neighbors',
           ),
           NavigationItem(
+            (context) => S.of(context).server,
+            '/settings/server',
+          ),
+          NavigationItem(
             (context) => S.of(context).analysis,
             '/settings/analysis',
           ),

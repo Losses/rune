@@ -18,6 +18,12 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     false
   ),
   (
+    (context) => S.of(context).server,
+    '/settings/server',
+    Symbols.p2p,
+    false
+  ),
+  (
     (context) => S.of(context).analysis,
     '/settings/analysis',
     Symbols.grain,
