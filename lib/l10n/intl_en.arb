@@ -1162,5 +1162,17 @@
   "server": "Server",
   "@server": {
     "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
+  },
+  "serverControl": "Server Control",
+  "@serverControl": {
+    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  },
+  "serverControlSubtitle": "Start the server to allow other devices to discover this device on the local network.",
+  "@serverControlSubtitle": {
+    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  },
+  "selectInterface": "Network Interface",
+  "@selectInterface": {
+    "description": "Label for selecting which network interface the server should bind to. Keep technical but clear."
   }
 }

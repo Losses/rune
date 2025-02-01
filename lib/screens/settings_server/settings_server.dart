@@ -10,11 +10,12 @@ import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
-import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
+import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 
+import 'widgets/server_control_setting_button.dart';
 import 'widgets/enable_broadcast_setting_button.dart';
 
 class SettingsServerPage extends StatefulWidget {
@@ -57,6 +58,7 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const ServerControlSetting(),
                   const EnableBroadcastSetting(),
                   const SizedBox(height: 2),
                   SizedBox(

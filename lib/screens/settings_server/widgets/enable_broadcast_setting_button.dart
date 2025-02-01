@@ -26,9 +26,11 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Button(
-          onPressed: () => broadcast.isBroadcasting
-              ? broadcast.stopBroadcast()
-              : broadcast.startBroadcast(),
+          onPressed: broadcast.isServerRunning
+              ? () => broadcast.isBroadcasting
+                  ? broadcast.stopBroadcast()
+                  : broadcast.startBroadcast()
+              : null,
           child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
         ),
       ],
@@ -42,9 +44,11 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
     return FlyoutTarget(
       controller: _menuController,
       child: Button(
-        onPressed: () => broadcast.isBroadcasting
-            ? broadcast.stopBroadcast()
-            : broadcast.startBroadcast(),
+        onPressed: broadcast.isServerRunning
+            ? () => broadcast.isBroadcasting
+                ? broadcast.stopBroadcast()
+                : broadcast.startBroadcast()
+            : null,
         child: broadcast.isBroadcasting ? Text(s.stop) : Text(s.start),
       ),
     );
