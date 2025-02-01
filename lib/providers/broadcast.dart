@@ -21,14 +21,26 @@ class BroadcastProvider extends ChangeNotifier {
   String? _deviceAlias;
   String? _fingerprint;
 
+  bool _isServerRunning = false;
+  String? _serverError;
+  String? _interface;
+  late Completer<void> _initializationCompleter;
+
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
   String? get errorMessage => _errorMessage;
   String? get deviceAlias => _deviceAlias;
   String? get fingerprint => _fingerprint;
+  bool get isServerRunning => _isServerRunning;
+  String? get serverError => _serverError;
+  String? get interface => _interface;
 
   BroadcastProvider() {
-    _initializeDevice();
+    _initializationCompleter = Completer<void>();
+    _initializeDevice().then((_) {
+      _initializationCompleter.complete();
+      _setupServerResponseListeners();
+    });
   }
 
   Future<void> _initializeDevice() async {
@@ -83,6 +95,30 @@ class BroadcastProvider extends ChangeNotifier {
     }
   }
 
+  void _setupServerResponseListeners() {
+    StartServerResponse.rustSignalStream.listen((signal) {
+      final response = signal.message;
+      _isServerRunning = response.success;
+      _serverError = response.success ? null : response.error;
+      if (!response.success) {
+        stopBroadcast();
+      }
+      notifyListeners();
+    });
+
+    StopServerResponse.rustSignalStream.listen((signal) {
+      final response = signal.message;
+      if (response.success) {
+        _isServerRunning = false;
+        _serverError = null;
+        stopBroadcast();
+      } else {
+        _serverError = response.error;
+      }
+      notifyListeners();
+    });
+  }
+
   Future<void> updateDeviceAlias(String newAlias) async {
     await _settingsManager.setValue(kDeviceAliasKey, newAlias);
     _deviceAlias = newAlias;
@@ -91,8 +127,13 @@ class BroadcastProvider extends ChangeNotifier {
 
   Future<void> startBroadcast([int? customDuration]) async {
     if (_isBroadcasting) return;
+    if (!_isServerRunning) {
+      _errorMessage = 'Server must be running to broadcast';
+      notifyListeners();
+      return;
+    }
 
-    final duration = customDuration ?? _remainingSeconds;
+    final duration = customDuration ?? _defaultDuration;
     _isBroadcasting = true;
     _errorMessage = null;
     _remainingSeconds = duration;
@@ -133,6 +174,26 @@ class BroadcastProvider extends ChangeNotifier {
 
       notifyListeners();
     });
+  }
+
+  Future<void> startServer(String interface) async {
+    if (_isServerRunning) return;
+    await _initializationCompleter.future;
+
+    _interface = interface;
+    _serverError = null;
+    notifyListeners();
+
+    StartServerRequest(
+      interface: interface,
+      alias: _deviceAlias!,
+      fingerprint: _fingerprint!,
+    ).sendSignalToRust();
+  }
+
+  Future<void> stopServer() async {
+    if (!_isServerRunning) return;
+    StopServerRequest().sendSignalToRust();
   }
 
   @override
