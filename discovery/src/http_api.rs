@@ -1,12 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    routing::{get, post},
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
@@ -26,16 +21,8 @@ pub struct SessionInfo {
 
 pub fn create_discovery_router<S: DiscoveryState>() -> Router<Arc<S>> {
     Router::new()
-        .route("/api/rune/v2/register", post(register::<S>))
         .route("/api/rune/v2/info", get(info::<S>))
         .layer(CorsLayer::permissive())
-}
-
-async fn register<S: DiscoveryState>(
-    State(state): State<Arc<S>>,
-    Json(_): Json<DeviceInfo>,
-) -> impl IntoResponse {
-    Json(state.device_info().clone())
 }
 
 async fn info<S: DiscoveryState>(State(state): State<Arc<S>>) -> impl IntoResponse {
