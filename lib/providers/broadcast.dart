@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart';
 
 import '../constants/configurations.dart';
 import '../messages/all.dart';
@@ -188,6 +189,7 @@ class BroadcastProvider extends ChangeNotifier {
       interface: interface,
       alias: _deviceAlias!,
       fingerprint: _fingerprint!,
+      permissionFilePath: join(await getSettingsPath(), ".known-clients"),
     ).sendSignalToRust();
   }
 
