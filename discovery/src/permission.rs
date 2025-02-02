@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
 use thiserror::Error;
+use tokio::sync::RwLock;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum UserStatus {
@@ -49,7 +50,8 @@ pub enum PermissionError {
 
 pub struct PermissionManager {
     file_path: String,
-    permissions: PermissionList,
+    permissions: RwLock<PermissionList>,
+    ip_applications: RwLock<HashMap<String, VecDeque<String>>>,
 }
 
 impl PermissionManager {
@@ -66,18 +68,21 @@ impl PermissionManager {
 
         Ok(Self {
             file_path,
-            permissions,
+            permissions: RwLock::new(permissions),
+            ip_applications: RwLock::new(HashMap::new()),
         })
     }
 
-    fn save(&self) -> Result<(), PermissionError> {
-        let content = toml::to_string(&self.permissions)?;
-        fs::write(&self.file_path, content)?;
+    async fn save(&self) -> Result<(), PermissionError> {
+        let content = toml::to_string(&*self.permissions.read().await)?;
+        tokio::fs::write(&self.file_path, content).await?;
         Ok(())
     }
 
-    pub fn list_users(&self) -> Vec<UserSummary> {
+    pub async fn list_users(&self) -> Vec<UserSummary> {
         self.permissions
+            .read()
+            .await
             .users
             .values()
             .map(|user| UserSummary {
@@ -89,27 +94,40 @@ impl PermissionManager {
             .collect()
     }
 
-    pub fn verify_by_public_key(&self, public_key: &str) -> Option<&User> {
-        self.permissions.users.get(public_key)
+    pub async fn verify_by_public_key(&self, public_key: &str) -> Option<User> {
+        self.permissions.read().await.users.get(public_key).cloned()
     }
 
-    pub fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<&User> {
-        self.permissions
+    pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
+        let permissions = self.permissions.read().await;
+        permissions
             .users
             .values()
             .find(|user| user.fingerprint == fingerprint)
+            .cloned()
     }
 
-    pub fn add_user(
-        &mut self,
+    pub async fn add_user(
+        &self,
         public_key: String,
         fingerprint: String,
         alias: String,
         device_model: String,
+        ip: String,
     ) -> Result<(), PermissionError> {
-        if self.permissions.users.contains_key(&public_key) {
+        let mut permissions = self.permissions.write().await;
+        if permissions.users.contains_key(&public_key) {
             return Err(PermissionError::UserAlreadyExists);
         }
+
+        let mut ip_apps = self.ip_applications.write().await;
+        let queue = ip_apps.entry(ip).or_default();
+        if queue.len() >= 5 {
+            if let Some(old_key) = queue.pop_front() {
+                permissions.users.remove(&old_key);
+            }
+        }
+        queue.push_back(public_key.clone());
 
         let user = User {
             public_key: public_key.clone(),
@@ -119,31 +137,40 @@ impl PermissionManager {
             status: UserStatus::Pending,
         };
 
-        self.permissions.users.insert(public_key, user);
-        self.save()?;
+        permissions.users.insert(public_key, user);
+        self.save().await?;
         Ok(())
     }
 
-    pub fn remove_user(&mut self, public_key: &str) -> Result<(), PermissionError> {
-        if self.permissions.users.remove(public_key).is_none() {
+    pub async fn remove_user(&mut self, public_key: &str) -> Result<(), PermissionError> {
+        if self
+            .permissions
+            .write()
+            .await
+            .users
+            .remove(public_key)
+            .is_none()
+        {
             return Err(PermissionError::UserNotFound);
         }
-        self.save()?;
+
+        self.save().await?;
         Ok(())
     }
 
-    pub fn change_user_status(
+    pub async fn change_user_status(
         &mut self,
         public_key: &str,
         new_status: UserStatus,
     ) -> Result<(), PermissionError> {
-        let user = self
-            .permissions
+        let mut permissions = self.permissions.write().await;
+        let user = permissions
             .users
             .get_mut(public_key)
             .ok_or(PermissionError::UserNotFound)?;
         user.status = new_status;
-        self.save()?;
+
+        self.save().await?;
         Ok(())
     }
 }
