@@ -164,7 +164,10 @@ impl Signal for StartServerRequest {
 
             let discovery_params = DiscoveryParams { device_info };
 
-            match server_manager.start(addr, discovery_params).await {
+            match server_manager
+                .start(addr, discovery_params, request.permission_file_path.clone())
+                .await
+            {
                 Ok(_) => Ok(Some(StartServerResponse {
                     success: true,
                     error: "".into(),

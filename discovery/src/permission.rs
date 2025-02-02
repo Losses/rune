@@ -14,11 +14,11 @@ pub enum UserStatus {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
-    public_key: String,
+    pub public_key: String,
     fingerprint: String,
-    alias: String,
+    pub alias: String,
     device_model: String,
-    status: UserStatus,
+    pub status: UserStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -29,7 +29,7 @@ pub struct UserSummary {
     pub status: UserStatus,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionList {
     users: HashMap<String, User>,
 }
@@ -48,6 +48,7 @@ pub enum PermissionError {
     UserAlreadyExists,
 }
 
+#[derive(Debug)]
 pub struct PermissionManager {
     file_path: String,
     permissions: RwLock<PermissionList>,

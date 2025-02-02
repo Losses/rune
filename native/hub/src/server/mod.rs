@@ -8,6 +8,7 @@ use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::A
 
 use discovery::{
     http_api::{DiscoveryState, SessionInfo},
+    permission::PermissionManager,
     utils::DeviceInfo,
 };
 use log::error;
@@ -35,6 +36,7 @@ pub struct ServerState {
     pub websocket_service: Arc<WebSocketService>,
     pub discovery_device_info: DeviceInfo,
     pub discovery_active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
+    pub permission_manager: Arc<PermissionManager>,
 }
 
 impl DiscoveryState for ServerState {

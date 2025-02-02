@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::Result;
 use axum::{routing::get, Router};
@@ -11,7 +16,9 @@ use tokio::{
 };
 
 use database::actions::cover_art::COVER_TEMP_DIR;
-use discovery::{http_api::create_discovery_router, DiscoveryParams};
+use discovery::{
+    http_api::create_discovery_router, permission::PermissionManager, DiscoveryParams,
+};
 
 use crate::{
     messages::*,
@@ -43,7 +50,12 @@ impl ServerManager {
         }
     }
 
-    pub async fn start(&self, addr: SocketAddr, discovery_params: DiscoveryParams) -> Result<()>
+    pub async fn start<P: AsRef<Path>>(
+        &self,
+        addr: SocketAddr,
+        discovery_params: DiscoveryParams,
+        permission_path: P,
+    ) -> Result<()>
     where
         Self: Send,
     {
@@ -64,11 +76,14 @@ impl ServerManager {
             cover_temp_dir: COVER_TEMP_DIR.clone(),
         });
 
+        let permission_manager = Arc::new(PermissionManager::new(permission_path)?);
+
         let server_state = Arc::new(ServerState {
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
             discovery_device_info: discovery_params.device_info,
             discovery_active_sessions: Arc::new(RwLock::new(HashMap::new())),
+            permission_manager,
         });
 
         let app = Router::new()

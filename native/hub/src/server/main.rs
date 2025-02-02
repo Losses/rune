@@ -75,7 +75,7 @@ async fn main() -> Result<()> {
         },
     };
 
-    server_manager.start(addr, discovery_params).await?;
+    server_manager.start(addr, discovery_params, ".known-clients").await?;
 
     // Keep the main thread alive
     tokio::signal::ctrl_c().await?;

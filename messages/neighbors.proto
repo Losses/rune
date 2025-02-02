@@ -35,6 +35,7 @@ message StartServerRequest {
   string interface = 1;
   string alias = 2;
   string fingerprint = 3;
+  string permission_file_path = 4;
 }
 
 // [RUST-SIGNAL]
