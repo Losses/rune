@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     net::SocketAddr,
     path::{Path, PathBuf},
     sync::Arc,
@@ -10,10 +9,7 @@ use axum::{routing::get, Router};
 use axum_server::Handle;
 use log::{error, info};
 use prost::Message;
-use tokio::{
-    sync::{Mutex, RwLock},
-    task::JoinHandle,
-};
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use database::actions::cover_art::COVER_TEMP_DIR;
 use discovery::{permission::PermissionManager, DiscoveryParams};
@@ -80,7 +76,6 @@ impl ServerManager {
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
             discovery_device_info: discovery_params.device_info,
-            discovery_active_sessions: Arc::new(RwLock::new(HashMap::new())),
             permission_manager,
         });
 

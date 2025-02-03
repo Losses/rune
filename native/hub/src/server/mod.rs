@@ -6,13 +6,9 @@ pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
-use discovery::{
-    http_api::{DiscoveryState, SessionInfo},
-    permission::PermissionManager,
-    utils::DeviceInfo,
-};
+use discovery::{permission::PermissionManager, utils::DeviceInfo};
 use log::error;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex};
 
 use crate::{
     remote::encode_message,
@@ -35,18 +31,7 @@ pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
     pub discovery_device_info: DeviceInfo,
-    pub discovery_active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
     pub permission_manager: Arc<PermissionManager>,
-}
-
-impl DiscoveryState for ServerState {
-    fn device_info(&self) -> &DeviceInfo {
-        &self.discovery_device_info
-    }
-
-    fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>> {
-        self.discovery_active_sessions.clone()
-    }
 }
 
 pub struct WebSocketService {
