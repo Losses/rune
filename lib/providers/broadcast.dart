@@ -5,10 +5,10 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 
-import '../constants/configurations.dart';
-import '../messages/all.dart';
-import '../utils/settings_manager.dart';
 import '../utils/ssl.dart';
+import '../utils/settings_manager.dart';
+import '../messages/all.dart';
+import '../constants/configurations.dart';
 
 final SettingsManager _settingsManager = SettingsManager();
 
