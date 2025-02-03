@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
+use discovery::permission::{PermissionManager, UserStatus};
 use discovery::utils::{DeviceInfo, DeviceType};
 use discovery::DiscoveryParams;
 
@@ -214,5 +215,55 @@ impl Signal for StopServerRequest {
                 error: e.to_string(),
             })),
         }
+    }
+}
+
+impl ParamsExtractor for ListClientsRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for ListClientsRequest {
+    type Params = ();
+    type Response = ListClientsResponse;
+
+    async fn handle(
+        &self,
+        (): Self::Params,
+        request: &Self,
+    ) -> anyhow::Result<Option<Self::Response>> {
+        let pm_result = PermissionManager::new(&request.permission_file_path);
+        let pm = match pm_result {
+            Ok(pm) => pm,
+            Err(e) => {
+                return Ok(Some(ListClientsResponse {
+                    success: false,
+                    users: vec![],
+                    error: format!("Failed to initialize permissions: {}", e),
+                }))
+            }
+        };
+
+        let users = pm.list_users().await;
+        let converted_users = users
+            .into_iter()
+            .map(|u| ClientSummary {
+                alias: u.alias,
+                fingerprint: u.fingerprint,
+                device_model: u.device_model,
+                status: match u.status {
+                    UserStatus::Approved => ClientStatus::Approved.into(),
+                    UserStatus::Pending => ClientStatus::Pending.into(),
+                    UserStatus::Blocked => ClientStatus::Blocked.into(),
+                },
+            })
+            .collect();
+
+        Ok(Some(ListClientsResponse {
+            success: true,
+            users: converted_users,
+            error: String::new(),
+        }))
     }
 }

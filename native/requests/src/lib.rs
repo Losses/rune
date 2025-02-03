@@ -372,6 +372,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             request: "StopServerRequest".to_string(),
             response: Some("StopServerResponse".to_string()),
             local_only: true,
+        },
+        RequestResponse {
+            request: "ListClientsRequest".to_string(),
+            response: Some("ListClientsResponse".to_string()),
+            local_only: true,
         }
     ];
 

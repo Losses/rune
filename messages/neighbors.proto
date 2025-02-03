@@ -52,3 +52,28 @@ message StopServerResponse {
   bool success = 1;
   string error = 2;
 }
+
+// [DART-SIGNAL]
+message ListClientsRequest {
+  string permission_file_path = 1;
+}
+
+// [RUST-SIGNAL]
+message ListClientsResponse {
+  bool success = 1;
+  repeated ClientSummary users = 2;
+  string error = 3;
+}
+
+message ClientSummary {
+  string alias = 1;
+  string fingerprint = 2;
+  string device_model = 3;
+  ClientStatus status = 4;
+}
+
+enum ClientStatus {
+  APPROVED = 0;
+  PENDING = 1;
+  BLOCKED = 2;
+}
