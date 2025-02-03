@@ -120,30 +120,51 @@ impl PermissionManager {
         device_type: DeviceType,
         ip: String,
     ) -> Result<(), PermissionError> {
-        let mut permissions = self.permissions.write().await;
-        if permissions.users.contains_key(&public_key) {
-            return Err(PermissionError::UserAlreadyExists);
-        }
-
-        let mut ip_apps = self.ip_applications.write().await;
-        let queue = ip_apps.entry(ip).or_default();
-        if queue.len() >= 5 {
-            if let Some(old_key) = queue.pop_front() {
-                permissions.users.remove(&old_key);
+        {
+            let mut permissions = self.permissions.write().await;
+            if permissions.users.contains_key(&public_key) {
+                return Err(PermissionError::UserAlreadyExists);
             }
+
+            let mut ip_apps = self.ip_applications.write().await;
+            let queue = ip_apps.entry(ip).or_default();
+            if queue.len() >= 5 {
+                if let Some(old_key) = queue.pop_front() {
+                    permissions.users.remove(&old_key);
+                }
+            }
+            queue.push_back(public_key.clone());
+
+            let user = User {
+                public_key: public_key.clone(),
+                fingerprint,
+                alias,
+                device_model,
+                device_type,
+                status: UserStatus::Pending,
+            };
+
+            permissions.users.insert(public_key, user);
         }
-        queue.push_back(public_key.clone());
 
-        let user = User {
-            public_key: public_key.clone(),
-            fingerprint,
-            alias,
-            device_model,
-            device_type,
-            status: UserStatus::Pending,
-        };
+        self.save().await?;
+        Ok(())
+    }
 
-        permissions.users.insert(public_key, user);
+    pub async fn change_user_status(
+        &mut self,
+        public_key: &str,
+        new_status: UserStatus,
+    ) -> Result<(), PermissionError> {
+        {
+            let mut permissions = self.permissions.write().await;
+            let user = permissions
+                .users
+                .get_mut(public_key)
+                .ok_or(PermissionError::UserNotFound)?;
+            user.status = new_status;
+        }
+
         self.save().await?;
         Ok(())
     }
@@ -159,22 +180,6 @@ impl PermissionManager {
         {
             return Err(PermissionError::UserNotFound);
         }
-
-        self.save().await?;
-        Ok(())
-    }
-
-    pub async fn change_user_status(
-        &mut self,
-        public_key: &str,
-        new_status: UserStatus,
-    ) -> Result<(), PermissionError> {
-        let mut permissions = self.permissions.write().await;
-        let user = permissions
-            .users
-            .get_mut(public_key)
-            .ok_or(PermissionError::UserNotFound)?;
-        user.status = new_status;
 
         self.save().await?;
         Ok(())
