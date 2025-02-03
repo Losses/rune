@@ -27,6 +27,12 @@ class BroadcastProvider extends ChangeNotifier {
   String? _interface;
   late Completer<void> _initializationCompleter;
 
+  List<ClientSummary> _users = [];
+  List<ClientSummary> get users => _users;
+
+  final Future<String> _permissionFilePath =
+      getSettingsPath().then((x) => join(x, ".known-clients"));
+
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
   String? get errorMessage => _errorMessage;
@@ -118,6 +124,17 @@ class BroadcastProvider extends ChangeNotifier {
       }
       notifyListeners();
     });
+
+    ListClientsResponse.rustSignalStream.listen((signal) {
+      final response = signal.message;
+      if (response.success) {
+        _users = response.users;
+        notifyListeners();
+      } else {
+        _serverError = response.error;
+        notifyListeners();
+      }
+    });
   }
 
   Future<void> updateDeviceAlias(String newAlias) async {
@@ -189,13 +206,18 @@ class BroadcastProvider extends ChangeNotifier {
       interface: interface,
       alias: _deviceAlias!,
       fingerprint: _fingerprint!,
-      permissionFilePath: join(await getSettingsPath(), ".known-clients"),
+      permissionFilePath: await _permissionFilePath,
     ).sendSignalToRust();
   }
 
   Future<void> stopServer() async {
     if (!_isServerRunning) return;
     StopServerRequest().sendSignalToRust();
+  }
+
+  Future<void> fetchUsers() async {
+    ListClientsRequest(permissionFilePath: await _permissionFilePath)
+        .sendSignalToRust();
   }
 
   @override
