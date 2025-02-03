@@ -108,7 +108,7 @@ impl ServerManager {
             info!("Starting combined HTTP/WebSocket server on {}", addr);
             let server = axum_server::bind(addr)
                 .handle(handle)
-                .serve(app.into_make_service());
+                .serve(app.into_make_service_with_connect_info::<SocketAddr>());
 
             match server.await {
                 Ok(_) => info!("Server stopped gracefully"),
