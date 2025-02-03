@@ -21,6 +21,16 @@ pub struct RegisterRequest {
     device_type: String,
 }
 
+/// To test this API, use:
+/// curl -v -X POST http://localhost:3000/register \
+///  -H "Content-Type: application/json" \
+///  -d '{
+///    "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA", 
+///    "fingerprint": "01:23:45:67:89:AB:CD:EF",
+///    "alias": "Test Device",
+///    "device_model": "NixOS Device"
+///    "device_type": "Desktop"
+///  }'
 pub async fn register_handler(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<Arc<ServerState>>,
