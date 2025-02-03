@@ -22,13 +22,13 @@ pub struct RegisterRequest {
 }
 
 /// To test this API, use:
-/// curl -v -X POST http://localhost:3000/register \
+/// curl -v http://localhost:7863/register \
 ///  -H "Content-Type: application/json" \
 ///  -d '{
 ///    "public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA", 
 ///    "fingerprint": "01:23:45:67:89:AB:CD:EF",
 ///    "alias": "Test Device",
-///    "device_model": "NixOS Device"
+///    "device_model": "NixOS Device",
 ///    "device_type": "Desktop"
 ///  }'
 pub async fn register_handler(
