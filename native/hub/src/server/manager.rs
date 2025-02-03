@@ -13,6 +13,9 @@ use axum_server::Handle;
 use log::{error, info};
 use prost::Message;
 use tokio::{sync::Mutex, task::JoinHandle};
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
+};
 
 use database::actions::cover_art::COVER_TEMP_DIR;
 use discovery::{permission::PermissionManager, DiscoveryParams};
@@ -85,10 +88,23 @@ impl ServerManager {
             permission_manager,
         });
 
+        let governor_conf = GovernorConfigBuilder::default()
+            .per_second(60)
+            .burst_size(5)
+            .key_extractor(PeerIpKeyExtractor)
+            .finish()
+            .unwrap();
+
+        let register_route = Router::new()
+            .route("/register", post(register_handler))
+            .layer(GovernorLayer {
+                config: governor_conf.into(),
+            });
+
         let app = Router::new()
+            .merge(register_route)
             .route("/ws", get(websocket_handler))
             .route("/files/{*file_path}", get(file_handler))
-            .route("/register", post(register_handler))
             .route("/device-info", get(device_info_handler))
             .with_state(server_state);
 
