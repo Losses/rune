@@ -16,9 +16,7 @@ use tokio::{
 };
 
 use database::actions::cover_art::COVER_TEMP_DIR;
-use discovery::{
-    http_api::create_discovery_router, permission::PermissionManager, DiscoveryParams,
-};
+use discovery::{permission::PermissionManager, DiscoveryParams};
 
 use crate::{
     messages::*,
@@ -89,7 +87,6 @@ impl ServerManager {
         let app = Router::new()
             .route("/ws", get(websocket_handler))
             .route("/files/{*file_path}", get(file_handler))
-            .nest("/api/discovery", create_discovery_router())
             .with_state(server_state);
 
         info!(
