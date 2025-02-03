@@ -5,6 +5,8 @@ use std::path::Path;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
+use crate::utils::DeviceType;
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum UserStatus {
     Approved,
@@ -18,6 +20,7 @@ pub struct User {
     fingerprint: String,
     pub alias: String,
     device_model: String,
+    device_type: DeviceType,
     pub status: UserStatus,
 }
 
@@ -114,6 +117,7 @@ impl PermissionManager {
         fingerprint: String,
         alias: String,
         device_model: String,
+        device_type: DeviceType,
         ip: String,
     ) -> Result<(), PermissionError> {
         let mut permissions = self.permissions.write().await;
@@ -135,6 +139,7 @@ impl PermissionManager {
             fingerprint,
             alias,
             device_model,
+            device_type,
             status: UserStatus::Pending,
         };
 

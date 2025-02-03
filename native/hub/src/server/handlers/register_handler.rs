@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, str::FromStr, sync::Arc};
 
 use axum::{
     extract::{ConnectInfo, State},
@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use discovery::permission::PermissionError;
+use discovery::{permission::PermissionError, utils::DeviceType};
 
 use crate::server::ServerState;
 
@@ -18,6 +18,7 @@ pub struct RegisterRequest {
     fingerprint: String,
     alias: String,
     device_model: String,
+    device_type: String,
 }
 
 pub async fn register_handler(
@@ -33,6 +34,7 @@ pub async fn register_handler(
             request.fingerprint,
             request.alias,
             request.device_model,
+            DeviceType::from_str(&request.device_type)?,
             ip,
         )
         .await?;
@@ -41,20 +43,32 @@ pub async fn register_handler(
 }
 
 #[derive(Debug)]
-pub struct AppError(PermissionError);
+pub enum AppError {
+    Permission(PermissionError),
+    ParseDevice(discovery::utils::ParseDeviceTypeError),
+}
 
 impl From<PermissionError> for AppError {
     fn from(e: PermissionError) -> Self {
-        AppError(e)
+        AppError::Permission(e)
+    }
+}
+
+impl From<discovery::utils::ParseDeviceTypeError> for AppError {
+    fn from(e: discovery::utils::ParseDeviceTypeError) -> Self {
+        AppError::ParseDevice(e)
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response<axum::body::Body> {
-        let status = match self.0 {
-            PermissionError::UserAlreadyExists => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        let (status, message) = match self {
+            AppError::Permission(e) => match e {
+                PermissionError::UserAlreadyExists => (StatusCode::CONFLICT, e.to_string()),
+                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            },
+            AppError::ParseDevice(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         };
-        (status, self.0.to_string()).into_response()
+        (status, message).into_response()
     }
 }

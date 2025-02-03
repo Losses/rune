@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -11,17 +11,49 @@ pub enum DeviceType {
     Web,
     Headless,
     Server,
+    Unknown,
 }
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            DeviceType::Mobile => "Mobile",
-            DeviceType::Desktop => "Desktop", 
-            DeviceType::Web => "Web",
-            DeviceType::Headless => "Headless",
-            DeviceType::Server => "Server",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                DeviceType::Mobile => "Mobile",
+                DeviceType::Desktop => "Desktop",
+                DeviceType::Web => "Web",
+                DeviceType::Headless => "Headless",
+                DeviceType::Server => "Server",
+                DeviceType::Unknown => "Unknown",
+            }
+        )
+    }
+}
+
+#[derive(Debug)]
+pub struct ParseDeviceTypeError;
+
+impl fmt::Display for ParseDeviceTypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "failed to parse device type")
+    }
+}
+
+impl std::error::Error for ParseDeviceTypeError {}
+
+impl FromStr for DeviceType {
+    type Err = ParseDeviceTypeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "mobile" => Ok(DeviceType::Mobile),
+            "desktop" => Ok(DeviceType::Desktop),
+            "web" => Ok(DeviceType::Web),
+            "headless" => Ok(DeviceType::Headless),
+            "server" => Ok(DeviceType::Server),
+            _ => Ok(DeviceType::Unknown),
+        }
     }
 }
 
