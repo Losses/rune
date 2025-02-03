@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:async';
 
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
@@ -7,13 +7,11 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
-import '../../utils/api/close_library.dart';
-import '../../utils/router/navigation.dart';
-import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
-import '../../providers/library_path.dart';
+import '../../messages/all.dart';
+import '../../providers/broadcast.dart';
 
 import 'widgets/server_control_setting_button.dart';
 import 'widgets/enable_broadcast_setting_button.dart';
@@ -26,28 +24,38 @@ class SettingsServerPage extends StatefulWidget {
 }
 
 class _SettingsServerPageState extends State<SettingsServerPage> {
-  String selectedItem = '';
-
-  bool requested = false;
-  List<LibraryPathEntry> allOpenedFiles = [];
+  late Timer _refreshTimer;
+  String selectedUserId = '';
 
   @override
-  void didChangeDependencies() {
-    if (requested) return;
-
-    final libraryPath =
-        Provider.of<LibraryPathProvider>(context, listen: false);
-
-    setState(() {
-      allOpenedFiles = libraryPath.getAnyDestinationRemotePaths();
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initializeData();
     });
+  }
 
-    super.didChangeDependencies();
+  void _initializeData() {
+    final broadcastProvider =
+        Provider.of<BroadcastProvider>(context, listen: false);
+
+    broadcastProvider.fetchUsers();
+
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      broadcastProvider.fetchUsers();
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer.cancel();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
+    final broadcastProvider = Provider.of<BroadcastProvider>(context);
+    final users = broadcastProvider.users;
 
     return PageContentFrame(
       child: UnavailablePageOnBand(
@@ -60,84 +68,10 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                 children: [
                   const ServerControlSetting(),
                   const EnableBroadcastSetting(),
-                  const SizedBox(height: 2),
-                  SizedBox(
-                    width: double.maxFinite,
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: allOpenedFiles.length,
-                      itemBuilder: (context, index) {
-                        final itemPath = allOpenedFiles[index].rawPath;
-                        final isCurrentLibrary =
-                            itemPath == libraryPath.currentPath;
-                        final isSelectedLibrary = itemPath == selectedItem;
-
-                        final String fileName =
-                            File(itemPath).uri.pathSegments.last;
-
-                        return ListTile.selectable(
-                          title: SettingsTileTitle(
-                            icon: Symbols.devices,
-                            title: fileName,
-                            subtitle: allOpenedFiles[index].cleanPath,
-                            showActions: isSelectedLibrary,
-                            actionsBuilder: (context) => Row(
-                              children: [
-                                Button(
-                                  onPressed: !isCurrentLibrary
-                                      ? null
-                                      : () async {
-                                          final result =
-                                              await testAndSelectLibraryMode(
-                                            context,
-                                            allOpenedFiles[index].rawPath,
-                                          );
-
-                                          if (result == null) return;
-                                          final (initialized, initializeMode) =
-                                              result;
-                                          if (!initialized &&
-                                              initializeMode == null) {
-                                            return;
-                                          }
-
-                                          if (!context.mounted) return;
-                                          await closeLibrary(context);
-
-                                          if (!context.mounted) return;
-
-                                          libraryPath.setLibraryPath(
-                                            context,
-                                            allOpenedFiles[index].rawPath,
-                                            initializeMode,
-                                          );
-
-                                          if (!context.mounted) return;
-                                          $push('/library');
-                                        },
-                                  child: Text(S.of(context).switchTo),
-                                ),
-                                const SizedBox(width: 12),
-                                Button(
-                                  onPressed: !isCurrentLibrary
-                                      ? null
-                                      : () async {
-                                          libraryPath.removeOpenedFile(
-                                            allOpenedFiles[index].rawPath,
-                                          );
-                                        },
-                                  child: Text(S.of(context).removeLibrary),
-                                ),
-                              ],
-                            ),
-                          ),
-                          selected: isSelectedLibrary,
-                          onSelectionChange: (v) =>
-                              setState(() => selectedItem = itemPath),
-                        );
-                      },
-                    ),
-                  ),
+                  const SizedBox(height: 16),
+                  _buildUserListHeader(context),
+                  const SizedBox(height: 8),
+                  _buildUserListView(users, context),
                 ],
               ),
             ),
@@ -145,5 +79,91 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
         ),
       ),
     );
+  }
+
+  Widget _buildUserListHeader(BuildContext context) {
+    return Row(
+      children: [
+        Tooltip(
+          message: S.of(context).refresh,
+          child: IconButton(
+            icon: const Icon(Symbols.refresh, size: 18),
+            onPressed: () =>
+                Provider.of<BroadcastProvider>(context, listen: false)
+                    .fetchUsers(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUserListView(List<ClientSummary> users, BuildContext context) {
+    return SizedBox(
+      width: double.maxFinite,
+      child: ListView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: users.length,
+        itemBuilder: (context, index) {
+          final user = users[index];
+          return ListTile.selectable(
+            title: SettingsTileTitle(
+                icon: _getStatusIcon(user.status),
+                title: user.alias,
+                subtitle:
+                    '${user.deviceModel} • ${_formatFingerprint(user.fingerprint)}',
+                showActions: selectedUserId == user.fingerprint,
+                actionsBuilder: (BuildContext context) =>
+                    _buildStatusBadge(user.status, context)),
+            selected: selectedUserId == user.fingerprint,
+            onSelectionChange: (selected) => setState(
+                () => selectedUserId = selected ? user.fingerprint : ''),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _getStatusIcon(ClientStatus status) {
+    switch (status) {
+      case ClientStatus.APPROVED:
+        return Symbols.check_circle;
+      case ClientStatus.PENDING:
+        return Symbols.pending;
+      case ClientStatus.BLOCKED:
+        return Symbols.block;
+    }
+
+    return Symbols.help;
+  }
+
+  Widget _buildStatusBadge(ClientStatus status, BuildContext context) {
+    final theme = FluentTheme.of(context);
+    final (text, color) = switch (status) {
+      ClientStatus.APPROVED => (S.of(context).approvedStatus, Colors.green),
+      ClientStatus.PENDING => (S.of(context).pendingStatus, Colors.orange),
+      ClientStatus.BLOCKED => (S.of(context).blockedStatus, Colors.red),
+      ClientStatus() => (S.of(context).unknownStatus, Colors.red),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.lightest,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: theme.typography.caption?.copyWith(
+          color: color.darkest,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  String _formatFingerprint(String fingerprint) {
+    if (fingerprint.length < 16) return fingerprint;
+    return '${fingerprint.substring(0, 8)}...${fingerprint.substring(fingerprint.length - 8)}';
   }
 }
