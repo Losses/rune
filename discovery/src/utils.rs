@@ -15,13 +15,13 @@ pub enum DeviceType {
 
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DeviceType::Mobile => write!(f, "Mobile"),
-            DeviceType::Desktop => write!(f, "Desktop"),
-            DeviceType::Web => write!(f, "Web"),
-            DeviceType::Headless => write!(f, "Headless"),
-            DeviceType::Server => write!(f, "Server"),
-        }
+        write!(f, "{}", match self {
+            DeviceType::Mobile => "Mobile",
+            DeviceType::Desktop => "Desktop", 
+            DeviceType::Web => "Web",
+            DeviceType::Headless => "Headless",
+            DeviceType::Server => "Server",
+        })
     }
 }
 

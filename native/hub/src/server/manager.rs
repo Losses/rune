@@ -5,7 +5,10 @@ use std::{
 };
 
 use anyhow::Result;
-use axum::{routing::get, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use axum_server::Handle;
 use log::{error, info};
 use prost::Message;
@@ -17,7 +20,10 @@ use discovery::{permission::PermissionManager, DiscoveryParams};
 use crate::{
     messages::*,
     server::{
-        handlers::{file_handler::file_handler, websocket_handler::websocket_handler},
+        handlers::{
+            device_info_handler::device_info_handler, file_handler::file_handler,
+            register_handler::register_handler, websocket_handler::websocket_handler,
+        },
         AppState, ServerState, WebSocketService,
     },
     utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
@@ -82,6 +88,8 @@ impl ServerManager {
         let app = Router::new()
             .route("/ws", get(websocket_handler))
             .route("/files/{*file_path}", get(file_handler))
+            .route("/register", post(register_handler))
+            .route("/device-info", get(device_info_handler))
             .with_state(server_state);
 
         info!(

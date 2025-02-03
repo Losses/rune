@@ -68,6 +68,7 @@ term_size = "0.3.2"
 colored = "3.0.0"
 unicode-width = "0.2.0"
 clean-path = "0.2.1"
+serde = "1.0.217"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }
