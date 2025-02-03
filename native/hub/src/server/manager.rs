@@ -1,7 +1,7 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
 };
 
 use anyhow::Result;
@@ -62,7 +62,7 @@ impl ServerManager {
     where
         Self: Send,
     {
-        if self.is_running.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.is_running.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server already running"));
         }
 
@@ -135,14 +135,13 @@ impl ServerManager {
         *self.server_handle.lock().await = Some(server_handle);
         *self.addr.lock().await = Some(addr);
         *self.shutdown_handle.lock().await = Some(shutdown_handle);
-        self.is_running
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.is_running.store(true, Ordering::SeqCst);
 
         Ok(())
     }
 
     pub async fn stop(&self) -> Result<()> {
-        if !self.is_running.load(std::sync::atomic::Ordering::SeqCst) {
+        if !self.is_running.load(Ordering::SeqCst) {
             return Err(anyhow::anyhow!("Server not running"));
         }
 
@@ -157,13 +156,13 @@ impl ServerManager {
         *self.addr.lock().await = None;
         *self.shutdown_handle.lock().await = None;
         self.is_running
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+            .store(false, Ordering::SeqCst);
 
         Ok(())
     }
 
     pub fn is_running(&self) -> bool {
-        self.is_running.load(std::sync::atomic::Ordering::SeqCst)
+        self.is_running.load(Ordering::SeqCst)
     }
 
     pub async fn get_address(&self) -> Option<SocketAddr> {
