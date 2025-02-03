@@ -41,7 +41,7 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
 
     broadcastProvider.fetchUsers();
 
-    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       broadcastProvider.fetchUsers();
     });
   }
@@ -68,8 +68,6 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                 children: [
                   const ServerControlSetting(),
                   const EnableBroadcastSetting(),
-                  const SizedBox(height: 16),
-                  _buildUserListHeader(context),
                   const SizedBox(height: 8),
                   _buildUserListView(users, context),
                 ],
@@ -78,22 +76,6 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildUserListHeader(BuildContext context) {
-    return Row(
-      children: [
-        Tooltip(
-          message: S.of(context).refresh,
-          child: IconButton(
-            icon: const Icon(Symbols.refresh, size: 18),
-            onPressed: () =>
-                Provider.of<BroadcastProvider>(context, listen: false)
-                    .fetchUsers(),
-          ),
-        ),
-      ],
     );
   }
 
