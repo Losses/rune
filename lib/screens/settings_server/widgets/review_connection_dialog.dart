@@ -25,6 +25,7 @@ class ReviewConnectionDialog extends StatelessWidget {
 
     return NoShortcuts(
       ContentDialog(
+        constraints: BoxConstraints(maxWidth: 520),
         title: Column(
           children: [
             SizedBox(height: 8),
@@ -39,15 +40,23 @@ class ReviewConnectionDialog extends StatelessWidget {
               s.connectionVerificationMessage,
               style: TextStyle(height: 1.4),
             ),
+            const SizedBox(height: 16),
             Row(
               children: [
-                Expanded(
-                  child: InfoLabel(
-                    label: s.deviceFingerprint,
-                    child: FingerprintFigure(fingerprint: fingerprint),
+                Flexible(
+                  child: Container(
+                    constraints: BoxConstraints(maxWidth: 226),
+                    child: FingerprintFigure(
+                      fingerprint: fingerprint,
+                      textStyle: const TextStyle(
+                        fontFamily: 'NotoRunic',
+                        fontSize: 16,
+                        letterSpacing: 4,
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     children: [
@@ -56,6 +65,7 @@ class ReviewConnectionDialog extends StatelessWidget {
                         subtitle: s.allowAccessSubtitle,
                         onPressed: () => {},
                       ),
+                      const SizedBox(height: 8),
                       SubtitleButton(
                         title: s.blockDevice,
                         subtitle: s.blockDeviceSubtitle,
