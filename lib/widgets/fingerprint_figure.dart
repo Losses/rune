@@ -10,8 +10,6 @@ class FingerprintFigure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = FluentTheme.of(context);
-
     final localFingerprint = fingerprint;
 
     return LayoutBuilder(
@@ -29,18 +27,17 @@ class FingerprintFigure extends StatelessWidget {
                     startIndex >= localFingerprint.length
                 ? ''
                 : '${localFingerprint[startIndex]}${startIndex + 1 < localFingerprint.length ? localFingerprint[startIndex + 1] : ''}';
-            return TextBox(
-              readOnly: true,
-              placeholder: text,
-              placeholderStyle: TextStyle(
-                color: theme.resources.textFillColorPrimary,
+            return Button(
+              onPressed: () => {},
+              child: Text(
+                text,
+                style: const TextStyle(
+                  fontFamily: 'NotoRunic',
+                  fontSize: 20,
+                  letterSpacing: 4,
+                ),
+                textAlign: TextAlign.center,
               ),
-              style: const TextStyle(
-                fontFamily: 'NotoRunic',
-                fontSize: 20,
-                letterSpacing: 4,
-              ),
-              textAlign: TextAlign.center,
             );
           }),
         );
