@@ -48,9 +48,12 @@ class ReviewConnectionDialog extends StatelessWidget {
                     constraints: BoxConstraints(maxWidth: 226),
                     child: FingerprintFigure(
                       fingerprint: fingerprint,
+                      buttonStyle: const ButtonStyle(
+                        padding: WidgetStatePropertyAll(EdgeInsets.all(0)),
+                      ),
                       textStyle: const TextStyle(
                         fontFamily: 'NotoRunic',
-                        fontSize: 16,
+                        fontSize: 14,
                         letterSpacing: 4,
                       ),
                     ),
