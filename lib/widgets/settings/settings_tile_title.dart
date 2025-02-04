@@ -1,3 +1,4 @@
+import 'package:badges/badges.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../providers/responsive_providers.dart';
@@ -9,6 +10,7 @@ class SettingsTileTitle extends StatelessWidget {
   final String subtitle;
   final bool showActions;
   final Widget Function(BuildContext context) actionsBuilder;
+  final Widget? badgeContent;
   final bool wrap;
 
   const SettingsTileTitle({
@@ -18,6 +20,7 @@ class SettingsTileTitle extends StatelessWidget {
     required this.subtitle,
     required this.showActions,
     required this.actionsBuilder,
+    this.badgeContent,
     this.suffixIcon,
     this.wrap = false,
   });
@@ -37,15 +40,34 @@ class SettingsTileTitle extends StatelessWidget {
               if (!isMini)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: theme.accentColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Icon(icon, color: theme.activeColor, size: 26),
-                  ),
+                  child: badgeContent == null
+                      ? Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: theme.accentColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                          child: Icon(icon, color: theme.activeColor, size: 26),
+                        )
+                      : Badge(
+                          badgeContent: badgeContent,
+                          badgeStyle: const BadgeStyle(
+                            padding: EdgeInsets.all(1),
+                          ),
+                          position:
+                              BadgePosition.bottomEnd(bottom: -6, end: -6),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: theme.accentColor,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                            child:
+                                Icon(icon, color: theme.activeColor, size: 26),
+                          ),
+                        ),
                 ),
               if (!isMini)
                 const SizedBox(
