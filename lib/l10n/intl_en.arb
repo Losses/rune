@@ -1215,7 +1215,7 @@
   "@allowAccessSubtitle": {
     "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
   },
-  "blockDeviceSubtitle": "Prevent future connection requests. You can unblock this device at any time in settings.",
+  "blockDeviceSubtitle": "Prevent future connection. You can unblock this device at any time.",
   "@blockDeviceSubtitle": {
     "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
   }
