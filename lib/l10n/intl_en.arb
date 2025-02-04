@@ -1190,5 +1190,33 @@
   "unknownStatus": "Unknown",
   "@unknownStatus": {
     "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
+  },
+  "review": "Review",
+  "@review": {
+    "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
+  },
+  "reviewRequestTitle": "Connection Request",
+  "@reviewRequestTitle": {
+    "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
+  },
+  "blockDevice": "Block Device",
+  "@blockDevice": {
+    "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
+  },
+  "allowAccess": "Allow Access",
+  "@allowAccess": {
+    "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
+  },
+  "connectionVerificationMessage": "To allow the device to connect, share the communication key fingerprint below to help verify your identity.",
+  "@connectionVerificationMessage": {
+    "description": "Instructional text in modal for establishing trust. Emphasizes sharing security credentials (fingerprint) to authenticate connections. Use terms like 'validate' or 'authenticate' if preferred in target language."
+  },
+  "allowAccessSubtitle": "Grant access to control playback and download tracks from this device.",
+  "@allowAccessSubtitle": {
+    "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
+  },
+  "blockDeviceSubtitle": "Prevent future connection requests. You can unblock this device at any time in settings.",
+  "@blockDeviceSubtitle": {
+    "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
   }
 }

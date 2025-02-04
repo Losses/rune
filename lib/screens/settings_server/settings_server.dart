@@ -99,7 +99,14 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               subtitle:
                   '${user.deviceModel} • ${_getStatusText(user.status, context)}',
               showActions: selectedUserId == user.fingerprint,
-              actionsBuilder: (BuildContext context) => Text("AAA"),
+              actionsBuilder: (context) => Row(
+                children: [
+                  Button(
+                    onPressed: () async {},
+                    child: Text(S.of(context).review),
+                  ),
+                ],
+              ),
             ),
             selected: selectedUserId == user.fingerprint,
             onSelectionChange: (selected) => setState(
