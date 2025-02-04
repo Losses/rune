@@ -32,6 +32,8 @@ class ReviewConnectionDialog extends StatelessWidget {
           ],
         ),
         content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
               s.connectionVerificationMessage,
@@ -39,27 +41,31 @@ class ReviewConnectionDialog extends StatelessWidget {
             ),
             Row(
               children: [
-                InfoLabel(
-                  label: s.deviceFingerprint,
-                  child: FingerprintFigure(fingerprint: fingerprint),
+                Expanded(
+                  child: InfoLabel(
+                    label: s.deviceFingerprint,
+                    child: FingerprintFigure(fingerprint: fingerprint),
+                  ),
                 ),
                 const SizedBox(width: 16),
-                Column(
-                  children: [
-                    SubtitleButton(
-                      title: s.allowAccess,
-                      subtitle: s.allowAccessSubtitle,
-                      onPressed: () => {},
-                    ),
-                    SubtitleButton(
-                      title: s.blockDevice,
-                      subtitle: s.blockDeviceSubtitle,
-                      onPressed: () => {},
-                    ),
-                  ],
-                )
+                Expanded(
+                  child: Column(
+                    children: [
+                      SubtitleButton(
+                        title: s.allowAccess,
+                        subtitle: s.allowAccessSubtitle,
+                        onPressed: () => {},
+                      ),
+                      SubtitleButton(
+                        title: s.blockDevice,
+                        subtitle: s.blockDeviceSubtitle,
+                        onPressed: () => {},
+                      ),
+                    ],
+                  ),
+                ),
               ],
-            )
+            ),
           ],
         ),
         actions: [
