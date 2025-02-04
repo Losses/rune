@@ -8,7 +8,7 @@ import '../../../widgets/subtitle_button.dart';
 import '../../../widgets/fingerprint_figure.dart';
 import '../../../messages/all.dart';
 
-class ReviewConnectionDialog extends StatelessWidget {
+class ReviewConnectionDialog extends StatefulWidget {
   final void Function(void) $close;
   final ClientSummary clientSummary;
 
@@ -17,6 +17,20 @@ class ReviewConnectionDialog extends StatelessWidget {
     required this.$close,
     required this.clientSummary,
   });
+
+  @override
+  State<ReviewConnectionDialog> createState() => _ReviewConnectionDialogState();
+}
+
+class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
+  late ClientStatus status;
+
+  @override
+  void initState() {
+    status = widget.clientSummary.status;
+
+    super.initState();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,8 +53,8 @@ class ReviewConnectionDialog extends StatelessWidget {
           children: [
             Text(
               s.connectionVerificationMessage(
-                clientSummary.alias,
-                clientSummary.deviceModel,
+                widget.clientSummary.alias,
+                widget.clientSummary.deviceModel,
               ),
               style: TextStyle(height: 1.4),
             ),
@@ -70,13 +84,19 @@ class ReviewConnectionDialog extends StatelessWidget {
                       SubtitleButton(
                         title: s.allowAccess,
                         subtitle: s.allowAccessSubtitle,
-                        onPressed: () => {},
+                        selected: status == ClientStatus.APPROVED,
+                        onPressed: () => setState(() {
+                          status = ClientStatus.APPROVED;
+                        }),
                       ),
                       const SizedBox(height: 8),
                       SubtitleButton(
                         title: s.blockDevice,
                         subtitle: s.blockDeviceSubtitle,
-                        onPressed: () => {},
+                        selected: status != ClientStatus.APPROVED,
+                        onPressed: () => setState(() {
+                          status = ClientStatus.BLOCKED;
+                        }),
                       ),
                     ],
                   ),
@@ -91,7 +111,7 @@ class ReviewConnectionDialog extends StatelessWidget {
             child: Text(S.of(context).confirm),
           ),
           Button(
-            onPressed: () => $close(null),
+            onPressed: () => widget.$close(null),
             child: Text(s.cancel),
           ),
         ],
