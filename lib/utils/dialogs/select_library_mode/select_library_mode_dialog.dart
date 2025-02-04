@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/subtitle_button.dart';
 
 import '../../l10n.dart';
 
@@ -81,33 +82,10 @@ class _DialogContent extends StatelessWidget {
   }
 
   Widget _buildOptionButton(BuildContext context, LibraryModeOption option) {
-    final theme = FluentTheme.of(context);
-
-    return Button(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              option.title,
-              style: theme.typography.body?.apply(fontSizeFactor: 1.1),
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.start,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              option.subtitle,
-              style: theme.typography.caption?.apply(
-                color: theme.inactiveColor.withAlpha(160),
-              ),
-              textAlign: TextAlign.start,
-            ),
-          ],
-        ),
-      ),
+    return SubtitleButton(
       onPressed: () => onOptionSelected(option.value),
+      title: option.title,
+      subtitle: option.subtitle,
     );
   }
 }
