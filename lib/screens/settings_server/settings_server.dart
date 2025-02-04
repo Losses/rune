@@ -95,6 +95,7 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               badgeContent: Icon(
                 _getStatusIcon(client.status),
                 size: 12,
+                color: Colors.white,
               ),
               title: client.alias,
               subtitle:
