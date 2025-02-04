@@ -90,16 +90,21 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
           final user = users[index];
           return ListTile.selectable(
             title: SettingsTileTitle(
-                icon: _getStatusIcon(user.status),
-                title: user.alias,
-                subtitle:
-                    '${user.deviceModel} • ${_formatFingerprint(user.fingerprint)}',
-                showActions: selectedUserId == user.fingerprint,
-                actionsBuilder: (BuildContext context) =>
-                    _buildStatusBadge(user.status, context)),
+              icon: Symbols.devices,
+              badgeContent: Icon(
+                _getStatusIcon(user.status),
+                size: 12,
+              ),
+              title: user.alias,
+              subtitle:
+                  '${user.deviceModel} • ${_getStatusText(user.status, context)}',
+              showActions: selectedUserId == user.fingerprint,
+              actionsBuilder: (BuildContext context) => Text("AAA"),
+            ),
             selected: selectedUserId == user.fingerprint,
             onSelectionChange: (selected) => setState(
-                () => selectedUserId = selected ? user.fingerprint : ''),
+              () => selectedUserId = selected ? user.fingerprint : '',
+            ),
           );
         },
       ),
@@ -119,33 +124,12 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
     return Symbols.help;
   }
 
-  Widget _buildStatusBadge(ClientStatus status, BuildContext context) {
-    final theme = FluentTheme.of(context);
-    final (text, color) = switch (status) {
-      ClientStatus.APPROVED => (S.of(context).approvedStatus, Colors.green),
-      ClientStatus.PENDING => (S.of(context).pendingStatus, Colors.orange),
-      ClientStatus.BLOCKED => (S.of(context).blockedStatus, Colors.red),
-      ClientStatus() => (S.of(context).unknownStatus, Colors.red),
+  String _getStatusText(ClientStatus status, BuildContext context) {
+    return switch (status) {
+      ClientStatus.APPROVED => S.of(context).approvedStatus,
+      ClientStatus.PENDING => S.of(context).pendingStatus,
+      ClientStatus.BLOCKED => S.of(context).blockedStatus,
+      ClientStatus() => S.of(context).unknownStatus,
     };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.lightest,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        text,
-        style: theme.typography.caption?.copyWith(
-          color: color.darkest,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  String _formatFingerprint(String fingerprint) {
-    if (fingerprint.length < 16) return fingerprint;
-    return '${fingerprint.substring(0, 8)}...${fingerprint.substring(fingerprint.length - 8)}';
   }
 }
