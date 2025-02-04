@@ -29,7 +29,10 @@ class SubtitleButton extends StatelessWidget {
                 children: [
                   Text(
                     title,
-                    style: theme.typography.body?.apply(fontSizeFactor: 1.1),
+                    style: theme.typography.body?.apply(
+                      fontSizeFactor: 1.1,
+                      color: theme.inactiveBackgroundColor,
+                    ),
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.start,
                   ),
@@ -37,7 +40,7 @@ class SubtitleButton extends StatelessWidget {
                   Text(
                     subtitle,
                     style: theme.typography.caption?.apply(
-                      color: theme.inactiveColor.withAlpha(160),
+                      color: theme.inactiveBackgroundColor.withAlpha(160),
                     ),
                     textAlign: TextAlign.start,
                   ),
