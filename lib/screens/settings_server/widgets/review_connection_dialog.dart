@@ -2,19 +2,20 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../widgets/fingerprint_figure.dart';
-import '../../../widgets/no_shortcuts.dart';
 import '../../../providers/broadcast.dart';
+import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
+import '../../../widgets/fingerprint_figure.dart';
+import '../../../messages/all.dart';
 
 class ReviewConnectionDialog extends StatelessWidget {
   final void Function(void) $close;
-  final String fingerprint;
+  final ClientSummary clientSummary;
 
   const ReviewConnectionDialog({
     super.key,
     required this.$close,
-    required this.fingerprint,
+    required this.clientSummary,
   });
 
   @override
@@ -37,7 +38,10 @@ class ReviewConnectionDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              s.connectionVerificationMessage,
+              s.connectionVerificationMessage(
+                clientSummary.alias,
+                clientSummary.deviceModel,
+              ),
               style: TextStyle(height: 1.4),
             ),
             const SizedBox(height: 16),
@@ -82,6 +86,10 @@ class ReviewConnectionDialog extends StatelessWidget {
           ],
         ),
         actions: [
+          FilledButton(
+            onPressed: () {},
+            child: Text(S.of(context).confirm),
+          ),
           Button(
             onPressed: () => $close(null),
             child: Text(s.cancel),

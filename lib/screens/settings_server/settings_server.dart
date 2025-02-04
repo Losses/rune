@@ -80,39 +80,39 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
     );
   }
 
-  Widget _buildUserListView(List<ClientSummary> users, BuildContext context) {
+  Widget _buildUserListView(List<ClientSummary> clients, BuildContext context) {
     return SizedBox(
       width: double.maxFinite,
       child: ListView.builder(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
-        itemCount: users.length,
+        itemCount: clients.length,
         itemBuilder: (context, index) {
-          final user = users[index];
+          final client = clients[index];
           return ListTile.selectable(
             title: SettingsTileTitle(
               icon: Symbols.devices,
               badgeContent: Icon(
-                _getStatusIcon(user.status),
+                _getStatusIcon(client.status),
                 size: 12,
               ),
-              title: user.alias,
+              title: client.alias,
               subtitle:
-                  '${user.deviceModel} • ${_getStatusText(user.status, context)}',
-              showActions: selectedUserId == user.fingerprint,
+                  '${client.deviceModel} • ${_getStatusText(client.status, context)}',
+              showActions: selectedUserId == client.fingerprint,
               actionsBuilder: (context) => Row(
                 children: [
                   Button(
                     onPressed: () =>
-                        showReviewConnectionDialog(context, user.fingerprint),
+                        showReviewConnectionDialog(context, client),
                     child: Text(S.of(context).review),
                   ),
                 ],
               ),
             ),
-            selected: selectedUserId == user.fingerprint,
+            selected: selectedUserId == client.fingerprint,
             onSelectionChange: (selected) => setState(
-              () => selectedUserId = selected ? user.fingerprint : '',
+              () => selectedUserId = selected ? client.fingerprint : '',
             ),
           );
         },
