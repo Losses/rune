@@ -50,7 +50,12 @@ class EditDeviceInformationSettingDialogState
 
     return NoShortcuts(
       ContentDialog(
-        title: Text(s.editDeviceInformation),
+        title: Column(
+          children: [
+            SizedBox(height: 8),
+            Text(s.editDeviceInformation),
+          ],
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,

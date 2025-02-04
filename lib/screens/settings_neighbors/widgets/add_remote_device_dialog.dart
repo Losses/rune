@@ -68,7 +68,12 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
 
     return NoShortcuts(
       ContentDialog(
-        title: Text(s.addConnection),
+        title: Column(
+          children: [
+            SizedBox(height: 8),
+            Text(s.addConnection),
+          ],
+        ),
         content: AddRemoteDeviceForm(
           controller: controller,
         ),
