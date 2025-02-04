@@ -13,6 +13,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/all.dart';
 import '../../providers/broadcast.dart';
 
+import 'utils/show_review_connection_dialog.dart';
 import 'widgets/server_control_setting_button.dart';
 import 'widgets/enable_broadcast_setting_button.dart';
 
@@ -102,7 +103,8 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               actionsBuilder: (context) => Row(
                 children: [
                   Button(
-                    onPressed: () async {},
+                    onPressed: () =>
+                        showReviewConnectionDialog(context, user.fingerprint),
                     child: Text(S.of(context).review),
                   ),
                 ],
