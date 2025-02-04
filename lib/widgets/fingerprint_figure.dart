@@ -9,9 +9,11 @@ class FingerprintFigure extends StatelessWidget {
       fontSize: 20,
       letterSpacing: 4,
     ),
+    this.buttonStyle,
   });
 
   final TextStyle textStyle;
+  final ButtonStyle? buttonStyle;
   final String? fingerprint;
 
   @override
@@ -35,6 +37,7 @@ class FingerprintFigure extends StatelessWidget {
                 : '${localFingerprint[startIndex]}${startIndex + 1 < localFingerprint.length ? localFingerprint[startIndex + 1] : ''}';
             return Button(
               onPressed: () => {},
+              style: buttonStyle,
               child: Text(
                 text,
                 style: textStyle,
