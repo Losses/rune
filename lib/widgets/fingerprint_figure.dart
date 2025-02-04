@@ -4,8 +4,14 @@ class FingerprintFigure extends StatelessWidget {
   const FingerprintFigure({
     super.key,
     required this.fingerprint,
+    this.textStyle = const TextStyle(
+      fontFamily: 'NotoRunic',
+      fontSize: 20,
+      letterSpacing: 4,
+    ),
   });
 
+  final TextStyle textStyle;
   final String? fingerprint;
 
   @override
@@ -31,11 +37,7 @@ class FingerprintFigure extends StatelessWidget {
               onPressed: () => {},
               child: Text(
                 text,
-                style: const TextStyle(
-                  fontFamily: 'NotoRunic',
-                  fontSize: 20,
-                  letterSpacing: 4,
-                ),
+                style: textStyle,
                 textAlign: TextAlign.center,
               ),
             );
