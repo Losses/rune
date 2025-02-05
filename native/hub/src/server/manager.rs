@@ -1,7 +1,10 @@
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{atomic::Ordering, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use anyhow::Result;
@@ -38,7 +41,7 @@ pub struct ServerManager {
     global_params: Arc<GlobalParams>,
     server_handle: Mutex<Option<JoinHandle<()>>>,
     addr: Mutex<Option<SocketAddr>>,
-    is_running: std::sync::atomic::AtomicBool,
+    is_running: AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
 }
 
@@ -48,7 +51,7 @@ impl ServerManager {
             global_params,
             server_handle: Mutex::new(None),
             addr: Mutex::new(None),
-            is_running: std::sync::atomic::AtomicBool::new(false),
+            is_running: AtomicBool::new(false),
             shutdown_handle: Mutex::new(None),
         }
     }
@@ -155,8 +158,7 @@ impl ServerManager {
 
         *self.addr.lock().await = None;
         *self.shutdown_handle.lock().await = None;
-        self.is_running
-            .store(false, Ordering::SeqCst);
+        self.is_running.store(false, Ordering::SeqCst);
 
         Ok(())
     }
