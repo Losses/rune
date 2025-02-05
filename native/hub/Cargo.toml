@@ -70,6 +70,14 @@ unicode-width = "0.2.0"
 clean-path = "0.2.1"
 serde = "1.0.217"
 tower_governor = "0.6.0"
+rsa = "0.9.7"
+rcgen = "0.13.2"
+pem = "3.0.4"
+num-bigint = "0.4.6"
+rand = "0.8.0"
+num-traits = "0.2.19"
+num-integer = "0.1.46"
+time = "0.3.37"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }

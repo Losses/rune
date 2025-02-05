@@ -3,6 +3,7 @@ mod server_request;
 pub mod handlers;
 mod manager;
 pub use manager::ServerManager;
+pub mod ssl;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
