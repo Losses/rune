@@ -232,15 +232,16 @@ checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
 name = "arroy"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ece9e5347e7fdaaea3181dec7f916677ad5f3fcbac183648ce1924eb4aeef9a"
+checksum = "dfc5f272f38fa063bbff0a7ab5219404e221493de005e2b4078c62d626ef567e"
 dependencies = [
  "bytemuck",
  "byteorder",
  "heed",
  "log",
  "memmap2",
+ "nohash",
  "ordered-float 4.4.0",
  "rand",
  "rayon",
@@ -3506,6 +3507,12 @@ name = "no-std-compat"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
+
+[[package]]
+name = "nohash"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0f889fb66f7acdf83442c35775764b51fed3c606ab9cee51500dbde2cf528ca"
 
 [[package]]
 name = "nom"

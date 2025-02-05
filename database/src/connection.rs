@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use arroy::distances::Euclidean;
+use arroy::internals::{KeyCodec, NodeCodec};
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
 use log::{info, LevelFilter};
@@ -201,7 +202,10 @@ pub fn connect_recommendation_db(
     };
 
     let mut wtxn = env.write_txn()?;
-    let db: ArroyDatabase<Euclidean> = env.create_database(&mut wtxn, None)?;
+    let db: ArroyDatabase<Euclidean> = env
+        .database_options()
+        .types::<KeyCodec, NodeCodec<Euclidean>>()
+        .create(&mut wtxn)?;
     wtxn.commit()?;
 
     Ok(RecommendationDbConnection { env, db })
