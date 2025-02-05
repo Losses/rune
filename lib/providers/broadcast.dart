@@ -205,7 +205,6 @@ class BroadcastProvider extends ChangeNotifier {
     StartServerRequest(
       interface: interface,
       alias: _deviceAlias!,
-      fingerprint: _fingerprint!,
       permissionFilePath: await _permissionFilePath,
     ).sendSignalToRust();
   }

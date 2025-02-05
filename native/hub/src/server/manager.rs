@@ -7,14 +7,15 @@ use std::{
     },
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     routing::{get, post},
     Router,
 };
-use axum_server::Handle;
+use axum_server::{tls_rustls::RustlsConfig, Handle};
 use log::{error, info};
 use prost::Message;
+use rand::distributions::{Alphanumeric, DistString};
 use tokio::{sync::Mutex, task::JoinHandle};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
@@ -36,24 +37,38 @@ use crate::{
     Signal,
 };
 
+use super::ssl::{calculate_base85_fingerprint, generate_self_signed_cert};
+
 #[derive(Debug)]
 pub struct ServerManager {
     global_params: Arc<GlobalParams>,
     server_handle: Mutex<Option<JoinHandle<()>>>,
     addr: Mutex<Option<SocketAddr>>,
-    is_running: AtomicBool,
+    is_running: std::sync::atomic::AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
+    certificate: String,
+    private_key: String,
 }
 
 impl ServerManager {
-    pub fn new(global_params: Arc<GlobalParams>) -> Self {
-        Self {
+    pub async fn new(global_params: Arc<GlobalParams>) -> Result<Self> {
+        let config_path = Path::new(&*global_params.config_path);
+
+        let alias = get_or_generate_alias(config_path).await?;
+
+        let (_, certificate, private_key) = generate_or_load_certificates(config_path, &alias)
+            .await
+            .context("Failed to initialize certificates")?;
+
+        Ok(Self {
             global_params,
             server_handle: Mutex::new(None),
             addr: Mutex::new(None),
             is_running: AtomicBool::new(false),
             shutdown_handle: Mutex::new(None),
-        }
+            certificate,
+            private_key,
+        })
     }
 
     pub async fn start<P: AsRef<Path>>(
@@ -123,9 +138,16 @@ impl ServerManager {
         let handle = Handle::new();
         let shutdown_handle = handle.clone();
 
+        let tls_config = RustlsConfig::from_pem(
+            self.certificate.as_bytes().to_vec(),
+            self.private_key.as_bytes().to_vec(),
+        )
+        .await
+        .context("Failed to create TLS configuration")?;
+
         let server_handle = tokio::spawn(async move {
-            info!("Starting combined HTTP/WebSocket server on {}", addr);
-            let server = axum_server::bind(addr)
+            info!("Starting secure HTTPS/WSS server on {}", addr);
+            let server = axum_server::bind_rustls(addr, tls_config)
                 .handle(handle)
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>());
 
@@ -169,5 +191,59 @@ impl ServerManager {
 
     pub async fn get_address(&self) -> Option<SocketAddr> {
         *self.addr.lock().await
+    }
+}
+
+async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
+    let alias_path = config_path.join("alias");
+    if alias_path.exists() {
+        tokio::fs::read_to_string(&alias_path)
+            .await
+            .map(|s| s.trim().to_string())
+            .context("Failed to read alias file")
+    } else {
+        let alias = generate_random_alias();
+        tokio::fs::write(&alias_path, &alias)
+            .await
+            .context("Failed to save alias file")?;
+        Ok(alias)
+    }
+}
+
+fn generate_random_alias() -> String {
+    let mut rng = rand::thread_rng();
+    let suffix: String = Alphanumeric.sample_string(&mut rng, 8);
+    format!("R-{}", suffix)
+}
+
+pub async fn generate_or_load_certificates(
+    config_path: &Path,
+    alias: &str,
+) -> Result<(String, String, String)> {
+    let cert_path = config_path.join("certificate.pem");
+    let key_path = config_path.join("private_key.pem");
+
+    if cert_path.exists() && key_path.exists() {
+        let public_key = tokio::fs::read_to_string(&cert_path)
+            .await
+            .context("Failed to read certificate")?;
+        let private_key = tokio::fs::read_to_string(&key_path)
+            .await
+            .context("Failed to read private key")?;
+
+        let fingerprint = calculate_base85_fingerprint(public_key.as_bytes())?;
+        Ok((fingerprint, public_key, private_key))
+    } else {
+        let cert = generate_self_signed_cert(alias, "Rune Player", "NET", 3650)?;
+
+        tokio::fs::write(&cert_path, &cert.public_key)
+            .await
+            .context("Failed to save certificate")?;
+        tokio::fs::write(&key_path, &cert.private_key)
+            .await
+            .context("Failed to save private key")?;
+
+        let fingerprint = calculate_base85_fingerprint(cert.public_key.as_bytes())?;
+        Ok((fingerprint, cert.public_key, cert.private_key))
     }
 }

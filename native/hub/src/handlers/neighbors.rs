@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -7,7 +8,7 @@ use discovery::permission::{PermissionManager, UserStatus};
 use discovery::utils::{DeviceInfo, DeviceType};
 use discovery::DiscoveryParams;
 
-use crate::server::ServerManager;
+use crate::server::{generate_or_load_certificates, ServerManager};
 use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
@@ -124,7 +125,7 @@ impl Signal for StopListeningRequest {
 }
 
 impl ParamsExtractor for StartServerRequest {
-    type Params = Arc<ServerManager>;
+    type Params = (Arc<String>, Arc<ServerManager>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         let server_manager = all_params
@@ -133,18 +134,21 @@ impl ParamsExtractor for StartServerRequest {
             .expect("ServerManager must be initialized before use")
             .clone();
 
-        Arc::clone(&server_manager)
+        (
+            Arc::clone(&all_params.config_path),
+            Arc::clone(&server_manager),
+        )
     }
 }
 
 impl Signal for StartServerRequest {
-    type Params = Arc<ServerManager>;
+    type Params = (Arc<String>, Arc<ServerManager>);
     type Response = StartServerResponse;
 
     #[allow(clippy::manual_async_fn)]
     fn handle(
         &self,
-        server_manager: Self::Params,
+        (config_path, server_manager): Self::Params,
         request: &Self,
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send {
         async move {
@@ -158,7 +162,12 @@ impl Signal for StartServerRequest {
                 device_model: Some("RuneAudio".to_string()),
                 version: "Technical Preview".to_owned(),
                 device_type: Some(discovery::utils::DeviceType::Desktop),
-                fingerprint: request.fingerprint.clone(),
+                fingerprint: generate_or_load_certificates(
+                    Path::new(&*config_path),
+                    &request.alias.clone(),
+                )
+                .await?
+                .0,
                 api_port: 7863,
                 protocol: "http".to_owned(),
             };

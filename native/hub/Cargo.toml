@@ -56,7 +56,7 @@ clap = "4.5.26"
 axum = { version = "0.8.1", features = ["ws"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["fs"] }
-axum-server = "0.7.1"
+axum-server = { version = "0.7.1", features = ["tls-rustls-no-provider"] }
 uuid = "1.11.1"
 url = "2.5.4"
 rustyline = { version = "15.0.0", features = ["with-sqlite-history"] }

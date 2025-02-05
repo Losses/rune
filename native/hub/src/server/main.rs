@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
     let config_path = matches.get_one::<String>("config_path").unwrap();
 
     let global_params = initialize_global_params(lib_path, config_path).await?;
-    let server_manager = Arc::new(ServerManager::new(global_params));
+    let server_manager = Arc::new(ServerManager::new(global_params).await?);
 
     let discovery_params = DiscoveryParams {
         device_info: DeviceInfo {
@@ -145,7 +145,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         server_manager: OnceLock::new(),
     });
 
-    let server_manager = Arc::new(ServerManager::new(global_params.clone()));
+    let server_manager = Arc::new(ServerManager::new(global_params.clone()).await?);
     global_params
         .server_manager
         .set(server_manager.clone())

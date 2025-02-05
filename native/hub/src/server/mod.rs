@@ -2,6 +2,7 @@
 mod server_request;
 pub mod handlers;
 mod manager;
+pub use manager::generate_or_load_certificates;
 pub use manager::ServerManager;
 pub mod ssl;
 

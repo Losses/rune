@@ -88,7 +88,7 @@ pub async fn local_player_loop(
         };
 
         let global_params = Arc::new(global_params);
-        let server_manager = Arc::new(ServerManager::new(global_params.clone()));
+        let server_manager = Arc::new(ServerManager::new(global_params.clone()).await.unwrap());
 
         global_params
             .server_manager
