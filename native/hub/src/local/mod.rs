@@ -28,7 +28,8 @@ use crate::utils::TaskTokens;
 use crate::Signal;
 
 pub async fn local_player_loop(
-    path: String,
+    lib_path: String,
+    config_path: String,
     db_connections: DatabaseConnections,
     scrobbler: Arc<Mutex<ScrobblingManager>>,
     broadcaster: Arc<dyn Broadcaster>,
@@ -42,7 +43,8 @@ pub async fn local_player_loop(
 
         let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
 
-        let lib_path: Arc<String> = Arc::new(path);
+        let lib_path: Arc<String> = Arc::new(lib_path);
+        let config_path: Arc<String> = Arc::new(config_path);
 
         let main_cancel_token = CancellationToken::new();
         let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
@@ -72,6 +74,7 @@ pub async fn local_player_loop(
         info!("Initializing UI events");
         let global_params = GlobalParams {
             lib_path,
+            config_path,
             main_db,
             recommend_db,
             main_token: Arc::clone(&main_cancel_token),

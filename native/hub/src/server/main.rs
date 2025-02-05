@@ -55,12 +55,20 @@ async fn main() -> Result<()> {
                 .required(true)
                 .index(1),
         )
+        .arg(
+            Arg::new("config_path")
+                .value_name("CONFIG_PATH")
+                .help("Configuration path")
+                .required(true)
+                .index(1),
+        )
         .get_matches();
 
     let addr: SocketAddr = matches.get_one::<String>("addr").unwrap().parse()?;
     let lib_path = matches.get_one::<String>("lib_path").unwrap();
+    let config_path = matches.get_one::<String>("config_path").unwrap();
 
-    let global_params = initialize_global_params(lib_path).await?;
+    let global_params = initialize_global_params(lib_path, config_path).await?;
     let server_manager = Arc::new(ServerManager::new(global_params));
 
     let discovery_params = DiscoveryParams {
@@ -75,7 +83,9 @@ async fn main() -> Result<()> {
         },
     };
 
-    server_manager.start(addr, discovery_params, ".known-clients").await?;
+    server_manager
+        .start(addr, discovery_params, ".known-clients")
+        .await?;
 
     // Keep the main thread alive
     tokio::signal::ctrl_c().await?;
@@ -84,13 +94,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn initialize_global_params(lib_path: &str) -> Result<Arc<GlobalParams>> {
+async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<Arc<GlobalParams>> {
     let db_path = format!("{}/.rune", lib_path);
     let db_connections = initialize_databases(lib_path, Some(&db_path)).await?;
 
     let main_db: Arc<MainDbConnection> = db_connections.main_db;
     let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
     let lib_path: Arc<String> = Arc::new(lib_path.to_string());
+    let config_path: Arc<String> = Arc::new(config_path.to_string());
 
     let main_cancel_token = CancellationToken::new();
     let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
@@ -121,6 +132,7 @@ async fn initialize_global_params(lib_path: &str) -> Result<Arc<GlobalParams>> {
 
     let global_params = Arc::new(GlobalParams {
         lib_path,
+        config_path,
         main_db,
         recommend_db,
         main_token: main_cancel_token,

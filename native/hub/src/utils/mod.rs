@@ -70,6 +70,7 @@ pub struct TaskTokens {
 
 pub struct GlobalParams {
     pub lib_path: Arc<String>,
+    pub config_path: Arc<String>,
     pub main_db: Arc<MainDbConnection>,
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
@@ -141,6 +142,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
     loop {
         while let Some(dart_signal) = receiver.recv().await {
             let media_library_path = &dart_signal.message.path;
+            let config_path = &dart_signal.message.config_path;
 
             match &dart_signal.message.hosted_on() {
                 OperationDestination::Local => {
@@ -207,6 +209,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             // Continue with main loop
                             local_player_loop(
                                 media_library_path.to_string(),
+                                config_path.to_string(),
                                 db_connections,
                                 scrobbler_clone,
                                 broadcaster.clone(),
