@@ -54,11 +54,12 @@ impl ServerManager {
     pub async fn new(global_params: Arc<GlobalParams>) -> Result<Self> {
         let config_path = Path::new(&*global_params.config_path);
 
-        let alias = get_or_generate_alias(config_path).await?;
+        let certificate_id = get_or_generate_certificate_id(config_path).await?;
 
-        let (_, certificate, private_key) = generate_or_load_certificates(config_path, &alias)
-            .await
-            .context("Failed to initialize certificates")?;
+        let (_, certificate, private_key) =
+            generate_or_load_certificates(config_path, &certificate_id)
+                .await
+                .context("Failed to initialize certificates")?;
 
         Ok(Self {
             global_params,
@@ -194,19 +195,19 @@ impl ServerManager {
     }
 }
 
-async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
-    let alias_path = config_path.join("alias");
-    if alias_path.exists() {
-        tokio::fs::read_to_string(&alias_path)
+pub async fn get_or_generate_certificate_id(config_path: &Path) -> Result<String> {
+    let certificate_id_path = config_path.join("cid");
+    if certificate_id_path.exists() {
+        tokio::fs::read_to_string(&certificate_id_path)
             .await
             .map(|s| s.trim().to_string())
-            .context("Failed to read alias file")
+            .context("Failed to read cid file")
     } else {
-        let alias = generate_random_alias();
-        tokio::fs::write(&alias_path, &alias)
+        let certificate_id = generate_random_alias();
+        tokio::fs::write(&certificate_id_path, &certificate_id)
             .await
-            .context("Failed to save alias file")?;
-        Ok(alias)
+            .context("Failed to save cid file")?;
+        Ok(certificate_id)
     }
 }
 
@@ -218,7 +219,7 @@ fn generate_random_alias() -> String {
 
 pub async fn generate_or_load_certificates(
     config_path: &Path,
-    alias: &str,
+    certificate_id: &str,
 ) -> Result<(String, String, String)> {
     let cert_path = config_path.join("certificate.pem");
     let key_path = config_path.join("private_key.pem");
@@ -234,7 +235,7 @@ pub async fn generate_or_load_certificates(
         let fingerprint = calculate_base85_fingerprint(public_key.as_bytes())?;
         Ok((fingerprint, public_key, private_key))
     } else {
-        let cert = generate_self_signed_cert(alias, "Rune Player", "NET", 3650)?;
+        let cert = generate_self_signed_cert(certificate_id, "Rune Player", "NET", 3650)?;
 
         tokio::fs::write(&cert_path, &cert.public_key)
             .await

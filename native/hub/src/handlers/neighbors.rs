@@ -2,13 +2,13 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use discovery::permission::{PermissionManager, UserStatus};
 use discovery::utils::{DeviceInfo, DeviceType};
 use discovery::DiscoveryParams;
 
-use crate::server::{generate_or_load_certificates, ServerManager};
+use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
 use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
@@ -60,11 +60,7 @@ impl Signal for StopBroadcastRequest {
     type Params = (Arc<DeviceScanner>,);
     type Response = ();
 
-    async fn handle(
-        &self,
-        (scanner,): Self::Params,
-        _: &Self,
-    ) -> anyhow::Result<Option<Self::Response>> {
+    async fn handle(&self, (scanner,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
         scanner.stop_broadcast().await;
         Ok(None)
     }
@@ -86,7 +82,7 @@ impl Signal for StartListeningRequest {
         &self,
         (scanner,): Self::Params,
         request: &Self,
-    ) -> anyhow::Result<Option<Self::Response>> {
+    ) -> Result<Option<Self::Response>> {
         scanner
             .start_listening(&DeviceInfo {
                 alias: request.alias.clone(),
@@ -213,7 +209,7 @@ impl Signal for StopServerRequest {
         &self,
         server_manager: Self::Params,
         _: &Self,
-    ) -> anyhow::Result<Option<Self::Response>> {
+    ) -> Result<Option<Self::Response>> {
         match server_manager.stop().await {
             Ok(_) => Ok(Some(StopServerResponse {
                 success: true,
@@ -237,11 +233,7 @@ impl Signal for ListClientsRequest {
     type Params = ();
     type Response = ListClientsResponse;
 
-    async fn handle(
-        &self,
-        (): Self::Params,
-        request: &Self,
-    ) -> anyhow::Result<Option<Self::Response>> {
+    async fn handle(&self, (): Self::Params, request: &Self) -> Result<Option<Self::Response>> {
         let pm_result = PermissionManager::new(&request.permission_file_path);
         let pm = match pm_result {
             Ok(pm) => pm,
@@ -274,5 +266,30 @@ impl Signal for ListClientsRequest {
             users: converted_users,
             error: String::new(),
         }))
+    }
+}
+
+impl ParamsExtractor for GetSslCertificateFingerprintRequest {
+    type Params = Arc<String>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.config_path)
+    }
+}
+
+impl Signal for GetSslCertificateFingerprintRequest {
+    type Params = Arc<String>;
+    type Response = GetSslCertificateFingerprintResponse;
+
+    async fn handle(&self, config_path: Self::Params, _: &Self) -> Result<Option<Self::Response>> {
+        let path = Path::new(&**config_path);
+        let certificate_id = get_or_generate_certificate_id(path).await?;
+
+        let (fingerprint, _certificate, _private_key) =
+            generate_or_load_certificates(path, &certificate_id)
+                .await
+                .context("Failed to initialize certificates")?;
+
+        return Ok(Some(GetSslCertificateFingerprintResponse { fingerprint }));
     }
 }

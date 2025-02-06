@@ -356,27 +356,32 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "StartListeningRequest".to_string(),
             response: None,
-            local_only: true,
+            local_only: false,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
             response: None,
-            local_only: true,
+            local_only: false,
         },
         RequestResponse {
             request: "StartServerRequest".to_string(),
             response: Some("StartServerResponse".to_string()),
-            local_only: true,
+            local_only: false,
         },
         RequestResponse {
             request: "StopServerRequest".to_string(),
             response: Some("StopServerResponse".to_string()),
-            local_only: true,
+            local_only: false,
         },
         RequestResponse {
             request: "ListClientsRequest".to_string(),
             response: Some("ListClientsResponse".to_string()),
-            local_only: true,
+            local_only: false,
+        },
+        RequestResponse {
+            request: "GetSslCertificateFingerprintRequest".to_string(),
+            response: Some("GetSslCertificateFingerprintResponse".to_string()),
+            local_only: false,
         }
     ];
 

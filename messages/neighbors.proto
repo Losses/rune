@@ -76,3 +76,12 @@ enum ClientStatus {
   PENDING = 1;
   BLOCKED = 2;
 }
+
+// [DART-SIGNAL]
+message GetSSLCertificateFingerprintRequest {
+}
+
+// [RUST-SIGNAL]
+message GetSSLCertificateFingerprintResponse {
+  string fingerprint = 1;
+}
