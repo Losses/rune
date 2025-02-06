@@ -196,6 +196,8 @@ impl ServerManager {
 }
 
 pub async fn get_or_generate_certificate_id(config_path: &Path) -> Result<String> {
+    info!("Generating certificate in: {:?}", config_path);
+
     let certificate_id_path = config_path.join("cid");
     if certificate_id_path.exists() {
         tokio::fs::read_to_string(&certificate_id_path)

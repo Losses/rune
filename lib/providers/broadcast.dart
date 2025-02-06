@@ -4,8 +4,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 
-import '../utils/api/get_ssl_certificate_fingerprint.dart';
 import '../utils/settings_manager.dart';
+import '../utils/api/get_ssl_certificate_fingerprint.dart';
 import '../messages/all.dart';
 import '../constants/configurations.dart';
 

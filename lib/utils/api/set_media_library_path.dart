@@ -32,6 +32,7 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
   SetMediaLibraryPathRequest(
     path: cleanPath,
     dbPath: await getSettingsPath(),
+    configPath: await getSettingsPath(),
     mode: mode,
     playsOn: playsOn,
     hostedOn: hostedOn,
