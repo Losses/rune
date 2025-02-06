@@ -290,6 +290,6 @@ impl Signal for GetSslCertificateFingerprintRequest {
                 .await
                 .context("Failed to initialize certificates")?;
 
-        return Ok(Some(GetSslCertificateFingerprintResponse { fingerprint }));
+        Ok(Some(GetSslCertificateFingerprintResponse { fingerprint }))
     }
 }
