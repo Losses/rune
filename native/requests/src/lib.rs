@@ -382,7 +382,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             request: "GetSslCertificateFingerprintRequest".to_string(),
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
             local_only: false,
-        }
+        },
+        RequestResponse {
+            request: "UpdateClientStatusRequest".to_string(),
+            response: Some("UpdateClientStatusResponse".to_string()),
+            local_only: false,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =

@@ -34,7 +34,6 @@ message DiscoveredDeviceMessage {
 message StartServerRequest {
   string interface = 1;
   string alias = 2;
-  string permission_file_path = 4;
 }
 
 // [RUST-SIGNAL]
@@ -84,4 +83,16 @@ message GetSSLCertificateFingerprintRequest {
 // [RUST-SIGNAL]
 message GetSSLCertificateFingerprintResponse {
   string fingerprint = 1;
+}
+
+// [DART-SIGNAL]
+message UpdateClientStatusRequest {
+  string fingerprint = 1;
+  ClientStatus status = 2;
+}
+
+// [RUST-SIGNAL]
+message UpdateClientStatusResponse {
+  bool success = 1;
+  string error = 2;
 }

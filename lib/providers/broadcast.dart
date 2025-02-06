@@ -177,7 +177,6 @@ class BroadcastProvider extends ChangeNotifier {
     StartServerRequest(
       interface: interface,
       alias: _deviceAlias!,
-      permissionFilePath: await _permissionFilePath,
     ).sendSignalToRust();
   }
 

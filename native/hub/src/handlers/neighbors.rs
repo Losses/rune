@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use discovery::permission::{PermissionManager, UserStatus};
 use discovery::utils::{DeviceInfo, DeviceType};
 use discovery::DiscoveryParams;
+use tokio::sync::RwLock;
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
 use crate::utils::device_scanner::DeviceScanner;
@@ -170,10 +171,7 @@ impl Signal for StartServerRequest {
 
             let discovery_params = DiscoveryParams { device_info };
 
-            match server_manager
-                .start(addr, discovery_params, request.permission_file_path.clone())
-                .await
-            {
+            match server_manager.start(addr, discovery_params).await {
                 Ok(_) => Ok(Some(StartServerResponse {
                     success: true,
                     error: "".into(),
@@ -291,5 +289,48 @@ impl Signal for GetSslCertificateFingerprintRequest {
                 .context("Failed to initialize certificates")?;
 
         Ok(Some(GetSslCertificateFingerprintResponse { fingerprint }))
+    }
+}
+
+impl ParamsExtractor for UpdateClientStatusRequest {
+    type Params = Arc<RwLock<PermissionManager>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.permission_manager)
+    }
+}
+
+impl Signal for UpdateClientStatusRequest {
+    type Params = Arc<RwLock<PermissionManager>>;
+    type Response = UpdateClientStatusResponse;
+
+    async fn handle(
+        &self,
+        permission_manager: Self::Params,
+        message: &Self,
+    ) -> Result<Option<Self::Response>> {
+        match permission_manager
+            .write()
+            .await
+            .change_user_status(
+                &message.fingerprint,
+                match message.status {
+                    0 => UserStatus::Approved,
+                    1 => UserStatus::Pending,
+                    2 => UserStatus::Blocked,
+                    _ => UserStatus::Pending,
+                },
+            )
+            .await
+        {
+            Ok(_) => Ok(Some(UpdateClientStatusResponse {
+                success: true,
+                error: "".to_owned(),
+            })),
+            Err(e) => Ok(Some(UpdateClientStatusResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
     }
 }
