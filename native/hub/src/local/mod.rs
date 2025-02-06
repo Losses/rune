@@ -5,12 +5,13 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use log::{error, info};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 pub use tokio;
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::discovery::permission::PermissionManager;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
@@ -62,6 +63,9 @@ pub async fn local_player_loop(
 
         let device_scanner = Arc::new(device_scanner);
 
+        let permission_manager =
+            Arc::new(RwLock::new(PermissionManager::new(&**config_path).unwrap()));
+
         info!("Initializing Player events");
         tokio::spawn(initialize_player(
             lib_path.clone(),
@@ -84,6 +88,7 @@ pub async fn local_player_loop(
             scrobbler,
             broadcaster,
             device_scanner,
+            permission_manager,
             server_manager: OnceLock::new(),
         };
 

@@ -7,11 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
-use device_scanner::DeviceScanner;
 use dunce::canonicalize;
 use log::{error, info};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
+
+use device_scanner::DeviceScanner;
+use discovery::permission::PermissionManager;
 
 use ::database::actions::{
     collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
@@ -80,6 +82,7 @@ pub struct GlobalParams {
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub device_scanner: Arc<DeviceScanner>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
 }
 

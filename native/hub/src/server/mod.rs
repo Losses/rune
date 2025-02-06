@@ -11,7 +11,7 @@ use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::A
 
 use discovery::{permission::PermissionManager, utils::DeviceInfo};
 use log::error;
-use tokio::sync::{broadcast, Mutex};
+use tokio::sync::{broadcast, Mutex, RwLock};
 
 use crate::{
     remote::encode_message,
@@ -34,7 +34,7 @@ pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
     pub discovery_device_info: DeviceInfo,
-    pub permission_manager: Arc<PermissionManager>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
 }
 
 pub struct WebSocketService {

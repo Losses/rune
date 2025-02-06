@@ -35,6 +35,8 @@ pub async fn websocket_handler(
 
         if let Some(user) = state
             .permission_manager
+            .read()
+            .await
             .verify_by_public_key(&auth_key)
             .await
         {
@@ -47,6 +49,8 @@ pub async fn websocket_handler(
 
         if let Some(user) = state
             .permission_manager
+            .read()
+            .await
             .verify_by_fingerprint(&auth_key)
             .await
         {

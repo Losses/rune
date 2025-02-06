@@ -7,11 +7,12 @@ use std::{
 use anyhow::Result;
 use clap::{Arg, Command};
 use discovery::{
+    permission::PermissionManager,
     utils::{DeviceInfo, DeviceType},
     DiscoveryParams,
 };
 use log::info;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -83,9 +84,7 @@ async fn main() -> Result<()> {
         },
     };
 
-    server_manager
-        .start(addr, discovery_params, ".known-clients")
-        .await?;
+    server_manager.start(addr, discovery_params).await?;
 
     // Keep the main thread alive
     tokio::signal::ctrl_c().await?;
@@ -121,6 +120,8 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let broadcaster = Arc::new(WebSocketService::new());
     let device_scanner = Arc::new(DeviceScanner::new(broadcaster.clone()));
 
+    let permission_manager = Arc::new(RwLock::new(PermissionManager::new(&**config_path)?));
+
     info!("Initializing Player events");
     tokio::spawn(initialize_player(
         lib_path.clone(),
@@ -142,6 +143,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         scrobbler,
         broadcaster,
         device_scanner,
+        permission_manager,
         server_manager: OnceLock::new(),
     });
 

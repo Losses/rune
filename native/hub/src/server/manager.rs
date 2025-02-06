@@ -22,7 +22,7 @@ use tower_governor::{
 };
 
 use database::actions::cover_art::COVER_TEMP_DIR;
-use discovery::{permission::PermissionManager, DiscoveryParams};
+use discovery::DiscoveryParams;
 
 use crate::{
     messages::*,
@@ -72,12 +72,7 @@ impl ServerManager {
         })
     }
 
-    pub async fn start<P: AsRef<Path>>(
-        &self,
-        addr: SocketAddr,
-        discovery_params: DiscoveryParams,
-        permission_path: P,
-    ) -> Result<()>
+    pub async fn start(&self, addr: SocketAddr, discovery_params: DiscoveryParams) -> Result<()>
     where
         Self: Send,
     {
@@ -98,13 +93,11 @@ impl ServerManager {
             cover_temp_dir: COVER_TEMP_DIR.clone(),
         });
 
-        let permission_manager = Arc::new(PermissionManager::new(permission_path)?);
-
         let server_state = Arc::new(ServerState {
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
             discovery_device_info: discovery_params.device_info,
-            permission_manager,
+            permission_manager: self.global_params.permission_manager.clone(),
         });
 
         let governor_conf = GovernorConfigBuilder::default()
