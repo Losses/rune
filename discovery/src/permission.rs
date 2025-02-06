@@ -98,16 +98,21 @@ impl PermissionManager {
             .collect()
     }
 
-    pub async fn verify_by_public_key(&self, public_key: &str) -> Option<User> {
-        self.permissions.read().await.users.get(public_key).cloned()
+    pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
+        self.permissions
+            .read()
+            .await
+            .users
+            .get(fingerprint)
+            .cloned()
     }
 
-    pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
+    pub async fn verify_by_public_key(&self, public_key: &str) -> Option<User> {
         let permissions = self.permissions.read().await;
         permissions
             .users
             .values()
-            .find(|user| user.fingerprint == fingerprint)
+            .find(|user| user.public_key == public_key)
             .cloned()
     }
 
@@ -137,14 +142,14 @@ impl PermissionManager {
 
             let user = User {
                 public_key: public_key.clone(),
-                fingerprint,
+                fingerprint: fingerprint.clone(),
                 alias,
                 device_model,
                 device_type,
                 status: UserStatus::Pending,
             };
 
-            permissions.users.insert(public_key, user);
+            permissions.users.insert(fingerprint, user);
         }
 
         self.save().await?;
@@ -153,14 +158,14 @@ impl PermissionManager {
 
     pub async fn change_user_status(
         &mut self,
-        public_key: &str,
+        fingerprint: &str,
         new_status: UserStatus,
     ) -> Result<(), PermissionError> {
         {
             let mut permissions = self.permissions.write().await;
             let user = permissions
                 .users
-                .get_mut(public_key)
+                .get_mut(fingerprint)
                 .ok_or(PermissionError::UserNotFound)?;
             user.status = new_status;
         }
@@ -169,13 +174,13 @@ impl PermissionManager {
         Ok(())
     }
 
-    pub async fn remove_user(&mut self, public_key: &str) -> Result<(), PermissionError> {
+    pub async fn remove_user(&mut self, fingerprint: &str) -> Result<(), PermissionError> {
         if self
             .permissions
             .write()
             .await
             .users
-            .remove(public_key)
+            .remove(fingerprint)
             .is_none()
         {
             return Err(PermissionError::UserNotFound);
