@@ -1,11 +1,10 @@
-import 'dart:io';
 import 'dart:math';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 
-import '../utils/ssl.dart';
+import '../utils/api/get_ssl_certificate_fingerprint.dart';
 import '../utils/settings_manager.dart';
 import '../messages/all.dart';
 import '../constants/configurations.dart';
@@ -56,34 +55,7 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> _initializeFingerprint() async {
-    // Get settings path and file objects
-    final settingsPath = await getSettingsPath();
-    final certFile = File('$settingsPath/certificate.pem');
-    final keyFile = File('$settingsPath/private_key.pem');
-
-    // Check if certificate files and fingerprint exist
-    final certExists = await certFile.exists();
-    final keyExists = await keyFile.exists();
-    _fingerprint = await _settingsManager.getValue<String>(kFingerprintKey);
-
-    // Conditions requiring regeneration of the certificate
-    if (_fingerprint == null || !certExists || !keyExists) {
-      final certResult = await generateSelfSignedCertificate(
-        commonName: _deviceAlias!,
-        organization: 'Rune Device',
-        country: 'NET',
-        validityDays: 3650, // 10-year validity
-      );
-
-      // Save certificate and private key
-      await certFile.writeAsString(certResult.certificate);
-      await keyFile.writeAsString(certResult.privateKey);
-
-      // Update fingerprint information
-      _fingerprint = certResult.publicKeyFingerprint;
-      await _settingsManager.setValue(kFingerprintKey, _fingerprint);
-    }
-
+    _fingerprint = await getSSLCertificateFingerprint();
     notifyListeners();
   }
 
