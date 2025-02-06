@@ -53,7 +53,6 @@ message StopServerResponse {
 
 // [DART-SIGNAL]
 message ListClientsRequest {
-  string permission_file_path = 1;
 }
 
 // [RUST-SIGNAL]

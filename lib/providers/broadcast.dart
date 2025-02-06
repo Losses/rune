@@ -2,7 +2,6 @@ import 'dart:math';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart';
 
 import '../utils/settings_manager.dart';
 import '../utils/api/get_ssl_certificate_fingerprint.dart';
@@ -28,9 +27,6 @@ class BroadcastProvider extends ChangeNotifier {
 
   List<ClientSummary> _users = [];
   List<ClientSummary> get users => _users;
-
-  final Future<String> _permissionFilePath =
-      getSettingsPath().then((x) => join(x, ".known-clients"));
 
   int get remainingSeconds => _remainingSeconds;
   bool get isBroadcasting => _isBroadcasting;
@@ -186,8 +182,7 @@ class BroadcastProvider extends ChangeNotifier {
   }
 
   Future<void> fetchUsers() async {
-    ListClientsRequest(permissionFilePath: await _permissionFilePath)
-        .sendSignalToRust();
+    ListClientsRequest().sendSignalToRust();
   }
 
   @override

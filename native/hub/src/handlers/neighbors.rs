@@ -222,29 +222,24 @@ impl Signal for StopServerRequest {
 }
 
 impl ParamsExtractor for ListClientsRequest {
-    type Params = ();
+    type Params = Arc<RwLock<PermissionManager>>;
 
-    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.permission_manager)
+    }
 }
 
 impl Signal for ListClientsRequest {
-    type Params = ();
+    type Params = Arc<RwLock<PermissionManager>>;
     type Response = ListClientsResponse;
 
-    async fn handle(&self, (): Self::Params, request: &Self) -> Result<Option<Self::Response>> {
-        let pm_result = PermissionManager::new(&request.permission_file_path);
-        let pm = match pm_result {
-            Ok(pm) => pm,
-            Err(e) => {
-                return Ok(Some(ListClientsResponse {
-                    success: false,
-                    users: vec![],
-                    error: format!("Failed to initialize permissions: {}", e),
-                }))
-            }
-        };
+    async fn handle(
+        &self,
+        permission_manager: Self::Params,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let users = permission_manager.read().await.list_users().await;
 
-        let users = pm.list_users().await;
         let converted_users = users
             .into_iter()
             .map(|u| ClientSummary {
