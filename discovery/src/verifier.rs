@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -7,12 +8,44 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::client::WebPkiServerVerifier;
 use rustls::crypto::ring::default_provider;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::server::VerifierBuilderError;
 use rustls::{ClientConfig, Error as RustlsError, RootCertStore, SignatureScheme};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
 use crate::ssl::calculate_base85_fingerprint;
+
+#[derive(Error, Debug)]
+pub enum CertValidatorError {
+    #[error("The specified path is not a directory")]
+    NotADirectory,
+
+    #[error("Invalid path: cannot convert to string")]
+    InvalidPath,
+
+    #[error("Failed to create directory: {0}")]
+    DirectoryCreation(#[from] std::io::Error),
+
+    #[error("Failed to serialize/deserialize report: {0}")]
+    Serialization(#[from] bincode::Error),
+
+    #[error("Failed to parse certificate: {0}")]
+    CertificateParsing(String),
+
+    #[error("Invalid server name format")]
+    InvalidServerName,
+
+    #[error("Certificate fingerprint mismatch")]
+    FingerprintMismatch,
+
+    #[error("Unknown server and not in learn mode")]
+    UnknownServer,
+
+    #[error("TLS error: {0}")]
+    TlsError(#[from] RustlsError),
+}
 
 #[derive(Debug, Clone)]
 pub struct CertValidator {
@@ -28,7 +61,17 @@ struct FingerprintReport {
 }
 
 impl CertValidator {
-    pub fn new(report_path: impl AsRef<Path>, learn_mode: bool) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P, learn_mode: bool) -> Result<Self, CertValidatorError> {
+        let path = path.as_ref();
+
+        if !path.exists() {
+            fs::create_dir_all(path).map_err(CertValidatorError::DirectoryCreation)?;
+        } else if !path.is_dir() {
+            return Err(CertValidatorError::NotADirectory);
+        }
+
+        let report_path = path.join(".known-clients");
+
         let mut root_store = RootCertStore::empty();
         root_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
@@ -36,11 +79,15 @@ impl CertValidator {
             Arc::new(root_store),
             Arc::new(default_provider()),
         )
-        .build()?;
+        .build()
+        .map_err(|e: VerifierBuilderError| {
+            CertValidatorError::TlsError(RustlsError::General(e.to_string()))
+        })?;
 
-        let report_path = report_path.as_ref().to_path_buf();
+        let report_path = report_path.to_path_buf();
         let fingerprints = if report_path.exists() {
-            let data = std::fs::read(&report_path)?;
+            let data =
+                std::fs::read(&report_path).map_err(CertValidatorError::DirectoryCreation)?;
             let report: FingerprintReport = bincode::deserialize(&data)?;
             report.entries
         } else {
@@ -55,13 +102,13 @@ impl CertValidator {
         })
     }
 
-    fn save_report(&self) -> Result<(), Box<dyn std::error::Error>> {
+    fn save_report(&self) -> Result<(), CertValidatorError> {
         let fingerprints = self.fingerprints.lock().unwrap().clone();
         let report = FingerprintReport {
             entries: fingerprints,
         };
         let data = bincode::serialize(&report)?;
-        std::fs::write(&self.report_path, data)?;
+        std::fs::write(&self.report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
         Ok(())
     }
 
