@@ -49,6 +49,10 @@ pub enum PermissionError {
     UserNotFound,
     #[error("User already exists")]
     UserAlreadyExists,
+    #[error("Path is not a directory")]
+    NotADirectory,
+    #[error("Path is invalid")]
+    InvalidPath,
 }
 
 #[derive(Debug)]
@@ -60,9 +64,22 @@ pub struct PermissionManager {
 
 impl PermissionManager {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PermissionError> {
-        let file_path = path.as_ref().to_str().unwrap().to_string();
-        let permissions = if path.as_ref().exists() {
-            let content = fs::read_to_string(&path)?;
+        let path = path.as_ref();
+
+        if !path.exists() {
+            fs::create_dir_all(path)?;
+        } else if !path.is_dir() {
+            return Err(PermissionError::NotADirectory);
+        }
+
+        let file_path = path.join(".known-clients");
+        let file_path_str = file_path
+            .to_str()
+            .ok_or(PermissionError::InvalidPath)?
+            .to_string();
+
+        let permissions = if file_path.exists() {
+            let content = fs::read_to_string(&file_path)?;
             toml::from_str(&content)?
         } else {
             PermissionList {
@@ -71,7 +88,7 @@ impl PermissionManager {
         };
 
         Ok(Self {
-            file_path,
+            file_path: file_path_str,
             permissions: RwLock::new(permissions),
             ip_applications: RwLock::new(HashMap::new()),
         })
