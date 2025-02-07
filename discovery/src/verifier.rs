@@ -12,6 +12,7 @@ use rustls::server::VerifierBuilderError;
 use rustls::{ClientConfig, Error as RustlsError, RootCertStore, SignatureScheme};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use toml;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
@@ -29,7 +30,7 @@ pub enum CertValidatorError {
     DirectoryCreation(#[from] std::io::Error),
 
     #[error("Failed to serialize/deserialize report: {0}")]
-    Serialization(#[from] bincode::Error),
+    Serialization(String),
 
     #[error("Failed to parse certificate: {0}")]
     CertificateParsing(String),
@@ -40,7 +41,7 @@ pub enum CertValidatorError {
     #[error("Certificate fingerprint mismatch")]
     FingerprintMismatch,
 
-    #[error("Unknown server and not in learn mode")]
+    #[error("Unknown server")]
     UnknownServer,
 
     #[error("TLS error: {0}")]
@@ -52,7 +53,6 @@ pub struct CertValidator {
     inner_verifier: Arc<WebPkiServerVerifier>,
     report_path: PathBuf,
     fingerprints: Arc<Mutex<HashMap<String, String>>>,
-    learn_mode: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -61,7 +61,7 @@ struct FingerprintReport {
 }
 
 impl CertValidator {
-    pub fn new<P: AsRef<Path>>(path: P, learn_mode: bool) -> Result<Self, CertValidatorError> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, CertValidatorError> {
         let path = path.as_ref();
 
         if !path.exists() {
@@ -84,11 +84,11 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
-        let report_path = report_path.to_path_buf();
         let fingerprints = if report_path.exists() {
-            let data =
-                std::fs::read(&report_path).map_err(CertValidatorError::DirectoryCreation)?;
-            let report: FingerprintReport = bincode::deserialize(&data)?;
+            let data = std::fs::read_to_string(&report_path)
+                .map_err(CertValidatorError::DirectoryCreation)?;
+            let report: FingerprintReport = toml::from_str(&data)
+                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
             report.entries
         } else {
             HashMap::new()
@@ -98,7 +98,6 @@ impl CertValidator {
             inner_verifier,
             report_path,
             fingerprints: Arc::new(Mutex::new(fingerprints)),
-            learn_mode,
         })
     }
 
@@ -107,8 +106,30 @@ impl CertValidator {
         let report = FingerprintReport {
             entries: fingerprints,
         };
-        let data = bincode::serialize(&report)?;
+        let data = toml::to_string(&report)
+            .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
         std::fs::write(&self.report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
+        Ok(())
+    }
+
+    pub fn add_trusted_domains<I, S>(
+        &self,
+        domains: I,
+        fingerprint: S,
+    ) -> Result<(), CertValidatorError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let fingerprint = fingerprint.as_ref().to_string();
+        let mut fingerprints = self.fingerprints.lock().unwrap();
+
+        for domain in domains.into_iter() {
+            let domain = domain.as_ref().to_string();
+            fingerprints.insert(domain, fingerprint.clone());
+        }
+
+        self.save_report()?;
         Ok(())
     }
 
@@ -149,20 +170,12 @@ impl ServerCertVerifier for CertValidator {
             _ => return Err(RustlsError::General("Invalid server name".into())),
         };
 
-        let mut fingerprints = self.fingerprints.lock().unwrap();
+        let fingerprints = self.fingerprints.lock().unwrap();
         match fingerprints.get(&server_name_str) {
             Some(existing) if existing != &fingerprint => Err(RustlsError::General(
                 "Certificate fingerprint mismatch".into(),
             )),
-            None if self.learn_mode => {
-                fingerprints.insert(server_name_str, fingerprint);
-                self.save_report()
-                    .map_err(|e| RustlsError::General(e.to_string()))?;
-                Ok(ServerCertVerified::assertion())
-            }
-            None => Err(RustlsError::General(
-                "Unknown server and not in learn mode".into(),
-            )),
+            None => Err(RustlsError::General("Unknown server".into())),
             Some(_) => Ok(ServerCertVerified::assertion()),
         }
     }
