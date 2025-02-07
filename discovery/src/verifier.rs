@@ -4,6 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
+use http_body_util::Empty;
+use hyper::body::Bytes;
+use hyper_util::rt::TokioIo;
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -16,11 +19,14 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio_rustls::TlsConnector;
 use toml;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
 use crate::ssl::calculate_base85_fingerprint;
+
+type CertInfo = Option<(Vec<u8>, String)>;
 
 #[derive(Error, Debug)]
 pub enum CertValidatorError {
@@ -116,14 +122,15 @@ impl CertValidator {
         Ok(())
     }
 
-    pub fn add_trusted_domains<I, S>(
+    pub fn add_trusted_domains<I, D, F>(
         &self,
         domains: I,
-        fingerprint: S,
+        fingerprint: F,
     ) -> Result<(), CertValidatorError>
     where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
+        I: IntoIterator<Item = D>,
+        D: AsRef<str>,
+        F: AsRef<str>,
     {
         let fingerprint = fingerprint.as_ref().to_string();
         let mut fingerprints = self.fingerprints.lock().unwrap();
@@ -207,4 +214,136 @@ impl ServerCertVerifier for CertValidator {
         self.inner_verifier
             .verify_tls13_signature(message, cert, dss)
     }
+}
+
+pub struct ServerCert {
+    pub cert: Vec<u8>,
+    pub fingerptint: String,
+}
+
+pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValidatorError> {
+    let uri = url
+        .parse::<hyper::Uri>()
+        .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
+    let host = uri
+        .host()
+        .ok_or(CertValidatorError::InvalidServerName)?
+        .to_string();
+    let port = uri.port_u16().unwrap_or(443);
+
+    let cert_info = Arc::new(Mutex::new(None));
+    let verifier = TempCertVerifier {
+        cert_info: Arc::clone(&cert_info),
+    };
+
+    let config = ClientConfig::builder()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth();
+
+    let connector = TlsConnector::from(Arc::new(config));
+
+    let tcp_stream = tokio::net::TcpStream::connect((host.clone(), port))
+        .await
+        .map_err(CertValidatorError::DirectoryCreation)?;
+
+    let server_name =
+        ServerName::try_from(host).map_err(|_| CertValidatorError::InvalidServerName)?;
+
+    let tls_stream = connector
+        .connect(server_name, tcp_stream)
+        .await
+        .map_err(|e| CertValidatorError::TlsError(RustlsError::General(e.to_string())))?;
+
+    let io = TokioIo::new(tls_stream);
+
+    let (mut sender, connection) = hyper::client::conn::http1::handshake(io)
+        .await
+        .map_err(|e| CertValidatorError::TlsError(RustlsError::General(e.to_string())))?;
+
+    tokio::spawn(async move {
+        if let Err(err) = connection.await {
+            eprintln!("Connection error: {}", err);
+        }
+    });
+
+    let request = hyper::Request::builder()
+        .uri(uri)
+        .method("GET")
+        .body(Empty::<Bytes>::new())
+        .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
+
+    let _ = sender.send_request(request).await;
+
+    let guard = cert_info.lock().unwrap();
+    guard
+        .clone()
+        .map(|(public_key, fingerprint)| ServerCert {
+            cert: public_key,
+            fingerptint: fingerprint,
+        })
+        .ok_or(CertValidatorError::CertificateParsing(
+            "No certificate captured".into(),
+        ))
+}
+
+#[derive(Debug)]
+struct TempCertVerifier {
+    cert_info: Arc<Mutex<CertInfo>>,
+}
+
+impl ServerCertVerifier for TempCertVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &ServerName<'_>,
+        _: &[u8],
+        _: UnixTime,
+    ) -> Result<ServerCertVerified, RustlsError> {
+        let (_, cert) = parse_x509_certificate(end_entity.as_ref())
+            .map_err(|e| RustlsError::General(e.to_string()))?;
+
+        let public_key = cert.public_key().raw.to_vec();
+        let fingerprint = calculate_base85_fingerprint(&public_key)
+            .map_err(|e| RustlsError::General(e.to_string()))?;
+
+        *self.cert_info.lock().unwrap() = Some((public_key, fingerprint));
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![SignatureScheme::RSA_PKCS1_SHA256]
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, RustlsError> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+}
+
+pub fn trust_server(
+    validator: &CertValidator,
+    domains: Vec<String>,
+    ips: Vec<String>,
+    fingerprint: &str,
+) -> Result<(), CertValidatorError> {
+    let mut all_entries = Vec::with_capacity(domains.len() + ips.len());
+    all_entries.extend(domains);
+    all_entries.extend(ips);
+
+    validator.add_trusted_domains(all_entries, fingerprint)
 }
