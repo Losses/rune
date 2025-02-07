@@ -21,8 +21,11 @@ use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
 };
 
-use database::actions::cover_art::COVER_TEMP_DIR;
-use discovery::DiscoveryParams;
+use ::database::actions::cover_art::COVER_TEMP_DIR;
+use ::discovery::{
+    ssl::{calculate_base85_fingerprint, generate_self_signed_cert},
+    DiscoveryParams,
+};
 
 use crate::{
     messages::*,
@@ -36,8 +39,6 @@ use crate::{
     utils::{GlobalParams, ParamsExtractor, RinfRustSignal},
     Signal,
 };
-
-use super::ssl::{calculate_base85_fingerprint, generate_self_signed_cert};
 
 #[derive(Debug)]
 pub struct ServerManager {

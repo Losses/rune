@@ -5,7 +5,6 @@ mod manager;
 pub use manager::generate_or_load_certificates;
 pub use manager::get_or_generate_certificate_id;
 pub use manager::ServerManager;
-pub mod ssl;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
