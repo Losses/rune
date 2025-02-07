@@ -4,12 +4,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::WebPkiServerVerifier;
-use rustls::crypto::ring::default_provider;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::server::VerifierBuilderError;
-use rustls::{ClientConfig, Error as RustlsError, RootCertStore, SignatureScheme};
+use rustls::{
+    client::{
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+        ClientConfig, WebPkiServerVerifier,
+    },
+    crypto::ring::default_provider,
+    pki_types::{CertificateDer, ServerName, UnixTime},
+    server::VerifierBuilderError,
+    Error as RustlsError, RootCertStore, SignatureScheme,
+};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use toml;
