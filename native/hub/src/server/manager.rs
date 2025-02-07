@@ -32,7 +32,8 @@ use crate::{
     server::{
         handlers::{
             device_info_handler::device_info_handler, file_handler::file_handler,
-            register_handler::register_handler, websocket_handler::websocket_handler,
+            ping_handler::ping_handler, register_handler::register_handler,
+            websocket_handler::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
     },
@@ -116,6 +117,7 @@ impl ServerManager {
 
         let app = Router::new()
             .merge(register_route)
+            .route("/ping", get(ping_handler))
             .route("/ws", get(websocket_handler))
             .route("/files/{*file_path}", get(file_handler))
             .route("/device-info", get(device_info_handler))
