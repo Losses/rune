@@ -6,11 +6,6 @@ use std::{
 
 use anyhow::Result;
 use clap::{Arg, Command};
-use discovery::{
-    permission::PermissionManager,
-    utils::{DeviceInfo, DeviceType},
-    DiscoveryParams,
-};
 use log::info;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -25,6 +20,12 @@ use hub::{
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::discovery::{
+    permission::PermissionManager,
+    utils::{DeviceInfo, DeviceType},
+    verifier::CertValidator,
+    DiscoveryParams,
+};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -121,6 +122,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let device_scanner = Arc::new(DeviceScanner::new(broadcaster.clone()));
 
     let permission_manager = Arc::new(RwLock::new(PermissionManager::new(&**config_path)?));
+    let cert_validator = Arc::new(RwLock::new(CertValidator::new(&**config_path).unwrap()));
 
     info!("Initializing Player events");
     tokio::spawn(initialize_player(
@@ -143,6 +145,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         scrobbler,
         broadcaster,
         device_scanner,
+        cert_validator,
         permission_manager,
         server_manager: OnceLock::new(),
     });

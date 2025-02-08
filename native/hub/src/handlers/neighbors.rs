@@ -2,10 +2,11 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 
 use discovery::permission::{PermissionManager, UserStatus};
 use discovery::utils::{DeviceInfo, DeviceType};
+use discovery::verifier::{fetch_server_certificate, try_connect, CertValidator};
 use discovery::DiscoveryParams;
 use tokio::sync::RwLock;
 
@@ -324,6 +325,133 @@ impl Signal for UpdateClientStatusRequest {
             })),
             Err(e) => Ok(Some(UpdateClientStatusResponse {
                 success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for EditHostsRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for EditHostsRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = EditHostsResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let result = validator
+            .write()
+            .await
+            .replace_hosts_for_fingerprint(&req.fingerprint, req.hosts.clone());
+        match result {
+            Ok(_) => Ok(Some(EditHostsResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(EditHostsResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for RemoveTrustRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for RemoveTrustRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = RemoveTrustResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let result = validator.write().await.remove_fingerprint(&req.fingerprint);
+        match result {
+            Ok(_) => Ok(Some(RemoveTrustResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(RemoveTrustResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for ConnectRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for ConnectRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = ConnectResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let tasks = req.hosts.iter().map(|host| {
+            let validator = Arc::clone(&validator);
+            let host = host.clone();
+            tokio::spawn(async move {
+                try_connect(&host, validator.read().await.clone().into_client_config()).await
+            })
+        });
+
+        let mut last_err = None;
+        for task in tasks {
+            match task.await {
+                Ok(Ok(host)) => {
+                    return Ok(Some(ConnectResponse {
+                        success: true,
+                        connected_host: host,
+                        error: String::new(),
+                    }))
+                }
+                Ok(Err(e)) => last_err = Some(e),
+                Err(e) => last_err = Some(anyhow!(e)),
+            }
+        }
+
+        Ok(Some(ConnectResponse {
+            success: false,
+            connected_host: String::new(),
+            error: last_err.map(|e| e.to_string()).unwrap_or_default(),
+        }))
+    }
+}
+
+impl ParamsExtractor for FetchServerCertificateRequest {
+    type Params = ();
+
+    fn extract_params(&self, _all_params: &GlobalParams) -> Self::Params {}
+}
+
+impl Signal for FetchServerCertificateRequest {
+    type Params = ();
+    type Response = FetchServerCertificateResponse;
+
+    async fn handle(&self, _: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        match fetch_server_certificate(&req.url).await {
+            Ok(cert) => Ok(Some(FetchServerCertificateResponse {
+                success: true,
+                fingerprint: cert.fingerprint,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(FetchServerCertificateResponse {
+                success: false,
+                fingerprint: String::new(),
                 error: e.to_string(),
             })),
         }

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
+use discovery::verifier::CertValidator;
 use dunce::canonicalize;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
@@ -82,6 +83,7 @@ pub struct GlobalParams {
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub device_scanner: Arc<DeviceScanner>,
+    pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
 }

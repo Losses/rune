@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use http_body_util::Empty;
 use hyper::body::Bytes;
+use hyper::Uri;
 use hyper_util::rt::TokioIo;
 use rustls::{
     client::{
@@ -19,6 +20,7 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 use toml;
 use webpki_roots::TLS_SERVER_ROOTS;
@@ -285,7 +287,7 @@ impl ServerCertVerifier for CertValidator {
 
 pub struct ServerCert {
     pub cert: Vec<u8>,
-    pub fingerptint: String,
+    pub fingerprint: String,
 }
 
 pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValidatorError> {
@@ -347,7 +349,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         .clone()
         .map(|(public_key, fingerprint)| ServerCert {
             cert: public_key,
-            fingerptint: fingerprint,
+            fingerprint,
         })
         .ok_or(CertValidatorError::CertificateParsing(
             "No certificate captured".into(),
@@ -413,4 +415,16 @@ pub fn trust_server(
     all_entries.extend(ips);
 
     validator.add_trusted_domains(all_entries, fingerprint)
+}
+
+pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
+    let uri = host.parse::<Uri>()?;
+    let host_str = uri.host().unwrap().to_string();
+    let sni = ServerName::try_from(host_str.clone())?;
+
+    let connector = TlsConnector::from(Arc::new(config));
+    let tcp = TcpStream::connect((host_str.as_str(), uri.port_u16().unwrap_or(443))).await?;
+    let _ = connector.connect(sni, tcp).await?;
+
+    Ok(host.to_string())
 }

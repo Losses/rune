@@ -388,6 +388,26 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("UpdateClientStatusResponse".to_string()),
             local_only: false,
         },
+        RequestResponse {
+            request: "EditHostsRequest".to_string(),
+            response: Some("EditHostsResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "RemoveTrustRequest".to_string(),
+            response: Some("RemoveTrustResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "ConnectRequest".to_string(),
+            response: Some("ConnectResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "FetchServerCertificateRequest".to_string(),
+            response: Some("FetchServerCertificateResponse".to_string()),
+            local_only: false,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =

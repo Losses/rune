@@ -4,6 +4,7 @@ mod gui_request;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use discovery::verifier::CertValidator;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -65,6 +66,8 @@ pub async fn local_player_loop(
 
         let permission_manager =
             Arc::new(RwLock::new(PermissionManager::new(&**config_path).unwrap()));
+        let cert_validator =
+            Arc::new(RwLock::new(CertValidator::new(&**config_path).unwrap()));
 
         info!("Initializing Player events");
         tokio::spawn(initialize_player(
@@ -88,6 +91,7 @@ pub async fn local_player_loop(
             scrobbler,
             broadcaster,
             device_scanner,
+            cert_validator,
             permission_manager,
             server_manager: OnceLock::new(),
         };
