@@ -62,12 +62,13 @@ pub enum CertValidatorError {
 pub struct CertValidator {
     inner_verifier: Arc<WebPkiServerVerifier>,
     report_path: PathBuf,
-    fingerprints: Arc<Mutex<HashMap<String, String>>>,
+    host_to_fingerprint: Arc<Mutex<HashMap<String, String>>>, // host -> fingerprint
+    fingerprint_to_hosts: Arc<Mutex<HashMap<String, Vec<String>>>>, // fingerprint -> hosts
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct FingerprintReport {
-    entries: HashMap<String, String>,
+    entries: HashMap<String, Vec<String>>, // fingerprint -> list of hosts
 }
 
 impl CertValidator {
@@ -94,32 +95,86 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
-        let fingerprints = if report_path.exists() {
-            let data = std::fs::read_to_string(&report_path)
-                .map_err(CertValidatorError::DirectoryCreation)?;
+        let (host_to_fingerprint, fingerprint_to_hosts) = if report_path.exists() {
+            let data = std::fs::read_to_string(&report_path)?;
             let report: FingerprintReport = toml::from_str(&data)
                 .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
-            report.entries
+            let mut host_map = HashMap::new();
+            let mut fp_map = HashMap::new();
+            for (fp, hosts) in report.entries {
+                for host in &hosts {
+                    host_map.insert(host.clone(), fp.clone());
+                }
+                fp_map.insert(fp, hosts);
+            }
+            (host_map, fp_map)
         } else {
-            HashMap::new()
+            (HashMap::new(), HashMap::new())
         };
 
         Ok(Self {
             inner_verifier,
             report_path,
-            fingerprints: Arc::new(Mutex::new(fingerprints)),
+            host_to_fingerprint: Arc::new(Mutex::new(host_to_fingerprint)),
+            fingerprint_to_hosts: Arc::new(Mutex::new(fingerprint_to_hosts)),
         })
     }
 
     fn save_report(&self) -> Result<(), CertValidatorError> {
-        let fingerprints = self.fingerprints.lock().unwrap().clone();
-        let report = FingerprintReport {
-            entries: fingerprints,
-        };
+        let fp_map = self.fingerprint_to_hosts.lock().unwrap().clone();
+        let report = FingerprintReport { entries: fp_map };
+
         let data = toml::to_string(&report)
             .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
         std::fs::write(&self.report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
         Ok(())
+    }
+
+    pub fn replace_hosts_for_fingerprint(
+        &self,
+        fingerprint: &str,
+        new_hosts: Vec<String>,
+    ) -> Result<(), CertValidatorError> {
+        let mut host_map = self.host_to_fingerprint.lock().unwrap();
+        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+
+        if let Some(old_hosts) = fp_map.remove(fingerprint) {
+            for host in old_hosts {
+                host_map.remove(&host);
+            }
+        }
+
+        let mut dedup_hosts = Vec::new();
+        for host in new_hosts {
+            if !host_map.contains_key(&host) {
+                host_map.insert(host.clone(), fingerprint.to_string());
+                dedup_hosts.push(host);
+            }
+        }
+
+        fp_map.insert(fingerprint.to_string(), dedup_hosts);
+        self.save_report()
+    }
+
+    pub fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
+        let mut host_map = self.host_to_fingerprint.lock().unwrap();
+        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+
+        if let Some(hosts) = fp_map.remove(fingerprint) {
+            for host in hosts {
+                host_map.remove(&host);
+            }
+        }
+        self.save_report()
+    }
+
+    pub fn get_hosts_for_fingerprint(&self, fingerprint: &str) -> Vec<String> {
+        self.fingerprint_to_hosts
+            .lock()
+            .unwrap()
+            .get(fingerprint)
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn add_trusted_domains<I, D, F>(
@@ -133,15 +188,27 @@ impl CertValidator {
         F: AsRef<str>,
     {
         let fingerprint = fingerprint.as_ref().to_string();
-        let mut fingerprints = self.fingerprints.lock().unwrap();
+        let mut host_map = self.host_to_fingerprint.lock().unwrap();
+        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
         for domain in domains.into_iter() {
             let domain = domain.as_ref().to_string();
-            fingerprints.insert(domain, fingerprint.clone());
+
+            if let Some(old_fp) = host_map.remove(&domain) {
+                if let Some(hosts) = fp_map.get_mut(&old_fp) {
+                    hosts.retain(|h| h != &domain);
+                    if hosts.is_empty() {
+                        fp_map.remove(&old_fp);
+                    }
+                }
+            }
+
+            host_map.insert(domain.clone(), fingerprint.clone());
+
+            fp_map.entry(fingerprint.clone()).or_default().push(domain);
         }
 
-        self.save_report()?;
-        Ok(())
+        self.save_report()
     }
 
     pub fn into_client_config(self) -> ClientConfig {
@@ -181,8 +248,8 @@ impl ServerCertVerifier for CertValidator {
             _ => return Err(RustlsError::General("Invalid server name".into())),
         };
 
-        let fingerprints = self.fingerprints.lock().unwrap();
-        match fingerprints.get(&server_name_str) {
+        let host_to_fp = self.host_to_fingerprint.lock().unwrap();
+        match host_to_fp.get(&server_name_str) {
             Some(existing) if existing != &fingerprint => Err(RustlsError::General(
                 "Certificate fingerprint mismatch".into(),
             )),
