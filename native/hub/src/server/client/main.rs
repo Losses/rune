@@ -1,24 +1,28 @@
 use std::sync::Arc;
 
+use ::discovery::verifier::CertValidator;
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use connection::WSConnection;
 use log::error;
 use regex::Regex;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing_subscriber::EnvFilter;
 
 pub mod api;
 pub mod cli;
 pub mod commands;
 pub mod connection;
+pub mod discovery;
 pub mod editor;
 pub mod fs;
 pub mod hints;
+pub mod utils;
 
 use cli::Command;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
+use utils::{init_system_paths, AppState};
 
 /// Program arguments
 #[derive(Parser)]
@@ -61,7 +65,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fs = Arc::new(RwLock::new(VirtualFS::new(connection)));
     let mut editor = create_editor(config, fs.clone())?;
 
+    let config_dir = init_system_paths()?;
+    let state: Arc<AppState> = Arc::new(AppState {
+        fs: fs.clone(),
+        validator: CertValidator::new(config_dir.join("certs"))?,
+        discovery: Arc::new(Mutex::new(None)),
+        config_dir: config_dir.clone(),
+    });
+
     loop {
+        let state = state.clone();
         let current_dir = {
             let fs_read_guard = fs.read().await;
             fs_read_guard.current_dir().to_owned()
@@ -78,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let command = Command::parse(&line);
                 match command {
                     Ok(cmd) => {
-                        if !commands::execute(cmd, &fs).await? {
+                        if !commands::execute(cmd, state).await? {
                             break;
                         }
                     }

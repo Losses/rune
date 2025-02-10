@@ -1,25 +1,28 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
+use anyhow::{Context, Result};
 use clean_path::Clean;
 use colored::*;
-use tokio::sync::RwLock;
+use futures::future::OptionFuture;
+use tokio::sync::Mutex;
 use unicode_width::UnicodeWidthStr;
+
+use discovery::verifier::CertValidator;
 
 use crate::api::{
     operate_playback_with_mix_query_request, send_next_request, send_pause_request,
     send_play_request, send_previous_request, send_set_playback_mode_request,
 };
-use crate::cli::Command;
-use crate::fs::VirtualFS;
+use crate::cli::{Command, DiscoveryCmd, RemoteCmd};
+use crate::discovery::DiscoveryRuntime;
+use crate::utils::{load_device_info, print_device_details, print_device_table, AppState};
 
-pub async fn execute(
-    command: Command,
-    fs: &Arc<RwLock<VirtualFS>>,
-) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn execute(command: Command, state: Arc<AppState>) -> Result<bool> {
     match command {
         Command::Ls { long } => {
-            let mut fs = fs.write().await;
+            let mut fs = state.fs.write().await;
             match fs.list_current_dir().await {
                 Ok(entries) => {
                     if long {
@@ -102,12 +105,12 @@ pub async fn execute(
             Ok(true)
         }
         Command::Pwd => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             println!("Current directory: {}", fs.current_dir().to_string_lossy());
             Ok(true)
         }
         Command::Cd { path, id } => {
-            let mut fs = fs.write().await;
+            let mut fs = state.fs.write().await;
 
             let new_path = if id {
                 // Resolve the path using ID mode
@@ -150,7 +153,7 @@ pub async fn execute(
             operate_mode,
             id,
         } => {
-            let mut fs = fs.write().await;
+            let mut fs = state.fs.write().await;
             let mut path = fs.current_path.join(path).clean();
 
             if id {
@@ -175,35 +178,42 @@ pub async fn execute(
             Ok(true)
         }
         Command::Play => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             send_play_request(&fs.connection).await?;
 
             Ok(true)
         }
         Command::Pause => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             send_pause_request(&fs.connection).await?;
 
             Ok(true)
         }
         Command::Next => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             send_next_request(&fs.connection).await?;
 
             Ok(true)
         }
         Command::Previous => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             send_previous_request(&fs.connection).await?;
 
             Ok(true)
         }
         Command::SetMode { mode } => {
-            let fs = fs.read().await;
+            let fs = state.fs.read().await;
             send_set_playback_mode_request(mode, &fs.connection).await?;
 
             Ok(true)
         }
+        Command::Discovery(subcmd) => {
+            handle_discovery(subcmd, state.discovery.clone(), &state.config_dir).await
+        }
+        Command::Remote(subcmd) => {
+            handle_remote(subcmd, state.discovery.clone(), &state.validator).await
+        }
+
         Command::Quit => Ok(false),
         Command::Exit => todo!(),
         Command::Cdi { path: _ } => todo!(),
@@ -213,5 +223,80 @@ pub async fn execute(
             instant_play: _,
             operate_mode: _,
         } => todo!(),
+    }
+}
+
+async fn handle_discovery(
+    cmd: DiscoveryCmd,
+    discovery: Arc<Mutex<Option<DiscoveryRuntime>>>,
+    config_path: &Path,
+) -> Result<bool> {
+    match cmd {
+        DiscoveryCmd::Scan { duration } => {
+            let device_info = load_device_info(config_path.to_path_buf()).await?;
+            let rt = DiscoveryRuntime::new(config_path).await?;
+
+            rt.start_service(device_info, Duration::from_secs(1))
+                .await?;
+            tokio::time::sleep(Duration::from_secs(duration)).await;
+            rt.cancel_token.cancel();
+
+            Ok(true)
+        }
+        DiscoveryCmd::List => {
+            let rt = discovery.lock().await;
+            let devices = OptionFuture::from(rt.as_ref().map(|r| r.store.load()))
+                .await
+                .transpose()?;
+
+            print_device_table(devices.unwrap_or_default());
+            Ok(true)
+        }
+        DiscoveryCmd::Stop => {
+            let mut lock = discovery.lock().await;
+            if let Some(rt) = lock.take() {
+                rt.cancel_token.cancel();
+                rt.service.shutdown().await;
+            }
+            Ok(true)
+        }
+    }
+}
+
+async fn handle_remote(
+    cmd: RemoteCmd,
+    discovery: Arc<Mutex<Option<DiscoveryRuntime>>>,
+    validator: &CertValidator,
+) -> Result<bool> {
+    let lock = discovery.lock().await;
+    let rt = lock
+        .as_ref()
+        .with_context(|| "Discovery service not running")?;
+    let devices = rt.store.load().await?;
+
+    match cmd {
+        RemoteCmd::Inspect { index } => {
+            let dev = devices.get(index - 1).with_context(|| "Invalid index")?;
+            print_device_details(dev);
+            Ok(true)
+        }
+        RemoteCmd::Trust { index, domains } => {
+            let dev = devices.get(index - 1).with_context(|| "Invalid index")?;
+            let hosts: Vec<String> = domains
+                .map(|d| d.split(',').map(|s| s.trim().to_string()).collect())
+                .unwrap_or_else(|| dev.ips.clone().into_iter().map(|x| x.to_string()).collect());
+
+            validator.add_trusted_domains(hosts, &dev.fingerprint)?;
+            Ok(true)
+        }
+        RemoteCmd::Untrust { fingerprint } => {
+            validator.remove_fingerprint(&fingerprint)?;
+            Ok(true)
+        }
+        RemoteCmd::Edit { fingerprint, hosts } => {
+            let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
+            validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts)?;
+            Ok(true)
+        }
     }
 }

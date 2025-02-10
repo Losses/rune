@@ -8,6 +8,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use log::{debug, error, info, warn};
 use netdev::Interface;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
@@ -19,7 +20,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::utils::{DeviceInfo, DeviceType};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredDevice {
     pub alias: String,
     pub device_model: String,

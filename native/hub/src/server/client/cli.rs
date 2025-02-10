@@ -132,10 +132,61 @@ pub enum Command {
         /// Playback mode (sequential, repeatone, repeatall, shuffle)
         mode: PlaybackMode,
     },
+
+    /// Device discovery and management
+    #[command(subcommand)]
+    Discovery(DiscoveryCmd),
+    /// Remote device trust management
+    #[command(subcommand)]
+    Remote(RemoteCmd),
+
     /// Exit the program
     Quit,
     /// Alias for `quit`
     Exit,
+}
+
+#[derive(Debug, Parser)]
+pub enum DiscoveryCmd {
+    /// Scan for devices in the network
+    Scan {
+        /// Continuous scanning mode (seconds)
+        #[arg(short, long, default_value = "60")]
+        duration: u64,
+    },
+    /// List discovered devices
+    List,
+    /// Stop discovered devices
+    Stop,
+}
+
+#[derive(Debug, Parser)]
+pub enum RemoteCmd {
+    /// View device certificate information
+    Inspect {
+        /// Device index
+        index: usize,
+    },
+    /// Trust specified device
+    Trust {
+        /// Device index
+        index: usize,
+        /// Trusted hosts (splitted by comma)
+        #[arg(long)]
+        domains: Option<String>,
+    },
+    /// Delete trusted device
+    Untrust {
+        /// Certificate fingerprint
+        fingerprint: String,
+    },
+    /// Edit device associated hostnames
+    Edit {
+        /// Certificate fingerprint
+        fingerprint: String,
+        /// New hostname list (comma-separated)
+        hosts: String,
+    },
 }
 
 impl Command {
