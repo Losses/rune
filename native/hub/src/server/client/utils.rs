@@ -19,7 +19,7 @@ pub fn print_device_table(devices: &[DiscoveredDevice]) {
         .enumerate()
         .map(|(i, dev)| {
             let main_ip = dev.ips.first().map(|ip| ip.to_string()).unwrap_or_default();
-            let last_seen = humantime::format_rfc3339_seconds(dev.last_seen);
+            let last_seen = humantime::format_rfc3339_seconds(dev.last_seen.into());
             vec![
                 (i + 1).to_string(),
                 dev.alias.clone(),
@@ -53,7 +53,7 @@ pub fn print_device_details(dev: &DiscoveredDevice) {
     println!(
         "│{:<15}: {}│",
         "Last Seen",
-        humantime::format_rfc3339_seconds(dev.last_seen)
+        humantime::format_rfc3339_seconds(dev.last_seen.into())
     );
     println!("├{:─<30}┤", " Network Addresses ");
     for ip in &dev.ips {
