@@ -96,6 +96,7 @@ async fn main() -> Result<()> {
                 let cancel_token = cancel_token.clone();
                 let discovery_service = discovery_service.clone();
                 let device_info = device_info.clone();
+                info!("Announcing this server as {}", device_info.alias);
                 async move {
                     loop {
                         if let Err(e) = discovery_service.announce(device_info.clone()).await {
