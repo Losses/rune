@@ -34,7 +34,7 @@ sha2 = "0.10.8"
 socket2 = "0.5.8"
 thiserror = "2.0.11"
 time = "0.3.37"
-tokio = { version = "1.43.0", features = ["rt-multi-thread", "signal"] }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "signal", "fs"] }
 tokio-util = "0.7.13"
 toml = "0.8.19"
 tower = { version = "0.5.2" }

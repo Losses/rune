@@ -3,7 +3,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use log::{error, info};
 use tokio::sync::mpsc::{channel, Receiver};
@@ -61,11 +61,7 @@ impl DeviceScanner {
                     device_model: device.device_model,
                     device_type: device.device_type.to_string(),
                     fingerprint: device.fingerprint,
-                    last_seen_unix_epoch: device
-                        .last_seen
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
+                    last_seen_unix_epoch: device.last_seen.timestamp(),
                     ips: device.ips.iter().map(|x| x.to_string()).collect(),
                 };
 

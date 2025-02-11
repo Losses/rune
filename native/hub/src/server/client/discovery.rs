@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
+use chrono::Utc;
 use log::error;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -54,7 +55,10 @@ impl DiscoveryStore {
         let devices = self.devices.lock().await.clone();
         let filtered: Vec<_> = devices
             .iter()
-            .filter(|d| d.last_seen.elapsed().unwrap_or(Duration::MAX) < Duration::from_secs(30))
+            .filter(|d| {
+                let elapsed = Utc::now().signed_duration_since(d.last_seen);
+                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
+            })
             .cloned()
             .collect();
 
@@ -66,8 +70,11 @@ impl DiscoveryStore {
     /// Removes expired devices from both memory and persistent storage
     pub async fn prune_expired(&self) -> Result<()> {
         let mut devices = self.devices.lock().await;
-        devices
-            .retain(|d| d.last_seen.elapsed().unwrap_or(Duration::MAX) < Duration::from_secs(30));
+        let now = Utc::now();
+        devices.retain(|d| {
+            let elapsed = now.signed_duration_since(d.last_seen);
+            elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
+        });
         self.save().await
     }
 

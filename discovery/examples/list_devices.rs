@@ -1,24 +1,24 @@
 /// Important Note for Local Development
-/// 
+///
 /// When testing device discovery functionality on a single machine (localhost),
 /// you must enable multicast on the loopback interface first.
-/// 
+///
 /// Run the following command:
-/// 
+///
 /// ```bash
 /// sudo ip link set lo multicast on
 /// ```
-/// 
+///
 /// This is necessary because:
 /// 1. The discovery service uses UDP multicast for device announcements
 /// 2. By default, the loopback interface (lo) has multicast disabled
 /// 3. Without enabling multicast on loopback, the service won't be able to receive
 ///    its own announcements during local testing
-
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
+use chrono::Utc;
 use clap::Parser;
 use rand::Rng;
 use tokio::signal;
@@ -114,11 +114,11 @@ impl DeviceDiscovery {
 
     async fn cleanup_old_devices(devices: &RwLock<HashMap<String, DiscoveredDevice>>) {
         let mut devices = devices.write().await;
-        let now = SystemTime::now();
+        let now = Utc::now();
         devices.retain(|_, device| {
-            now.duration_since(device.last_seen)
-                .map(|duration| duration.as_secs() < 10)
-                .unwrap_or(false)
+            let duration = now.signed_duration_since(device.last_seen);
+            let secs = duration.num_seconds();
+            (0..10).contains(&secs)
         });
     }
 }

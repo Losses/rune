@@ -2,10 +2,11 @@ use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
-    time::{Duration, SystemTime},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context};
+use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 use netdev::Interface;
 use serde::{Deserialize, Serialize};
@@ -26,7 +27,7 @@ pub struct DiscoveredDevice {
     pub device_model: String,
     pub device_type: DeviceType,
     pub fingerprint: String,
-    pub last_seen: SystemTime,
+    pub last_seen: DateTime<Utc>,
     pub ips: Vec<IpAddr>,
 }
 
@@ -289,7 +290,7 @@ impl DiscoveryService {
             device_type,
             fingerprint,
             ips: current_ips,
-            last_seen: SystemTime::now(),
+            last_seen: Utc::now(),
         };
 
         if is_new_ip {
