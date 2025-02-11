@@ -175,7 +175,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::
             }
 
             // Terminate services and persist
-            rt.shutdown().await;
+            rt.shutdown().await?;
             rt.store.prune_expired().await?;
 
             // Display discovery results

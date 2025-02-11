@@ -64,10 +64,9 @@ impl DiscoveryStore {
 
     /// Persists the current device list to storage, automatically removing
     /// devices that haven't been seen in the last 30 seconds.
-    pub async fn save(&self) -> Result<()> {
+    pub async fn save(&self, devices: &[DiscoveredDevice]) -> Result<()> {
         use toml::Value;
 
-        let devices = self.devices.lock().await.clone();
         let filtered: Vec<_> = devices
             .iter()
             .filter(|d| {
@@ -99,32 +98,38 @@ impl DiscoveryStore {
     /// Removes expired devices from both memory and persistent storage
     pub async fn prune_expired(&self) -> Result<()> {
         info!("Pruning expired discovery entry");
-        let mut devices = self.devices.lock().await;
-        let now = Utc::now();
-        devices.retain(|d| {
-            let elapsed = now.signed_duration_since(d.last_seen);
-            elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
-        });
+
+        let devices_to_save = {
+            let mut devices = self.devices.lock().await;
+            let now = Utc::now();
+            devices.retain(|d| {
+                let elapsed = now.signed_duration_since(d.last_seen);
+                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
+            });
+            devices.clone()
+        };
+
+        self.save(&devices_to_save).await?;
         info!("Final data prepared");
-        self.save().await
+        Ok(())
     }
 
     /// Updates or inserts a device into the store and persists changes
-    pub async fn update_device(&self, device: DiscoveredDevice) {
-        let mut devices = self.devices.lock().await;
+    pub async fn update_device(&self, device: DiscoveredDevice) -> Result<()> {
+        let devices_to_save = {
+            let mut devices = self.devices.lock().await;
+            if let Some(existing) = devices
+                .iter_mut()
+                .find(|d| d.fingerprint == device.fingerprint)
+            {
+                *existing = device;
+            } else {
+                devices.push(device);
+            }
+            devices.clone()
+        };
 
-        if let Some(existing) = devices
-            .iter_mut()
-            .find(|d| d.fingerprint == device.fingerprint)
-        {
-            *existing = device;
-        } else {
-            devices.push(device);
-        }
-
-        if let Err(e) = self.save().await {
-            error!("Failed to auto-save device updates: {}", e);
-        }
+        self.save(&devices_to_save).await
     }
 
     /// Returns a copy of the current device list
@@ -161,7 +166,9 @@ impl DiscoveryRuntime {
         let store_clone = store.clone();
         tokio::spawn(async move {
             while let Some(device) = event_rx.recv().await {
-                store_clone.update_device(device).await;
+                if let Err(e) = store_clone.update_device(device).await {
+                    error!("Failed to load devices: {}", e);
+                };
             }
         });
 
@@ -198,16 +205,14 @@ impl DiscoveryRuntime {
     /// 1. Cancels all ongoing operations
     /// 2. Stops network listeners
     /// 3. Persists final device state
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down the discovery runtime");
 
         self.cancel_token.cancel();
         self.service.shutdown().await;
 
-        if let Err(e) = self.store.save().await {
-            error!("Failed to save final device state: {}", e);
-        }
+        let devices = self.store.devices.lock().await.clone();
 
-        info!("Finished discovery runtime cleanup");
+        self.store.save(&devices).await
     }
 }
