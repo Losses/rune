@@ -113,6 +113,8 @@ async fn main() -> Result<()> {
             tokio::signal::ctrl_c().await?;
             cancel_token.cancel();
             handle.await?;
+
+            discovery_service.shutdown().await;
         }
         _ => {
             Command::new("Rune").print_help()?;
