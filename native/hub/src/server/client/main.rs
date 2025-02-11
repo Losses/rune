@@ -1,14 +1,3 @@
-use std::sync::Arc;
-
-use ::discovery::verifier::CertValidator;
-use anyhow::{anyhow, Result};
-use clap::Parser;
-use connection::WSConnection;
-use log::error;
-use regex::Regex;
-use tokio::sync::{Mutex, RwLock};
-use tracing_subscriber::EnvFilter;
-
 pub mod api;
 pub mod cli;
 pub mod commands;
@@ -19,30 +8,45 @@ pub mod fs;
 pub mod hints;
 pub mod utils;
 
-use hub::server::utils::path::init_system_paths;
+use std::sync::Arc;
+use std::time::Duration;
 
-use cli::Command;
+use anyhow::{anyhow, Context, Result};
+use clap::Parser;
+use log::error;
+use regex::Regex;
+use tokio::{
+    sync::{Mutex, RwLock},
+    time::sleep,
+};
+use tracing_subscriber::EnvFilter;
+
+use hub::server::utils::{device::load_device_info, path::init_system_paths};
+
+use ::discovery::verifier::CertValidator;
+
+use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
+use connection::WSConnection;
+use discovery::DiscoveryRuntime;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
-use utils::AppState;
-
-/// Program arguments
-#[derive(Parser)]
-struct Args {
-    /// Service URL
-    #[arg(help = "The URL of the service, e.g., example.com:1234 or 192.168.1.1:1234")]
-    service_url: String,
-}
+use utils::{print_device_details, print_device_table, AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_logging()?;
 
-    // Parse command line arguments
-    let args = Args::parse();
+    let cli = Cli::parse();
 
-    // Validate and format the service URL
-    let service_url = match validate_and_format_url(&args.service_url) {
+    match cli {
+        Cli::Repl(args) => repl_mode(&args.service_url).await,
+        Cli::Discovery(cmd) => handle_discovery_command(cmd).await,
+        Cli::Remote(cmd) => handle_remote_command(cmd).await,
+    }
+}
+
+async fn repl_mode(service_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let service_url = match validate_and_format_url(service_url) {
         Ok(x) => x,
         Err(e) => {
             error!("{}", e);
@@ -52,8 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Welcome to the Rune Speaker Command Line Interface");
     println!("Service URL: {}", service_url);
-    println!();
-    println!("Type 'help' to see available commands");
+    println!("\nType 'help' to see available commands");
 
     let config = EditorConfig::default();
     let connection = match WSConnection::connect(service_url.clone()).await {
@@ -90,10 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         match editor.readline(&prompt) {
             Ok(line) => {
-                let command = Command::parse(&line);
+                let command = ReplCommand::parse(&line);
                 match command {
                     Ok(cmd) => {
-                        if !commands::execute(cmd, state).await? {
+                        if !handle_repl_command(cmd, state).await? {
                             break;
                         }
                     }
@@ -123,6 +126,100 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn handle_repl_command(command: ReplCommand, state: Arc<AppState>) -> Result<bool> {
+    use ReplCommand::*;
+
+    match command {
+        Ls { long } => commands::handle_ls(state, long).await,
+        Pwd => commands::handle_pwd(state).await,
+        Cd { path, id } => commands::handle_cd(state, path, id).await,
+        Opq {
+            path,
+            playback_mode,
+            instant_play,
+            operate_mode,
+            id,
+        } => commands::handle_opq(state, path, playback_mode, instant_play, operate_mode, id).await,
+        Play => commands::handle_play(state).await,
+        Pause => commands::handle_pause(state).await,
+        Next => commands::handle_next(state).await,
+        Previous => commands::handle_previous(state).await,
+        SetMode { mode } => commands::handle_setmode(state, mode).await,
+        Quit => Ok(false),
+        Exit => Ok(false),
+        // Handle aliases (should never reach here due to parse conversion)
+        Cdi { .. } | Opqi { .. } => unreachable!(),
+    }
+}
+
+async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::error::Error>> {
+    let config_dir = init_system_paths()?;
+
+    match cmd {
+        DiscoveryCmd::Scan { duration } => {
+            let device_info = load_device_info(config_dir.clone()).await?;
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+
+            rt.start_service(device_info, Duration::from_secs(1))
+                .await?;
+            sleep(Duration::from_secs(duration)).await;
+            rt.cancel_token.cancel();
+
+            Ok(())
+        }
+        DiscoveryCmd::List => {
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            let devices = rt.store.load().await?;
+            print_device_table(devices);
+            Ok(())
+        }
+        DiscoveryCmd::Stop => {
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            rt.cancel_token.cancel();
+            rt.service.shutdown().await;
+            Ok(())
+        }
+    }
+}
+
+async fn handle_remote_command(cmd: RemoteCmd) -> Result<(), Box<dyn std::error::Error>> {
+    let config_dir = init_system_paths()?;
+    let validator = CertValidator::new(config_dir.join("certs"))?;
+
+    match cmd {
+        RemoteCmd::Inspect { index } => {
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            let devices = rt.store.load().await?;
+            let dev = devices.get(index - 1).context("Invalid index")?;
+            print_device_details(dev);
+            Ok(())
+        }
+        RemoteCmd::Trust { index, domains } => {
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            let devices = rt.store.load().await?;
+            let dev = devices.get(index - 1).context("Invalid index")?;
+            let hosts = domains
+                .map(|d| {
+                    d.split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect::<Vec<String>>()
+                })
+                .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
+            validator.add_trusted_domains(hosts, &dev.fingerprint)?;
+            Ok(())
+        }
+        RemoteCmd::Untrust { fingerprint } => {
+            validator.remove_fingerprint(&fingerprint)?;
+            Ok(())
+        }
+        RemoteCmd::Edit { fingerprint, hosts } => {
+            let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
+            validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts)?;
+            Ok(())
+        }
+    }
+}
+
 fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
     let filter = EnvFilter::new(
         "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,\
@@ -144,15 +241,13 @@ fn validate_and_format_url(input: &str) -> Result<String> {
         let host = caps.name("host").unwrap().as_str();
         let port = caps.name("port").map_or("7863", |m| m.as_str());
 
-        // Validate host as a domain or IP address
         if !is_valid_host(host) {
             return Err(anyhow!(
                 "Invalid host: must be a valid domain or IP address"
             ));
         }
 
-        let formatted_url = format!("ws://{}:{}/ws", host, port);
-        Ok(formatted_url)
+        Ok(format!("ws://{}:{}/ws", host, port))
     } else {
         Err(anyhow!("Invalid URL format"))
     }

@@ -1,4 +1,4 @@
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 #[derive(Clone, Debug)]
 pub enum PlaybackMode {
@@ -67,8 +67,7 @@ impl From<OperateMode> for i32 {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "rune-speaker-client")]
-pub enum Command {
+pub enum ReplCommand {
     /// List contents of current directory
     Ls {
         /// Use long listing format
@@ -132,21 +131,48 @@ pub enum Command {
         /// Playback mode (sequential, repeatone, repeatall, shuffle)
         mode: PlaybackMode,
     },
-
-    /// Device discovery and management
-    #[command(subcommand)]
-    Discovery(DiscoveryCmd),
-    /// Remote device trust management
-    #[command(subcommand)]
-    Remote(RemoteCmd),
-
     /// Exit the program
     Quit,
     /// Alias for `quit`
     Exit,
 }
 
-#[derive(Debug, Parser)]
+impl ReplCommand {
+    pub fn parse(input: &str) -> Result<Self, clap::Error> {
+        let input_vec: Vec<String> = std::iter::once("".to_string())
+            .chain(shlex::split(input).unwrap_or_default())
+            .collect();
+
+        let args = input_vec.iter().map(|s| s.as_str());
+
+        let matches = ReplCommand::command()
+            .override_usage("> [COMMAND]")
+            .try_get_matches_from(args)?;
+
+        let command = ReplCommand::from_arg_matches(&matches)?;
+
+        // Convert aliases
+        Ok(match command {
+            ReplCommand::Cdi { path } => ReplCommand::Cd { path, id: true },
+            ReplCommand::Exit => ReplCommand::Quit,
+            ReplCommand::Opqi {
+                path,
+                playback_mode,
+                instant_play,
+                operate_mode,
+            } => ReplCommand::Opq {
+                path,
+                id: true,
+                playback_mode,
+                instant_play,
+                operate_mode,
+            },
+            _ => command,
+        })
+    }
+}
+
+#[derive(Debug, Subcommand)]
 pub enum DiscoveryCmd {
     /// Scan for devices in the network
     Scan {
@@ -160,7 +186,7 @@ pub enum DiscoveryCmd {
     Stop,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Subcommand)]
 pub enum RemoteCmd {
     /// View device certificate information
     Inspect {
@@ -189,37 +215,22 @@ pub enum RemoteCmd {
     },
 }
 
-impl Command {
-    pub fn parse(input: &str) -> Result<Self, clap::Error> {
-        let input_vec: Vec<String> = std::iter::once("".to_string())
-            .chain(shlex::split(input).unwrap_or_default())
-            .collect();
+#[derive(Debug, Parser)]
+#[command(name = "rune-client", version, about, long_about = None)]
+pub enum Cli {
+    /// Interactive REPL mode
+    Repl(ReplArgs),
+    /// Device discovery and management
+    #[command(subcommand)]
+    Discovery(DiscoveryCmd),
+    /// Remote device trust management
+    #[command(subcommand)]
+    Remote(RemoteCmd),
+}
 
-        let args = input_vec.iter().map(|s| s.as_str());
-
-        let matches = Command::command()
-            .override_usage("> [COMMAND]")
-            .try_get_matches_from(args)?;
-
-        let command = Command::from_arg_matches(&matches)?;
-
-        // Convert `Cdi` to `Cd` with `id` set to true
-        Ok(match command {
-            Command::Cdi { path } => Command::Cd { path, id: true },
-            Command::Exit => Command::Quit,
-            Command::Opqi {
-                path,
-                playback_mode,
-                instant_play,
-                operate_mode,
-            } => Command::Opq {
-                path,
-                id: true,
-                playback_mode,
-                instant_play,
-                operate_mode,
-            },
-            _ => command,
-        })
-    }
+#[derive(Debug, clap::Args)]
+pub struct ReplArgs {
+    /// Service URL
+    #[arg(help = "The URL of the service, e.g., example.com:7863 or 192.168.1.1:8963")]
+    pub service_url: String,
 }
