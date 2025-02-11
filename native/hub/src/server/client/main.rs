@@ -19,10 +19,12 @@ pub mod fs;
 pub mod hints;
 pub mod utils;
 
+use hub::server::utils::path::init_system_paths;
+
 use cli::Command;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
-use utils::{init_system_paths, AppState};
+use utils::AppState;
 
 /// Program arguments
 #[derive(Parser)]

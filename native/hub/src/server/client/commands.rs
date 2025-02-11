@@ -11,13 +11,15 @@ use unicode_width::UnicodeWidthStr;
 
 use discovery::verifier::CertValidator;
 
+use hub::server::utils::device::load_device_info;
+
 use crate::api::{
     operate_playback_with_mix_query_request, send_next_request, send_pause_request,
     send_play_request, send_previous_request, send_set_playback_mode_request,
 };
 use crate::cli::{Command, DiscoveryCmd, RemoteCmd};
 use crate::discovery::DiscoveryRuntime;
-use crate::utils::{load_device_info, print_device_details, print_device_table, AppState};
+use crate::utils::{print_device_details, print_device_table, AppState};
 
 pub async fn execute(command: Command, state: Arc<AppState>) -> Result<bool> {
     match command {

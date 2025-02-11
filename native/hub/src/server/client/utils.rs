@@ -1,15 +1,8 @@
 use std::{path::PathBuf, sync::Arc};
 
-use anyhow::Result;
-use directories::ProjectDirs;
-use hub::server::{generate_or_load_certificates, get_or_generate_certificate_id};
 use tokio::sync::{Mutex, RwLock};
 
-use discovery::{
-    udp_multicast::DiscoveredDevice,
-    utils::{DeviceInfo, DeviceType},
-    verifier::CertValidator,
-};
+use discovery::{udp_multicast::DiscoveredDevice, verifier::CertValidator};
 
 use crate::{discovery::DiscoveryRuntime, fs::VirtualFS};
 
@@ -18,15 +11,6 @@ pub struct AppState {
     pub validator: CertValidator,
     pub discovery: Arc<Mutex<Option<DiscoveryRuntime>>>,
     pub config_dir: PathBuf,
-}
-
-pub fn init_system_paths() -> anyhow::Result<PathBuf> {
-    let proj_dirs = ProjectDirs::from("", "rune.not.ci", "cli")
-        .ok_or_else(|| anyhow::anyhow!("Failed to get project directories"))?;
-
-    let config_dir = proj_dirs.config_dir();
-
-    Ok(config_dir.to_path_buf())
 }
 
 pub fn update_device_list(devices: &mut Vec<DiscoveredDevice>, new_device: DiscoveredDevice) {
@@ -95,21 +79,6 @@ pub fn print_device_details(dev: &DiscoveredDevice) {
         println!("│ - {}│", ip);
     }
     println!("└{:─<30}┘", "");
-}
-
-pub async fn load_device_info(config_path: PathBuf) -> Result<DeviceInfo> {
-    let certificate_id = get_or_generate_certificate_id(&config_path).await?;
-    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, &certificate_id).await?;
-
-    Ok(DeviceInfo {
-        alias: certificate_id.clone(),
-        device_model: Some("RuneAudio".to_string()),
-        version: "Technical Preview".to_owned(),
-        device_type: Some(DeviceType::Desktop),
-        fingerprint: fingerprint.clone(),
-        api_port: 7863,
-        protocol: "http".to_owned(),
-    })
 }
 
 pub fn print_table(headers: Vec<String>, rows: Vec<Vec<String>>) {
