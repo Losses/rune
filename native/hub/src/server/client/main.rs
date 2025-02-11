@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use log::error;
+use log::{error, info};
 use regex::Regex;
 use tokio::{
     sync::{Mutex, RwLock},
@@ -165,19 +165,14 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::
                 .await?;
 
             // Configure graceful shutdown handler
-            {
-                let rt_ref = rt.clone();
-                ctrlc::set_handler(move || {
-                    let rt = rt_ref.clone();
-                    tokio::spawn(async move {
-                        println!("\nPersisting scan results...");
-                        rt.shutdown().await;
-                    });
-                })?;
+            tokio::select! {
+                _ = sleep(Duration::from_secs(duration)) => {
+                    // Scanning finished
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    info!("Persisting scan results...");
+                }
             }
-
-            // Execute scanning duration
-            sleep(Duration::from_secs(duration)).await;
 
             // Terminate services and persist
             rt.shutdown().await;
