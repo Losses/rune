@@ -158,33 +158,48 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::
     match cmd {
         DiscoveryCmd::Scan { duration } => {
             let device_info = load_device_info(config_dir.clone()).await?;
-            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            let rt = Arc::new(DiscoveryRuntime::new(&config_dir).await?);
 
+            // Start discovery services
             rt.start_service(device_info, Duration::from_secs(1))
                 .await?;
-            sleep(Duration::from_secs(duration)).await;
-            rt.cancel_token.cancel();
 
-            Ok(())
+            // Configure graceful shutdown handler
+            {
+                let rt_ref = rt.clone();
+                ctrlc::set_handler(move || {
+                    let rt = rt_ref.clone();
+                    tokio::spawn(async move {
+                        println!("\nPersisting scan results...");
+                        rt.shutdown().await;
+                    });
+                })?;
+            }
+
+            // Execute scanning duration
+            sleep(Duration::from_secs(duration)).await;
+
+            // Terminate services and persist
+            rt.shutdown().await;
+            rt.store.prune_expired().await?;
+
+            // Display discovery results
+            let devices = rt.store.get_devices().await;
+            print_device_table(&devices);
         }
         DiscoveryCmd::List => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
-            let devices = rt.store.load().await?;
-            print_device_table(devices);
-            Ok(())
-        }
-        DiscoveryCmd::Stop => {
-            let rt = DiscoveryRuntime::new(&config_dir).await?;
-            rt.cancel_token.cancel();
-            rt.service.shutdown().await;
-            Ok(())
+            rt.store.prune_expired().await?;
+            let devices = rt.store.get_devices().await;
+            print_device_table(&devices);
         }
     }
+    Ok(())
 }
 
 async fn handle_remote_command(cmd: RemoteCmd) -> Result<(), Box<dyn std::error::Error>> {
     let config_dir = init_system_paths()?;
-    let validator = CertValidator::new(config_dir.join("certs"))?;
+    let validator = CertValidator::new(config_dir.clone())?;
 
     match cmd {
         RemoteCmd::Inspect { index } => {

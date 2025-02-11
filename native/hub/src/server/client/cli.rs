@@ -182,8 +182,6 @@ pub enum DiscoveryCmd {
     },
     /// List discovered devices
     List,
-    /// Stop discovered devices
-    Stop,
 }
 
 #[derive(Debug, Subcommand)]

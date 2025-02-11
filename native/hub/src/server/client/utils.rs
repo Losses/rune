@@ -13,36 +13,17 @@ pub struct AppState {
     pub config_dir: PathBuf,
 }
 
-pub fn update_device_list(devices: &mut Vec<DiscoveredDevice>, new_device: DiscoveredDevice) {
-    if let Some(existing) = devices
-        .iter_mut()
-        .find(|d| d.fingerprint == new_device.fingerprint)
-    {
-        let mut ips = std::mem::take(&mut existing.ips);
-        let new_ips: Vec<_> = new_device
-            .ips
-            .into_iter()
-            .filter(|ip| !ips.contains(ip))
-            .collect();
-        ips.extend(new_ips);
-        existing.ips = ips;
-        existing.last_seen = new_device.last_seen;
-    } else {
-        devices.push(new_device);
-    }
-}
-
-pub fn print_device_table(devices: Vec<DiscoveredDevice>) {
+pub fn print_device_table(devices: &[DiscoveredDevice]) {
     let table = devices
-        .into_iter()
+        .iter()
         .enumerate()
         .map(|(i, dev)| {
             let main_ip = dev.ips.first().map(|ip| ip.to_string()).unwrap_or_default();
             let last_seen = humantime::format_rfc3339_seconds(dev.last_seen);
             vec![
                 (i + 1).to_string(),
-                dev.alias,
-                dev.device_model,
+                dev.alias.clone(),
+                dev.device_model.clone(),
                 dev.device_type.to_string(),
                 dev.fingerprint[..8].to_string(),
                 main_ip,
