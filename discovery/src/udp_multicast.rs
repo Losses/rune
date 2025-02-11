@@ -27,6 +27,7 @@ pub struct DiscoveredDevice {
     pub device_model: String,
     pub device_type: DeviceType,
     pub fingerprint: String,
+    #[serde(with = "chrono::serde::ts_seconds")]
     pub last_seen: DateTime<Utc>,
     pub ips: Vec<IpAddr>,
 }

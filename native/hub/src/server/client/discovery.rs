@@ -6,8 +6,8 @@ use std::{
 
 use anyhow::Result;
 use chrono::Utc;
-use log::error;
-use tokio::sync::Mutex;
+use log::{error, info};
+use tokio::{sync::Mutex, time::sleep};
 use tokio_util::sync::CancellationToken;
 
 use discovery::{
@@ -38,20 +38,35 @@ impl DiscoveryStore {
     /// Loads devices from persistent storage into memory.
     /// Creates an empty list if the storage file doesn't exist.
     pub async fn load(&self) -> Result<Vec<DiscoveredDevice>> {
+        use toml::Value;
+
         if !self.path.exists() {
             return Ok(Vec::new());
         }
 
         let content = tokio::fs::read_to_string(&self.path).await?;
-        let devices: Vec<DiscoveredDevice> = toml::from_str(&content)?;
-        let devices_clone = devices.clone();
-        *self.devices.lock().await = devices;
-        Ok(devices_clone)
+        let parsed: Value = toml::from_str(&content)?;
+
+        let devices = parsed
+            .get("devices")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let devices: Vec<DiscoveredDevice> = devices
+            .into_iter()
+            .filter_map(|v| v.try_into().ok())
+            .collect();
+
+        *self.devices.lock().await = devices.clone();
+        Ok(devices)
     }
 
     /// Persists the current device list to storage, automatically removing
     /// devices that haven't been seen in the last 30 seconds.
     pub async fn save(&self) -> Result<()> {
+        use toml::Value;
+
         let devices = self.devices.lock().await.clone();
         let filtered: Vec<_> = devices
             .iter()
@@ -62,19 +77,35 @@ impl DiscoveryStore {
             .cloned()
             .collect();
 
-        let content = toml::to_string(&filtered)?;
+        let mut root = toml::map::Map::new();
+        root.insert(
+            "devices".to_string(),
+            Value::Array(
+                filtered
+                    .iter()
+                    .map(|d| toml::Value::try_from(d).unwrap())
+                    .collect(),
+            ),
+        );
+
+        let content = toml::to_string(&Value::Table(root)).inspect_err(|_| {
+            error!("TOML serialization failed: {:?}", filtered);
+        })?;
+
         tokio::fs::write(&self.path, content).await?;
         Ok(())
     }
 
     /// Removes expired devices from both memory and persistent storage
     pub async fn prune_expired(&self) -> Result<()> {
+        info!("Pruning expired discovery entry");
         let mut devices = self.devices.lock().await;
         let now = Utc::now();
         devices.retain(|d| {
             let elapsed = now.signed_duration_since(d.last_seen);
             elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
         });
+        info!("Final data prepared");
         self.save().await
     }
 
@@ -156,7 +187,7 @@ impl DiscoveryRuntime {
                 if let Err(e) = service_clone.announce(device_info.clone()).await {
                     error!("Service announcement failed: {}", e);
                 }
-                tokio::time::sleep(interval).await;
+                sleep(interval).await;
             }
         });
 
@@ -168,11 +199,15 @@ impl DiscoveryRuntime {
     /// 2. Stops network listeners
     /// 3. Persists final device state
     pub async fn shutdown(&self) {
+        info!("Shutting down the discovery runtime");
+
         self.cancel_token.cancel();
         self.service.shutdown().await;
 
         if let Err(e) = self.store.save().await {
             error!("Failed to save final device state: {}", e);
         }
+
+        info!("Finished discovery runtime cleanup");
     }
 }

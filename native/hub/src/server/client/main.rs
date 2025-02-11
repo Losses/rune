@@ -179,6 +179,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::
             rt.store.prune_expired().await?;
 
             // Display discovery results
+            info!("Getting the final result");
             let devices = rt.store.get_devices().await;
             print_device_table(&devices);
         }

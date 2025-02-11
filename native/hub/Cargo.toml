@@ -43,7 +43,7 @@ futures = "0.3.30"
 async-trait = "0.1.83"
 sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 tracing-appender = "0.2.3"
-chrono = "0.4.38"
+chrono = { version = "0.4.38", features = ["serde"] }
 windows = { version = "0.58.0", features = ["Services", "Services_Store"] }
 tokio-tungstenite = "0.26.1"
 futures-channel = "0.3.31"
