@@ -315,12 +315,3 @@ impl DiscoveryService {
             .unwrap_or(false)
     }
 }
-
-impl Drop for DiscoveryService {
-    fn drop(&mut self) {
-        let rt = tokio::runtime::Handle::try_current();
-        if let Ok(rt) = rt {
-            rt.block_on(self.shutdown());
-        }
-    }
-}
