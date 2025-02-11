@@ -1,11 +1,11 @@
 pub mod api;
 pub mod cli;
-pub mod commands;
 pub mod connection;
 pub mod discovery;
 pub mod editor;
 pub mod fs;
 pub mod hints;
+pub mod repl;
 pub mod utils;
 
 use std::sync::Arc;
@@ -130,21 +130,21 @@ async fn handle_repl_command(command: ReplCommand, state: Arc<AppState>) -> Resu
     use ReplCommand::*;
 
     match command {
-        Ls { long } => commands::handle_ls(state, long).await,
-        Pwd => commands::handle_pwd(state).await,
-        Cd { path, id } => commands::handle_cd(state, path, id).await,
+        Ls { long } => repl::handle_ls(state, long).await,
+        Pwd => repl::handle_pwd(state).await,
+        Cd { path, id } => repl::handle_cd(state, path, id).await,
         Opq {
             path,
             playback_mode,
             instant_play,
             operate_mode,
             id,
-        } => commands::handle_opq(state, path, playback_mode, instant_play, operate_mode, id).await,
-        Play => commands::handle_play(state).await,
-        Pause => commands::handle_pause(state).await,
-        Next => commands::handle_next(state).await,
-        Previous => commands::handle_previous(state).await,
-        SetMode { mode } => commands::handle_setmode(state, mode).await,
+        } => repl::handle_opq(state, path, playback_mode, instant_play, operate_mode, id).await,
+        Play => repl::handle_play(state).await,
+        Pause => repl::handle_pause(state).await,
+        Next => repl::handle_next(state).await,
+        Previous => repl::handle_previous(state).await,
+        SetMode { mode } => repl::handle_setmode(state, mode).await,
         Quit => Ok(false),
         Exit => Ok(false),
         // Handle aliases (should never reach here due to parse conversion)
