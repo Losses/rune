@@ -221,6 +221,12 @@ impl DiscoveryService {
                                         &event_tx,
                                         &device_ips
                                     ).await {
+                                        if e.to_string().contains("channel closed") {
+                                            debug!("Channel closed, stopping listener on {}",
+                                                socket.local_addr().unwrap());
+                                            break;
+                                        }
+
                                         error!("Error handling datagram: {}", e);
                                     }
                                 }
