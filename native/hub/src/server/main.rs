@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
             let lib_path = sub_matches.get_one::<String>("lib_path").unwrap();
 
             let config_path = init_system_paths()?;
-            let device_info = load_device_info(config_path.clone()).await?;
+            let device_info = load_device_info(&config_path).await?;
 
             let global_params = initialize_global_params(
                 lib_path,
@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
         }
         Some(("broadcast", _)) => {
             let config_path = init_system_paths()?;
-            let device_info = load_device_info(config_path).await?;
+            let device_info = load_device_info(&config_path).await?;
 
             let (event_tx, _) = tokio::sync::mpsc::channel(32);
             let discovery_service = Arc::new(DiscoveryService::new(event_tx));

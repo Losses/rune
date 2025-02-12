@@ -16,6 +16,7 @@ use clap::Parser;
 use log::{error, info};
 use regex::Regex;
 use tokio::{
+    signal::ctrl_c,
     sync::{Mutex, RwLock},
     time::sleep,
 };
@@ -33,7 +34,7 @@ use fs::VirtualFS;
 use utils::{print_device_details, print_device_table, AppState};
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     setup_logging()?;
 
     let cli = Cli::parse();
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn repl_mode(service_url: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn repl_mode(service_url: &str) -> Result<()> {
     let service_url = match validate_and_format_url(service_url) {
         Ok(x) => x,
         Err(e) => {
@@ -152,48 +153,43 @@ async fn handle_repl_command(command: ReplCommand, state: Arc<AppState>) -> Resu
     }
 }
 
-async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
     let config_dir = init_system_paths()?;
 
     match cmd {
         DiscoveryCmd::Scan { duration } => {
-            let device_info = load_device_info(config_dir.clone()).await?;
-            let rt = Arc::new(DiscoveryRuntime::new(&config_dir).await?);
+            let device_info = load_device_info(&config_dir).await?;
+            let mut rt = DiscoveryRuntime::new(&config_dir).await?;
 
             // Start discovery services
-            rt.start_service(device_info, Duration::from_secs(1))
+            rt.start_listening(device_info.clone()).await?;
+            rt.start_announcements(device_info, Duration::from_secs(1))
                 .await?;
 
-            // Configure graceful shutdown handler
+            // Executing device scanning
             tokio::select! {
-                _ = sleep(Duration::from_secs(duration)) => {
-                    // Scanning finished
-                }
-                _ = tokio::signal::ctrl_c() => {
-                    info!("Persisting scan results...");
+                _ = sleep(Duration::from_secs(duration)) => {}
+                _ = ctrl_c() => {
+                    info!("Scan interrupted, saving results...");
                 }
             }
 
             // Terminate services and persist
             rt.shutdown().await?;
             rt.store.prune_expired().await?;
-
-            // Display discovery results
-            info!("Getting the final result");
-            let devices = rt.store.get_devices().await;
-            print_device_table(&devices);
+            print_device_table(&rt.store.get_devices().await);
         }
         DiscoveryCmd::List => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
             rt.store.prune_expired().await?;
-            let devices = rt.store.get_devices().await;
-            print_device_table(&devices);
+            print_device_table(&rt.store.get_devices().await);
         }
     }
+
     Ok(())
 }
 
-async fn handle_remote_command(cmd: RemoteCmd) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
     let config_dir = init_system_paths()?;
     let validator = CertValidator::new(config_dir.clone())?;
 
@@ -231,7 +227,7 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<(), Box<dyn std::error:
     }
 }
 
-fn setup_logging() -> Result<(), Box<dyn std::error::Error>> {
+fn setup_logging() -> Result<()> {
     let filter = EnvFilter::new(
         "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,\
          tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",

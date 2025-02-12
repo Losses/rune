@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use anyhow::Result;
 
@@ -6,9 +6,9 @@ use discovery::utils::{DeviceInfo, DeviceType};
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id};
 
-pub async fn load_device_info(config_path: PathBuf) -> Result<DeviceInfo> {
-    let certificate_id = get_or_generate_certificate_id(&config_path).await?;
-    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, &certificate_id).await?;
+pub async fn load_device_info(config_path: &Path) -> Result<DeviceInfo> {
+    let certificate_id = get_or_generate_certificate_id(config_path).await?;
+    let (fingerprint, _, _) = generate_or_load_certificates(config_path, &certificate_id).await?;
 
     Ok(DeviceInfo {
         alias: certificate_id.clone(),

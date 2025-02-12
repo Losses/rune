@@ -4,10 +4,13 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use log::{error, info};
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{
+    sync::{mpsc, Mutex},
+    task::JoinHandle,
+};
 use tokio_util::sync::CancellationToken;
 
 use discovery::{
@@ -147,6 +150,12 @@ pub struct DiscoveryRuntime {
     pub store: DiscoveryStore,
     /// Token for graceful shutdown management
     cancel_token: CancellationToken,
+    /// Receiver for discovered device events
+    event_rx: Option<mpsc::Receiver<DiscoveredDevice>>,
+    /// Background task handle for event processing
+    event_listener: Mutex<Option<JoinHandle<()>>>,
+    /// Token for controlling event listener lifecycle
+    listener_token: CancellationToken,
 }
 
 impl DiscoveryRuntime {
@@ -155,46 +164,98 @@ impl DiscoveryRuntime {
     /// - Network event channel setup
     /// - Device state loading from storage
     pub async fn new(config_dir: &Path) -> Result<Self> {
-        let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+        let (event_tx, event_rx) = mpsc::channel(100);
         let service = DiscoveryService::new(event_tx);
         let store = DiscoveryStore::new(config_dir);
 
         // Load persisted devices into memory
         store.load().await?;
 
-        // Start device update listener
-        let store_clone = store.clone();
-        tokio::spawn(async move {
-            while let Some(device) = event_rx.recv().await {
-                if let Err(e) = store_clone.update_device(device).await {
-                    error!("Failed to load devices: {}", e);
-                };
-            }
-        });
-
         Ok(Self {
             service: Arc::new(service),
             store,
             cancel_token: CancellationToken::new(),
+            event_rx: Some(event_rx),
+            event_listener: Mutex::new(None),
+            listener_token: CancellationToken::new(),
         })
     }
 
-    /// Starts the discovery service with specified network parameters:
-    /// - `device_info`: Local device information to advertise
-    /// - `interval`: Broadcast interval for service announcements
-    pub async fn start_service(&self, device_info: DeviceInfo, interval: Duration) -> Result<()> {
+    /// Starts the device discovery listener service.
+    /// Sets up network listening and event processing loop for discovered devices.
+    ///
+    /// # Arguments
+    /// * `device_info` - Information about the local device to be used in discovery
+    ///
+    /// # Returns
+    /// * `Result<()>` - Success if listener started, error if already running
+    pub async fn start_listening(&mut self, device_info: DeviceInfo) -> Result<()> {
+        let cancel_token = self.listener_token.child_token();
+
+        // Start network listening
         self.service
-            .listen(device_info.clone(), Some(self.cancel_token.clone()))
+            .listen(device_info.clone(), Some(cancel_token.clone()))
             .await?;
 
-        // Start periodic broadcast
-        let service_clone = self.service.clone();
-        tokio::spawn(async move {
-            loop {
-                if let Err(e) = service_clone.announce(device_info.clone()).await {
-                    error!("Service announcement failed: {}", e);
+        // Start event processing loop
+        let mut event_listener = self.event_listener.lock().await;
+        if event_listener.is_some() {
+            return Err(anyhow::anyhow!("Listener already running"));
+        }
+
+        let event_rx = self
+            .event_rx
+            .take()
+            .ok_or_else(|| anyhow!("Event channel consumed"))?;
+        let store_clone = self.store.clone();
+
+        *event_listener = Some(tokio::spawn(async move {
+            let mut event_rx = event_rx;
+            while let Some(device) = event_rx.recv().await {
+                if let Err(e) = store_clone.update_device(device).await {
+                    error!("Failed to update device: {}", e);
                 }
-                sleep(interval).await;
+            }
+        }));
+
+        Ok(())
+    }
+
+    /// Completely stops the listening service by:
+    /// - Cancelling the listener token
+    /// - Aborting the event processing task
+    pub async fn stop_listening(&self) {
+        self.listener_token.cancel();
+        if let Some(handle) = self.event_listener.lock().await.take() {
+            handle.abort();
+        }
+    }
+
+    /// Starts the discovery service with specified network parameters.
+    /// Spawns a background task that periodically announces the local device presence.
+    ///
+    /// # Arguments
+    /// * `device_info` - Local device information to advertise
+    /// * `interval` - Broadcast interval for service announcements
+    pub async fn start_announcements(
+        &self,
+        device_info: DeviceInfo,
+        interval: Duration,
+    ) -> Result<()> {
+        let service = self.service.clone();
+        let cancel_token = self.cancel_token.child_token();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        if let Err(e) = service.announce(device_info.clone()).await {
+                            error!("Announcement failed: {}", e);
+                        }
+                    }
+                    _ = cancel_token.cancelled() => break,
+                }
             }
         });
 
@@ -206,13 +267,17 @@ impl DiscoveryRuntime {
     /// 2. Stops network listeners
     /// 3. Persists final device state
     pub async fn shutdown(&self) -> Result<()> {
-        info!("Shutting down the discovery runtime");
+        info!("Shutting down discovery runtime");
 
+        // Cancel all operations
         self.cancel_token.cancel();
+        self.listener_token.cancel();
+
+        // Stop network services
         self.service.shutdown().await;
 
+        // Persist storage
         let devices = self.store.devices.lock().await.clone();
-
         self.store.save(&devices).await
     }
 }
