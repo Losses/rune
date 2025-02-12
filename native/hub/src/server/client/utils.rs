@@ -25,7 +25,7 @@ pub fn print_device_table(devices: &[DiscoveredDevice]) {
                 dev.alias.clone(),
                 dev.device_model.clone(),
                 dev.device_type.to_string(),
-                dev.fingerprint[..8].to_string(),
+                dev.fingerprint.chars().take(8).collect(),
                 main_ip,
                 last_seen.to_string(),
             ]
