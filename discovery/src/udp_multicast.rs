@@ -14,7 +14,7 @@ use serde_json::json;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
-    sync::{mpsc::Sender, Mutex},
+    sync::{broadcast::Sender, Mutex},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -294,9 +294,7 @@ impl DiscoveryService {
             last_seen: Utc::now(),
         };
 
-        if is_new_ip {
-            event_tx.send(discovered).await?;
-        }
+        event_tx.send(discovered)?;
 
         Ok(())
     }

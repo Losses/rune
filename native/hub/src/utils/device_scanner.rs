@@ -6,8 +6,10 @@ use std::sync::{
 use std::time::{Duration, SystemTime};
 
 use log::{error, info};
-use tokio::sync::mpsc::{channel, Receiver};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{
+    broadcast::{channel, Receiver},
+    Mutex, RwLock,
+};
 use tokio::task::JoinHandle;
 
 use discovery::udp_multicast::{DiscoveredDevice, DiscoveryService};
@@ -48,7 +50,7 @@ impl DeviceScanner {
         let broadcaster = self.broadcaster.clone();
 
         tokio::spawn(async move {
-            while let Some(device) = event_rx.recv().await {
+            while let Ok(device) = event_rx.recv().await {
                 // Update local cache
                 let mut devices_map = devices.write().await;
                 devices_map.insert(device.fingerprint.clone(), device.clone());

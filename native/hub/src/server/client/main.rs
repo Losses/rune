@@ -9,16 +9,14 @@ pub mod repl;
 pub mod utils;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use log::{error, info};
+use log::error;
 use regex::Regex;
 use tokio::{
     signal::ctrl_c,
     sync::{Mutex, RwLock},
-    time::sleep,
 };
 use tracing_subscriber::EnvFilter;
 
@@ -157,31 +155,24 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
     let config_dir = init_system_paths()?;
 
     match cmd {
-        DiscoveryCmd::Scan { duration } => {
+        DiscoveryCmd::Scan => {
             let device_info = load_device_info(&config_dir).await?;
             let mut rt = DiscoveryRuntime::new(&config_dir).await?;
 
             // Start discovery services
             rt.start_listening(device_info.clone()).await?;
-            rt.start_announcements(device_info, Duration::from_secs(1))
-                .await?;
 
             // Executing device scanning
-            tokio::select! {
-                _ = sleep(Duration::from_secs(duration)) => {}
-                _ = ctrl_c() => {
-                    info!("Scan interrupted, saving results...");
-                }
-            }
+            ctrl_c().await?;
 
             // Terminate services and persist
             rt.shutdown().await?;
-            rt.store.prune_expired().await?;
-            print_device_table(&rt.store.get_devices().await);
+            let final_devices = rt.store.get_devices().await;
+            rt.store.save(&final_devices).await?;
+            print_device_table(&final_devices);
         }
         DiscoveryCmd::List => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
-            rt.store.prune_expired().await?;
             print_device_table(&rt.store.get_devices().await);
         }
     }

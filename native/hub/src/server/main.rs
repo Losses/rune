@@ -7,7 +7,7 @@ use std::{
 use anyhow::Result;
 use clap::{Arg, Command};
 use log::info;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -88,7 +88,7 @@ async fn main() -> Result<()> {
             let config_path = init_system_paths()?;
             let device_info = load_device_info(&config_path).await?;
 
-            let (event_tx, _) = tokio::sync::mpsc::channel(32);
+            let (event_tx, _) = broadcast::channel(32);
             let discovery_service = Arc::new(DiscoveryService::new(event_tx));
 
             let cancel_token = CancellationToken::new();

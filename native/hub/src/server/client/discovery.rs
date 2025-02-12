@@ -4,12 +4,13 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
-use log::{error, info};
+use log::{debug, error, info};
 use tokio::{
-    sync::{mpsc, Mutex},
+    sync::{broadcast, Mutex},
     task::JoinHandle,
+    time::sleep,
 };
 use tokio_util::sync::CancellationToken;
 
@@ -74,7 +75,7 @@ impl DiscoveryStore {
             .iter()
             .filter(|d| {
                 let elapsed = Utc::now().signed_duration_since(d.last_seen);
-                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
+                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(120)
             })
             .cloned()
             .collect();
@@ -137,7 +138,8 @@ impl DiscoveryStore {
 
     /// Returns a copy of the current device list
     pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
-        self.devices.lock().await.clone()
+        let devices = self.devices.lock().await;
+        devices.clone()
     }
 }
 
@@ -150,8 +152,8 @@ pub struct DiscoveryRuntime {
     pub store: DiscoveryStore,
     /// Token for graceful shutdown management
     cancel_token: CancellationToken,
-    /// Receiver for discovered device events
-    event_rx: Option<mpsc::Receiver<DiscoveredDevice>>,
+    /// Sender for discovered device events
+    event_tx: broadcast::Sender<DiscoveredDevice>,
     /// Background task handle for event processing
     event_listener: Mutex<Option<JoinHandle<()>>>,
     /// Token for controlling event listener lifecycle
@@ -164,8 +166,8 @@ impl DiscoveryRuntime {
     /// - Network event channel setup
     /// - Device state loading from storage
     pub async fn new(config_dir: &Path) -> Result<Self> {
-        let (event_tx, event_rx) = mpsc::channel(100);
-        let service = DiscoveryService::new(event_tx);
+        let (event_tx, _event_rx) = broadcast::channel(100);
+        let service = DiscoveryService::new(event_tx.clone());
         let store = DiscoveryStore::new(config_dir);
 
         // Load persisted devices into memory
@@ -175,7 +177,7 @@ impl DiscoveryRuntime {
             service: Arc::new(service),
             store,
             cancel_token: CancellationToken::new(),
-            event_rx: Some(event_rx),
+            event_tx,
             event_listener: Mutex::new(None),
             listener_token: CancellationToken::new(),
         })
@@ -192,31 +194,36 @@ impl DiscoveryRuntime {
     pub async fn start_listening(&mut self, device_info: DeviceInfo) -> Result<()> {
         let cancel_token = self.listener_token.child_token();
 
-        // Start network listening
         self.service
             .listen(device_info.clone(), Some(cancel_token.clone()))
             .await?;
 
-        // Start event processing loop
         let mut event_listener = self.event_listener.lock().await;
         if event_listener.is_some() {
             return Err(anyhow::anyhow!("Listener already running"));
         }
 
-        let event_rx = self
-            .event_rx
-            .take()
-            .ok_or_else(|| anyhow!("Event channel consumed"))?;
+        let event_rx = self.event_tx.subscribe();
+
         let store_clone = self.store.clone();
 
-        *event_listener = Some(tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             let mut event_rx = event_rx;
-            while let Some(device) = event_rx.recv().await {
+            debug!("Event processing task started");
+
+            while let Ok(device) = event_rx.recv().await {
+                debug!("Received event in processor");
                 if let Err(e) = store_clone.update_device(device).await {
                     error!("Failed to update device: {}", e);
                 }
             }
-        }));
+
+            info!("Event processing task ended");
+        });
+
+        *event_listener = Some(handle);
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         Ok(())
     }
@@ -271,13 +278,21 @@ impl DiscoveryRuntime {
 
         // Cancel all operations
         self.cancel_token.cancel();
+        self.stop_listening().await;
         self.listener_token.cancel();
+
+        if let Some(handle) = self.event_listener.lock().await.take() {
+            handle.await.ok();
+        }
 
         // Stop network services
         self.service.shutdown().await;
 
         // Persist storage
         let devices = self.store.devices.lock().await.clone();
-        self.store.save(&devices).await
+        self.store.save(&devices).await?;
+
+        sleep(Duration::from_millis(500)).await;
+        Ok(())
     }
 }

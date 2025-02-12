@@ -175,11 +175,7 @@ impl ReplCommand {
 #[derive(Debug, Subcommand)]
 pub enum DiscoveryCmd {
     /// Scan for devices in the network
-    Scan {
-        /// Continuous scanning mode (seconds)
-        #[arg(short, long, default_value = "60")]
-        duration: u64,
-    },
+    Scan,
     /// List discovered devices
     List,
 }
