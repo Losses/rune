@@ -191,11 +191,11 @@ impl DiscoveryRuntime {
     ///
     /// # Returns
     /// * `Result<()>` - Success if listener started, error if already running
-    pub async fn start_listening(&mut self, device_info: DeviceInfo) -> Result<()> {
+    pub async fn start_listening(&mut self) -> Result<()> {
         let cancel_token = self.listener_token.child_token();
 
         self.service
-            .listen(device_info.clone(), Some(cancel_token.clone()))
+            .listen(None, Some(cancel_token.clone()))
             .await?;
 
         let mut event_listener = self.event_listener.lock().await;

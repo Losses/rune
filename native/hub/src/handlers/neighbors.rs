@@ -85,17 +85,7 @@ impl Signal for StartListeningRequest {
         (scanner,): Self::Params,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        scanner
-            .start_listening(&DeviceInfo {
-                alias: request.alias.clone(),
-                device_model: Some("RuneAudio".to_string()),
-                version: "Technical Preview".to_owned(),
-                device_type: Some(DeviceType::Desktop),
-                fingerprint: request.fingerprint.clone(),
-                api_port: 7863,
-                protocol: "http".to_owned(),
-            })
-            .await;
+        scanner.start_listening(Some(request.fingerprint.clone())).await;
         Ok(None)
     }
 }

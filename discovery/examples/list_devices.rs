@@ -82,9 +82,9 @@ impl DeviceDiscovery {
         let devices = self.devices.clone();
 
         let listen_service = self.discovery_service.clone();
-        let device_info_for_listen = device_info.clone();
+        let self_fingerprint = device_info.fingerprint.clone();
         tokio::spawn(async move {
-            if let Err(e) = listen_service.listen(device_info_for_listen, None).await {
+            if let Err(e) = listen_service.listen(Some(self_fingerprint), None).await {
                 eprintln!("Error in listen task: {}", e);
             }
         });

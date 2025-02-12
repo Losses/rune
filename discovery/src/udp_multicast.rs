@@ -186,7 +186,7 @@ impl DiscoveryService {
 
     pub async fn listen(
         &self,
-        device_info: DeviceInfo,
+        self_fingerprint: Option<String>,
         cancel_token: Option<CancellationToken>,
     ) -> anyhow::Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
@@ -198,7 +198,7 @@ impl DiscoveryService {
         let mut handles = Vec::with_capacity(sockets.len());
         for socket in sockets.iter() {
             let socket = Arc::clone(socket);
-            let device_info = device_info.clone();
+            let self_fingerprint = self_fingerprint.clone();
             let event_tx = self.event_tx.clone();
             let cancel_token = cancel_token.clone();
             let device_ips = device_ips.clone();
@@ -215,7 +215,7 @@ impl DiscoveryService {
                             match result {
                                 Ok((len, addr)) => {
                                     if let Err(e) = Self::handle_datagram(
-                                        &device_info,
+                                        &self_fingerprint,
                                         &buf[..len],
                                         addr,
                                         &event_tx,
@@ -238,7 +238,7 @@ impl DiscoveryService {
     }
 
     async fn handle_datagram(
-        device_info: &DeviceInfo,
+        self_fingerprint: &Option<String>,
         data: &[u8],
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
@@ -257,7 +257,7 @@ impl DiscoveryService {
             }
         };
 
-        if fingerprint == device_info.fingerprint {
+        if Some(fingerprint.clone()) == *self_fingerprint {
             debug!("Ignoring self-announcement");
             return Ok(());
         }

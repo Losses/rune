@@ -20,7 +20,7 @@ use tokio::{
 };
 use tracing_subscriber::EnvFilter;
 
-use hub::server::utils::{device::load_device_info, path::init_system_paths};
+use hub::server::utils::path::init_system_paths;
 
 use ::discovery::verifier::CertValidator;
 
@@ -156,11 +156,10 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
     match cmd {
         DiscoveryCmd::Scan => {
-            let device_info = load_device_info(&config_dir).await?;
             let mut rt = DiscoveryRuntime::new(&config_dir).await?;
 
             // Start discovery services
-            rt.start_listening(device_info.clone()).await?;
+            rt.start_listening().await?;
 
             // Executing device scanning
             ctrl_c().await?;

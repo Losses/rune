@@ -120,12 +120,11 @@ impl DeviceScanner {
         }
     }
 
-    pub async fn start_listening(&self, device_info: &DeviceInfo) {
+    pub async fn start_listening(&self, self_fingerprint: Option<String>) {
         let discovery_service = self.discovery_service.clone();
 
-        let device_info = device_info.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = discovery_service.listen(device_info, None).await {
+            if let Err(e) = discovery_service.listen(self_fingerprint, None).await {
                 error!("Listening error: {}", e);
             }
         });
