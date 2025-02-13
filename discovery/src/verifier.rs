@@ -211,9 +211,6 @@ impl CertValidator {
                 if let Some(old_fp) = host_map.remove(&domain) {
                     if let Some(hosts) = fp_map.get_mut(&old_fp) {
                         hosts.retain(|h| h != &domain);
-                        if hosts.is_empty() {
-                            fp_map.remove(&old_fp);
-                        }
                     }
                 }
 
