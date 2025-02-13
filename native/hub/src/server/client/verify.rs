@@ -2,24 +2,25 @@ use std::fmt;
 use std::time::Duration;
 
 use anyhow::Result;
+use colored::Colorize;
 use futures::StreamExt;
 
 use discovery::verifier::fetch_server_certificate;
-use log::{error, info};
+use log::info;
 
 #[derive(Debug)]
 enum VerificationResult {
     Match,
-    Mismatch,
+    Mismatch(String),
     Error(String),
 }
 
 impl fmt::Display for VerificationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            VerificationResult::Match => write!(f, "✅ Match"),
-            VerificationResult::Mismatch => write!(f, "❌ Mismatch"),
-            VerificationResult::Error(e) => write!(f, "⚠️ Error: {}", e),
+            VerificationResult::Match => write!(f, "Match"),
+            VerificationResult::Mismatch(_) => write!(f, "❌Mismatch"),
+            VerificationResult::Error(e) => write!(f, "Error: {}", e),
         }
     }
 }
@@ -27,17 +28,18 @@ impl fmt::Display for VerificationResult {
 async fn verify_single_host(host: String, expected_fp: String) -> (String, VerificationResult) {
     let url = format!("https://{}:7863/ping", host);
     info!("Connecting to {}", url);
+
     let result =
         match tokio::time::timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await {
             Ok(Ok(cert)) => {
                 if cert.fingerprint == expected_fp {
                     VerificationResult::Match
                 } else {
-                    VerificationResult::Mismatch
+                    VerificationResult::Mismatch(cert.fingerprint)
                 }
             }
             Ok(Err(e)) => VerificationResult::Error(e.to_string()),
-            Err(_) => VerificationResult::Error("Timeout".into()),
+            Err(_) => VerificationResult::Error("Timeout after 5s".into()),
         };
 
     (host, result)
@@ -46,9 +48,7 @@ async fn verify_single_host(host: String, expected_fp: String) -> (String, Verif
 pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> Result<()> {
     let tasks = hosts.into_iter().map(|host| {
         let expected = expected_fingerprint.to_string();
-        let host_clone = host.clone();
-
-        tokio::spawn(async move { verify_single_host(host_clone, expected).await })
+        tokio::spawn(async move { verify_single_host(host.clone(), expected).await })
     });
 
     let mut success = 0;
@@ -64,26 +64,51 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
         match result {
             Ok((host, VerificationResult::Match)) => {
                 success += 1;
-                info!("Host match: {}", host)
+                println!("  {}", host.bold());
+                println!("    Status:      {}", "MATCH".green().bold());
+                println!(
+                    "    Fingerprint: {}\n",
+                    expected_fingerprint.to_string().magenta()
+                );
             }
-            Ok((host, VerificationResult::Mismatch)) => {
+            Ok((host, VerificationResult::Mismatch(actual))) => {
                 mismatch += 1;
-                error!("Host mismatch: {}", host)
+                println!("   {}", host.bold());
+                println!("    Status:      {}", "MISMATCH".red().bold());
+                println!("    Expected:    {}", expected_fingerprint.green());
+                println!("    Actual:      {}\n", actual.red());
             }
             Ok((host, VerificationResult::Error(e))) => {
                 errors += 1;
-                error!("Unable to verify the host: {} ({})", host, e)
+                println!("   {}", host.bold());
+                println!("    Status:      {}", "ERROR".yellow().bold());
+                println!("    Reason:      {}\n", e.red());
             }
-            Err(_) => errors += 1,
+            Err(e) => {
+                errors += 1;
+                println!("   {}", "Task Failed".bold());
+                println!("    Reason:      {}\n", e.to_string().red());
+            }
         }
     }
 
-    println!("\nVerification Summary:");
-    println!("====================");
-    println!("Total hosts checked: {}", success + mismatch + errors);
-    println!("Matching: {}", success);
-    println!("Mismatched: {}", mismatch);
-    println!("Errors: {}", errors);
+    println!("{}", "Verification Summary".bold().yellow());
+    println!(
+        "  {}: {}",
+        "Total Hosts".cyan().bold(),
+        (success + mismatch + errors).to_string().cyan()
+    );
+    println!(
+        "  {}: {}",
+        "Matching".green().bold(),
+        success.to_string().green()
+    );
+    println!(
+        "  {}: {}",
+        "Mismatched".red().bold(),
+        mismatch.to_string().red()
+    );
+    println!("  {}: {}", "Errors".red().bold(), errors.to_string().red());
 
     Ok(())
 }
