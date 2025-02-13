@@ -13,6 +13,7 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
+use discovery::verifier::parse_certificate;
 use log::{error, info};
 use prost::Message;
 use rand::distributions::{Alphanumeric, DistString};
@@ -23,10 +24,7 @@ use tower_governor::{
 };
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
-use ::discovery::{
-    ssl::{calculate_base85_fingerprint, generate_self_signed_cert},
-    DiscoveryParams,
-};
+use ::discovery::{ssl::generate_self_signed_cert, DiscoveryParams};
 
 use crate::{
     messages::*,
@@ -230,15 +228,15 @@ pub async fn generate_or_load_certificates(
     let key_path = config_path.join("private_key.pem");
 
     if cert_path.exists() && key_path.exists() {
-        let public_key = tokio::fs::read_to_string(&cert_path)
+        let cert = tokio::fs::read_to_string(&cert_path)
             .await
             .context("Failed to read certificate")?;
         let private_key = tokio::fs::read_to_string(&key_path)
             .await
             .context("Failed to read private key")?;
 
-        let fingerprint = calculate_base85_fingerprint(public_key.as_bytes())?;
-        Ok((fingerprint, public_key, private_key))
+        let (_, fingerprint) = parse_certificate(&cert)?;
+        Ok((fingerprint, cert, private_key))
     } else {
         let cert = generate_self_signed_cert(certificate_id, "Rune Player", "NET", 3650)?;
 
@@ -249,7 +247,7 @@ pub async fn generate_or_load_certificates(
             .await
             .context("Failed to save private key")?;
 
-        let fingerprint = calculate_base85_fingerprint(cert.certificate.as_bytes())?;
+        let fingerprint = cert.public_key_fingerprint;
         Ok((fingerprint, cert.certificate, cert.private_key))
     }
 }

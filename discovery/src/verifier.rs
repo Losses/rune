@@ -8,6 +8,7 @@ use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::Uri;
 use hyper_util::rt::TokioIo;
+use pem::Pem;
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -28,7 +29,7 @@ use x509_parser::parse_x509_certificate;
 
 use crate::ssl::calculate_base85_fingerprint;
 
-type CertInfo = Option<(Vec<u8>, String)>;
+type CertInfo = Option<(String, String)>;
 
 #[derive(Error, Debug)]
 pub enum CertValidatorError {
@@ -276,7 +277,7 @@ impl ServerCertVerifier for CertValidator {
 }
 
 pub struct ServerCert {
-    pub cert: Vec<u8>,
+    pub cert: String,
     pub fingerprint: String,
 }
 
@@ -347,6 +348,19 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         ))
 }
 
+pub fn parse_certificate(x: &str) -> Result<(String, String)> {
+    let (_, raw_cert) =
+        parse_x509_certificate(x.as_ref()).map_err(|e| RustlsError::General(e.to_string()))?;
+
+    let cert = Pem::new("CERTIFICATE".to_string(), raw_cert.public_key().raw);
+    let cert = pem::encode(&cert);
+
+    let fingerprint = calculate_base85_fingerprint(raw_cert.public_key().raw)
+        .map_err(|e| RustlsError::General(e.to_string()))?;
+
+    Ok((cert, fingerprint))
+}
+
 #[derive(Debug)]
 struct TempCertVerifier {
     cert_info: Arc<Mutex<CertInfo>>,
@@ -361,14 +375,16 @@ impl ServerCertVerifier for TempCertVerifier {
         _: &[u8],
         _: UnixTime,
     ) -> Result<ServerCertVerified, RustlsError> {
-        let (_, cert) = parse_x509_certificate(end_entity.as_ref())
+        let (_, raw_cert) = parse_x509_certificate(end_entity.as_ref())
             .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        let certification = cert.public_key().raw.to_vec();
-        let fingerprint = calculate_base85_fingerprint(&certification)
+        let cert = Pem::new("CERTIFICATE".to_string(), raw_cert.public_key().raw);
+        let cert = pem::encode(&cert);
+
+        let fingerprint = calculate_base85_fingerprint(raw_cert.public_key().raw)
             .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        *self.cert_info.lock().unwrap() = Some((certification, fingerprint));
+        *self.cert_info.lock().unwrap() = Some((cert, fingerprint));
         Ok(ServerCertVerified::assertion())
     }
 
