@@ -1720,6 +1720,7 @@ dependencies = [
  "bytes",
  "chrono",
  "clap",
+ "colored",
  "futures",
  "http-body-util",
  "hyper",
