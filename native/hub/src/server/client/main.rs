@@ -170,9 +170,15 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             rt.store.save(&final_devices).await?;
             print_device_table(&final_devices);
         }
-        DiscoveryCmd::List => {
+        DiscoveryCmd::Ls => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
             print_device_table(&rt.store.get_devices().await);
+        }
+        DiscoveryCmd::Inspect { index } => {
+            let rt = DiscoveryRuntime::new(&config_dir).await?;
+            let devices = rt.store.load().await?;
+            let dev = devices.get(index - 1).context("Invalid index")?;
+            print_device_details(dev);
         }
     }
 
@@ -184,13 +190,6 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
     let validator = CertValidator::new(config_dir.clone())?;
 
     match cmd {
-        RemoteCmd::Inspect { index } => {
-            let rt = DiscoveryRuntime::new(&config_dir).await?;
-            let devices = rt.store.load().await?;
-            let dev = devices.get(index - 1).context("Invalid index")?;
-            print_device_details(dev);
-            Ok(())
-        }
         RemoteCmd::Trust { index, domains } => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
             let devices = rt.store.load().await?;

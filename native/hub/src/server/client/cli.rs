@@ -177,16 +177,16 @@ pub enum DiscoveryCmd {
     /// Scan for devices in the network
     Scan,
     /// List discovered devices
-    List,
-}
-
-#[derive(Debug, Subcommand)]
-pub enum RemoteCmd {
+    Ls,
     /// View device certificate information
     Inspect {
         /// Device index
         index: usize,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RemoteCmd {
     /// Trust specified device
     Trust {
         /// Device index
