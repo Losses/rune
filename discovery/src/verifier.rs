@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use http_body_util::Empty;
 use hyper::body::Bytes;
 use hyper::Uri;
@@ -349,11 +349,17 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 }
 
 pub fn parse_certificate(x: &str) -> Result<(String, String)> {
-    let (_, raw_cert) =
-        parse_x509_certificate(x.as_ref()).map_err(|e| RustlsError::General(e.to_string()))?;
+    let pem = pem::parse(x).map_err(|e| RustlsError::General(e.to_string()))?;
+    if pem.tag() != "CERTIFICATE" {
+        bail!(format!("Expected CERTIFICATE PEM, got {}", pem.tag()))
+    }
+    let der = pem.contents();
 
-    let cert = Pem::new("CERTIFICATE".to_string(), raw_cert.public_key().raw);
-    let cert = pem::encode(&cert);
+    let (_, raw_cert) =
+        parse_x509_certificate(der).map_err(|e| RustlsError::General(e.to_string()))?;
+
+    let cert_pem = Pem::new("CERTIFICATE".to_string(), der.to_vec());
+    let cert = pem::encode(&cert_pem);
 
     let fingerprint = calculate_base85_fingerprint(raw_cert.public_key().raw)
         .map_err(|e| RustlsError::General(e.to_string()))?;
