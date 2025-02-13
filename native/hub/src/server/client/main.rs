@@ -10,7 +10,7 @@ pub mod utils;
 
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use log::error;
 use regex::Regex;
@@ -29,7 +29,10 @@ use connection::WSConnection;
 use discovery::DiscoveryRuntime;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
-use utils::{print_certificate_table, print_device_details, print_device_table, AppState};
+use utils::{
+    get_fingerprint_by_index, print_certificate_table, print_device_details, print_device_table,
+    AppState,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -209,9 +212,13 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
             print_certificate_table(&validator);
             Ok(())
         }
-        RemoteCmd::Untrust { fingerprint } => {
-            validator.remove_fingerprint(&fingerprint)?;
-            Ok(())
+        RemoteCmd::Untrust { index } => {
+            if let Some(actual_fingerprint) = get_fingerprint_by_index(&validator, index) {
+                validator.remove_fingerprint(&actual_fingerprint)?;
+                Ok(())
+            } else {
+                bail!("Invalid certificate index")
+            }
         }
         RemoteCmd::Edit { fingerprint, hosts } => {
             let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();

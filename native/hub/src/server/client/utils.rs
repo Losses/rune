@@ -94,3 +94,16 @@ pub fn print_certificate_table(validator: &CertValidator) {
         println!();
     }
 }
+
+pub fn get_fingerprint_by_index(validator: &CertValidator, index: usize) -> Option<String> {
+    let fp_map = validator.fingerprints();
+    let mut fingerprints: Vec<_> = fp_map.keys().collect();
+    fingerprints.sort();
+
+    // Convert 1-based index to 0-based
+    if index == 0 || index > fingerprints.len() {
+        return None;
+    }
+
+    fingerprints.get(index - 1).map(|s| s.to_string())
+}

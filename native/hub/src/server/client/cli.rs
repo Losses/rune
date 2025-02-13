@@ -199,8 +199,8 @@ pub enum RemoteCmd {
     Ls,
     /// Delete trusted device
     Untrust {
-        /// Certificate fingerprint
-        fingerprint: String,
+        /// Certificate index
+        index: usize,
     },
     /// Edit device associated hostnames
     Edit {
