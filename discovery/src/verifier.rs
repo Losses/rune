@@ -64,8 +64,7 @@ pub enum CertValidatorError {
 pub struct CertValidator {
     inner_verifier: Arc<WebPkiServerVerifier>,
     report_path: PathBuf,
-    host_to_fingerprint: Arc<Mutex<HashMap<String, String>>>, // host -> fingerprint
-    fingerprint_to_hosts: Arc<Mutex<HashMap<String, Vec<String>>>>, // fingerprint -> hosts
+    fingerprint_to_hosts: Arc<Mutex<HashMap<String, Vec<String>>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -97,27 +96,18 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
-        let (host_to_fingerprint, fingerprint_to_hosts) = if report_path.exists() {
+        let fingerprint_to_hosts = if report_path.exists() {
             let data = std::fs::read_to_string(&report_path)?;
             let report: FingerprintReport = toml::from_str(&data)
                 .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
-            let mut host_map = HashMap::new();
-            let mut fp_map = HashMap::new();
-            for (fp, hosts) in report.entries {
-                for host in &hosts {
-                    host_map.insert(host.clone(), fp.clone());
-                }
-                fp_map.insert(fp, hosts);
-            }
-            (host_map, fp_map)
+            report.entries
         } else {
-            (HashMap::new(), HashMap::new())
+            HashMap::new()
         };
 
         Ok(Self {
             inner_verifier,
             report_path,
-            host_to_fingerprint: Arc::new(Mutex::new(host_to_fingerprint)),
             fingerprint_to_hosts: Arc::new(Mutex::new(fingerprint_to_hosts)),
         })
     }
@@ -139,24 +129,9 @@ impl CertValidator {
         new_hosts: Vec<String>,
     ) -> Result<(), CertValidatorError> {
         let fp_map = {
-            let mut host_map = self.host_to_fingerprint.lock().unwrap();
             let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
-            if let Some(old_hosts) = fp_map.remove(fingerprint) {
-                for host in old_hosts {
-                    host_map.remove(&host);
-                }
-            }
-
-            let mut dedup_hosts = Vec::new();
-            for host in new_hosts {
-                if !host_map.contains_key(&host) {
-                    host_map.insert(host.clone(), fingerprint.to_string());
-                    dedup_hosts.push(host);
-                }
-            }
-
-            fp_map.insert(fingerprint.to_string(), dedup_hosts);
+            fp_map.insert(fingerprint.to_string(), new_hosts);
 
             fp_map.clone()
         };
@@ -166,14 +141,9 @@ impl CertValidator {
 
     pub fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
         let fp_map = {
-            let mut host_map = self.host_to_fingerprint.lock().unwrap();
             let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
-            if let Some(hosts) = fp_map.remove(fingerprint) {
-                for host in hosts {
-                    host_map.remove(&host);
-                }
-            }
+            fp_map.remove(fingerprint);
 
             fp_map.clone()
         };
@@ -202,21 +172,16 @@ impl CertValidator {
     {
         let fingerprint = fingerprint.as_ref().to_string();
         let fp_data = {
-            let mut host_map = self.host_to_fingerprint.lock().unwrap();
             let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
             for domain in domains.into_iter() {
                 let domain = domain.as_ref().to_string();
-
-                if let Some(old_fp) = host_map.remove(&domain) {
-                    if let Some(hosts) = fp_map.get_mut(&old_fp) {
-                        hosts.retain(|h| h != &domain);
-                    }
-                }
-
-                host_map.insert(domain.clone(), fingerprint.clone());
-
                 fp_map.entry(fingerprint.clone()).or_default().push(domain);
+            }
+
+            if let Some(hosts) = fp_map.get_mut(&fingerprint) {
+                hosts.sort();
+                hosts.dedup();
             }
 
             fp_map.clone()
@@ -266,13 +231,19 @@ impl ServerCertVerifier for CertValidator {
             _ => return Err(RustlsError::General("Invalid server name".into())),
         };
 
-        let host_to_fp = self.host_to_fingerprint.lock().unwrap();
-        match host_to_fp.get(&server_name_str) {
-            Some(existing) if existing != &fingerprint => Err(RustlsError::General(
-                "Certificate fingerprint mismatch".into(),
-            )),
-            None => Err(RustlsError::General("Unknown server".into())),
-            Some(_) => Ok(ServerCertVerified::assertion()),
+        let fp_map = self.fingerprint_to_hosts.lock().unwrap();
+
+        let valid = fp_map
+            .get(&fingerprint)
+            .map(|hosts| hosts.contains(&server_name_str))
+            .unwrap_or(false);
+
+        if valid {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(RustlsError::General(
+                "Certificate fingerprint mismatch or unknown server".into(),
+            ))
         }
     }
 
