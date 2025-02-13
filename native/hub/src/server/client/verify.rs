@@ -60,6 +60,7 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
         .collect::<Vec<_>>()
         .await;
 
+    println!("{}", "Verification Report".bold().yellow());
     for result in results {
         match result {
             Ok((host, VerificationResult::Match)) => {
@@ -92,23 +93,23 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
         }
     }
 
-    println!("{}", "Verification Summary".bold().yellow());
+    println!("{}", "Summary".bold().yellow());
     println!(
-        "  {}: {}",
-        "Total Hosts".cyan().bold(),
+        "  {} {}",
+        "Total Hosts:".cyan().bold(),
         (success + mismatch + errors).to_string().cyan()
     );
     println!(
-        "  {}: {}",
-        "Matching".green().bold(),
+        "  {} {}",
+        "Matching:".green().bold(),
         success.to_string().green()
     );
     println!(
-        "  {}: {}",
-        "Mismatched".red().bold(),
+        "  {} {}",
+        "Mismatched:".red().bold(),
         mismatch.to_string().red()
     );
-    println!("  {}: {}", "Errors".red().bold(), errors.to_string().red());
+    println!("  {} {}", "Errors:".red().bold(), errors.to_string().red());
 
     Ok(())
 }
