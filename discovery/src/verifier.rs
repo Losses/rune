@@ -334,10 +334,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
     let guard = cert_info.lock().unwrap();
     guard
         .clone()
-        .map(|(public_key, fingerprint)| ServerCert {
-            cert: public_key,
-            fingerprint,
-        })
+        .map(|(cert, fingerprint)| ServerCert { cert, fingerprint })
         .ok_or(CertValidatorError::CertificateParsing(
             "No certificate captured".into(),
         ))
