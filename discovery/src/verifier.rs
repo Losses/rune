@@ -122,9 +122,10 @@ impl CertValidator {
         })
     }
 
-    fn save_report(&self) -> Result<(), CertValidatorError> {
-        let fp_map = self.fingerprint_to_hosts.lock().unwrap().clone();
-        let report = FingerprintReport { entries: fp_map };
+    fn save_report(&self, fp_map: &HashMap<String, Vec<String>>) -> Result<(), CertValidatorError> {
+        let report = FingerprintReport {
+            entries: fp_map.clone(),
+        };
 
         let data = toml::to_string(&report)
             .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
@@ -137,37 +138,47 @@ impl CertValidator {
         fingerprint: &str,
         new_hosts: Vec<String>,
     ) -> Result<(), CertValidatorError> {
-        let mut host_map = self.host_to_fingerprint.lock().unwrap();
-        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let fp_map = {
+            let mut host_map = self.host_to_fingerprint.lock().unwrap();
+            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
-        if let Some(old_hosts) = fp_map.remove(fingerprint) {
-            for host in old_hosts {
-                host_map.remove(&host);
+            if let Some(old_hosts) = fp_map.remove(fingerprint) {
+                for host in old_hosts {
+                    host_map.remove(&host);
+                }
             }
-        }
 
-        let mut dedup_hosts = Vec::new();
-        for host in new_hosts {
-            if !host_map.contains_key(&host) {
-                host_map.insert(host.clone(), fingerprint.to_string());
-                dedup_hosts.push(host);
+            let mut dedup_hosts = Vec::new();
+            for host in new_hosts {
+                if !host_map.contains_key(&host) {
+                    host_map.insert(host.clone(), fingerprint.to_string());
+                    dedup_hosts.push(host);
+                }
             }
-        }
 
-        fp_map.insert(fingerprint.to_string(), dedup_hosts);
-        self.save_report()
+            fp_map.insert(fingerprint.to_string(), dedup_hosts);
+
+            fp_map.clone()
+        };
+
+        self.save_report(&fp_map)
     }
 
     pub fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
-        let mut host_map = self.host_to_fingerprint.lock().unwrap();
-        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let fp_map = {
+            let mut host_map = self.host_to_fingerprint.lock().unwrap();
+            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
-        if let Some(hosts) = fp_map.remove(fingerprint) {
-            for host in hosts {
-                host_map.remove(&host);
+            if let Some(hosts) = fp_map.remove(fingerprint) {
+                for host in hosts {
+                    host_map.remove(&host);
+                }
             }
-        }
-        self.save_report()
+
+            fp_map.clone()
+        };
+
+        self.save_report(&fp_map)
     }
 
     pub fn get_hosts_for_fingerprint(&self, fingerprint: &str) -> Vec<String> {
@@ -190,27 +201,31 @@ impl CertValidator {
         F: AsRef<str>,
     {
         let fingerprint = fingerprint.as_ref().to_string();
-        let mut host_map = self.host_to_fingerprint.lock().unwrap();
-        let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let fp_data = {
+            let mut host_map = self.host_to_fingerprint.lock().unwrap();
+            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
 
-        for domain in domains.into_iter() {
-            let domain = domain.as_ref().to_string();
+            for domain in domains.into_iter() {
+                let domain = domain.as_ref().to_string();
 
-            if let Some(old_fp) = host_map.remove(&domain) {
-                if let Some(hosts) = fp_map.get_mut(&old_fp) {
-                    hosts.retain(|h| h != &domain);
-                    if hosts.is_empty() {
-                        fp_map.remove(&old_fp);
+                if let Some(old_fp) = host_map.remove(&domain) {
+                    if let Some(hosts) = fp_map.get_mut(&old_fp) {
+                        hosts.retain(|h| h != &domain);
+                        if hosts.is_empty() {
+                            fp_map.remove(&old_fp);
+                        }
                     }
                 }
+
+                host_map.insert(domain.clone(), fingerprint.clone());
+
+                fp_map.entry(fingerprint.clone()).or_default().push(domain);
             }
 
-            host_map.insert(domain.clone(), fingerprint.clone());
+            fp_map.clone()
+        };
 
-            fp_map.entry(fingerprint.clone()).or_default().push(domain);
-        }
-
-        self.save_report()
+        self.save_report(&fp_data)
     }
 
     pub fn into_client_config(self) -> ClientConfig {
