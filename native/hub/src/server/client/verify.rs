@@ -101,15 +101,19 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
     );
     println!(
         "  {} {}",
-        "Matching:".green().bold(),
+        "Matching:   ".green().bold(),
         success.to_string().green()
     );
     println!(
         "  {} {}",
-        "Mismatched:".red().bold(),
+        "Mismatched: ".red().bold(),
         mismatch.to_string().red()
     );
-    println!("  {} {}", "Errors:".red().bold(), errors.to_string().red());
+    println!(
+        "  {} {}",
+        "Errors:     ".red().bold(),
+        errors.to_string().red()
+    );
 
     Ok(())
 }
