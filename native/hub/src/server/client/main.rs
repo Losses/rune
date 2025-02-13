@@ -8,9 +8,9 @@ pub mod hints;
 pub mod repl;
 pub mod utils;
 
-use std::sync::Arc;
+use std::{process::exit, sync::Arc};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use log::error;
 use regex::Regex;
@@ -217,7 +217,8 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
                 validator.remove_fingerprint(&actual_fingerprint)?;
                 Ok(())
             } else {
-                bail!("Invalid certificate index")
+                error!("Invalid certificate index");
+                exit(1)
             }
         }
         RemoteCmd::Edit { fingerprint, hosts } => {
