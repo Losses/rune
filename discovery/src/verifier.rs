@@ -285,7 +285,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         .host()
         .ok_or(CertValidatorError::InvalidServerName)?
         .to_string();
-    let port = uri.port_u16().unwrap_or(443);
+    let port = uri.port_u16().unwrap_or(7863);
 
     let cert_info = Arc::new(Mutex::new(None));
     let verifier = TempCertVerifier {
@@ -410,7 +410,7 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     let sni = ServerName::try_from(host_str.clone())?;
 
     let connector = TlsConnector::from(Arc::new(config));
-    let tcp = TcpStream::connect((host_str.as_str(), uri.port_u16().unwrap_or(443))).await?;
+    let tcp = TcpStream::connect((host_str.as_str(), uri.port_u16().unwrap_or(7863))).await?;
     let _ = connector.connect(sni, tcp).await?;
 
     Ok(host.to_string())
