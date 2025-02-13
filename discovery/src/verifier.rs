@@ -82,7 +82,7 @@ impl CertValidator {
             return Err(CertValidatorError::NotADirectory);
         }
 
-        let report_path = path.join(".known-clients");
+        let report_path = path.join(".known-servers");
 
         let mut root_store = RootCertStore::empty();
         root_store.extend(TLS_SERVER_ROOTS.iter().cloned());
