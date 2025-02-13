@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use axum::{
     routing::{get, post},
     Router,
@@ -16,6 +16,7 @@ use axum_server::{tls_rustls::RustlsConfig, Handle};
 use log::{error, info};
 use prost::Message;
 use rand::distributions::{Alphanumeric, DistString};
+use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
@@ -135,12 +136,18 @@ impl ServerManager {
         let handle = Handle::new();
         let shutdown_handle = handle.clone();
 
-        let tls_config = RustlsConfig::from_pem(
-            self.certificate.as_bytes().to_vec(),
-            self.private_key.as_bytes().to_vec(),
-        )
-        .await
-        .context("Failed to create TLS configuration")?;
+        let tls_config = {
+            if let Err(e) = default_provider().install_default() {
+                bail!(format!("{:#?}", e));
+            };
+
+            RustlsConfig::from_pem(
+                self.certificate.as_bytes().to_vec(),
+                self.private_key.as_bytes().to_vec(),
+            )
+            .await
+            .context("Failed to create TLS configuration")?
+        };
 
         let server_handle = tokio::spawn(async move {
             info!("Starting secure HTTPS/WSS server on {}", addr);
@@ -235,7 +242,7 @@ pub async fn generate_or_load_certificates(
     } else {
         let cert = generate_self_signed_cert(certificate_id, "Rune Player", "NET", 3650)?;
 
-        tokio::fs::write(&cert_path, &cert.public_key)
+        tokio::fs::write(&cert_path, &cert.certificate)
             .await
             .context("Failed to save certificate")?;
         tokio::fs::write(&key_path, &cert.private_key)

@@ -1,3 +1,4 @@
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
@@ -77,6 +78,7 @@ impl PermissionManager {
             .to_str()
             .ok_or(PermissionError::InvalidPath)?
             .to_string();
+        info!("Initializing permission manager in: {}", file_path_str);
 
         let permissions = if file_path.exists() {
             let content = fs::read_to_string(&file_path)?;
