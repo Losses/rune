@@ -26,6 +26,7 @@ impl fmt::Display for VerificationResult {
 
 async fn verify_single_host(host: String, expected_fp: String) -> (String, VerificationResult) {
     let url = format!("https://{}:7863/ping", host);
+    info!("Connecting to {}", url);
     let result =
         match tokio::time::timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await {
             Ok(Ok(cert)) => {

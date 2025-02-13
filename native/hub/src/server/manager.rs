@@ -249,7 +249,7 @@ pub async fn generate_or_load_certificates(
             .await
             .context("Failed to save private key")?;
 
-        let fingerprint = calculate_base85_fingerprint(cert.public_key.as_bytes())?;
-        Ok((fingerprint, cert.public_key, cert.private_key))
+        let fingerprint = calculate_base85_fingerprint(cert.certificate.as_bytes())?;
+        Ok((fingerprint, cert.certificate, cert.private_key))
     }
 }

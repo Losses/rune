@@ -364,16 +364,27 @@ impl ServerCertVerifier for TempCertVerifier {
         let (_, cert) = parse_x509_certificate(end_entity.as_ref())
             .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        let public_key = cert.public_key().raw.to_vec();
-        let fingerprint = calculate_base85_fingerprint(&public_key)
+        let certification = cert.public_key().raw.to_vec();
+        let fingerprint = calculate_base85_fingerprint(&certification)
             .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        *self.cert_info.lock().unwrap() = Some((public_key, fingerprint));
+        *self.cert_info.lock().unwrap() = Some((certification, fingerprint));
         Ok(ServerCertVerified::assertion())
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        vec![SignatureScheme::RSA_PKCS1_SHA256]
+        vec![
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::ED25519,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+        ]
     }
 
     fn verify_tls12_signature(
