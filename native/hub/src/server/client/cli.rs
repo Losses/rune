@@ -209,6 +209,8 @@ pub enum RemoteCmd {
         /// New hostname list (comma-separated)
         hosts: String,
     },
+    /// Verify servers by certificate index
+    Verify { index: usize },
 }
 
 #[derive(Debug, Parser)]

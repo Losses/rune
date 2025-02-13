@@ -7,12 +7,13 @@ pub mod fs;
 pub mod hints;
 pub mod repl;
 pub mod utils;
+pub mod verify;
 
 use std::{process::exit, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
-use log::error;
+use log::{error, info};
 use regex::Regex;
 use tokio::{
     signal::ctrl_c,
@@ -33,6 +34,7 @@ use utils::{
     get_fingerprint_by_index, print_certificate_table, print_device_details, print_device_table,
     AppState,
 };
+use verify::verify_servers;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -225,6 +227,27 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
             let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
             validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts)?;
             Ok(())
+        }
+        RemoteCmd::Verify { index } => {
+            if let Some(fingerprint) = get_fingerprint_by_index(&validator, index) {
+                let hosts = validator.get_hosts_for_fingerprint(&fingerprint);
+
+                if hosts.is_empty() {
+                    info!("No hosts associated with fingerprint {}", fingerprint);
+                    return Ok(());
+                }
+
+                info!(
+                    "Verifying {} hosts for fingerprint {}",
+                    hosts.len(),
+                    fingerprint
+                );
+
+                verify_servers(&fingerprint, hosts).await
+            } else {
+                error!("Invalid certificate index");
+                exit(1)
+            }
         }
     }
 }

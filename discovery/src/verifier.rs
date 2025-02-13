@@ -58,6 +58,9 @@ pub enum CertValidatorError {
 
     #[error("TLS error: {0}")]
     TlsError(#[from] RustlsError),
+
+    #[error("Unable to initialize the crypto provider")]
+    CryptoProviderInitialize,
 }
 
 #[derive(Debug, Clone)]
@@ -290,6 +293,10 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
     let cert_info = Arc::new(Mutex::new(None));
     let verifier = TempCertVerifier {
         cert_info: Arc::clone(&cert_info),
+    };
+
+    if default_provider().install_default().is_err() {
+        return Err(CertValidatorError::CryptoProviderInitialize);
     };
 
     let config = ClientConfig::builder()
