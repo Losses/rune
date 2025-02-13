@@ -29,7 +29,7 @@ use connection::WSConnection;
 use discovery::DiscoveryRuntime;
 use editor::{create_editor, EditorConfig};
 use fs::VirtualFS;
-use utils::{print_device_details, print_device_table, AppState};
+use utils::{print_certificate_table, print_device_details, print_device_table, AppState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -180,17 +180,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             let dev = devices.get(index - 1).context("Invalid index")?;
             print_device_details(dev);
         }
-    }
-
-    Ok(())
-}
-
-async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
-    let config_dir = init_system_paths()?;
-    let validator = CertValidator::new(config_dir.clone())?;
-
-    match cmd {
-        RemoteCmd::Trust { index, domains } => {
+        DiscoveryCmd::Trust { index, domains } => {
             let rt = DiscoveryRuntime::new(&config_dir).await?;
             let devices = rt.store.load().await?;
             let dev = devices.get(index - 1).context("Invalid index")?;
@@ -201,7 +191,22 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
                         .collect::<Vec<String>>()
                 })
                 .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
+
+            let validator = CertValidator::new(config_dir.clone())?;
             validator.add_trusted_domains(hosts, &dev.fingerprint)?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
+    let config_dir = init_system_paths()?;
+    let validator = CertValidator::new(config_dir.clone())?;
+
+    match cmd {
+        RemoteCmd::Ls => {
+            print_certificate_table(&validator);
             Ok(())
         }
         RemoteCmd::Untrust { fingerprint } => {

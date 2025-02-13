@@ -183,10 +183,6 @@ pub enum DiscoveryCmd {
         /// Device index
         index: usize,
     },
-}
-
-#[derive(Debug, Subcommand)]
-pub enum RemoteCmd {
     /// Trust specified device
     Trust {
         /// Device index
@@ -195,6 +191,12 @@ pub enum RemoteCmd {
         #[arg(long)]
         domains: Option<String>,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RemoteCmd {
+    /// List trusted devices
+    Ls,
     /// Delete trusted device
     Untrust {
         /// Certificate fingerprint

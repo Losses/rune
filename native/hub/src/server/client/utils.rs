@@ -70,3 +70,27 @@ pub fn print_device_details(dev: &DiscoveredDevice) {
     }
     println!();
 }
+
+pub fn print_certificate_table(validator: &CertValidator) {
+    let fp_map = validator.fingerprints();
+    let mut fingerprints: Vec<_> = fp_map.keys().collect();
+    fingerprints.sort();
+
+    for (i, fp) in fingerprints.iter().enumerate() {
+        let index = i + 1;
+        let index_str = format!("[{}]", index).red().bold();
+
+        let fp_short: String = fp.chars().take(8).collect();
+        let fp_display = fp_short.magenta();
+
+        println!("{} {}", index_str, fp_display);
+
+        if let Some(hosts) = fp_map.get(*fp) {
+            for host in hosts {
+                println!("    {}", host.to_string().white());
+            }
+        }
+
+        println!();
+    }
+}

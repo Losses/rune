@@ -234,6 +234,10 @@ impl CertValidator {
             .with_custom_certificate_verifier(Arc::new(self))
             .with_no_client_auth()
     }
+
+    pub fn fingerprints(&self) -> HashMap<String, Vec<String>> {
+        self.fingerprint_to_hosts.lock().unwrap().clone()
+    }
 }
 
 impl ServerCertVerifier for CertValidator {
