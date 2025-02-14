@@ -1,6 +1,7 @@
 use utils::DeviceInfo;
 
 pub mod permission;
+pub mod request;
 pub mod ssl;
 pub mod udp_multicast;
 pub mod utils;

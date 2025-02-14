@@ -5,8 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{bail, Result};
 use http_body_util::Empty;
-use hyper::body::Bytes;
-use hyper::Uri;
+use hyper::{body::Bytes, Uri};
 use hyper_util::rt::TokioIo;
 use pem::Pem;
 use rustls::{

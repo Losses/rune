@@ -1722,6 +1722,7 @@ dependencies = [
  "clap",
  "colored",
  "futures",
+ "http-body",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -2620,7 +2621,9 @@ dependencies = [
  "futures",
  "futures-channel",
  "futures-util",
+ "http-body-util",
  "humantime",
+ "hyper",
  "lazy_static",
  "log",
  "lyric",
@@ -2639,6 +2642,7 @@ dependencies = [
  "scrobbling",
  "sea-orm",
  "serde",
+ "serde_json",
  "sha2",
  "shlex",
  "strum",
@@ -2671,9 +2675,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
-version = "1.5.2"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "256fb8d4bd6413123cc9d91832d78325c48ff41677595be797d90f42969beae0"
+checksum = "cc2b571658e38e0c01b1fdca3bbbe93c00d3d71693ff2770043f8c29bc7d6f80"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -5627,9 +5631,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.137"
+version = "1.0.138"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "930cfb6e6abf99298aaad7d29abbef7a9999a9a8806a40088f55f0dcec03146b"
+checksum = "d434192e7da787e94a6ea7e9670b26a036d0ca41e0b7efb2676dd32bae872949"
 dependencies = [
  "itoa",
  "memchr",

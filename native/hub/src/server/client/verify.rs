@@ -1,12 +1,18 @@
 use std::fmt;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
-
-use discovery::verifier::fetch_server_certificate;
+use hub::server::{
+    generate_or_load_certificates, get_or_generate_certificate_id, utils::path::init_system_paths,
+};
 use log::info;
+
+use discovery::verifier::{fetch_server_certificate, parse_certificate};
+use rustls::ClientConfig;
+
+use crate::api::{fetch_device_info, register_device};
 
 #[derive(Debug)]
 enum VerificationResult {
@@ -19,7 +25,7 @@ impl fmt::Display for VerificationResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VerificationResult::Match => write!(f, "Match"),
-            VerificationResult::Mismatch(_) => write!(f, "❌Mismatch"),
+            VerificationResult::Mismatch(_) => write!(f, "Mismatch"),
             VerificationResult::Error(e) => write!(f, "Error: {}", e),
         }
     }
@@ -114,6 +120,63 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
         "Errors:     ".red().bold(),
         errors.to_string().red()
     );
+
+    Ok(())
+}
+
+pub async fn inspect_host(host: &str, config: ClientConfig) -> Result<()> {
+    let device_info = fetch_device_info(host, config).await?;
+
+    println!("{}", format!("Device Info for {}", host).bold().yellow());
+    println!("  {:15}: {}", "Alias", device_info.alias);
+    println!("  {:15}: {}", "Version", device_info.version);
+    println!("  {:15}: {}", "Device Type", device_info.device_type);
+    if let Some(model) = &device_info.device_model {
+        println!("  {:15}: {}", "Device Model", model);
+    }
+
+    Ok(())
+}
+
+pub async fn register_current_device(host: &str, config: ClientConfig) -> Result<()> {
+    let config_dir = init_system_paths()?;
+    let certificate_id = get_or_generate_certificate_id(&config_dir).await?;
+    let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
+        .await
+        .context("Failed to load client certificates")?;
+
+    let (public_key, fingerprint) =
+        parse_certificate(&certificate).context("Failed to parse client certificate")?;
+
+    register_device(
+        host,
+        config,
+        public_key,
+        fingerprint,
+        certificate_id,
+        "RuneAudio".to_owned(),
+        "Headless".to_owned(),
+    ).await?;
+
+    Ok(())
+}
+
+pub async fn print_device_information() -> Result<()> {
+    let config_dir = init_system_paths()?;
+    let certificate_id = get_or_generate_certificate_id(&config_dir).await?;
+    let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
+        .await
+        .context("Failed to load client certificates")?;
+
+    let (public_key, fingerprint) =
+        parse_certificate(&certificate).context("Failed to parse client certificate")?;
+
+    println!("{}", "Client Information".bold().cyan());
+    println!("  {:15}: {}", "Fingerprint", fingerprint.cyan());
+    println!("  {:15}: {}", "Alias", certificate_id.cyan());
+    println!("  {:15}: {}", "Device Type", "Headless".cyan());
+    println!("  {:15}: {}", "Device Model", "RuneAudio".cyan());
+    println!("{}", public_key);
 
     Ok(())
 }

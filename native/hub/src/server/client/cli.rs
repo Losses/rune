@@ -211,6 +211,12 @@ pub enum RemoteCmd {
     },
     /// Verify servers by certificate index
     Verify { index: usize },
+    /// Fetch device information of the remote revice
+    Inspect { host: String },
+    /// Register this client to the remote server
+    Register { host: String },
+    /// Printing the certification summary of this device
+    SelfInfo,
 }
 
 #[derive(Debug, Parser)]

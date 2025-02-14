@@ -1,11 +1,12 @@
 use std::fs;
 use std::path::PathBuf;
 
+use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 
-pub fn init_system_paths() -> anyhow::Result<PathBuf> {
+pub fn init_system_paths() -> Result<PathBuf> {
     let proj_dirs = ProjectDirs::from("ci", "not", "rune")
-        .ok_or_else(|| anyhow::anyhow!("Failed to get project directories"))?;
+        .ok_or_else(|| anyhow!("Failed to get project directories"))?;
 
     let config_dir = proj_dirs.config_dir();
     let config_path = config_dir.to_path_buf();

@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use discovery::utils::{DeviceInfo, DeviceType};
+use serde::{Deserialize, Serialize};
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id};
 
@@ -19,4 +20,13 @@ pub async fn load_device_info(config_path: &Path) -> Result<DeviceInfo> {
         api_port: 7863,
         protocol: "http".to_owned(),
     })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SanitizedDeviceInfo {
+    pub alias: String,
+    pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub device_model: Option<String>,
+    pub device_type: String,
 }

@@ -1,20 +1,10 @@
 use std::sync::Arc;
 
 use axum::{extract::State, Json};
-use serde::Serialize;
 
 use discovery::utils::DeviceInfo;
 
-use crate::server::ServerState;
-
-#[derive(Debug, Serialize)]
-pub struct SanitizedDeviceInfo {
-    alias: String,
-    version: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    device_model: Option<String>,
-    device_type: String,
-}
+use crate::server::{utils::device::SanitizedDeviceInfo, ServerState};
 
 fn sanitize_device_info(original: &DeviceInfo) -> SanitizedDeviceInfo {
     SanitizedDeviceInfo {

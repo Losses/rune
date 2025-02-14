@@ -34,7 +34,7 @@ use utils::{
     get_fingerprint_by_index, print_certificate_table, print_device_details, print_device_table,
     AppState,
 };
-use verify::verify_servers;
+use verify::{inspect_host, print_device_information, register_current_device, verify_servers};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -249,6 +249,17 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
                 exit(1)
             }
         }
+        RemoteCmd::Inspect { host } => {
+            let client_config = validator.into_client_config();
+            inspect_host(&host, client_config).await
+        }
+
+        RemoteCmd::Register { host } => {
+            let client_config = validator.into_client_config();
+            register_current_device(&host, client_config).await
+        }
+
+        RemoteCmd::SelfInfo => print_device_information().await,
     }
 }
 
