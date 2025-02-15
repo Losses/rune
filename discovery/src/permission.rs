@@ -1,9 +1,9 @@
-use log::info;
+use log::{error, info};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -63,7 +63,7 @@ pub enum PermissionError {
 
 #[derive(Debug)]
 pub struct PermissionManager {
-    file_path: String,
+    file_path: PathBuf,
     permissions: Arc<RwLock<PermissionList>>,
     ip_applications: RwLock<HashMap<String, VecDeque<String>>>,
     watcher: Arc<Mutex<RecommendedWatcher>>,
@@ -80,19 +80,24 @@ impl PermissionManager {
         }
 
         let file_path = path.join(".known-clients");
-        let file_path_str = file_path
-            .to_str()
-            .ok_or(PermissionError::InvalidPath)?
-            .to_string();
-        info!("Initializing permission manager in: {}", file_path_str);
+        info!("Initializing permission manager in: {:?}", file_path);
 
         let permissions = if file_path.exists() {
+            info!("Permission path exists");
+            if file_path.is_dir() {
+                error!("Permission path is not a file");
+                return Err(PermissionError::NotADirectory);
+            }
             let content = fs::read_to_string(&file_path)?;
             toml::from_str(&content)?
         } else {
-            PermissionList {
+            info!("File does not exist, creating new with empty permissions");
+            let permissions = PermissionList {
                 users: HashMap::new(),
-            }
+            };
+            let content = toml::to_string(&permissions)?;
+            fs::write(&file_path, content)?;
+            permissions
         };
 
         let permissions = Arc::new(RwLock::new(permissions));
@@ -106,7 +111,7 @@ impl PermissionManager {
         })?;
 
         watcher
-            .watch(Path::new(&file_path_str), RecursiveMode::NonRecursive)
+            .watch(Path::new(&file_path), RecursiveMode::NonRecursive)
             .map_err(|e| {
                 PermissionError::IoError(std::io::Error::new(
                     std::io::ErrorKind::Other,
@@ -117,7 +122,7 @@ impl PermissionManager {
         let watcher = Arc::new(Mutex::new(watcher));
 
         let permissions_clone = permissions.clone();
-        let file_path_clone = file_path_str.clone();
+        let file_path_clone = file_path.clone();
 
         std::thread::spawn(move || {
             for event in rx {
@@ -156,7 +161,7 @@ impl PermissionManager {
         });
 
         Ok(Self {
-            file_path: file_path_str,
+            file_path,
             permissions,
             ip_applications: RwLock::new(HashMap::new()),
             watcher,
@@ -177,6 +182,11 @@ impl PermissionManager {
                     e.to_string(),
                 ))
             })?;
+        }
+
+        let path = Path::new(&self.file_path);
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
         }
 
         let content = toml::to_string(&*self.permissions.read().await)?;
