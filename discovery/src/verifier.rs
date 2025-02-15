@@ -299,39 +299,33 @@ impl ServerCertVerifier for CertValidator {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, RustlsError> {
-        self.inner_verifier.verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            ocsp_response,
-            now,
-        )?;
-
-        let (_, cert) = parse_x509_certificate(end_entity.as_ref())
-            .map_err(|e| RustlsError::General(e.to_string()))?;
-        let public_key_der = cert.public_key().raw;
-
-        let fingerprint = calculate_base85_fingerprint(public_key_der)
-            .map_err(|e| RustlsError::General(e.to_string()))?;
-
         let server_name_str = match server_name {
             ServerName::DnsName(dns) => dns.as_ref().to_string(),
             _ => return Err(RustlsError::General("Invalid server name".into())),
         };
 
-        let fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let (_, cert) = parse_x509_certificate(end_entity.as_ref())
+            .map_err(|e| RustlsError::General(e.to_string()))?;
+        let public_key_der = cert.public_key().raw;
+        let fingerprint = calculate_base85_fingerprint(public_key_der)
+            .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        let valid = fp_map
+        let fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let is_trusted = fp_map
             .get(&fingerprint)
             .map(|hosts| hosts.contains(&server_name_str))
             .unwrap_or(false);
 
-        if valid {
+        if is_trusted {
             Ok(ServerCertVerified::assertion())
         } else {
-            Err(RustlsError::General(
-                "Certificate fingerprint mismatch or unknown server".into(),
-            ))
+            self.inner_verifier.verify_server_cert(
+                end_entity,
+                intermediates,
+                server_name,
+                ocsp_response,
+                now,
+            )
         }
     }
 
