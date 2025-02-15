@@ -174,14 +174,14 @@ async fn handle_permission(action: PermissionAction) -> Result<()> {
             let user = &users[index - 1];
             let status = parse_status(&status)?;
             pm.change_user_status(&user.fingerprint, status).await?;
-            println!("User status updated successfully");
+            info!("User status updated successfully");
         }
         PermissionAction::Delete { index } => {
             let users = pm.list_users().await;
             validate_index(index, users.len())?;
             let user = &users[index - 1];
             pm.remove_user(&user.fingerprint).await?;
-            println!("User deleted successfully");
+            info!("User deleted successfully");
         }
     }
     Ok(())
