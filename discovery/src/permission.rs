@@ -32,6 +32,7 @@ pub struct UserSummary {
     pub alias: String,
     pub fingerprint: String,
     pub device_model: String,
+    pub device_type: DeviceType,
     pub status: UserStatus,
 }
 
@@ -211,6 +212,7 @@ impl PermissionManager {
                 alias: user.alias.clone(),
                 fingerprint: user.fingerprint.clone(),
                 device_model: user.device_model.clone(),
+                device_type: user.device_type,
                 status: user.status.clone(),
             })
             .collect()

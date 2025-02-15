@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::Result;
-use clap::{Arg, Command};
+use clap::{Parser, Subcommand};
 use log::info;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -13,7 +13,9 @@ use tracing_subscriber::EnvFilter;
 
 use hub::{
     server::{
-        utils::{device::load_device_info, path::get_config_dir},
+        utils::{
+            device::load_device_info, path::get_config_dir, permission::{parse_status, print_permission_table, validate_index},
+        },
         ServerManager, WebSocketService,
     },
     utils::{
@@ -30,98 +32,150 @@ use ::discovery::{
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
+#[derive(Parser)]
+#[command(name = "Rune", author = "Rune Developers", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the server
+    Server {
+        #[arg(short, long, default_value = "127.0.0.1:7863")]
+        addr: String,
+        #[arg(required = true, index = 1)]
+        lib_path: String,
+    },
+    /// Broadcast presence to the local network
+    Broadcast,
+    /// Manage device permissions
+    Permission {
+        #[command(subcommand)]
+        action: PermissionAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum PermissionAction {
+    /// List all permissions and statuses
+    Ls,
+    /// Modify user status
+    Modify {
+        /// User index number
+        #[arg(value_name = "INDEX")]
+        index: usize,
+        /// New status (approved/pending/blocked)
+        #[arg(value_name = "STATUS")]
+        status: String,
+    },
+    /// Delete user permission
+    Delete {
+        /// User index number
+        #[arg(value_name = "INDEX")]
+        index: usize,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let filter = EnvFilter::new(
-        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",
-    );
+    setup_logging();
+    let cli = Cli::parse();
 
-    tracing_subscriber::fmt().with_env_filter(filter).init();
-
-    let matches = Command::new("Rune")
-        .author("Rune Developers")
-        .subcommand(
-            Command::new("server")
-                .about("Start the server")
-                .arg(
-                    Arg::new("addr")
-                        .short('a')
-                        .long("addr")
-                        .value_name("ADDRESS")
-                        .default_value("127.0.0.1:7863"),
-                )
-                .arg(
-                    Arg::new("lib_path")
-                        .value_name("LIB_PATH")
-                        .required(true)
-                        .index(1),
-                ),
-        )
-        .subcommand(Command::new("broadcast").about("Broadcast presence to the local network"))
-        .get_matches();
-
-    match matches.subcommand() {
-        Some(("server", sub_matches)) => {
-            let addr: SocketAddr = sub_matches.get_one::<String>("addr").unwrap().parse()?;
-            let lib_path = sub_matches.get_one::<String>("lib_path").unwrap();
-
-            let config_path = get_config_dir()?;
-            let device_info = load_device_info(&config_path).await?;
-
-            let global_params = initialize_global_params(
-                lib_path,
-                config_path
-                    .to_str()
-                    .ok_or_else(|| anyhow::anyhow!("Invalid config path"))?,
-            )
-            .await?;
-
-            let server_manager = Arc::new(ServerManager::new(global_params).await?);
-            server_manager
-                .start(addr, DiscoveryParams { device_info })
-                .await?;
-
-            tokio::signal::ctrl_c().await?;
-            server_manager.stop().await?;
-        }
-        Some(("broadcast", _)) => {
-            let config_path = get_config_dir()?;
-            let device_info = load_device_info(&config_path).await?;
-
-            let (event_tx, _) = broadcast::channel(32);
-            let discovery_service = Arc::new(DiscoveryService::new(event_tx));
-
-            let cancel_token = CancellationToken::new();
-            let handle = tokio::spawn({
-                let cancel_token = cancel_token.clone();
-                let discovery_service = discovery_service.clone();
-                let device_info = device_info.clone();
-                info!("Announcing this server as {}", device_info.alias);
-                async move {
-                    loop {
-                        if let Err(e) = discovery_service.announce(device_info.clone()).await {
-                            eprintln!("Failed to announce: {}", e);
-                        }
-
-                        tokio::select! {
-                            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                            _ = cancel_token.cancelled() => break,
-                        }
-                    }
-                }
-            });
-
-            tokio::signal::ctrl_c().await?;
-            cancel_token.cancel();
-            handle.await?;
-
-            discovery_service.shutdown().await;
-        }
-        _ => {
-            Command::new("Rune").print_help()?;
-        }
+    match cli.command {
+        Commands::Server { addr, lib_path } => handle_server(addr, lib_path).await?,
+        Commands::Broadcast => handle_broadcast().await?,
+        Commands::Permission { action } => handle_permission(action).await?,
     }
 
+    Ok(())
+}
+
+fn setup_logging() {
+    let filter = EnvFilter::new(
+        "symphonia_format_ogg=off,symphonia_core=off,symphonia_bundle_mp3::demuxer=off,\
+         tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",
+    );
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+}
+
+async fn handle_server(addr: String, lib_path: String) -> Result<()> {
+    let config_path = get_config_dir()?;
+    let device_info = load_device_info(&config_path).await?;
+    let global_params = initialize_global_params(&lib_path, config_path.to_str().unwrap()).await?;
+
+    let server_manager = Arc::new(ServerManager::new(global_params).await?);
+    let socket_addr: SocketAddr = addr.parse()?;
+
+    server_manager
+        .start(socket_addr, DiscoveryParams { device_info })
+        .await?;
+
+    tokio::signal::ctrl_c().await?;
+    server_manager.stop().await?;
+    Ok(())
+}
+
+async fn handle_broadcast() -> Result<()> {
+    let config_path = get_config_dir()?;
+    let device_info = load_device_info(&config_path).await?;
+
+    let (event_tx, _) = broadcast::channel(32);
+    let discovery_service = Arc::new(DiscoveryService::new(event_tx));
+    let cancel_token = CancellationToken::new();
+
+    let handle = tokio::spawn({
+        let cancel_token = cancel_token.clone();
+        let discovery_service = discovery_service.clone();
+        let device_info = device_info.clone();
+        async move {
+            info!("Announcing this server as {}", device_info.alias);
+            loop {
+                if let Err(e) = discovery_service.announce(device_info.clone()).await {
+                    eprintln!("Failed to announce: {}", e);
+                }
+
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
+                    _ = cancel_token.cancelled() => break,
+                }
+            }
+        }
+    });
+
+    tokio::signal::ctrl_c().await?;
+    cancel_token.cancel();
+    handle.await?;
+    discovery_service.shutdown().await;
+    Ok(())
+}
+
+async fn handle_permission(action: PermissionAction) -> Result<()> {
+    let config_path = get_config_dir()?;
+    let mut pm = PermissionManager::new(config_path)?;
+
+    match action {
+        PermissionAction::Ls => {
+            let users = pm.list_users().await;
+            print_permission_table(&users);
+        }
+        PermissionAction::Modify { index, status } => {
+            let users = pm.list_users().await;
+            validate_index(index, users.len())?;
+            let user = &users[index - 1];
+            let status = parse_status(&status)?;
+            pm.change_user_status(&user.fingerprint, status).await?;
+            println!("User status updated successfully");
+        }
+        PermissionAction::Delete { index } => {
+            let users = pm.list_users().await;
+            validate_index(index, users.len())?;
+            let user = &users[index - 1];
+            pm.remove_user(&user.fingerprint).await?;
+            println!("User deleted successfully");
+        }
+    }
     Ok(())
 }
 
