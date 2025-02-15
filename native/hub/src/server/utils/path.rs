@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{anyhow, Result};
 use directories::ProjectDirs;
 
-pub fn init_system_paths() -> Result<PathBuf> {
+pub fn get_config_dir() -> Result<PathBuf> {
     let proj_dirs = ProjectDirs::from("ci", "not", "rune")
         .ok_or_else(|| anyhow!("Failed to get project directories"))?;
 

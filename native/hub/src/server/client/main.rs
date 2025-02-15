@@ -21,7 +21,7 @@ use tokio::{
 };
 use tracing_subscriber::EnvFilter;
 
-use hub::server::utils::path::init_system_paths;
+use hub::server::utils::path::get_config_dir;
 
 use ::discovery::verifier::CertValidator;
 
@@ -74,7 +74,7 @@ async fn repl_mode(service_url: &str) -> Result<()> {
     let fs = Arc::new(RwLock::new(VirtualFS::new(connection)));
     let mut editor = create_editor(config, fs.clone())?;
 
-    let config_dir = init_system_paths()?;
+    let config_dir = get_config_dir()?;
     let state: Arc<AppState> = Arc::new(AppState {
         fs: fs.clone(),
         validator: CertValidator::new(config_dir.join("certs"))?,
@@ -157,7 +157,7 @@ async fn handle_repl_command(command: ReplCommand, state: Arc<AppState>) -> Resu
 }
 
 async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
-    let config_dir = init_system_paths()?;
+    let config_dir = get_config_dir()?;
 
     match cmd {
         DiscoveryCmd::Scan => {
@@ -206,7 +206,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 }
 
 async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
-    let config_dir = init_system_paths()?;
+    let config_dir = get_config_dir()?;
     let validator = CertValidator::new(config_dir.clone())?;
 
     match cmd {

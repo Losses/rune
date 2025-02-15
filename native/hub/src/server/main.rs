@@ -13,7 +13,7 @@ use tracing_subscriber::EnvFilter;
 
 use hub::{
     server::{
-        utils::{device::load_device_info, path::init_system_paths},
+        utils::{device::load_device_info, path::get_config_dir},
         ServerManager, WebSocketService,
     },
     utils::{
@@ -65,7 +65,7 @@ async fn main() -> Result<()> {
             let addr: SocketAddr = sub_matches.get_one::<String>("addr").unwrap().parse()?;
             let lib_path = sub_matches.get_one::<String>("lib_path").unwrap();
 
-            let config_path = init_system_paths()?;
+            let config_path = get_config_dir()?;
             let device_info = load_device_info(&config_path).await?;
 
             let global_params = initialize_global_params(
@@ -85,7 +85,7 @@ async fn main() -> Result<()> {
             server_manager.stop().await?;
         }
         Some(("broadcast", _)) => {
-            let config_path = init_system_paths()?;
+            let config_path = get_config_dir()?;
             let device_info = load_device_info(&config_path).await?;
 
             let (event_tx, _) = broadcast::channel(32);
