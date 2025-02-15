@@ -87,8 +87,6 @@ impl CertValidator {
             return Err(CertValidatorError::NotADirectory);
         }
 
-        let report_path = path.join(".known-servers");
-
         let mut root_store = RootCertStore::empty();
         root_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
@@ -101,12 +99,21 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
+        let report_path = path.join(".known-servers");
+
         let fingerprint_to_hosts_map = if report_path.exists() {
             let data = std::fs::read_to_string(&report_path)?;
             let report: FingerprintReport = toml::from_str(&data)
                 .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
             report.entries
         } else {
+            let empty_report = FingerprintReport {
+                entries: HashMap::new(),
+            };
+            let data = toml::to_string(&empty_report)
+                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
+            std::fs::write(&report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
+
             HashMap::new()
         };
 
