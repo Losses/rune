@@ -49,6 +49,7 @@ http-body-util = "0.1.2"
 hyper-util = "0.1.10"
 colored = "3.0.0"
 http-body = "1.0.1"
+notify = "8.0.0"
 
 [dev-dependencies]
 clap = { version = "4.5.27", features = ["derive"] }

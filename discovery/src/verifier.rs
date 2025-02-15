@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 
 use anyhow::{bail, Result};
 use http_body_util::Empty;
 use hyper::{body::Bytes, Uri};
 use hyper_util::rt::TokioIo;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pem::Pem;
 use rustls::{
     client::{
@@ -68,6 +69,7 @@ pub struct CertValidator {
     inner_verifier: Arc<WebPkiServerVerifier>,
     report_path: PathBuf,
     fingerprint_to_hosts: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    watcher: Arc<Mutex<RecommendedWatcher>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -99,7 +101,7 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
-        let fingerprint_to_hosts = if report_path.exists() {
+        let fingerprint_to_hosts_map = if report_path.exists() {
             let data = std::fs::read_to_string(&report_path)?;
             let report: FingerprintReport = toml::from_str(&data)
                 .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
@@ -108,14 +110,80 @@ impl CertValidator {
             HashMap::new()
         };
 
+        let fingerprint_to_hosts_arc = Arc::new(Mutex::new(fingerprint_to_hosts_map));
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = notify::recommended_watcher(tx).map_err(|e| {
+            CertValidatorError::DirectoryCreation(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+        watcher
+            .watch(&report_path, RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                CertValidatorError::DirectoryCreation(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+
+        let watcher = Arc::new(Mutex::new(watcher));
+
+        let fingerprint_to_hosts_clone = Arc::clone(&fingerprint_to_hosts_arc);
+        let report_path_clone = report_path.clone();
+
+        std::thread::spawn(move || {
+            for event in rx {
+                match event {
+                    Ok(event) => {
+                        if let EventKind::Modify(_) = event.kind {
+                            if event.paths.iter().any(|p| p == &report_path_clone) {
+                                match std::fs::read_to_string(&report_path_clone) {
+                                    Ok(data) => match toml::from_str::<FingerprintReport>(&data) {
+                                        Ok(report) => {
+                                            let mut fp_map =
+                                                fingerprint_to_hosts_clone.lock().unwrap();
+                                            *fp_map = report.entries;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to parse fingerprint report: {}", e)
+                                        }
+                                    },
+                                    Err(e) => {
+                                        eprintln!("Failed to read fingerprint report file: {}", e)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Error watching file: {:?}", e),
+                }
+            }
+        });
+
         Ok(Self {
             inner_verifier,
             report_path,
-            fingerprint_to_hosts: Arc::new(Mutex::new(fingerprint_to_hosts)),
+            fingerprint_to_hosts: fingerprint_to_hosts_arc,
+            watcher,
         })
     }
 
     fn save_report(&self, fp_map: &HashMap<String, Vec<String>>) -> Result<(), CertValidatorError> {
+        let mut watcher = self.watcher.lock().map_err(|_| {
+            CertValidatorError::DirectoryCreation(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Mutex poison error",
+            ))
+        })?;
+        watcher.unwatch(&self.report_path).map_err(|e| {
+            CertValidatorError::DirectoryCreation(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+
         let report = FingerprintReport {
             entries: fp_map.clone(),
         };
@@ -123,6 +191,16 @@ impl CertValidator {
         let data = toml::to_string(&report)
             .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
         std::fs::write(&self.report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
+
+        watcher
+            .watch(&self.report_path, RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                CertValidatorError::DirectoryCreation(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+
         Ok(())
     }
 

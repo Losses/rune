@@ -1,8 +1,10 @@
 use log::info;
+use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
 use std::path::Path;
+use std::sync::{mpsc, Arc, Mutex};
 use thiserror::Error;
 use tokio::sync::RwLock;
 
@@ -54,13 +56,16 @@ pub enum PermissionError {
     NotADirectory,
     #[error("Path is invalid")]
     InvalidPath,
+    #[error("Watch error: {0}")]
+    WatchError(String),
 }
 
 #[derive(Debug)]
 pub struct PermissionManager {
     file_path: String,
-    permissions: RwLock<PermissionList>,
+    permissions: Arc<RwLock<PermissionList>>,
     ip_applications: RwLock<HashMap<String, VecDeque<String>>>,
+    watcher: Arc<Mutex<RecommendedWatcher>>,
 }
 
 impl PermissionManager {
@@ -89,16 +94,110 @@ impl PermissionManager {
             }
         };
 
+        let permissions = Arc::new(RwLock::new(permissions));
+
+        let (tx, rx) = mpsc::channel();
+        let mut watcher = notify::recommended_watcher(tx).map_err(|e| {
+            PermissionError::IoError(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
+
+        watcher
+            .watch(Path::new(&file_path_str), RecursiveMode::NonRecursive)
+            .map_err(|e| {
+                PermissionError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+
+        let watcher = Arc::new(Mutex::new(watcher));
+
+        let permissions_clone = permissions.clone();
+        let file_path_clone = file_path_str.clone();
+
+        std::thread::spawn(move || {
+            for event in rx {
+                match event {
+                    Ok(event) => {
+                        if let EventKind::Modify(_) = event.kind {
+                            if event.paths.iter().any(|p| p == Path::new(&file_path_clone)) {
+                                match fs::read_to_string(&file_path_clone) {
+                                    Ok(content) => {
+                                        match toml::from_str::<PermissionList>(&content) {
+                                            Ok(new_permissions) => {
+                                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                                rt.block_on(async {
+                                                    let mut perms = permissions_clone.write().await;
+                                                    *perms = new_permissions;
+                                                });
+                                            }
+                                            Err(e) => {
+                                                eprintln!(
+                                                    "Failed to parse permissions file: {}",
+                                                    e
+                                                );
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to read permissions file: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("Error watching file: {:?}", e),
+                }
+            }
+        });
+
         Ok(Self {
             file_path: file_path_str,
-            permissions: RwLock::new(permissions),
+            permissions,
             ip_applications: RwLock::new(HashMap::new()),
+            watcher,
         })
     }
 
     async fn save(&self) -> Result<(), PermissionError> {
+        {
+            let mut watcher = self.watcher.lock().map_err(|e| {
+                PermissionError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+            watcher.unwatch(Path::new(&self.file_path)).map_err(|e| {
+                PermissionError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+        }
+
         let content = toml::to_string(&*self.permissions.read().await)?;
         tokio::fs::write(&self.file_path, content).await?;
+
+        {
+            let mut watcher = self.watcher.lock().map_err(|e| {
+                PermissionError::IoError(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e.to_string(),
+                ))
+            })?;
+            watcher
+                .watch(Path::new(&self.file_path), RecursiveMode::NonRecursive)
+                .map_err(|e| {
+                    PermissionError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        e.to_string(),
+                    ))
+                })?;
+        }
+
         Ok(())
     }
 
