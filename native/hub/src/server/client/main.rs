@@ -11,10 +11,11 @@ pub mod verify;
 
 use std::{process::exit, sync::Arc};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use log::{error, info};
 use regex::Regex;
+use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::{
     signal::ctrl_c,
     sync::{Mutex, RwLock},
@@ -39,6 +40,10 @@ use verify::{inspect_host, print_device_information, register_current_device, ve
 #[tokio::main]
 async fn main() -> Result<()> {
     setup_logging()?;
+
+    if let Err(e) = default_provider().install_default() {
+        bail!(format!("{:#?}", e));
+    };
 
     let cli = Cli::parse();
 

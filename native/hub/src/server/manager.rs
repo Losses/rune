@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use axum::{
     routing::{get, post},
     Router,
@@ -17,7 +17,6 @@ use discovery::verifier::parse_certificate;
 use log::{error, info};
 use prost::Message;
 use rand::distributions::{Alphanumeric, DistString};
-use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
@@ -135,10 +134,6 @@ impl ServerManager {
         let shutdown_handle = handle.clone();
 
         let tls_config = {
-            if let Err(e) = default_provider().install_default() {
-                bail!(format!("{:#?}", e));
-            };
-
             RustlsConfig::from_pem(
                 self.certificate.as_bytes().to_vec(),
                 self.private_key.as_bytes().to_vec(),

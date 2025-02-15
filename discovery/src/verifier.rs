@@ -380,10 +380,6 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
         cert_info: Arc::clone(&cert_info),
     };
 
-    if default_provider().install_default().is_err() {
-        return Err(CertValidatorError::CryptoProviderInitialize);
-    };
-
     let config = ClientConfig::builder()
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(verifier))

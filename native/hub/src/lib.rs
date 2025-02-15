@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use log::{error, info};
+use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt;
 use tracing_subscriber::EnvFilter;
@@ -45,6 +46,10 @@ rinf::write_interface!();
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    if let Err(e) = default_provider().install_default() {
+        panic!("{:#?}", e);
+    };
+
     let args: Vec<String> = std::env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
 

@@ -4,9 +4,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use log::info;
+use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
@@ -14,7 +15,9 @@ use tracing_subscriber::EnvFilter;
 use hub::{
     server::{
         utils::{
-            device::load_device_info, path::get_config_dir, permission::{parse_status, print_permission_table, validate_index},
+            device::load_device_info,
+            path::get_config_dir,
+            permission::{parse_status, print_permission_table, validate_index},
         },
         ServerManager, WebSocketService,
     },
@@ -81,6 +84,11 @@ enum PermissionAction {
 #[tokio::main]
 async fn main() -> Result<()> {
     setup_logging();
+
+    if let Err(e) = default_provider().install_default() {
+        bail!(format!("{:#?}", e));
+    };
+
     let cli = Cli::parse();
 
     match cli.command {
