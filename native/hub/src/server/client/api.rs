@@ -191,7 +191,7 @@ pub async fn fetch_device_info(host: &str, config: ClientConfig) -> Result<Sanit
         .build()
         .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host, 7863, config)
+    let mut sender = create_https_client(host.to_owned(), 7863, config)
         .await
         .context("Failed to create HTTPS client")?;
 
@@ -243,7 +243,7 @@ pub async fn register_device(
         .build()
         .context("Invalid URL format")?;
 
-    let mut sender = create_https_client(host, 7863, config)
+    let mut sender = create_https_client(host.to_owned(), 7863, config)
         .await
         .context("Failed to create HTTPS client")?;
 

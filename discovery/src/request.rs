@@ -12,7 +12,7 @@ use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
 pub async fn create_https_client(
-    host: &str,
+    host: String,
     port: u16,
     config: ClientConfig,
 ) -> Result<hyper::client::conn::http1::SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>> {
