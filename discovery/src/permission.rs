@@ -1,13 +1,13 @@
-use log::{error, info};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex};
-use thiserror::Error;
-use tokio::sync::RwLock;
+use std::path::Path;
+use std::sync::Arc;
 
+use log::error;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use tokio::sync::{broadcast, RwLock};
+
+use crate::persistent::PersistentDataManager;
 use crate::utils::DeviceType;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -36,7 +36,7 @@ pub struct UserSummary {
     pub status: UserStatus,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PermissionList {
     users: HashMap<String, User>,
 }
@@ -63,157 +63,24 @@ pub enum PermissionError {
 
 #[derive(Debug)]
 pub struct PermissionManager {
-    file_path: PathBuf,
-    permissions: Arc<RwLock<PermissionList>>,
-    ip_applications: RwLock<HashMap<String, VecDeque<String>>>,
-    watcher: Arc<Mutex<RecommendedWatcher>>,
+    storage: PersistentDataManager<PermissionList>,
+    ip_applications: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
 }
 
 impl PermissionManager {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PermissionError> {
-        let path = path.as_ref();
-
-        if !path.exists() {
-            fs::create_dir_all(path)?;
-        } else if !path.is_dir() {
-            return Err(PermissionError::NotADirectory);
-        }
-
-        let file_path = path.join(".known-clients");
-        info!("Initializing permission manager in: {:?}", file_path);
-
-        let permissions = if file_path.exists() {
-            info!("Permission path exists");
-            if file_path.is_dir() {
-                error!("Permission path is not a file");
-                return Err(PermissionError::NotADirectory);
-            }
-            let content = fs::read_to_string(&file_path)?;
-            toml::from_str(&content)?
-        } else {
-            info!("File does not exist, creating new with empty permissions");
-            let permissions = PermissionList {
-                users: HashMap::new(),
-            };
-            let content = toml::to_string(&permissions)?;
-            fs::write(&file_path, content)?;
-            permissions
-        };
-
-        let permissions = Arc::new(RwLock::new(permissions));
-
-        let (tx, rx) = mpsc::channel();
-        let mut watcher = notify::recommended_watcher(tx).map_err(|e| {
-            PermissionError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
-
-        watcher
-            .watch(Path::new(&file_path), RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                PermissionError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-
-        let watcher = Arc::new(Mutex::new(watcher));
-
-        let permissions_clone = permissions.clone();
-        let file_path_clone = file_path.clone();
-
-        std::thread::spawn(move || {
-            for event in rx {
-                match event {
-                    Ok(event) => {
-                        if let EventKind::Modify(_) = event.kind {
-                            if event.paths.iter().any(|p| p == Path::new(&file_path_clone)) {
-                                match fs::read_to_string(&file_path_clone) {
-                                    Ok(content) => {
-                                        match toml::from_str::<PermissionList>(&content) {
-                                            Ok(new_permissions) => {
-                                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                                rt.block_on(async {
-                                                    let mut perms = permissions_clone.write().await;
-                                                    *perms = new_permissions;
-                                                });
-                                            }
-                                            Err(e) => {
-                                                eprintln!(
-                                                    "Failed to parse permissions file: {}",
-                                                    e
-                                                );
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to read permissions file: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => eprintln!("Error watching file: {:?}", e),
-                }
-            }
-        });
+        let storage_path = path.as_ref().join(".known-clients");
+        let storage = PersistentDataManager::new(storage_path)
+            .map_err(|e| PermissionError::WatchError(e.to_string()))?;
 
         Ok(Self {
-            file_path,
-            permissions,
-            ip_applications: RwLock::new(HashMap::new()),
-            watcher,
+            storage,
+            ip_applications: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
-    async fn save(&self) -> Result<(), PermissionError> {
-        {
-            let mut watcher = self.watcher.lock().map_err(|e| {
-                PermissionError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-            watcher.unwatch(Path::new(&self.file_path)).map_err(|e| {
-                PermissionError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-        }
-
-        let path = Path::new(&self.file_path);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        let content = toml::to_string(&*self.permissions.read().await)?;
-        tokio::fs::write(&self.file_path, content).await?;
-
-        {
-            let mut watcher = self.watcher.lock().map_err(|e| {
-                PermissionError::IoError(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-            watcher
-                .watch(Path::new(&self.file_path), RecursiveMode::NonRecursive)
-                .map_err(|e| {
-                    PermissionError::IoError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        e.to_string(),
-                    ))
-                })?;
-        }
-
-        Ok(())
-    }
-
     pub async fn list_users(&self) -> Vec<UserSummary> {
-        self.permissions
+        self.storage
             .read()
             .await
             .users
@@ -228,24 +95,6 @@ impl PermissionManager {
             .collect()
     }
 
-    pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
-        self.permissions
-            .read()
-            .await
-            .users
-            .get(fingerprint)
-            .cloned()
-    }
-
-    pub async fn verify_by_public_key(&self, public_key: &str) -> Option<User> {
-        let permissions = self.permissions.read().await;
-        permissions
-            .users
-            .values()
-            .find(|user| user.public_key == public_key)
-            .cloned()
-    }
-
     pub async fn add_user(
         &self,
         public_key: String,
@@ -255,68 +104,111 @@ impl PermissionManager {
         device_type: DeviceType,
         ip: String,
     ) -> Result<(), PermissionError> {
-        {
-            let mut permissions = self.permissions.write().await;
-            if permissions.users.contains_key(&public_key) {
-                return Err(PermissionError::UserAlreadyExists);
-            }
-
-            let mut ip_apps = self.ip_applications.write().await;
-            let queue = ip_apps.entry(ip).or_default();
-            if queue.len() >= 5 {
-                if let Some(old_key) = queue.pop_front() {
-                    permissions.users.remove(&old_key);
+        self.storage
+            .update(|permissions| {
+                if permissions.users.contains_key(&fingerprint) {
+                    return Err(PermissionError::UserAlreadyExists);
                 }
-            }
-            queue.push_back(public_key.clone());
 
-            let user = User {
-                public_key: public_key.clone(),
-                fingerprint: fingerprint.clone(),
-                alias,
-                device_model,
-                device_type,
-                status: UserStatus::Pending,
-            };
+                let mut ip_apps = self.ip_applications.blocking_write();
+                let queue = ip_apps.entry(ip).or_default();
 
-            permissions.users.insert(fingerprint, user);
-        }
+                if queue.len() >= 5 {
+                    if let Some(old_key) = queue.pop_front() {
+                        permissions.users.remove(&old_key);
+                    }
+                }
+                queue.push_back(fingerprint.clone());
 
-        self.save().await?;
-        Ok(())
+                permissions.users.insert(
+                    fingerprint.clone(),
+                    User {
+                        public_key,
+                        fingerprint,
+                        alias,
+                        device_model,
+                        device_type,
+                        status: UserStatus::Pending,
+                    },
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| PermissionError::WatchError(e.to_string()))
+    }
+
+    pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
+        self.storage.read().await.users.get(fingerprint).cloned()
+    }
+
+    pub async fn verify_by_public_key(&self, public_key: &str) -> Option<User> {
+        let permissions = self.storage.read().await;
+        permissions
+            .users
+            .values()
+            .find(|user| user.public_key == public_key)
+            .cloned()
     }
 
     pub async fn change_user_status(
-        &mut self,
+        &self,
         fingerprint: &str,
         new_status: UserStatus,
     ) -> Result<(), PermissionError> {
-        {
-            let mut permissions = self.permissions.write().await;
-            let user = permissions
-                .users
-                .get_mut(fingerprint)
-                .ok_or(PermissionError::UserNotFound)?;
-            user.status = new_status;
-        }
-
-        self.save().await?;
-        Ok(())
+        self.storage
+            .update(|permissions| {
+                let user = permissions
+                    .users
+                    .get_mut(fingerprint)
+                    .ok_or(PermissionError::UserNotFound)?;
+                user.status = new_status.clone();
+                Ok::<(), PermissionError>(())
+            })
+            .await
+            .map_err(|e| PermissionError::WatchError(e.to_string()))
     }
 
-    pub async fn remove_user(&mut self, fingerprint: &str) -> Result<(), PermissionError> {
-        if self
-            .permissions
-            .write()
+    pub async fn remove_user(&self, fingerprint: &str) -> Result<(), PermissionError> {
+        self.storage
+            .update(|permissions| {
+                if permissions.users.remove(fingerprint).is_none() {
+                    Err(PermissionError::UserNotFound)
+                } else {
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|e| PermissionError::WatchError(e.to_string()))
+    }
+
+    pub async fn find_by_device_type(&self, device_type: DeviceType) -> Vec<UserSummary> {
+        self.storage
+            .read()
             .await
             .users
-            .remove(fingerprint)
-            .is_none()
-        {
-            return Err(PermissionError::UserNotFound);
-        }
+            .values()
+            .filter(|u| u.device_type == device_type)
+            .map(|user| UserSummary {
+                alias: user.alias.clone(),
+                fingerprint: user.fingerprint.clone(),
+                device_model: user.device_model.clone(),
+                device_type: user.device_type,
+                status: user.status.clone(),
+            })
+            .collect()
+    }
 
-        self.save().await?;
-        Ok(())
+    pub async fn get_pending_count(&self) -> usize {
+        self.storage
+            .read()
+            .await
+            .users
+            .values()
+            .filter(|u| u.status == UserStatus::Pending)
+            .count()
+    }
+
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<()> {
+        self.storage.subscribe()
     }
 }

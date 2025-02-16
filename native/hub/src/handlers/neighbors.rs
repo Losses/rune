@@ -85,7 +85,9 @@ impl Signal for StartListeningRequest {
         (scanner,): Self::Params,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        scanner.start_listening(Some(request.fingerprint.clone())).await;
+        scanner
+            .start_listening(Some(request.fingerprint.clone()))
+            .await;
         Ok(None)
     }
 }
@@ -337,7 +339,8 @@ impl Signal for EditHostsRequest {
         let result = validator
             .write()
             .await
-            .replace_hosts_for_fingerprint(&req.fingerprint, req.hosts.clone());
+            .replace_hosts_for_fingerprint(&req.fingerprint, req.hosts.clone())
+            .await;
         match result {
             Ok(_) => Ok(Some(EditHostsResponse {
                 success: true,
@@ -364,7 +367,11 @@ impl Signal for RemoveTrustRequest {
     type Response = RemoveTrustResponse;
 
     async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
-        let result = validator.write().await.remove_fingerprint(&req.fingerprint);
+        let result = validator
+            .write()
+            .await
+            .remove_fingerprint(&req.fingerprint)
+            .await;
         match result {
             Ok(_) => Ok(Some(RemoveTrustResponse {
                 success: true,

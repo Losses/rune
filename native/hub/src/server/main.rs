@@ -161,7 +161,7 @@ async fn handle_broadcast() -> Result<()> {
 
 async fn handle_permission(action: PermissionAction) -> Result<()> {
     let config_path = get_config_dir()?;
-    let mut pm = PermissionManager::new(config_path)?;
+    let pm = PermissionManager::new(config_path)?;
 
     match action {
         PermissionAction::Ls => {
@@ -215,7 +215,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let device_scanner = Arc::new(DeviceScanner::new(broadcaster.clone()));
 
     let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path.as_str())?));
-    let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str())?));
+    let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str()).await?));
 
     info!("Initializing Player events");
     tokio::spawn(initialize_player(

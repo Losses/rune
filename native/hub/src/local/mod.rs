@@ -66,8 +66,9 @@ pub async fn local_player_loop(
 
         let permission_manager =
             Arc::new(RwLock::new(PermissionManager::new(&**config_path).unwrap()));
-        let cert_validator =
-            Arc::new(RwLock::new(CertValidator::new(&**config_path).unwrap()));
+        let cert_validator = Arc::new(RwLock::new(
+            CertValidator::new(&**config_path).await.unwrap(),
+        ));
 
         info!("Initializing Player events");
         tokio::spawn(initialize_player(

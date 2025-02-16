@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex};
+use std::path::Path;
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use http_body_util::Empty;
 use hyper::{body::Bytes, Uri};
 use hyper_util::rt::TokioIo;
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use pem::Pem;
+use rustls::server::VerifierBuilderError;
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -16,19 +16,20 @@ use rustls::{
     },
     crypto::ring::default_provider,
     pki_types::{CertificateDer, ServerName, UnixTime},
-    server::VerifierBuilderError,
     Error as RustlsError, RootCertStore, SignatureScheme,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::net::TcpStream;
+use tokio::sync::broadcast;
 use tokio_rustls::TlsConnector;
-use toml;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
+use crate::persistent::PersistentDataManager;
 use crate::ssl::calculate_base85_fingerprint;
 
+/// Represents certificate information as an optional tuple of (certificate, fingerprint)
 type CertInfo = Option<(String, String)>;
 
 #[derive(Error, Debug)]
@@ -64,29 +65,34 @@ pub enum CertValidatorError {
     CryptoProviderInitialize,
 }
 
+/// A certificate validator that implements custom certificate verification logic
+/// with support for fingerprint-based trust and caching
 #[derive(Debug, Clone)]
 pub struct CertValidator {
+    /// The underlying WebPKI verifier for standard certificate validation
     inner_verifier: Arc<WebPkiServerVerifier>,
-    report_path: PathBuf,
-    fingerprint_to_hosts: Arc<Mutex<HashMap<String, Vec<String>>>>,
-    watcher: Arc<Mutex<RecommendedWatcher>>,
+    /// Persistent storage for fingerprint-to-host mappings
+    storage: Arc<PersistentDataManager<FingerprintReport>>,
+    /// In-memory cache of fingerprint-to-host mappings for faster lookups
+    cached_entries: Arc<RwLock<HashMap<String, Vec<String>>>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Structure to store fingerprint-to-host mappings in persistent storage
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct FingerprintReport {
+    /// Maps fingerprints to lists of trusted host names
     entries: HashMap<String, Vec<String>>, // fingerprint -> list of hosts
 }
 
 impl CertValidator {
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, CertValidatorError> {
-        let path = path.as_ref();
+    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, CertValidatorError> {
+        let storage_path = path.as_ref().join(".known-servers");
+        let storage: Arc<PersistentDataManager<FingerprintReport>> = Arc::new(
+            PersistentDataManager::new(storage_path)
+                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?,
+        );
 
-        if !path.exists() {
-            fs::create_dir_all(path).map_err(CertValidatorError::DirectoryCreation)?;
-        } else if !path.is_dir() {
-            return Err(CertValidatorError::NotADirectory);
-        }
-
+        // Initialize root certificate store with system roots
         let mut root_store = RootCertStore::empty();
         root_store.extend(TLS_SERVER_ROOTS.iter().cloned());
 
@@ -99,156 +105,45 @@ impl CertValidator {
             CertValidatorError::TlsError(RustlsError::General(e.to_string()))
         })?;
 
-        let report_path = path.join(".known-servers");
+        // Initialize cache with initial data from storage
+        let initial_entries = storage.read().await.entries.clone();
+        let cached_entries = Arc::new(RwLock::new(initial_entries));
 
-        let fingerprint_to_hosts_map = if report_path.exists() {
-            let data = std::fs::read_to_string(&report_path)?;
-            let report: FingerprintReport = toml::from_str(&data)
-                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
-            report.entries
-        } else {
-            let empty_report = FingerprintReport {
-                entries: HashMap::new(),
-            };
-            let data = toml::to_string(&empty_report)
-                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
-            std::fs::write(&report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
+        // Set up background task to monitor storage updates
+        let storage_clone = storage.clone();
+        let cached_clone = cached_entries.clone();
+        tokio::spawn(async move {
+            let mut subscriber = storage_clone.subscribe();
+            let mut debouncer = tokio::time::interval(Duration::from_millis(100));
+            let mut pending_update = false;
 
-            HashMap::new()
-        };
-
-        let fingerprint_to_hosts_arc = Arc::new(Mutex::new(fingerprint_to_hosts_map));
-
-        let (tx, rx) = mpsc::channel();
-        let mut watcher = notify::recommended_watcher(tx).map_err(|e| {
-            CertValidatorError::DirectoryCreation(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
-        watcher
-            .watch(&report_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                CertValidatorError::DirectoryCreation(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-
-        let watcher = Arc::new(Mutex::new(watcher));
-
-        let fingerprint_to_hosts_clone = Arc::clone(&fingerprint_to_hosts_arc);
-        let report_path_clone = report_path.clone();
-
-        std::thread::spawn(move || {
-            for event in rx {
-                match event {
-                    Ok(event) => {
-                        if let EventKind::Modify(_) = event.kind {
-                            if event.paths.iter().any(|p| p == &report_path_clone) {
-                                match std::fs::read_to_string(&report_path_clone) {
-                                    Ok(data) => match toml::from_str::<FingerprintReport>(&data) {
-                                        Ok(report) => {
-                                            let mut fp_map =
-                                                fingerprint_to_hosts_clone.lock().unwrap();
-                                            *fp_map = report.entries;
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Failed to parse fingerprint report: {}", e)
-                                        }
-                                    },
-                                    Err(e) => {
-                                        eprintln!("Failed to read fingerprint report file: {}", e)
-                                    }
-                                }
+            loop {
+                tokio::select! {
+                    _ = subscriber.recv() => {
+                        pending_update = true;
+                    }
+                    _ = debouncer.tick() => {
+                        if pending_update {
+                            let data = storage_clone.read().await;
+                            // Fix: Use write() to get a mutable reference and directly assign
+                            if let Ok(mut cache) = cached_clone.write() {
+                                cache.clone_from(&data.entries);
                             }
+                            pending_update = false;
                         }
                     }
-                    Err(e) => eprintln!("Error watching file: {:?}", e),
                 }
             }
         });
 
         Ok(Self {
             inner_verifier,
-            report_path,
-            fingerprint_to_hosts: fingerprint_to_hosts_arc,
-            watcher,
+            storage,
+            cached_entries,
         })
     }
 
-    fn save_report(&self, fp_map: &HashMap<String, Vec<String>>) -> Result<(), CertValidatorError> {
-        let mut watcher = self.watcher.lock().map_err(|_| {
-            CertValidatorError::DirectoryCreation(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                "Mutex poison error",
-            ))
-        })?;
-        watcher.unwatch(&self.report_path).map_err(|e| {
-            CertValidatorError::DirectoryCreation(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
-
-        let report = FingerprintReport {
-            entries: fp_map.clone(),
-        };
-
-        let data = toml::to_string(&report)
-            .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
-        std::fs::write(&self.report_path, data).map_err(CertValidatorError::DirectoryCreation)?;
-
-        watcher
-            .watch(&self.report_path, RecursiveMode::NonRecursive)
-            .map_err(|e| {
-                CertValidatorError::DirectoryCreation(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    e.to_string(),
-                ))
-            })?;
-
-        Ok(())
-    }
-
-    pub fn replace_hosts_for_fingerprint(
-        &self,
-        fingerprint: &str,
-        new_hosts: Vec<String>,
-    ) -> Result<(), CertValidatorError> {
-        let fp_map = {
-            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
-
-            fp_map.insert(fingerprint.to_string(), new_hosts);
-
-            fp_map.clone()
-        };
-
-        self.save_report(&fp_map)
-    }
-
-    pub fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
-        let fp_map = {
-            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
-
-            fp_map.remove(fingerprint);
-
-            fp_map.clone()
-        };
-
-        self.save_report(&fp_map)
-    }
-
-    pub fn get_hosts_for_fingerprint(&self, fingerprint: &str) -> Vec<String> {
-        self.fingerprint_to_hosts
-            .lock()
-            .unwrap()
-            .get(fingerprint)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    pub fn add_trusted_domains<I, D, F>(
+    pub async fn add_trusted_domains<I, D, F>(
         &self,
         domains: I,
         fingerprint: F,
@@ -259,23 +154,106 @@ impl CertValidator {
         F: AsRef<str>,
     {
         let fingerprint = fingerprint.as_ref().to_string();
-        let fp_data = {
-            let mut fp_map = self.fingerprint_to_hosts.lock().unwrap();
+        let domains: Vec<String> = domains
+            .into_iter()
+            .map(|d| d.as_ref().to_string())
+            .collect();
 
-            for domain in domains.into_iter() {
-                let domain = domain.as_ref().to_string();
-                fp_map.entry(fingerprint.clone()).or_default().push(domain);
-            }
+        self.storage
+            .update(|report| {
+                for domain in &domains {
+                    report
+                        .entries
+                        .entry(fingerprint.clone())
+                        .or_default()
+                        .push(domain.clone());
+                }
 
-            if let Some(hosts) = fp_map.get_mut(&fingerprint) {
-                hosts.sort();
-                hosts.dedup();
-            }
+                if let Some(hosts) = report.entries.get_mut(&fingerprint) {
+                    hosts.sort();
+                    hosts.dedup();
+                }
 
-            fp_map.clone()
-        };
+                Ok::<(), CertValidatorError>(())
+            })
+            .await
+            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
+    }
 
-        self.save_report(&fp_data)
+    pub async fn replace_hosts_for_fingerprint(
+        &self,
+        fingerprint: &str,
+        new_hosts: Vec<String>,
+    ) -> Result<(), CertValidatorError> {
+        self.storage
+            .update(|report| {
+                report.entries.insert(fingerprint.to_string(), new_hosts);
+                Ok::<(), CertValidatorError>(())
+            })
+            .await
+            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
+    }
+
+    pub async fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
+        self.storage
+            .update(|report| {
+                report.entries.remove(fingerprint);
+                Ok::<(), CertValidatorError>(())
+            })
+            .await
+            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
+    }
+
+    pub async fn get_hosts_for_fingerprint(&self, fingerprint: &str) -> Vec<String> {
+        self.storage
+            .read()
+            .await
+            .entries
+            .get(fingerprint)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub async fn list_trusted_fingerprints(&self) -> Vec<String> {
+        self.storage.read().await.entries.keys().cloned().collect()
+    }
+
+    pub async fn find_fingerprints_by_host(&self, host: &str) -> Vec<String> {
+        self.storage
+            .read()
+            .await
+            .entries
+            .iter()
+            .filter(|(_, hosts)| hosts.contains(&host.to_string()))
+            .map(|(fp, _)| fp.clone())
+            .collect()
+    }
+
+    pub async fn verify_certificate(
+        &self,
+        cert: &CertificateDer<'_>,
+        server_name: &str,
+    ) -> Result<(), CertValidatorError> {
+        let (_, raw_cert) = parse_x509_certificate(cert.as_ref())
+            .map_err(|e| CertValidatorError::CertificateParsing(e.to_string()))?;
+
+        let fingerprint = calculate_base85_fingerprint(raw_cert.public_key().raw)
+            .map_err(|e| CertValidatorError::CertificateParsing(e.to_string()))?;
+
+        let valid = self
+            .storage
+            .read()
+            .await
+            .entries
+            .get(&fingerprint)
+            .map(|hosts| hosts.contains(&server_name.to_string()))
+            .unwrap_or(false);
+
+        if valid {
+            Ok(())
+        } else {
+            Err(CertValidatorError::FingerprintMismatch)
+        }
     }
 
     pub fn into_client_config(self) -> ClientConfig {
@@ -285,8 +263,15 @@ impl CertValidator {
             .with_no_client_auth()
     }
 
-    pub fn fingerprints(&self) -> HashMap<String, Vec<String>> {
-        self.fingerprint_to_hosts.lock().unwrap().clone()
+    pub fn fingerprints(&self) -> Result<HashMap<String, Vec<String>>> {
+        self.cached_entries
+            .read()
+            .map_err(|e| anyhow!("Unable to read fingerprints: {}", e))
+            .map(|guard| guard.clone())
+    }
+
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<()> {
+        self.storage.subscribe()
     }
 }
 
@@ -379,8 +364,11 @@ impl ServerCertVerifier for CertValidator {
         let fingerprint = calculate_base85_fingerprint(public_key_der)
             .map_err(|e| RustlsError::General(e.to_string()))?;
 
-        let fp_map = self.fingerprint_to_hosts.lock().unwrap();
-        let is_trusted = fp_map
+        let entries = self
+            .cached_entries
+            .read()
+            .map_err(|_| RustlsError::General("Failed to acquire the lock".into()))?;
+        let is_trusted = entries
             .get(&fingerprint)
             .map(|hosts| hosts.contains(&server_name_str))
             .unwrap_or(false);
@@ -571,7 +559,7 @@ impl ServerCertVerifier for TempCertVerifier {
     }
 }
 
-pub fn trust_server(
+pub async fn trust_server(
     validator: &CertValidator,
     domains: Vec<String>,
     ips: Vec<String>,
@@ -581,7 +569,9 @@ pub fn trust_server(
     all_entries.extend(domains);
     all_entries.extend(ips);
 
-    validator.add_trusted_domains(all_entries, fingerprint)
+    validator
+        .add_trusted_domains(all_entries, fingerprint)
+        .await
 }
 
 pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {

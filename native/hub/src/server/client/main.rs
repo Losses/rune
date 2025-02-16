@@ -82,7 +82,7 @@ async fn repl_mode(service_url: &str) -> Result<()> {
     let config_dir = get_config_dir()?;
     let state: Arc<AppState> = Arc::new(AppState {
         fs: fs.clone(),
-        validator: CertValidator::new(config_dir.join("certs"))?,
+        validator: CertValidator::new(config_dir.join("certs")).await?,
         discovery: Arc::new(Mutex::new(None)),
         config_dir: config_dir.clone(),
     });
@@ -202,8 +202,8 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
                 })
                 .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
 
-            let validator = CertValidator::new(config_dir.clone())?;
-            validator.add_trusted_domains(hosts, &dev.fingerprint)?;
+            let validator = CertValidator::new(config_dir.clone()).await?;
+            validator.add_trusted_domains(hosts, &dev.fingerprint).await?;
         }
     }
 
@@ -212,7 +212,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
 async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
     let config_dir = get_config_dir()?;
-    let validator = CertValidator::new(config_dir.clone())?;
+    let validator = CertValidator::new(config_dir.clone()).await?;
 
     match cmd {
         RemoteCmd::Ls => {
@@ -220,8 +220,8 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
             Ok(())
         }
         RemoteCmd::Untrust { index } => {
-            if let Some(actual_fingerprint) = get_fingerprint_by_index(&validator, index) {
-                validator.remove_fingerprint(&actual_fingerprint)?;
+            if let Some(actual_fingerprint) = get_fingerprint_by_index(&validator, index)? {
+                validator.remove_fingerprint(&actual_fingerprint).await?;
                 Ok(())
             } else {
                 error!("Invalid certificate index");
@@ -230,12 +230,12 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
         }
         RemoteCmd::Edit { fingerprint, hosts } => {
             let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
-            validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts)?;
+            validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts).await?;
             Ok(())
         }
         RemoteCmd::Verify { index } => {
-            if let Some(fingerprint) = get_fingerprint_by_index(&validator, index) {
-                let hosts = validator.get_hosts_for_fingerprint(&fingerprint);
+            if let Some(fingerprint) = get_fingerprint_by_index(&validator, index)? {
+                let hosts = validator.get_hosts_for_fingerprint(&fingerprint).await;
 
                 if hosts.is_empty() {
                     info!("No hosts associated with fingerprint {}", fingerprint);

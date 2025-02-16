@@ -1,6 +1,8 @@
 use std::{path::PathBuf, sync::Arc};
 
+use anyhow::Result;
 use colored::Colorize;
+use log::error;
 use tokio::sync::{Mutex, RwLock};
 
 use discovery::{udp_multicast::DiscoveredDevice, verifier::CertValidator};
@@ -73,37 +75,43 @@ pub fn print_device_details(dev: &DiscoveredDevice) {
 
 pub fn print_certificate_table(validator: &CertValidator) {
     let fp_map = validator.fingerprints();
-    let mut fingerprints: Vec<_> = fp_map.keys().collect();
-    fingerprints.sort();
 
-    for (i, fp) in fingerprints.iter().enumerate() {
-        let index = i + 1;
-        let index_str = format!("[{}]", index).red().bold();
+    match fp_map {
+        Ok(fp_map) => {
+            let mut fingerprints: Vec<_> = fp_map.keys().collect();
+            fingerprints.sort();
 
-        let fp_short: String = fp.chars().take(8).collect();
-        let fp_display = fp_short.magenta();
+            for (i, fp) in fingerprints.iter().enumerate() {
+                let index = i + 1;
+                let index_str = format!("[{}]", index).red().bold();
 
-        println!("{} {}", index_str, fp_display);
+                let fp_short: String = fp.chars().take(8).collect();
+                let fp_display = fp_short.magenta();
 
-        if let Some(hosts) = fp_map.get(*fp) {
-            for host in hosts {
-                println!("    {}", host.to_string().white());
+                println!("{} {}", index_str, fp_display);
+
+                if let Some(hosts) = fp_map.get(*fp) {
+                    for host in hosts {
+                        println!("    {}", host.to_string().white());
+                    }
+                }
+
+                println!();
             }
         }
-
-        println!();
+        Err(e) => error!("Unable to read the fingerprint map: {}", e),
     }
 }
 
-pub fn get_fingerprint_by_index(validator: &CertValidator, index: usize) -> Option<String> {
-    let fp_map = validator.fingerprints();
+pub fn get_fingerprint_by_index(validator: &CertValidator, index: usize) -> Result<Option<String>> {
+    let fp_map = validator.fingerprints()?;
     let mut fingerprints: Vec<_> = fp_map.keys().collect();
     fingerprints.sort();
 
     // Convert 1-based index to 0-based
     if index == 0 || index > fingerprints.len() {
-        return None;
+        return Ok(None);
     }
 
-    fingerprints.get(index - 1).map(|s| s.to_string())
+    Ok(fingerprints.get(index - 1).map(|s| s.to_string()))
 }

@@ -3,7 +3,7 @@ use std::{fmt, str::FromStr};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Copy, Serialize, Deserialize, Clone)]
+#[derive(Debug, Copy, Serialize, Deserialize, Clone, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceType {
     Mobile,
