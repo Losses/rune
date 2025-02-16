@@ -1,59 +1,123 @@
-{ 
-  lib
-, jq
-, stdenv
-, fetchzip
-, flutter324
-, protobuf_26
-, protoc-gen-prost
-, makeDesktopItem
-, moreutils
-, cargo
-, rustPlatform
-, rustc
-, alsa-lib
-, lmdb
-, targetFlutterPlatform ? "linux"
-, buildDartApplication
-, dart
+{
+  lib,
+  stdenv,
+  flutter324,
+  protoc-gen-prost,
+  rustPlatform,
+  alsa-lib,
+  fetchFromGitHub,
+  replaceVars,
+  pkg-config,
+  openssl,
+  dbus,
+  libnotify,
+  libayatana-appindicator,
+  protobuf_26,
+  protoc-gen-dart,
+  targetFlutterPlatform ? "linux",
 }:
 
 let
-  mainPubspecLock = lib.importJSON ./pubspec.lock.json;
-  cargokitPubspecLock = lib.importJSON ./pubspec.cargokit.lock.json;
+  version = "1.1.0";
 
-  protoc-gen-dart = buildDartApplication rec {
-    pname = "protoc-gen-dart";
-    version = "21.1.2";
+  metaCommon = {
+    description = "Experience timeless melodies with a music player that blends classic design with modern technology";
+    homepage = "https://github.com/Losses/rune";
+    license = with lib.licenses; [
+      mpl20
+      mit
+      asl20
+    ];
+    maintainers = with lib.maintainers; [ losses ];
+  };
 
-    src = fetchzip {
-      url = "https://github.com/google/protobuf.dart/archive/refs/tags/protoc_plugin-v21.1.2.tar.gz";
-      sha256 = "sha256-luptbRgOtOBapWmyIJ35GqOClpcmDuKSPu3QoDfp2FU=";
+  pubspecLock = lib.importJSON ./pubspec.lock.json;
+
+  gitHashes = {
+    macos_secure_bookmarks = "sha256-qC3Ytxkg5bGh6rns0Z/hG3uLYf0Qyw6y6Hq+da1Je0I=";
+    fluent_ui = "sha256-r40uN7mwr6MCNg41AKdk2Z9Zd4pUCxV0xwLXKgNauqo=";
+    scrollable_positioned_list = "sha256-tkRlxnmyG5r5yZwEvj9KDfEf4OuSM0HEwPOYm7T7LnQ=";
+    system_tray = "sha256-1XMVu1uHy4ZgPKDqfQ7VTDVJvDxky5+/BbocGz8rKYs=";
+  };
+
+  src = flutter324.buildFlutterApplication {
+    inherit version pubspecLock gitHashes;
+    pname = "source";
+
+    src = fetchFromGitHub {
+      owner = "Losses";
+      repo = "rune";
+      tag = "v${version}";
+      hash = "sha256-vYbi6vguKPI7UoCIKjlGHTQi+OoVjPbIOLNyoW2DOv0=";
     };
-    sourceRoot = "${src.name}/protoc_plugin";
 
-    pubspecLock = lib.importJSON ./pubspec.protoc.lock.json;
+    nativeBuildInputs = [
+      protobuf_26
+      protoc-gen-prost
+      protoc-gen-dart
+    ];
 
-    meta = with lib; {
-      description = "Protobuf plugin for generating Dart code";
-      mainProgram = "protoc-gen-dart";
-      homepage = "https://pub.dev/packages/protoc_plugin";
-      license = licenses.bsd3;
+    buildPhase = ''
+      runHook preBuild
+
+      packageRun rinf message
+
+      runHook postBuild
+    '';
+
+    installPhase = ''
+      runHook preInstall
+
+      cp -r . $out
+      mkdir $debug
+
+      runHook postInstall
+    '';
+
+    meta = metaCommon;
+  };
+
+  libhub = rustPlatform.buildRustPackage {
+    inherit version src;
+    pname = "libhub";
+
+    useFetchCargoVendor = true;
+
+    cargoHash = "sha256-+7zUUUpXYKmeCVA+XZLMR1Z41ZIIfHvPTelCCY/UOfI=";
+
+    nativeBuildInputs = [
+      pkg-config
+      protobuf_26
+    ];
+
+    buildInputs = [
+      openssl
+      alsa-lib
+      dbus
+    ];
+
+    doCheck = false; # test failed
+
+    passthru.libraryPath = "lib/libhub.so";
+
+    meta = metaCommon // {
+      mainProgram = "rune-cli";
     };
   };
 in
-flutter324.buildFlutterApplication (rec {
+flutter324.buildFlutterApplication {
+  inherit
+    version
+    src
+    pubspecLock
+    gitHashes
+    ;
   pname = "rune-${targetFlutterPlatform}";
-  version = "0.0.0-dev.7";
 
-  src = fetchzip {
-    url = "https://github.com/Losses/rune/archive/90a0a8839de55ddc1d3cfda9a50b95567924de69.tar.gz";
-    sha256 = "sha256-atURF+EqPCSeI+/HvtgvLp6M3O7V8sCyIqfughfuxNo=";
-  };
-
-  gitHashes = {
-    fluent_ui = "sha256-87wJgWP4DGsVOxc4PhCMDg+ro9faHKZXy2LQtFqbmso=";
-  };
+  buildInputs = [
+    libnotify
+    libayatana-appindicator
+  ];
 
   customSourceBuilders = {
     rinf =
@@ -63,76 +127,33 @@ flutter324.buildFlutterApplication (rec {
         inherit version src;
         inherit (src) passthru;
 
-        patches = [ ./rinf.patch ];
+        patches = [
+          (replaceVars ./rinf.patch {
+            output_lib = "${libhub}/${libhub.passthru.libraryPath}";
+          })
+        ];
 
         installPhase = ''
           runHook preInstall
-          mkdir -p "$out"
-          cp -r * "$out"
+
+          cp -r . $out
+
           runHook postInstall
         '';
       };
   };
 
-  # build_tool hack part 1: join dependencies with the main package
-  pubspecLock = lib.recursiveUpdate cargokitPubspecLock mainPubspecLock;
-
-  inherit targetFlutterPlatform;
-
-  nativeBuildInputs = [
-    jq
-    moreutils # sponge
-    protobuf_26
-    protoc-gen-prost
-    protoc-gen-dart
-    cargo
-    rustc
-    rustPlatform.cargoSetupHook
-    alsa-lib
-    lmdb
-  ]; 
-
-  cargoDeps = rustPlatform.fetchCargoTarball {
-    inherit src;
-    name = "${pname}-${version}";
-    hash = "sha256-B7SQhGBsCo6xlZQOKx/ZXkdhPg4DyX1w1JUc+RgHU+M=";
-  };
-
-  desktopItem = makeDesktopItem {
-    name = "Rune";
-    exec = "player";
-    icon = "rune";
-    desktopName = "Rune";
-    genericName = "Play your favorite music";
-    categories = ["Audio"];
-  };
-
-  preBuild = ''
-    echo PATCHING CARGOKIT
-    # build_tool hack part 2: add build_tool as an actually resolvable package (the location is relative to the rinf package directory)
-    jq '.packages += [.packages.[] | select(.name == "rinf") | .rootUri += "/cargokit/build_tool" | .name = "build_tool"]' .dart_tool/package_config.json | sponge .dart_tool/package_config.json
-    echo GENERATING PROTOBUF CODE
-    packageRun rinf message
-  '';
-
   postInstall = ''
-    mkdir -p $out/share/icons/
-    cp -r $src/assets/icons/* $out/share/icons/
-
+    mkdir -p $out/share
+    cp -r --no-preserve=mode $src/assets/icons $out/share/icons
     ln -s $out/share/icons/Papirus $out/share/icons/hicolor
     ln -s $out/share/icons/Papirus $out/share/icons/Papirus-Dark
     ln -s $out/share/icons/Papirus $out/share/icons/Papirus-Light
-
     ln -s $out/share/icons/breeze/apps/1024/rune.png $out/share/icons/rune.png
+    install -Dm0644 assets/source/linux/rune.desktop $out/share/applications/rune.desktop
   '';
 
-  meta = with lib; {
-    description = "Experience timeless melodies with a music player that blends classic design with modern technology.";
-    homepage = "https://github.com/losses/rune";
-    license = licenses.mpl20;
-    mainProgram = "player";
-    maintainers = with maintainers; [ losses ];
-    platforms = [ "x86_64-linux" ];
-    sourceProvenance = [ sourceTypes.fromSource ];
+  meta = metaCommon // {
+    mainProgram = "rune";
   };
-})
+}
