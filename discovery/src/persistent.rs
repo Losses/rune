@@ -2,20 +2,29 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-use anyhow::{Context, Result};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{de::DeserializeOwned, Serialize};
+use thiserror::Error;
 use tokio::sync::{broadcast, RwLock, RwLockReadGuard};
 
-/// A thread-safe manager for persistent data that automatically handles file I/O and change notifications.
-///
-/// This struct provides functionality to:
-/// - Read and write data to/from a TOML file
-/// - Watch for file changes and automatically reload data
-/// - Broadcast notifications when data changes
-/// - Provide concurrent access through RwLock
-///
-/// Type parameter T must implement necessary traits for serialization and thread safety.
+#[derive(Error, Debug)]
+pub enum PersistenceError {
+    #[error("File I/O error while {context}: {source}")]
+    Io {
+        source: std::io::Error,
+        context: String,
+    },
+    #[error("Serialization error")]
+    Serialization(#[from] toml::ser::Error),
+    #[error("Deserialization error")]
+    Deserialization(#[from] toml::de::Error),
+    #[error("Filesystem watcher error during {action}: {source}")]
+    Watcher {
+        source: notify::Error,
+        action: String,
+    },
+}
+
 #[derive(Debug)]
 pub struct PersistentDataManager<T> {
     /// The managed data wrapped in a thread-safe RwLock
@@ -32,42 +41,49 @@ impl<T> PersistentDataManager<T>
 where
     T: Serialize + DeserializeOwned + Default + Send + Sync + 'static,
 {
-    /// Creates a new PersistentDataManager instance.
-    ///
-    /// # Arguments
-    /// * `path` - Path to the storage file
-    ///
-    /// # Returns
-    /// * `Result<Self>` - A new instance or an error if initialization fails
-    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PersistenceError> {
         let path = path.as_ref();
         let file_path = path.to_path_buf();
 
         // Ensure parent directory exists
         if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent).context("Failed to create parent directories")?;
+            std::fs::create_dir_all(parent).map_err(|e| PersistenceError::Io {
+                source: e,
+                context: format!("creating parent directory {}", parent.display()),
+            })?;
         }
 
         // Initialize data from file or create new
         let initial_data = if file_path.exists() {
             let content =
-                std::fs::read_to_string(&file_path).context("Failed to read data file")?;
-            toml::from_str(&content).context("Failed to parse data file")?
+                std::fs::read_to_string(&file_path).map_err(|e| PersistenceError::Io {
+                    source: e,
+                    context: format!("reading file {}", file_path.display()),
+                })?;
+            toml::from_str(&content)?
         } else {
             let default_data = T::default();
-            let content =
-                toml::to_string(&default_data).context("Failed to serialize default data")?;
-            std::fs::write(&file_path, &content).context("Failed to write initial data file")?;
+            let content = toml::to_string(&default_data)?;
+            std::fs::write(&file_path, &content).map_err(|e| PersistenceError::Io {
+                source: e,
+                context: format!("writing to file {}", file_path.display()),
+            })?;
             default_data
         };
 
         // Set up file monitoring
         let (fs_tx, fs_rx) = mpsc::channel();
         let mut watcher =
-            notify::recommended_watcher(fs_tx).context("Failed to create file watcher")?;
+            notify::recommended_watcher(fs_tx).map_err(|e| PersistenceError::Watcher {
+                source: e,
+                action: "creating watcher".to_string(),
+            })?;
         watcher
             .watch(&file_path, RecursiveMode::NonRecursive)
-            .context("Failed to start watching data file")?;
+            .map_err(|e| PersistenceError::Watcher {
+                source: e,
+                action: format!("watching file {}", file_path.display()),
+            })?;
 
         // Create broadcast channel for change notifications
         let (change_tx, _) = broadcast::channel(16);
@@ -97,22 +113,38 @@ where
                 match event {
                     Ok(event) if matches!(event.kind, EventKind::Modify(_)) => {
                         if event.paths.iter().any(|p| p == &path_clone) {
-                            // Debounce: wait 100ms before reading
                             std::thread::sleep(Duration::from_millis(100));
-
-                            if let Ok(content) = std::fs::read_to_string(&path_clone) {
-                                if let Ok(new_data) = toml::from_str::<T>(&content) {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
-                                        let mut data = data_clone.write().await;
-                                        *data = new_data;
-                                        let _ = tx_clone.send(());
-                                    });
+                            match std::fs::read_to_string(&path_clone) {
+                                Ok(content) => {
+                                    if let Ok(new_data) = toml::from_str::<T>(&content) {
+                                        let rt = tokio::runtime::Runtime::new().unwrap();
+                                        rt.block_on(async {
+                                            let mut data = data_clone.write().await;
+                                            *data = new_data;
+                                            let _ = tx_clone.send(());
+                                        });
+                                    }
                                 }
+                                Err(e) => eprintln!(
+                                    "Error reading file during watch: {}",
+                                    PersistenceError::Io {
+                                        source: e,
+                                        context: format!(
+                                            "reading file during watch {}",
+                                            path_clone.display()
+                                        )
+                                    }
+                                ),
                             }
                         }
                     }
-                    Err(e) => eprintln!("Watcher error: {:?}", e),
+                    Err(e) => eprintln!(
+                        "Watcher error: {}",
+                        PersistenceError::Watcher {
+                            source: e,
+                            action: "monitoring file changes".to_string()
+                        }
+                    ),
                     _ => {}
                 }
             }
@@ -122,26 +154,35 @@ where
     /// Saves the current state to the persistent storage file.
     ///
     /// Temporarily disables file watching during the save operation to prevent recursive updates.
-    pub async fn save(&self) -> Result<()> {
-        let content =
-            toml::to_string(&*self.data.read().await).context("Failed to serialize data")?;
+    pub async fn save(&self) -> Result<(), PersistenceError> {
+        let data = self.data.read().await;
+        let content = toml::to_string(&*data)?;
 
         // Pause watching
         self.watcher
             .write()
             .await
             .unwatch(&self.file_path)
-            .context("Failed to unwatch file")?;
+            .map_err(|e| PersistenceError::Watcher {
+                source: e,
+                action: "unwatching file".to_string(),
+            })?;
 
         // Write to file
-        std::fs::write(&self.file_path, &content).context("Failed to write data file")?;
+        std::fs::write(&self.file_path, &content).map_err(|e| PersistenceError::Io {
+            source: e,
+            context: format!("writing to file {}", self.file_path.display()),
+        })?;
 
         // Resume watching
         self.watcher
             .write()
             .await
             .watch(&self.file_path, RecursiveMode::NonRecursive)
-            .context("Failed to rewatch file")?;
+            .map_err(|e| PersistenceError::Watcher {
+                source: e,
+                action: "rewatching file".to_string(),
+            })?;
 
         Ok(())
     }
@@ -164,14 +205,14 @@ where
     ///
     /// # Returns
     /// * `Result<R>` - The result of the update operation
-    pub async fn update<F, R, E>(&self, updater: F) -> Result<R>
+    pub async fn update<F, R, E>(&self, updater: F) -> Result<R, E>
     where
         F: FnOnce(&mut T) -> Result<R, E>,
-        E: std::error::Error + Send + Sync + 'static,
+        E: From<PersistenceError>,
     {
         let mut data = self.data.write().await;
-        let result = updater(&mut data).map_err(|e| anyhow::anyhow!(e))?;
-        self.save().await?;
+        let result = updater(&mut data)?;
+        self.save().await.map_err(E::from)?;
         Ok(result)
     }
 

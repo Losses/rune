@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::{broadcast, RwLock};
 
-use crate::persistent::PersistentDataManager;
+use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::utils::DeviceType;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -43,12 +43,8 @@ pub struct PermissionList {
 
 #[derive(Error, Debug)]
 pub enum PermissionError {
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-    #[error("TOML serialization error: {0}")]
-    TomlError(#[from] toml::ser::Error),
-    #[error("TOML deserialization error: {0}")]
-    FromTomlError(#[from] toml::de::Error),
+    #[error("Persistence error: {0}")]
+    Persistence(#[from] PersistenceError),
     #[error("User not found")]
     UserNotFound,
     #[error("User already exists")]
@@ -57,8 +53,6 @@ pub enum PermissionError {
     NotADirectory,
     #[error("Path is invalid")]
     InvalidPath,
-    #[error("Watch error: {0}")]
-    WatchError(String),
 }
 
 #[derive(Debug)]
@@ -70,8 +64,8 @@ pub struct PermissionManager {
 impl PermissionManager {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PermissionError> {
         let storage_path = path.as_ref().join(".known-clients");
-        let storage = PersistentDataManager::new(storage_path)
-            .map_err(|e| PermissionError::WatchError(e.to_string()))?;
+        let storage =
+            PersistentDataManager::new(storage_path).map_err(PermissionError::Persistence)?;
 
         Ok(Self {
             storage,
@@ -105,7 +99,7 @@ impl PermissionManager {
         ip: String,
     ) -> Result<(), PermissionError> {
         self.storage
-            .update(|permissions| {
+            .update::<_, (), PermissionError>(|permissions| {
                 if permissions.users.contains_key(&fingerprint) {
                     return Err(PermissionError::UserAlreadyExists);
                 }
@@ -131,10 +125,9 @@ impl PermissionManager {
                         status: UserStatus::Pending,
                     },
                 );
-                Ok(())
+                Ok::<(), PermissionError>(())
             })
             .await
-            .map_err(|e| PermissionError::WatchError(e.to_string()))
     }
 
     pub async fn verify_by_fingerprint(&self, fingerprint: &str) -> Option<User> {
@@ -165,7 +158,6 @@ impl PermissionManager {
                 Ok::<(), PermissionError>(())
             })
             .await
-            .map_err(|e| PermissionError::WatchError(e.to_string()))
     }
 
     pub async fn remove_user(&self, fingerprint: &str) -> Result<(), PermissionError> {
@@ -178,7 +170,6 @@ impl PermissionManager {
                 }
             })
             .await
-            .map_err(|e| PermissionError::WatchError(e.to_string()))
     }
 
     pub async fn find_by_device_type(&self, device_type: DeviceType) -> Vec<UserSummary> {

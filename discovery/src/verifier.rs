@@ -1,14 +1,16 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    io::Error as IoError,
+    path::Path,
+    sync::{Arc, Mutex, RwLock},
+    time::Duration,
+};
 
 use anyhow::{anyhow, bail, Result};
 use http_body_util::Empty;
-use hyper::{body::Bytes, Uri};
+use hyper::{body::Bytes, http::Error as HttpError, Uri};
 use hyper_util::rt::TokioIo;
 use pem::Pem;
-use rustls::server::VerifierBuilderError;
 use rustls::{
     client::{
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
@@ -16,17 +18,17 @@ use rustls::{
     },
     crypto::ring::default_provider,
     pki_types::{CertificateDer, ServerName, UnixTime},
+    server::VerifierBuilderError,
     Error as RustlsError, RootCertStore, SignatureScheme,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::net::TcpStream;
-use tokio::sync::broadcast;
+use tokio::{net::TcpStream, sync::broadcast};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
-use crate::persistent::PersistentDataManager;
+use crate::persistent::{PersistenceError, PersistentDataManager};
 use crate::ssl::calculate_base85_fingerprint;
 
 /// Represents certificate information as an optional tuple of (certificate, fingerprint)
@@ -34,35 +36,24 @@ type CertInfo = Option<(String, String)>;
 
 #[derive(Error, Debug)]
 pub enum CertValidatorError {
-    #[error("The specified path is not a directory")]
-    NotADirectory,
-
-    #[error("Invalid path: cannot convert to string")]
-    InvalidPath,
-
-    #[error("Failed to create directory: {0}")]
-    DirectoryCreation(#[from] std::io::Error),
-
-    #[error("Failed to serialize/deserialize report: {0}")]
-    Serialization(String),
-
-    #[error("Failed to parse certificate: {0}")]
+    #[error("Persistence error: {0}")]
+    Persistence(#[from] PersistenceError),
+    #[error("Certificate parsing error: {0}")]
     CertificateParsing(String),
-
     #[error("Invalid server name format")]
     InvalidServerName,
-
     #[error("Certificate fingerprint mismatch")]
     FingerprintMismatch,
-
     #[error("Unknown server")]
     UnknownServer,
-
     #[error("TLS error: {0}")]
     TlsError(#[from] RustlsError),
-
     #[error("Unable to initialize the crypto provider")]
     CryptoProviderInitialize,
+    #[error("IO error: {0}")]
+    Io(#[from] IoError),
+    #[error("HTTP error: {0}")]
+    Http(#[from] HttpError),
 }
 
 /// A certificate validator that implements custom certificate verification logic
@@ -87,10 +78,8 @@ struct FingerprintReport {
 impl CertValidator {
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self, CertValidatorError> {
         let storage_path = path.as_ref().join(".known-servers");
-        let storage: Arc<PersistentDataManager<FingerprintReport>> = Arc::new(
-            PersistentDataManager::new(storage_path)
-                .map_err(|e| CertValidatorError::Serialization(e.to_string()))?,
-        );
+        let storage: Arc<PersistentDataManager<FingerprintReport>> =
+            Arc::new(PersistentDataManager::new(storage_path)?);
 
         // Initialize root certificate store with system roots
         let mut root_store = RootCertStore::empty();
@@ -177,7 +166,6 @@ impl CertValidator {
                 Ok::<(), CertValidatorError>(())
             })
             .await
-            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
     }
 
     pub async fn replace_hosts_for_fingerprint(
@@ -191,7 +179,6 @@ impl CertValidator {
                 Ok::<(), CertValidatorError>(())
             })
             .await
-            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
     }
 
     pub async fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
@@ -201,7 +188,6 @@ impl CertValidator {
                 Ok::<(), CertValidatorError>(())
             })
             .await
-            .map_err(|e| CertValidatorError::Serialization(e.to_string()))
     }
 
     pub async fn get_hosts_for_fingerprint(&self, fingerprint: &str) -> Vec<String> {
@@ -419,7 +405,7 @@ pub struct ServerCert {
 pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValidatorError> {
     let uri = url
         .parse::<hyper::Uri>()
-        .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
+        .map_err(|_| CertValidatorError::InvalidServerName)?;
     let host = uri
         .host()
         .ok_or(CertValidatorError::InvalidServerName)?
@@ -438,9 +424,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     let connector = TlsConnector::from(Arc::new(config));
 
-    let tcp_stream = tokio::net::TcpStream::connect((host.clone(), port))
-        .await
-        .map_err(CertValidatorError::DirectoryCreation)?;
+    let tcp_stream = tokio::net::TcpStream::connect((host.clone(), port)).await?;
 
     let server_name =
         ServerName::try_from(host).map_err(|_| CertValidatorError::InvalidServerName)?;
@@ -465,8 +449,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
     let request = hyper::Request::builder()
         .uri(uri)
         .method("GET")
-        .body(Empty::<Bytes>::new())
-        .map_err(|e| CertValidatorError::Serialization(e.to_string()))?;
+        .body(Empty::<Bytes>::new())?;
 
     let _ = sender.send_request(request).await;
 
