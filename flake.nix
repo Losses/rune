@@ -76,9 +76,7 @@
           inherit nixpkgs rust-overlay masterPkgs system;
         };
 
-        packages.default = pkgs.callPackage ./rune.nix {
-          inherit (masterPkgs) lib jq stdenv fetchzip makeDesktopItem moreutils cargo rustPlatform rustc alsa-lib lmdb flutter protobuf_26 protoc-gen-prost buildDartApplication dart;
-        };
+        packages.default = pkgs.callPackage ./rune.nix { };
       }
     );
 }
