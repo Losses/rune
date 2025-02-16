@@ -119,6 +119,16 @@ message RemoveTrustResponse {
   string error = 2;
 }
 
+message TrustedServerCertificate {
+  string fingerprint = 1;
+  repeated string hosts = 2;
+}
+
+// [RUST-SIGNAL]
+message TrustListUpdated {
+  repeated TrustedServerCertificate certificates = 1;
+}
+
 // [DART-SIGNAL]
 message ConnectRequest {
   repeated string hosts = 1;

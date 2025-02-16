@@ -38,7 +38,7 @@ pub struct UserSummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PermissionList {
-    users: HashMap<String, User>,
+    pub users: HashMap<String, User>, // Fingerprint -> User
 }
 
 #[derive(Error, Debug)]
@@ -199,7 +199,7 @@ impl PermissionManager {
             .count()
     }
 
-    pub fn subscribe_changes(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<PermissionList> {
         self.storage.subscribe()
     }
 }

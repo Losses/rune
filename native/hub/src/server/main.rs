@@ -22,7 +22,7 @@ use hub::{
         ServerManager, WebSocketService,
     },
     utils::{
-        device_scanner::DeviceScanner, initialize_databases, player::initialize_player,
+        device_scanner::DeviceScanner, initialize_databases, player::initialize_local_player,
         GlobalParams, TaskTokens,
     },
 };
@@ -218,12 +218,13 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str()).await?));
 
     info!("Initializing Player events");
-    tokio::spawn(initialize_player(
+    tokio::spawn(initialize_local_player(
         lib_path.clone(),
         main_db.clone(),
         player.clone(),
         scrobbler.clone(),
         broadcaster.clone(),
+        cert_validator.clone(),
     ));
 
     let global_params = Arc::new(GlobalParams {

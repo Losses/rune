@@ -69,10 +69,10 @@ pub struct CertValidator {
 }
 
 /// Structure to store fingerprint-to-host mappings in persistent storage
-#[derive(Debug, Serialize, Deserialize, Default)]
-struct FingerprintReport {
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FingerprintReport {
     /// Maps fingerprints to lists of trusted host names
-    entries: HashMap<String, Vec<String>>, // fingerprint -> list of hosts
+    pub entries: HashMap<String, Vec<String>>, // fingerprint -> list of hosts
 }
 
 impl CertValidator {
@@ -256,7 +256,7 @@ impl CertValidator {
             .map(|guard| guard.clone())
     }
 
-    pub fn subscribe_changes(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe_changes(&self) -> broadcast::Receiver<FingerprintReport> {
         self.storage.subscribe()
     }
 }

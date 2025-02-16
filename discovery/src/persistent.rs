@@ -34,12 +34,12 @@ pub struct PersistentDataManager<T> {
     /// File system watcher to detect external changes
     watcher: Arc<RwLock<RecommendedWatcher>>,
     /// Broadcast channel to notify subscribers of data changes
-    change_tx: broadcast::Sender<()>,
+    change_tx: broadcast::Sender<T>,
 }
 
 impl<T> PersistentDataManager<T>
 where
-    T: Serialize + DeserializeOwned + Default + Send + Sync + 'static,
+    T: Serialize + DeserializeOwned + Default + Send + Sync + Clone + 'static,
 {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PersistenceError> {
         let path = path.as_ref();
@@ -86,7 +86,7 @@ where
             })?;
 
         // Create broadcast channel for change notifications
-        let (change_tx, _) = broadcast::channel(16);
+        let (change_tx, _) = broadcast::channel::<T>(128);
 
         let manager = Self {
             data: Arc::new(RwLock::new(initial_data)),
@@ -120,8 +120,8 @@ where
                                         let rt = tokio::runtime::Runtime::new().unwrap();
                                         rt.block_on(async {
                                             let mut data = data_clone.write().await;
-                                            *data = new_data;
-                                            let _ = tx_clone.send(());
+                                            *data = new_data.clone();
+                                            let _ = tx_clone.send(new_data);
                                         });
                                     }
                                 }
@@ -220,7 +220,7 @@ where
     ///
     /// Subscribers will receive notifications whenever the managed data changes,
     /// either through direct updates or file changes.
-    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+    pub fn subscribe(&self) -> broadcast::Receiver<T> {
         self.change_tx.subscribe()
     }
 }

@@ -21,7 +21,7 @@ use crate::listen_local_gui_event;
 use crate::messages::*;
 use crate::server::ServerManager;
 use crate::utils::device_scanner::DeviceScanner;
-use crate::utils::player::initialize_player;
+use crate::utils::player::initialize_local_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
 use crate::utils::GlobalParams;
@@ -71,12 +71,13 @@ pub async fn local_player_loop(
         ));
 
         info!("Initializing Player events");
-        tokio::spawn(initialize_player(
+        tokio::spawn(initialize_local_player(
             lib_path.clone(),
             main_db.clone(),
             player.clone(),
             scrobbler.clone(),
             broadcaster.clone(),
+            cert_validator.clone(),
         ));
 
         info!("Initializing UI events");
