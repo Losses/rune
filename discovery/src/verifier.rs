@@ -29,7 +29,7 @@ use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
 
 use crate::persistent::{PersistenceError, PersistentDataManager};
-use crate::ssl::calculate_base85_fingerprint;
+use crate::{ssl::calculate_base85_fingerprint, utils::server_name_to_string};
 
 /// Represents certificate information as an optional tuple of (certificate, fingerprint)
 type CertInfo = Option<(String, String)>;
@@ -270,79 +270,7 @@ impl ServerCertVerifier for CertValidator {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, RustlsError> {
-        let server_name_str = match server_name {
-            ServerName::DnsName(dns) => dns.as_ref().to_string(),
-            ServerName::IpAddress(ip) => match ip {
-                rustls::pki_types::IpAddr::V4(ipv4_addr) => {
-                    let octets = ipv4_addr.as_ref();
-                    format!("{}.{}.{}.{}", octets[0], octets[1], octets[2], octets[3])
-                }
-
-                rustls::pki_types::IpAddr::V6(ipv6_addr) => {
-                    let octets = ipv6_addr.as_ref();
-                    // Convert octets to 16-bit segments
-                    let segments = [
-                        ((octets[0] as u16) << 8) | (octets[1] as u16),
-                        ((octets[2] as u16) << 8) | (octets[3] as u16),
-                        ((octets[4] as u16) << 8) | (octets[5] as u16),
-                        ((octets[6] as u16) << 8) | (octets[7] as u16),
-                        ((octets[8] as u16) << 8) | (octets[9] as u16),
-                        ((octets[10] as u16) << 8) | (octets[11] as u16),
-                        ((octets[12] as u16) << 8) | (octets[13] as u16),
-                        ((octets[14] as u16) << 8) | (octets[15] as u16),
-                    ];
-
-                    // Find longest run of zeros for :: compression
-                    let mut longest_zero_run = 0;
-                    let mut longest_zero_start = 0;
-                    let mut current_zero_run = 0;
-                    let mut current_zero_start = 0;
-
-                    for (i, &segment) in segments.iter().enumerate() {
-                        if segment == 0 {
-                            if current_zero_run == 0 {
-                                current_zero_start = i;
-                            }
-                            current_zero_run += 1;
-                            if current_zero_run > longest_zero_run {
-                                longest_zero_run = current_zero_run;
-                                longest_zero_start = current_zero_start;
-                            }
-                        } else {
-                            current_zero_run = 0;
-                        }
-                    }
-
-                    // Build the string
-                    let mut result = String::with_capacity(39); // Max IPv6 string length
-                    let mut i = 0;
-                    let mut first = true;
-
-                    while i < 8 {
-                        if longest_zero_run > 1 && i == longest_zero_start {
-                            if first {
-                                result.push_str("::");
-                            } else {
-                                result.push(':');
-                            }
-                            i += longest_zero_run;
-                            first = false;
-                            continue;
-                        }
-
-                        if !first {
-                            result.push(':');
-                        }
-                        result.push_str(&format!("{:x}", segments[i]));
-                        first = false;
-                        i += 1;
-                    }
-
-                    result
-                }
-            },
-            _ => return Err(RustlsError::General("Oh! Invalid server name".into())),
-        };
+        let server_name_str = server_name_to_string(server_name)?;
 
         let (_, cert) = parse_x509_certificate(end_entity.as_ref())
             .map_err(|e| RustlsError::General(e.to_string()))?;
