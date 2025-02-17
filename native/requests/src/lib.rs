@@ -384,6 +384,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
+            request: "RemoveTrustedClientRequest".to_string(),
+            response: Some("RemoveTrustedClientResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
             response: Some("UpdateClientStatusResponse".to_string()),
             local_only: false,
@@ -394,8 +399,8 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
-            request: "RemoveTrustRequest".to_string(),
-            response: Some("RemoveTrustResponse".to_string()),
+            request: "RemoveTrustedServerRequest".to_string(),
+            response: Some("RemoveTrustedServerResponse".to_string()),
             local_only: false,
         },
         RequestResponse {

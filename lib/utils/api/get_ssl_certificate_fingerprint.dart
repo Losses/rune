@@ -1,10 +1,10 @@
 import '../../messages/all.dart';
 
 Future<String> getSSLCertificateFingerprint() async {
-  GetSSLCertificateFingerprintRequest().sendSignalToRust();
+  GetSslCertificateFingerprintRequest().sendSignalToRust();
 
   final rustSignal =
-      await GetSSLCertificateFingerprintResponse.rustSignalStream.first;
+      await GetSslCertificateFingerprintResponse.rustSignalStream.first;
 
   return rustSignal.message.fingerprint;
 }

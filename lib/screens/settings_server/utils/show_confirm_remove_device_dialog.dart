@@ -1,8 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../utils/api/remove_trust.dart';
-import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/api/remove_trusted_client.dart';
+import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/confirm.dart';
 import '../../../messages/all.dart';
 
@@ -21,7 +21,7 @@ Future<void> showConfirmRemoveDeviceDialog(
 
   if (result == true) {
     try {
-      await removeTrust(client.fingerprint);
+      await removeTrustedClient(client.fingerprint);
     } catch (e) {
       if (!context.mounted) return;
       showErrorDialog(

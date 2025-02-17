@@ -286,6 +286,33 @@ impl Signal for GetSslCertificateFingerprintRequest {
     }
 }
 
+impl ParamsExtractor for RemoveTrustedClientRequest {
+    type Params = Arc<RwLock<PermissionManager>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.permission_manager)
+    }
+}
+
+impl Signal for RemoveTrustedClientRequest {
+    type Params = Arc<RwLock<PermissionManager>>;
+    type Response = RemoveTrustedClientResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let result = validator.write().await.remove_user(&req.fingerprint).await;
+        match result {
+            Ok(_) => Ok(Some(RemoveTrustedClientResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(RemoveTrustedClientResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
 impl ParamsExtractor for UpdateClientStatusRequest {
     type Params = Arc<RwLock<PermissionManager>>;
 
@@ -360,7 +387,7 @@ impl Signal for EditHostsRequest {
     }
 }
 
-impl ParamsExtractor for RemoveTrustRequest {
+impl ParamsExtractor for RemoveTrustedServerRequest {
     type Params = Arc<RwLock<CertValidator>>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
@@ -368,9 +395,9 @@ impl ParamsExtractor for RemoveTrustRequest {
     }
 }
 
-impl Signal for RemoveTrustRequest {
+impl Signal for RemoveTrustedServerRequest {
     type Params = Arc<RwLock<CertValidator>>;
-    type Response = RemoveTrustResponse;
+    type Response = RemoveTrustedServerResponse;
 
     async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
         let result = validator
@@ -379,11 +406,11 @@ impl Signal for RemoveTrustRequest {
             .remove_fingerprint(&req.fingerprint)
             .await;
         match result {
-            Ok(_) => Ok(Some(RemoveTrustResponse {
+            Ok(_) => Ok(Some(RemoveTrustedServerResponse {
                 success: true,
                 error: String::new(),
             })),
-            Err(e) => Ok(Some(RemoveTrustResponse {
+            Err(e) => Ok(Some(RemoveTrustedServerResponse {
                 success: false,
                 error: e.to_string(),
             })),

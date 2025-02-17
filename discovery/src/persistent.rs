@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
@@ -40,7 +41,7 @@ pub struct PersistentDataManager<T> {
 
 impl<T> PersistentDataManager<T>
 where
-    T: Serialize + DeserializeOwned + Default + Send + Sync + Clone + 'static,
+    T: Serialize + DeserializeOwned + Default + Send + Sync + Clone + Debug + 'static,
 {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, PersistenceError> {
         let path = path.as_ref();
@@ -161,6 +162,7 @@ where
     }
 
     async fn save_internal(&self, data: &T) -> Result<(), PersistenceError> {
+        println!("SAVING!: {:#?}", data);
         let content = toml::to_string(data)?;
 
         // Pause watching

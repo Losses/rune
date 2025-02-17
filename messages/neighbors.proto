@@ -76,12 +76,24 @@ enum ClientStatus {
 }
 
 // [DART-SIGNAL]
-message GetSSLCertificateFingerprintRequest {
+message GetSslCertificateFingerprintRequest {
 }
 
 // [RUST-SIGNAL]
-message GetSSLCertificateFingerprintResponse {
+message GetSslCertificateFingerprintResponse {
   string fingerprint = 1;
+}
+
+
+// [DART-SIGNAL]
+message RemoveTrustedClientRequest {
+  string fingerprint = 1;
+}
+
+// [RUST-SIGNAL]
+message RemoveTrustedClientResponse {
+  bool success = 1;
+  string error = 2;
 }
 
 // [DART-SIGNAL]
@@ -109,12 +121,12 @@ message EditHostsResponse {
 }
 
 // [DART-SIGNAL]
-message RemoveTrustRequest {
+message RemoveTrustedServerRequest {
   string fingerprint = 1;
 }
 
 // [RUST-SIGNAL]
-message RemoveTrustResponse {
+message RemoveTrustedServerResponse {
   bool success = 1;
   string error = 2;
 }
