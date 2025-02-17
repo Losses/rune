@@ -156,7 +156,11 @@ where
     /// Temporarily disables file watching during the save operation to prevent recursive updates.
     pub async fn save(&self) -> Result<(), PersistenceError> {
         let data = self.data.read().await;
-        let content = toml::to_string(&*data)?;
+        self.save_internal(&*data).await
+    }
+
+    async fn save_internal(&self, data: &T) -> Result<(), PersistenceError> {
+        let content = toml::to_string(data)?;
 
         // Pause watching
         self.watcher
@@ -212,7 +216,7 @@ where
     {
         let mut data = self.data.write().await;
         let result = updater(&mut data)?;
-        self.save().await.map_err(E::from)?;
+        self.save_internal(&*data).await.map_err(E::from)?;
         Ok(result)
     }
 

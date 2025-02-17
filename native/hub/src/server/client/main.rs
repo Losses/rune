@@ -203,7 +203,9 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
                 .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
 
             let validator = CertValidator::new(config_dir.clone()).await?;
-            validator.add_trusted_domains(hosts, &dev.fingerprint).await?;
+            validator
+                .add_trusted_domains(hosts, &dev.fingerprint)
+                .await?;
         }
     }
 
@@ -230,7 +232,9 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
         }
         RemoteCmd::Edit { fingerprint, hosts } => {
             let new_hosts: Vec<_> = hosts.split(',').map(|s| s.trim().to_string()).collect();
-            validator.replace_hosts_for_fingerprint(&fingerprint, new_hosts).await?;
+            validator
+                .replace_hosts_for_fingerprint(&fingerprint, new_hosts)
+                .await?;
             Ok(())
         }
         RemoteCmd::Verify { index } => {
