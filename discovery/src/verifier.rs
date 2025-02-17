@@ -149,7 +149,7 @@ impl CertValidator {
             .collect();
 
         self.storage
-            .update(|report| {
+            .update(|mut report| async move {
                 for domain in &domains {
                     report
                         .entries
@@ -163,7 +163,7 @@ impl CertValidator {
                     hosts.dedup();
                 }
 
-                Ok::<(), CertValidatorError>(())
+                Ok((report, ()))
             })
             .await
     }
@@ -174,18 +174,18 @@ impl CertValidator {
         new_hosts: Vec<String>,
     ) -> Result<(), CertValidatorError> {
         self.storage
-            .update(|report| {
+            .update(|mut report| async move {
                 report.entries.insert(fingerprint.to_string(), new_hosts);
-                Ok::<(), CertValidatorError>(())
+                Ok((report, ()))
             })
             .await
     }
 
     pub async fn remove_fingerprint(&self, fingerprint: &str) -> Result<(), CertValidatorError> {
         self.storage
-            .update(|report| {
+            .update(|mut report| async move {
                 report.entries.remove(fingerprint);
-                Ok::<(), CertValidatorError>(())
+                Ok((report, ()))
             })
             .await
     }

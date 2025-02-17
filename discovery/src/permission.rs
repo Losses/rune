@@ -99,12 +99,12 @@ impl PermissionManager {
         ip: String,
     ) -> Result<(), PermissionError> {
         self.storage
-            .update::<_, (), PermissionError>(|permissions| {
+            .update(|mut permissions| async move {
                 if permissions.users.contains_key(&fingerprint) {
                     return Err(PermissionError::UserAlreadyExists);
                 }
 
-                let mut ip_apps = self.ip_applications.blocking_write();
+                let mut ip_apps = self.ip_applications.write().await;
                 let queue = ip_apps.entry(ip).or_default();
 
                 if queue.len() >= 5 {
@@ -125,7 +125,7 @@ impl PermissionManager {
                         status: UserStatus::Pending,
                     },
                 );
-                Ok::<(), PermissionError>(())
+                Ok((permissions, ()))
             })
             .await
     }
@@ -149,24 +149,24 @@ impl PermissionManager {
         new_status: UserStatus,
     ) -> Result<(), PermissionError> {
         self.storage
-            .update(|permissions| {
+            .update(|mut permissions| async move {
                 let user = permissions
                     .users
                     .get_mut(fingerprint)
                     .ok_or(PermissionError::UserNotFound)?;
                 user.status = new_status.clone();
-                Ok::<(), PermissionError>(())
+                Ok((permissions, ()))
             })
             .await
     }
 
     pub async fn remove_user(&self, fingerprint: &str) -> Result<(), PermissionError> {
         self.storage
-            .update(|permissions| {
+            .update(|mut permissions| async move {
                 if permissions.users.remove(fingerprint).is_none() {
                     Err(PermissionError::UserNotFound)
                 } else {
-                    Ok(())
+                    Ok((permissions, ()))
                 }
             })
             .await

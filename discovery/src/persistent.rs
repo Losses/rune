@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
@@ -209,13 +210,16 @@ where
     ///
     /// # Returns
     /// * `Result<R>` - The result of the update operation
-    pub async fn update<F, R, E>(&self, updater: F) -> Result<R, E>
+    pub async fn update<F, Fut, R, E>(&self, updater: F) -> Result<R, E>
     where
-        F: FnOnce(&mut T) -> Result<R, E>,
+        F: FnOnce(T) -> Fut,
+        Fut: Future<Output = Result<(T, R), E>>,
         E: From<PersistenceError>,
     {
         let mut data = self.data.write().await;
-        let result = updater(&mut data)?;
+        let current_data = (*data).clone();
+        let (new_data, result) = updater(current_data).await?;
+        *data = new_data;
         self.save_internal(&*data).await.map_err(E::from)?;
         Ok(result)
     }
