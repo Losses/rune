@@ -272,8 +272,15 @@ impl DiscoveryService {
         let mut ips_map = device_ips.lock().await;
         let ips_entry = ips_map.entry(fingerprint.clone()).or_default();
 
+        if ips_entry.is_empty() {
+            info!("Found a new fingerprint {}", fingerprint);
+        }
         let is_new_ip = !ips_entry.contains(&source_ip);
         if is_new_ip {
+            info!(
+                "Received a new IP address {} for the fingerprint {}",
+                source_ip, fingerprint
+            );
             ips_entry.push(source_ip);
         }
         let current_ips = ips_entry.clone();

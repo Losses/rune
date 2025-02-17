@@ -3,12 +3,13 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
-
-use discovery::permission::{PermissionManager, UserStatus};
-use discovery::utils::{DeviceInfo, DeviceType};
-use discovery::verifier::{fetch_server_certificate, try_connect, CertValidator};
-use discovery::DiscoveryParams;
+use log::info;
 use tokio::sync::RwLock;
+
+use ::discovery::permission::{PermissionManager, UserStatus};
+use ::discovery::utils::{DeviceInfo, DeviceType};
+use ::discovery::verifier::{fetch_server_certificate, try_connect, CertValidator};
+use ::discovery::DiscoveryParams;
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
 use crate::utils::device_scanner::DeviceScanner;
@@ -32,6 +33,11 @@ impl Signal for StartBroadcastRequest {
         (scanner,): Self::Params,
         request: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
+        info!(
+            "Start broadcasting the device: {}({})",
+            request.alias, request.fingerprint
+        );
+
         scanner
             .start_broadcast(
                 &DeviceInfo {
