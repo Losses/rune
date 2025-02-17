@@ -5,9 +5,11 @@ import '../../../messages/all.dart';
 
 import '../widgets/review_connection_dialog.dart';
 
-void showReviewConnectionDialog(
-    BuildContext context, ClientSummary clientSummary) {
-  $showModal<void>(
+Future<void> showReviewConnectionDialog(
+  BuildContext context,
+  ClientSummary clientSummary,
+) async {
+  await $showModal<void>(
     context,
     (context, $close) => ReviewConnectionDialog(
       $close: $close,

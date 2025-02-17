@@ -13,6 +13,7 @@ import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../messages/all.dart';
 import '../../providers/broadcast.dart';
 
+import 'utils/show_confirm_remove_device_dialog.dart';
 import 'utils/show_review_connection_dialog.dart';
 import 'widgets/server_control_setting_button.dart';
 import 'widgets/enable_broadcast_setting_button.dart';
@@ -81,6 +82,8 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
   }
 
   Widget _buildUserListView(List<ClientSummary> clients, BuildContext context) {
+    final broadcastProvider = Provider.of<BroadcastProvider>(context);
+
     return SizedBox(
       width: double.maxFinite,
       child: ListView.builder(
@@ -104,9 +107,19 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
               actionsBuilder: (context) => Row(
                 children: [
                   Button(
-                    onPressed: () =>
-                        showReviewConnectionDialog(context, client),
+                    onPressed: () async {
+                      await showReviewConnectionDialog(context, client);
+                      broadcastProvider.fetchUsers();
+                    },
                     child: Text(S.of(context).review),
+                  ),
+                  const SizedBox(width: 12),
+                  Button(
+                    onPressed: () async {
+                      await showConfirmRemoveDeviceDialog(context, client);
+                      broadcastProvider.fetchUsers();
+                    },
+                    child: Text(S.of(context).remove),
                   ),
                 ],
               ),

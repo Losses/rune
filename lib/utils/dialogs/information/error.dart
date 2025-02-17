@@ -14,7 +14,12 @@ Future<void> showErrorDialog({
   await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
-      title: Text(title),
+      title: Column(
+        children: [
+          SizedBox(height: 8),
+          Text(title),
+        ],
+      ),
       constraints: const BoxConstraints(maxHeight: 320, maxWidth: 400),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

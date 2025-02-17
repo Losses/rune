@@ -1228,5 +1228,13 @@
   "blockDeviceSubtitle": "Prevent future connection. You can unblock this device at any time.",
   "@blockDeviceSubtitle": {
     "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
+  },
+  "removeTrust": "Remove Permission",
+  "@removeTrust": {
+    "description": "Modal title for deleting a device's permission history. Emphasizes permanent removal of both allowed/blocked statuses and the need for re-registration."
+  },
+  "removeTrustSubtitle": "This will permanently delete the permission record. The device will lose all access status (Approved/Blocked) and must send a new registration request to reappear in the list.",
+  "@removeTrustSubtitle": {
+    "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
   }
 }

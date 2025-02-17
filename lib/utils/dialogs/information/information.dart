@@ -13,7 +13,12 @@ Future<bool?> showInformationDialog({
   return await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
-      title: Text(title),
+      title: Column(
+        children: [
+          SizedBox(height: 8),
+          Text(title),
+        ],
+      ),
       content: Text(
         subtitle,
         style: const TextStyle(height: 1.4),

@@ -176,12 +176,12 @@ class BroadcastProvider extends ChangeNotifier {
     ).sendSignalToRust();
   }
 
-  Future<void> stopServer() async {
+  void stopServer() {
     if (!_isServerRunning) return;
     StopServerRequest().sendSignalToRust();
   }
 
-  Future<void> fetchUsers() async {
+  void fetchUsers() {
     ListClientsRequest().sendSignalToRust();
   }
 
