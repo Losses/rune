@@ -2,8 +2,8 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../widgets/fingerprint_figure.dart';
 import '../../../widgets/no_shortcuts.dart';
+import '../../../widgets/fingerprint/fingerprint_figure.dart';
 import '../../../providers/broadcast.dart';
 
 class EditDeviceInformationSettingDialog extends StatefulWidget {
