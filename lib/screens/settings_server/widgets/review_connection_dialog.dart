@@ -2,11 +2,11 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
-import '../../../providers/broadcast.dart';
 import '../../../widgets/no_shortcuts.dart';
 import '../../../widgets/subtitle_button.dart';
 import '../../../widgets/fingerprint_figure.dart';
 import '../../../messages/all.dart';
+import '../../../providers/broadcast.dart';
 
 class ReviewConnectionDialog extends StatefulWidget {
   final void Function(ClientStatus?) $close;
