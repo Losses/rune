@@ -4,7 +4,9 @@ import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/all.dart';
 
 Future<List<InternalMediaFile>> fetchMediaFileByIds(
-    List<int> ids, bool bakeCoverArts) async {
+  List<int> ids,
+  bool bakeCoverArts,
+) async {
   final request = FetchMediaFileByIdsRequest(
     ids: ids,
     bakeCoverArts: true,

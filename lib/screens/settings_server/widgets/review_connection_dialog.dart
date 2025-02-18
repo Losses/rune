@@ -9,7 +9,7 @@ import '../../../widgets/fingerprint_figure.dart';
 import '../../../messages/all.dart';
 
 class ReviewConnectionDialog extends StatefulWidget {
-  final void Function(void) $close;
+  final void Function(ClientStatus?) $close;
   final ClientSummary clientSummary;
 
   const ReviewConnectionDialog({
@@ -107,7 +107,7 @@ class _ReviewConnectionDialogState extends State<ReviewConnectionDialog> {
         ),
         actions: [
           FilledButton(
-            onPressed: () {},
+            onPressed: () => widget.$close(status),
             child: Text(S.of(context).confirm),
           ),
           Button(
