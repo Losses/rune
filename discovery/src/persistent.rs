@@ -162,7 +162,6 @@ where
     }
 
     async fn save_internal(&self, data: &T) -> Result<(), PersistenceError> {
-        println!("SAVING!: {:#?}", data);
         let content = toml::to_string(data)?;
 
         // Pause watching
