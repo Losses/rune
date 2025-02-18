@@ -100,6 +100,7 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
                 size: 12,
                 color: Colors.white,
               ),
+              badgeColor: _getStatusColor(client.status),
               title: client.alias,
               subtitle:
                   '${client.deviceModel} • ${_getStatusText(client.status, context)}',
@@ -145,6 +146,19 @@ class _SettingsServerPageState extends State<SettingsServerPage> {
     }
 
     return Symbols.help;
+  }
+
+  Color _getStatusColor(ClientStatus status) {
+    switch (status) {
+      case ClientStatus.APPROVED:
+        return Colors.green;
+      case ClientStatus.PENDING:
+        return Colors.yellow;
+      case ClientStatus.BLOCKED:
+        return Colors.red;
+    }
+
+    return Colors.grey;
   }
 
   String _getStatusText(ClientStatus status, BuildContext context) {

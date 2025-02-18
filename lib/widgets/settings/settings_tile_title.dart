@@ -11,6 +11,7 @@ class SettingsTileTitle extends StatelessWidget {
   final bool showActions;
   final Widget Function(BuildContext context) actionsBuilder;
   final Widget? badgeContent;
+  final Color? badgeColor;
   final bool wrap;
 
   const SettingsTileTitle({
@@ -21,6 +22,7 @@ class SettingsTileTitle extends StatelessWidget {
     required this.showActions,
     required this.actionsBuilder,
     this.badgeContent,
+    this.badgeColor,
     this.suffixIcon,
     this.wrap = false,
   });
@@ -52,8 +54,9 @@ class SettingsTileTitle extends StatelessWidget {
                         )
                       : Badge(
                           badgeContent: badgeContent,
-                          badgeStyle: const BadgeStyle(
-                            padding: EdgeInsets.all(1),
+                          badgeStyle: BadgeStyle(
+                            padding: const EdgeInsets.all(1),
+                            badgeColor: badgeColor ?? Colors.red,
                           ),
                           position:
                               BadgePosition.bottomEnd(bottom: -6, end: -6),
