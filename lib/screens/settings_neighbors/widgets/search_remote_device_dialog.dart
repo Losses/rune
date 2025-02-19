@@ -25,10 +25,32 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
 
     return NoShortcuts(
       ContentDialog(
+        style: ContentDialogThemeData.standard(
+          FluentTheme.of(
+            context,
+          ),
+        ).merge(
+          FluentTheme.of(context).dialogTheme.merge(
+                ContentDialogThemeData(
+                  padding: EdgeInsets.only(top: 0),
+                ),
+              ),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(128.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ProgressBar(),
+                  SizedBox(height: 20),
+                ],
+              ),
+            ),
             SizedBox(
               height: 420,
               child: DiscoveredDevicesList(),

@@ -1,10 +1,11 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
 
-import '../../../providers/discovery.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
+import '../../../providers/discovery.dart';
+
 import '../utils/show_fingerprint_quiz_dialog.dart';
 
 class DiscoveredDevicesList extends StatefulWidget {
