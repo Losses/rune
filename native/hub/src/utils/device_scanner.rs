@@ -12,13 +12,13 @@ use tokio::sync::{
 };
 use tokio::task::JoinHandle;
 
-use discovery::udp_multicast::{DiscoveredDevice, DiscoveryService};
+use discovery::udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation};
 use discovery::utils::DeviceInfo;
 
 use super::{Broadcaster, DiscoveredDeviceMessage};
 
 pub struct DeviceScanner {
-    pub discovery_service: Arc<DiscoveryService>,
+    pub discovery_service: Arc<DiscoveryServiceImplementation>,
     pub broadcast_task: Mutex<Option<JoinHandle<()>>>,
     pub listen_task: Mutex<Option<JoinHandle<()>>>,
     pub devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
@@ -30,7 +30,7 @@ impl DeviceScanner {
     pub fn new(broadcaster: Arc<dyn Broadcaster>) -> Self {
         let (event_tx, event_rx) = channel(100);
 
-        let discovery_service = Arc::new(DiscoveryService::new(event_tx));
+        let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
 
         let scanner = Self {
             discovery_service,

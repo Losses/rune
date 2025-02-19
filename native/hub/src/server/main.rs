@@ -29,7 +29,7 @@ use hub::{
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::{
-    permission::PermissionManager, udp_multicast::DiscoveryService, verifier::CertValidator,
+    permission::PermissionManager, udp_multicast::DiscoveryServiceImplementation, verifier::CertValidator,
     DiscoveryParams,
 };
 use ::playback::{player::Player, sfx_player::SfxPlayer};
@@ -130,7 +130,7 @@ async fn handle_broadcast() -> Result<()> {
     let device_info = load_device_info(&config_path).await?;
 
     let (event_tx, _) = broadcast::channel(32);
-    let discovery_service = Arc::new(DiscoveryService::new(event_tx));
+    let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
     let cancel_token = CancellationToken::new();
 
     let handle = tokio::spawn({

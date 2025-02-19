@@ -26,7 +26,7 @@ use tokio::sync::{broadcast, RwLock};
 use tokio::time;
 use uuid::Uuid;
 
-use discovery::udp_multicast::{DiscoveredDevice, DiscoveryService};
+use discovery::udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation};
 use discovery::utils::{DeviceInfo, DeviceType};
 
 #[derive(Parser, Debug)]
@@ -43,7 +43,7 @@ struct Args {
 }
 
 struct DeviceDiscovery {
-    discovery_service: Arc<DiscoveryService>,
+    discovery_service: Arc<DiscoveryServiceImplementation>,
     devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
 }
 
@@ -51,7 +51,7 @@ impl DeviceDiscovery {
     async fn new() -> anyhow::Result<Self> {
         let (event_tx, mut event_rx) = broadcast::channel(100);
 
-        let discovery_service = Arc::new(DiscoveryService::new(event_tx));
+        let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
         let devices = Arc::new(RwLock::new(HashMap::new()));
 
         let devices_clone = devices.clone();

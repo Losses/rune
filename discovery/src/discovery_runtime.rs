@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 use toml::Value;
 
 use crate::{
-    udp_multicast::{DiscoveredDevice, DiscoveryService},
+    udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation},
     utils::DeviceInfo,
 };
 
@@ -151,7 +151,7 @@ impl DiscoveryStore {
 /// and device state storage.
 pub struct DiscoveryRuntime {
     /// Handle to the discovery service
-    service: Arc<DiscoveryService>,
+    service: Arc<DiscoveryServiceImplementation>,
     /// Central device state management
     pub store: DiscoveryStore,
     /// Token for graceful shutdown management
@@ -171,7 +171,7 @@ impl DiscoveryRuntime {
     /// - Device state loading from storage
     pub async fn new(config_dir: Option<PathBuf>) -> Result<Self> {
         let (event_tx, _event_rx) = broadcast::channel(100);
-        let service = DiscoveryService::new(event_tx.clone());
+        let service = DiscoveryServiceImplementation::new(event_tx.clone());
         let store = DiscoveryStore::new(config_dir);
 
         // Load persisted devices into memory

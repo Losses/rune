@@ -51,7 +51,7 @@ const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
 const MULTICAST_PORT: u16 = 57863;
 
 /// Main discovery service handling network communication and device tracking
-pub struct DiscoveryService {
+pub struct DiscoveryServiceImplementation {
     /// Lazily initialized multicast sockets with retry status
     sockets_init: Mutex<Option<anyhow::Result<Vec<Arc<UdpSocket>>>>>,
     /// Broadcast channel for discovery events
@@ -90,7 +90,7 @@ fn get_multicast_interfaces() -> Vec<Interface> {
         .collect()
 }
 
-impl DiscoveryService {
+impl DiscoveryServiceImplementation {
     /// Creates a new DiscoveryService with the specified event channel
     ///
     /// # Arguments
