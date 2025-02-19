@@ -5,9 +5,11 @@ use colored::Colorize;
 use log::error;
 use tokio::sync::{Mutex, RwLock};
 
-use discovery::{udp_multicast::DiscoveredDevice, verifier::CertValidator};
+use discovery::{
+    discovery_runtime::DiscoveryRuntime, udp_multicast::DiscoveredDevice, verifier::CertValidator,
+};
 
-use crate::{discovery::DiscoveryRuntime, fs::VirtualFS};
+use crate::fs::VirtualFS;
 
 pub struct AppState {
     pub fs: Arc<RwLock<VirtualFS>>,

@@ -8,13 +8,15 @@ use anyhow::Result;
 use chrono::Utc;
 use log::{debug, error, info};
 use tokio::{
+    fs::{read_to_string, write},
     sync::{broadcast, Mutex},
     task::JoinHandle,
     time::sleep,
 };
 use tokio_util::sync::CancellationToken;
+use toml::Value;
 
-use discovery::{
+use crate::{
     udp_multicast::{DiscoveredDevice, DiscoveryService},
     utils::DeviceInfo,
 };
@@ -24,7 +26,7 @@ use discovery::{
 #[derive(Clone)]
 pub struct DiscoveryStore {
     /// Path to the persistent storage file
-    path: PathBuf,
+    path: Option<PathBuf>,
     /// In-memory device list with thread-safe access
     devices: Arc<Mutex<Vec<DiscoveredDevice>>>,
 }
@@ -32,9 +34,9 @@ pub struct DiscoveryStore {
 impl DiscoveryStore {
     /// Creates a new DiscoveryStore instance with the specified base directory.
     /// The actual storage file will be created at `{base_dir}/.discovered`.
-    pub fn new<P: AsRef<Path>>(base_path: P) -> Self {
+    pub fn new<P: AsRef<Path>>(base_path: Option<P>) -> Self {
         Self {
-            path: base_path.as_ref().join(".discovered"),
+            path: base_path.map(|base_path| base_path.as_ref().join(".discovered")),
             devices: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -42,60 +44,62 @@ impl DiscoveryStore {
     /// Loads devices from persistent storage into memory.
     /// Creates an empty list if the storage file doesn't exist.
     pub async fn load(&self) -> Result<Vec<DiscoveredDevice>> {
-        use toml::Value;
+        if let Some(path) = &self.path {
+            if !path.exists() {
+                return Ok(Vec::new());
+            }
 
-        if !self.path.exists() {
-            return Ok(Vec::new());
+            let content = read_to_string(&path).await?;
+            let parsed: Value = toml::from_str(&content)?;
+
+            let devices = parsed
+                .get("devices")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            let devices: Vec<DiscoveredDevice> = devices
+                .into_iter()
+                .filter_map(|v| v.try_into().ok())
+                .collect();
+
+            *self.devices.lock().await = devices.clone();
+            Ok(devices)
+        } else {
+            Ok(Vec::new())
         }
-
-        let content = tokio::fs::read_to_string(&self.path).await?;
-        let parsed: Value = toml::from_str(&content)?;
-
-        let devices = parsed
-            .get("devices")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        let devices: Vec<DiscoveredDevice> = devices
-            .into_iter()
-            .filter_map(|v| v.try_into().ok())
-            .collect();
-
-        *self.devices.lock().await = devices.clone();
-        Ok(devices)
     }
 
     /// Persists the current device list to storage, automatically removing
     /// devices that haven't been seen in the last 30 seconds.
     pub async fn save(&self, devices: &[DiscoveredDevice]) -> Result<()> {
-        use toml::Value;
+        if let Some(path) = &self.path {
+            let filtered: Vec<_> = devices
+                .iter()
+                .filter(|d| {
+                    let elapsed = Utc::now().signed_duration_since(d.last_seen);
+                    elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(120)
+                })
+                .cloned()
+                .collect();
 
-        let filtered: Vec<_> = devices
-            .iter()
-            .filter(|d| {
-                let elapsed = Utc::now().signed_duration_since(d.last_seen);
-                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(120)
-            })
-            .cloned()
-            .collect();
+            let mut root = toml::map::Map::new();
+            root.insert(
+                "devices".to_string(),
+                Value::Array(
+                    filtered
+                        .iter()
+                        .map(|d| toml::Value::try_from(d).unwrap())
+                        .collect(),
+                ),
+            );
 
-        let mut root = toml::map::Map::new();
-        root.insert(
-            "devices".to_string(),
-            Value::Array(
-                filtered
-                    .iter()
-                    .map(|d| toml::Value::try_from(d).unwrap())
-                    .collect(),
-            ),
-        );
+            let content = toml::to_string(&Value::Table(root)).inspect_err(|_| {
+                error!("TOML serialization failed: {:?}", filtered);
+            })?;
 
-        let content = toml::to_string(&Value::Table(root)).inspect_err(|_| {
-            error!("TOML serialization failed: {:?}", filtered);
-        })?;
-
-        tokio::fs::write(&self.path, content).await?;
+            write(path, content).await?;
+        }
         Ok(())
     }
 
@@ -165,7 +169,7 @@ impl DiscoveryRuntime {
     /// - Configuration directory for persistent storage
     /// - Network event channel setup
     /// - Device state loading from storage
-    pub async fn new(config_dir: &Path) -> Result<Self> {
+    pub async fn new(config_dir: Option<PathBuf>) -> Result<Self> {
         let (event_tx, _event_rx) = broadcast::channel(100);
         let service = DiscoveryService::new(event_tx.clone());
         let store = DiscoveryStore::new(config_dir);

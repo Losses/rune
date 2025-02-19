@@ -1,5 +1,6 @@
 use utils::DeviceInfo;
 
+pub mod discovery_runtime;
 pub mod permission;
 pub mod persistent;
 pub mod request;
