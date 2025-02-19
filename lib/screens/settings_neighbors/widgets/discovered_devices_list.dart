@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/discovery.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
+import '../utils/show_fingerprint_quiz_dialog.dart';
 
 class DiscoveredDevicesList extends StatefulWidget {
   const DiscoveredDevicesList({super.key});
@@ -111,10 +112,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 
   void _handlePairDevice(DiscoveredDevice device) {
-    // PairDeviceRequest(
-    //   fingerprint: device.fingerprint,
-    //   alias: device.alias,
-    // ).sendSignalToRust();
+    showFingerprintQuizDialog(context, device.ips[0]);
   }
 }
 

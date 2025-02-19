@@ -1236,5 +1236,25 @@
   "removeTrustSubtitle": "This will permanently delete the permission record. The device will lose all access status (Approved/Blocked) and must send a new registration request to reappear in the list.",
   "@removeTrustSubtitle": {
     "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
+  },
+  "pairingTitle": "Pairing",
+  "@pairingTitle": {
+    "description": "Title for secure device pairing dialog. Should emphasize mutual authentication process."
+  },
+  "pairingLoading": "Retrieving device fingerprint...",
+  "@pairingLoading": {
+    "description": "Status text shown during fingerprint verification. Indicates security check in progress."
+  },
+  "pairingInstructions": "For security verification, select the characters that complete the fingerprint shown on your partner device. This confirms you're connecting to the right device.",
+  "@pairingInstructions": {
+    "description": "Explains partial fingerprint verification process. Uses 'security verification' instead of technical MITM terms."
+  },
+  "pairingFailureTitle": "Pairing Failed",
+  "@pairingFailureTitle": {
+    "description": "Title for fingerprint mismatch. States outcome without causing undue alarm."
+  },
+  "pairingFailureMessage": "The fingerprint doesn't match. Please ensure you're connecting to the correct device and try the verification again.",
+  "@pairingFailureMessage": {
+    "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
   }
 }
