@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Statusanzeige, die angibt, dass mehrere Verzeichnisse ausgewählt wurden.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Bestätigen",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} Die Bibliothek wird gescannt, daher kann keine Analyze durchgeführt werden.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} Die Bibliothek wird analysiert; bitte warten Sie, bis der Vorgang abgeschlossen ist.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Bitte analysieren Sie Ihre Bibliothek für das beste Erlebnis.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Nicht bereit",

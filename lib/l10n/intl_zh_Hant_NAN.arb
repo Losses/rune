@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "確定",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 媒體庫當咧掃描，所以這馬袂當分析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 媒體庫當咧分析，請等伊分析了了。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 若欲有較好的使用體驗，請先分析你的媒體庫。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "猶未準備好",

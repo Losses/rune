@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "複数のディレクトリが選択されたことを示すステータステキスト。",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "コンファーム",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} ライブラリがスキャン中のため、アナライズをスタートできません。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} ライブラリをアナライジングです。プロセスがエンドするまでお待ちください。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} ベストなエクスペリエンスのために、ライブラリをアナライズしてください。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "ノットレディ",

@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Testo di stato che indica che sono state selezionate più directory.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Conferma",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} La libreria è in fase di scansione, quindi non è possibile eseguire l'analisi.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} La libreria è in fase di analisi; attendere il completamento del processo.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Analizza la tua libreria per la migliore esperienza.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Non Pronto",

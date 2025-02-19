@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Confirm",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} The library is being scanned, so analysis cannot be performed.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} The library is being analyzed; please wait until the process is finished.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Please analyze your library for the best experience.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Not Ready",

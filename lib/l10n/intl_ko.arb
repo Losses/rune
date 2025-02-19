@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "여러 디렉토리가 선택되었음을 나타내는 상태 텍스트입니다.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "확인",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 라이브러리가 스캔 중이므로 분석을 수행할 수 없습니다.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 라이브러리가 분석 중입니다. 프로세스가 완료될 때까지 기다려 주십시오.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 최상의 경험을 위해 라이브러리를 분석하십시오.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "준비되지 않음",

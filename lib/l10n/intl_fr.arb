@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Texte de statut indiquant que plusieurs répertoires ont été sélectionnés.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Confirmer",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} La bibliothèque est en cours de balayage, l'analyze ne peut donc pas être effectuée.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} La bibliothèque est en cours d'analyze ; veuillez attendre la fin du processus.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Veuillez analyzer votre bibliothèque pour une meilleure expérience.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Pas prêt",
