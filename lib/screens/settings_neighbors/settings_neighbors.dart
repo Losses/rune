@@ -92,7 +92,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                             actionsBuilder: (context) => Row(
                               children: [
                                 Button(
-                                  onPressed: !isCurrentLibrary
+                                  onPressed: isCurrentLibrary
                                       ? null
                                       : () async {
                                           final result =
@@ -127,7 +127,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                 ),
                                 const SizedBox(width: 12),
                                 Button(
-                                  onPressed: !isCurrentLibrary
+                                  onPressed: isCurrentLibrary
                                       ? null
                                       : () async {
                                           libraryPath.removeOpenedFile(
