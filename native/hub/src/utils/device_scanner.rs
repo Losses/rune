@@ -1,24 +1,24 @@
-use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
 };
-use std::time::{Duration, SystemTime};
 
 use log::{error, info};
-use tokio::sync::{
-    broadcast::{channel, Receiver},
-    Mutex, RwLock,
-};
+use tokio::sync::{broadcast::Receiver, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
-use discovery::udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation};
-use discovery::utils::DeviceInfo;
+use discovery::{
+    discovery_runtime::DiscoveryRuntime, udp_multicast::DiscoveredDevice, utils::DeviceInfo,
+};
 
 use super::{Broadcaster, DiscoveredDeviceMessage};
 
 pub struct DeviceScanner {
-    pub discovery_service: Arc<DiscoveryServiceImplementation>,
+    pub discovery_runtime: Arc<DiscoveryRuntime>,
     pub broadcast_task: Mutex<Option<JoinHandle<()>>>,
     pub listen_task: Mutex<Option<JoinHandle<()>>>,
     pub devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
@@ -28,12 +28,11 @@ pub struct DeviceScanner {
 
 impl DeviceScanner {
     pub fn new(broadcaster: Arc<dyn Broadcaster>) -> Self {
-        let (event_tx, event_rx) = channel(100);
-
-        let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
+        let discovery_runtime = Arc::new(DiscoveryRuntime::new_without_store());
+        let event_rx = discovery_runtime.subscribe();
 
         let scanner = Self {
-            discovery_service,
+            discovery_runtime,
             broadcast_task: Mutex::new(None),
             listen_task: Mutex::new(None),
             devices: Arc::new(RwLock::new(HashMap::new())),
@@ -79,25 +78,21 @@ impl DeviceScanner {
         // Update state
         self.is_broadcasting.store(true, Ordering::SeqCst);
 
-        let discovery_service = self.discovery_service.clone();
-        let duration = Duration::from_secs(duration_seconds as u64);
+        let discovery_service = self.discovery_runtime.clone();
         let is_broadcasting = self.is_broadcasting.clone();
         let device_info = device_info.clone();
 
         let task = tokio::spawn(async move {
-            let start_time = SystemTime::now();
-            loop {
-                let current_device_info = device_info.clone();
-                if let Err(e) = discovery_service.announce(current_device_info).await {
-                    error!("Broadcast error: {}", e);
-                }
-
-                // Check duration
-                if SystemTime::now().duration_since(start_time).unwrap() >= duration {
-                    break;
-                }
-
-                tokio::time::sleep(Duration::from_secs(3)).await;
+            let current_device_info = device_info.clone();
+            if let Err(e) = discovery_service
+                .start_announcements(
+                    current_device_info,
+                    Duration::from_secs(3),
+                    Some(Duration::from_secs(duration_seconds.into())),
+                )
+                .await
+            {
+                error!("Broadcast error: {}", e);
             }
 
             // Update state when task completes
@@ -121,10 +116,10 @@ impl DeviceScanner {
     }
 
     pub async fn start_listening(&self, self_fingerprint: Option<String>) {
-        let discovery_service = self.discovery_service.clone();
+        let discovery_runtime = self.discovery_runtime.clone();
 
         let task = tokio::spawn(async move {
-            if let Err(e) = discovery_service.listen(self_fingerprint, None).await {
+            if let Err(e) = discovery_runtime.start_listening(self_fingerprint).await {
                 error!("Listening error: {}", e);
             }
         });

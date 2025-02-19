@@ -187,19 +187,34 @@ impl DiscoveryRuntime {
         })
     }
 
+    pub fn new_without_store() -> Self {
+        let (event_tx, _event_rx) = broadcast::channel(100);
+        let service = DiscoveryServiceImplementation::new(event_tx.clone());
+        let store = DiscoveryStore::new::<PathBuf>(None);
+
+        Self {
+            service: Arc::new(service),
+            store,
+            cancel_token: CancellationToken::new(),
+            event_tx,
+            event_listener: Mutex::new(None),
+            listener_token: CancellationToken::new(),
+        }
+    }
+
     /// Starts the device discovery listener service.
     /// Sets up network listening and event processing loop for discovered devices.
     ///
     /// # Arguments
-    /// * `device_info` - Information about the local device to be used in discovery
+    /// * `self_fingerprint` - the fingerprint of the device itself
     ///
     /// # Returns
     /// * `Result<()>` - Success if listener started, error if already running
-    pub async fn start_listening(&mut self) -> Result<()> {
+    pub async fn start_listening(&self, self_fingerprint: Option<String>) -> Result<()> {
         let cancel_token = self.listener_token.child_token();
 
         self.service
-            .listen(None, Some(cancel_token.clone()))
+            .listen(self_fingerprint, Some(cancel_token.clone()))
             .await?;
 
         let mut event_listener = self.event_listener.lock().await;
@@ -208,7 +223,6 @@ impl DiscoveryRuntime {
         }
 
         let event_rx = self.event_tx.subscribe();
-
         let store_clone = self.store.clone();
 
         let handle = tokio::spawn(async move {
@@ -226,9 +240,6 @@ impl DiscoveryRuntime {
         });
 
         *event_listener = Some(handle);
-
-        tokio::time::sleep(Duration::from_millis(100)).await;
-
         Ok(())
     }
 
@@ -252,12 +263,18 @@ impl DiscoveryRuntime {
         &self,
         device_info: DeviceInfo,
         interval: Duration,
+        duration_limit: Option<Duration>,
     ) -> Result<()> {
         let service = self.service.clone();
         let cancel_token = self.cancel_token.child_token();
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            let sleep_future = duration_limit.map(tokio::time::sleep);
+            tokio::pin!(sleep_future);
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
@@ -266,11 +283,23 @@ impl DiscoveryRuntime {
                         }
                     }
                     _ = cancel_token.cancelled() => break,
+                    _ = async {
+                        if let Some(future) = sleep_future.as_mut().as_pin_mut() {
+                            future.await
+                        }
+                    } => {
+                        info!("Announcement duration limit reached");
+                        break;
+                    }
                 }
             }
         });
 
         Ok(())
+    }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<DiscoveredDevice> {
+        self.event_tx.subscribe()
     }
 
     /// Gracefully shuts down the discovery service:

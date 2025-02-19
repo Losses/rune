@@ -165,10 +165,10 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
     match cmd {
         DiscoveryCmd::Scan => {
-            let mut rt = DiscoveryRuntime::new(config_dir).await?;
+            let rt = DiscoveryRuntime::new(config_dir).await?;
 
             // Start discovery services
-            rt.start_listening().await?;
+            rt.start_listening(None).await?;
 
             // Executing device scanning
             ctrl_c().await?;
