@@ -151,7 +151,6 @@ impl Signal for GetDiscoveredDeviceRequest {
         scanner: Self::Params,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
-        info!("GETTING dEVICES");
         let devices = scanner
             .store
             .get_devices()

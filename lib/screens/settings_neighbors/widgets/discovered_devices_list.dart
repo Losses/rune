@@ -41,7 +41,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     final startRequest = StartListeningRequest(alias: 'discovery');
     startRequest.sendSignalToRust();
 
-    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _fetchDevices();
     });
     _fetchDevices();

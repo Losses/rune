@@ -22,7 +22,7 @@ use chrono::Utc;
 use clap::Parser;
 use rand::Rng;
 use tokio::signal;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tokio::time;
 use uuid::Uuid;
 
@@ -49,14 +49,14 @@ struct DeviceDiscovery {
 
 impl DeviceDiscovery {
     async fn new() -> anyhow::Result<Self> {
-        let (event_tx, mut event_rx) = broadcast::channel(100);
+        let (event_tx, mut event_rx) = mpsc::channel(100);
 
         let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
         let devices = Arc::new(RwLock::new(HashMap::new()));
 
         let devices_clone = devices.clone();
         tokio::spawn(async move {
-            while let Ok(device) = event_rx.recv().await {
+            while let Some(device) = event_rx.recv().await {
                 let mut devices = devices_clone.write().await;
                 devices.insert(device.fingerprint.clone(), device);
 

@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use discovery::discovery_runtime::DiscoveryRuntime;
 use log::info;
 use rustls::crypto::aws_lc_rs::default_provider;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -127,7 +127,7 @@ async fn handle_broadcast() -> Result<()> {
     let config_path = get_config_dir()?;
     let device_info = load_device_info(&config_path).await?;
 
-    let (event_tx, _) = broadcast::channel(32);
+    let (event_tx, _) = mpsc::channel(32);
     let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
     let cancel_token = CancellationToken::new();
 

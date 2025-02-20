@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use log::{debug, error, info, warn};
 use netdev::Interface;
@@ -21,7 +21,7 @@ use serde_json::json;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
-    sync::{broadcast::Sender, Mutex},
+    sync::{mpsc::Sender, Mutex},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -53,7 +53,7 @@ const MULTICAST_PORT: u16 = 57863;
 /// Main discovery service handling network communication and device tracking
 pub struct DiscoveryServiceImplementation {
     /// Lazily initialized multicast sockets with retry status
-    sockets_init: Mutex<Option<anyhow::Result<Vec<Arc<UdpSocket>>>>>,
+    sockets_init: Mutex<Option<Result<Vec<Arc<UdpSocket>>>>>,
     /// Broadcast channel for discovery events
     event_tx: Sender<DiscoveredDevice>,
     /// Active listener tasks
@@ -123,7 +123,7 @@ impl DiscoveryServiceImplementation {
     }
 
     /// Initializes multicast sockets with retry logic
-    async fn get_sockets_with_retry(&self) -> anyhow::Result<Arc<Vec<Arc<UdpSocket>>>> {
+    async fn get_sockets_with_retry(&self) -> Result<Arc<Vec<Arc<UdpSocket>>>> {
         let mut lock = self.sockets_init.lock().await;
 
         if let Some(result) = &*lock {
@@ -161,7 +161,7 @@ impl DiscoveryServiceImplementation {
     }
 
     /// Attempts to initialize multicast sockets on all suitable interfaces
-    async fn try_init_sockets() -> anyhow::Result<Vec<Arc<UdpSocket>>> {
+    async fn try_init_sockets() -> Result<Vec<Arc<UdpSocket>>> {
         let mut sockets = Vec::new();
 
         // Create socket for each multicast-capable interface
@@ -214,7 +214,7 @@ impl DiscoveryServiceImplementation {
     ///
     /// # Errors
     /// Returns error if socket initialization fails or message serialization fails
-    pub async fn announce(&self, device_info: DeviceInfo) -> anyhow::Result<()> {
+    pub async fn announce(&self, device_info: DeviceInfo) -> Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         let announcement = json!({
             "alias": device_info.alias,
@@ -253,7 +253,7 @@ impl DiscoveryServiceImplementation {
         &self,
         self_fingerprint: Option<String>,
         cancel_token: Option<CancellationToken>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         info!("Starting to listen on {} interfaces", sockets.len());
 
@@ -316,7 +316,7 @@ impl DiscoveryServiceImplementation {
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
         device_ips: &Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<()> {
         let announcement: serde_json::Value =
             serde_json::from_slice(data).context("Failed to parse announcement")?;
 
@@ -380,7 +380,7 @@ impl DiscoveryServiceImplementation {
         };
 
         // Broadcast discovery event
-        event_tx.send(discovered)?;
+        event_tx.send(discovered).await?;
 
         Ok(())
     }

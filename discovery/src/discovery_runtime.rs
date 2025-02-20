@@ -7,10 +7,10 @@ use std::{
 
 use anyhow::Result;
 use chrono::Utc;
-use log::{error, info};
+use log::{error, info, warn};
 use tokio::{
     fs::{read_to_string, write},
-    sync::{broadcast, Mutex, RwLock},
+    sync::{mpsc, Mutex, RwLock},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -20,6 +20,8 @@ use crate::{
     udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation},
     utils::DeviceInfo,
 };
+
+const CHANNEL_SIZE: usize = 4;
 
 /// Manages persistent storage and in-memory cache of discovered devices.
 /// Automatically handles data expiration and file I/O operations.
@@ -148,6 +150,7 @@ impl DiscoveryStore {
 
     /// Returns a copy of the current device list
     pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
+        info!("Getting devices");
         let devices = self.devices.read().await;
         devices.values().cloned().collect()
     }
@@ -159,11 +162,13 @@ pub struct DiscoveryRuntime {
     /// Handle to the discovery service
     service: Arc<DiscoveryServiceImplementation>,
     /// Central device state management
-    pub store: DiscoveryStore,
+    pub store: Arc<DiscoveryStore>,
     /// Token for graceful shutdown management
     announcements_cancel_token: CancellationToken,
     /// Sender for discovered device events
-    event_tx: broadcast::Sender<DiscoveredDevice>,
+    _event_tx: mpsc::Sender<DiscoveredDevice>,
+    /// Receiver for discovered device events
+    event_rx: Arc<Mutex<mpsc::Receiver<DiscoveredDevice>>>,
     /// Background task handle for event processing
     event_listener: Mutex<Option<JoinHandle<()>>>,
     /// Token for controlling event listener lifecycle
@@ -176,33 +181,35 @@ impl DiscoveryRuntime {
     /// - Network event channel setup
     /// - Device state loading from storage
     pub async fn new(config_dir: Option<PathBuf>) -> Result<Self> {
-        let (event_tx, _event_rx) = broadcast::channel(4);
-        let service = DiscoveryServiceImplementation::new(event_tx.clone());
-        let store = DiscoveryStore::new(config_dir);
+        let (event_tx, event_rx) = mpsc::channel(CHANNEL_SIZE);
+        let service = Arc::new(DiscoveryServiceImplementation::new(event_tx.clone()));
+        let store = Arc::new(DiscoveryStore::new(config_dir));
 
         // Load persisted devices into memory
         store.load().await?;
 
         Ok(Self {
-            service: Arc::new(service),
+            service,
             store,
             announcements_cancel_token: CancellationToken::new(),
-            event_tx,
+            _event_tx: event_tx,
+            event_rx: Arc::new(Mutex::new(event_rx)),
             event_listener: Mutex::new(None),
             listener_token: CancellationToken::new(),
         })
     }
 
     pub fn new_without_store() -> Self {
-        let (event_tx, _event_rx) = broadcast::channel(100);
-        let service = DiscoveryServiceImplementation::new(event_tx.clone());
-        let store = DiscoveryStore::new::<PathBuf>(None);
+        let (event_tx, event_rx) = mpsc::channel(CHANNEL_SIZE);
+        let service = Arc::new(DiscoveryServiceImplementation::new(event_tx.clone()));
+        let store = Arc::new(DiscoveryStore::new::<PathBuf>(None));
 
         Self {
-            service: Arc::new(service),
+            service,
             store,
             announcements_cancel_token: CancellationToken::new(),
-            event_tx,
+            _event_tx: event_tx,
+            event_rx: Arc::new(Mutex::new(event_rx)),
             event_listener: Mutex::new(None),
             listener_token: CancellationToken::new(),
         }
@@ -230,15 +237,14 @@ impl DiscoveryRuntime {
             return Err(anyhow::anyhow!("Listener already running"));
         }
 
-        let event_rx = self.event_tx.subscribe();
+        let event_rx_mutex = self.event_rx.clone();
         let store_clone = self.store.clone();
 
         let handle = tokio::spawn(async move {
             info!("Event processing task started");
-            let mut event_rx = event_rx;
-
-            while let Ok(device) = event_rx.recv().await {
-                info!("Received event in processor");
+            let mut event_rx_guard = event_rx_mutex.lock().await;
+            while let Some(device) = event_rx_guard.recv().await {
+                warn!("Received event in processor");
                 if let Err(e) = store_clone.update_device(device).await {
                     error!("Failed to update device: {}", e);
                 }
