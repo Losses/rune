@@ -354,7 +354,7 @@ impl DiscoveryServiceImplementation {
             ips_entry.push(source_ip);
         }
         let current_ips = ips_entry.clone();
-        drop(ips_map); // Explicit drop to release lock early
+        drop(ips_map);
 
         // Parse device type
         let device_type_value = announcement

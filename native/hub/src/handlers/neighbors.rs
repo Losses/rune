@@ -1,8 +1,10 @@
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use discovery::discovery_runtime::DiscoveryRuntime;
 use log::info;
 use tokio::sync::RwLock;
 
@@ -12,12 +14,11 @@ use ::discovery::verifier::{fetch_server_certificate, try_connect, CertValidator
 use ::discovery::DiscoveryParams;
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
-use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
 
 impl ParamsExtractor for StartBroadcastRequest {
-    type Params = (Arc<DeviceScanner>, Arc<String>);
+    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -28,7 +29,7 @@ impl ParamsExtractor for StartBroadcastRequest {
 }
 
 impl Signal for StartBroadcastRequest {
-    type Params = (Arc<DeviceScanner>, Arc<String>);
+    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
     type Response = ();
 
     async fn handle(
@@ -46,8 +47,8 @@ impl Signal for StartBroadcastRequest {
         );
 
         scanner
-            .start_broadcast(
-                &DeviceInfo {
+            .start_announcements(
+                DeviceInfo {
                     alias: request.alias.clone(),
                     device_model: Some("RuneAudio".to_string()),
                     version: "Technical Preview".to_owned(),
@@ -56,15 +57,16 @@ impl Signal for StartBroadcastRequest {
                     api_port: 7863,
                     protocol: "http".to_owned(),
                 },
-                request.duration_seconds,
+                Duration::from_secs(request.duration_seconds.into()),
+                None,
             )
-            .await;
+            .await?;
         Ok(None)
     }
 }
 
 impl ParamsExtractor for StopBroadcastRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DiscoveryRuntime>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.device_scanner),)
@@ -72,17 +74,17 @@ impl ParamsExtractor for StopBroadcastRequest {
 }
 
 impl Signal for StopBroadcastRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DiscoveryRuntime>,);
     type Response = ();
 
     async fn handle(&self, (scanner,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
-        scanner.stop_broadcast().await;
+        scanner.stop_announcements();
         Ok(None)
     }
 }
 
 impl ParamsExtractor for StartListeningRequest {
-    type Params = (Arc<DeviceScanner>, Arc<String>);
+    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -93,7 +95,7 @@ impl ParamsExtractor for StartListeningRequest {
 }
 
 impl Signal for StartListeningRequest {
-    type Params = (Arc<DeviceScanner>, Arc<String>);
+    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
     type Response = ();
 
     async fn handle(
@@ -105,13 +107,13 @@ impl Signal for StartListeningRequest {
         let (fingerprint, _, _) =
             generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
 
-        scanner.start_listening(Some(fingerprint)).await;
+        scanner.start_listening(Some(fingerprint)).await?;
         Ok(None)
     }
 }
 
 impl ParamsExtractor for StopListeningRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DiscoveryRuntime>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.device_scanner),)
@@ -119,7 +121,7 @@ impl ParamsExtractor for StopListeningRequest {
 }
 
 impl Signal for StopListeningRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DiscoveryRuntime>,);
     type Response = ();
 
     async fn handle(
@@ -133,7 +135,7 @@ impl Signal for StopListeningRequest {
 }
 
 impl ParamsExtractor for GetDiscoveredDeviceRequest {
-    type Params = Arc<DeviceScanner>;
+    type Params = Arc<DiscoveryRuntime>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         Arc::clone(&all_params.device_scanner)
@@ -141,7 +143,7 @@ impl ParamsExtractor for GetDiscoveredDeviceRequest {
 }
 
 impl Signal for GetDiscoveredDeviceRequest {
-    type Params = Arc<DeviceScanner>;
+    type Params = Arc<DiscoveryRuntime>;
     type Response = GetDiscoveredDeviceResponse;
 
     async fn handle(
@@ -149,7 +151,9 @@ impl Signal for GetDiscoveredDeviceRequest {
         scanner: Self::Params,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
+        info!("GETTING dEVICES");
         let devices = scanner
+            .store
             .get_devices()
             .await
             .into_iter()

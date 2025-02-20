@@ -4,6 +4,7 @@ mod gui_request;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use discovery::discovery_runtime::DiscoveryRuntime;
 use discovery::verifier::CertValidator;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
@@ -20,7 +21,6 @@ use ::scrobbling::manager::ScrobblingManager;
 use crate::listen_local_gui_event;
 use crate::messages::*;
 use crate::server::ServerManager;
-use crate::utils::device_scanner::DeviceScanner;
 use crate::utils::player::initialize_local_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
@@ -60,7 +60,7 @@ pub async fn local_player_loop(
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
-        let device_scanner = DeviceScanner::new();
+        let device_scanner = DiscoveryRuntime::new_without_store();
 
         let device_scanner = Arc::new(device_scanner);
 

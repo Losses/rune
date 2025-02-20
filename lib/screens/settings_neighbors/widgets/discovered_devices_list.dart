@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:rinf/rinf.dart';
 
 import '../../../messages/all.dart';
 import '../../../utils/l10n.dart';
@@ -19,14 +20,21 @@ class DiscoveredDevicesList extends StatefulWidget {
 class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   String? _selectedFingerprint;
   List<DiscoveredDeviceMessage> _devices = [];
-  String? _error;
   Timer? _pollingTimer;
   StreamSubscription? _responseSubscription;
+  late StreamSubscription<RustSignal<GetDiscoveredDeviceResponse>>
+      _subscription;
 
   @override
   void initState() {
     super.initState();
+    _startListening();
     _startDiscovery();
+  }
+
+  void _startListening() {
+    _subscription =
+        GetDiscoveredDeviceResponse.rustSignalStream.listen(_onData);
   }
 
   void _startDiscovery() {
@@ -42,16 +50,12 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   Future<void> _fetchDevices() async {
     final request = GetDiscoveredDeviceRequest();
     request.sendSignalToRust();
+  }
 
-    try {
-      final response = await GetDiscoveredDeviceResponse.rustSignalStream.first;
-      setState(() {
-        _devices = response.message.devices;
-        _error = null;
-      });
-    } catch (e) {
-      setState(() => _error = e.toString());
-    }
+  _onData(RustSignal<GetDiscoveredDeviceResponse> response) {
+    setState(() {
+      _devices = response.message.devices;
+    });
   }
 
   @override
@@ -61,6 +65,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
 
     final stopRequest = StopListeningRequest();
     stopRequest.sendSignalToRust();
+    _subscription.cancel();
 
     super.dispose();
   }
@@ -68,10 +73,6 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-
-    if (_error != null) {
-      return Center(child: Text(s.error(_error!)));
-    }
 
     if (_devices.isEmpty) {
       return Center(child: Text(s.noDevicesFound));

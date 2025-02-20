@@ -1,5 +1,4 @@
 pub mod broadcastable;
-pub mod device_scanner;
 pub mod player;
 
 use std::fmt::Debug;
@@ -7,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
+use discovery::discovery_runtime::DiscoveryRuntime;
 use discovery::verifier::CertValidator;
 use dunce::canonicalize;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use device_scanner::DeviceScanner;
 use discovery::permission::PermissionManager;
 
 use ::database::actions::{
@@ -82,7 +81,7 @@ pub struct GlobalParams {
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
-    pub device_scanner: Arc<DeviceScanner>,
+    pub device_scanner: Arc<DiscoveryRuntime>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,

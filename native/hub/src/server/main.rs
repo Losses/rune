@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
+use discovery::discovery_runtime::DiscoveryRuntime;
 use log::info;
 use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::sync::{broadcast, Mutex, RwLock};
@@ -21,10 +22,7 @@ use hub::{
         },
         ServerManager, WebSocketService,
     },
-    utils::{
-        device_scanner::DeviceScanner, initialize_databases, player::initialize_local_player,
-        GlobalParams, TaskTokens,
-    },
+    utils::{initialize_databases, player::initialize_local_player, GlobalParams, TaskTokens},
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
@@ -212,7 +210,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let scrobbler = Arc::new(Mutex::new(scrobbler));
 
     let broadcaster = Arc::new(WebSocketService::new());
-    let device_scanner = Arc::new(DeviceScanner::new());
+    let device_scanner = Arc::new(DiscoveryRuntime::new_without_store());
 
     let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path.as_str())?));
     let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str()).await?));
