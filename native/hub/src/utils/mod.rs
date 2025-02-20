@@ -81,7 +81,7 @@ pub struct GlobalParams {
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
-    pub device_scanner: Arc<DiscoveryRuntime>,
+    pub device_scanner: Arc<RwLock<DiscoveryRuntime>>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,

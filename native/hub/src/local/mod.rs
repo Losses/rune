@@ -62,7 +62,7 @@ pub async fn local_player_loop(
 
         let device_scanner = DiscoveryRuntime::new_without_store();
 
-        let device_scanner = Arc::new(device_scanner);
+        let device_scanner = Arc::new(RwLock::new(device_scanner));
 
         let permission_manager =
             Arc::new(RwLock::new(PermissionManager::new(&**config_path).unwrap()));

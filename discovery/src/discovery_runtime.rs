@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use chrono::Utc;
-use log::{error, info, warn};
+use log::{error, info};
 use tokio::{
     fs::{read_to_string, write},
     sync::{mpsc, Mutex, RwLock},
@@ -21,7 +21,7 @@ use crate::{
     utils::DeviceInfo,
 };
 
-const CHANNEL_SIZE: usize = 4;
+const CHANNEL_SIZE: usize = 1;
 
 /// Manages persistent storage and in-memory cache of discovered devices.
 /// Automatically handles data expiration and file I/O operations.
@@ -168,7 +168,7 @@ pub struct DiscoveryRuntime {
     /// Sender for discovered device events
     _event_tx: mpsc::Sender<DiscoveredDevice>,
     /// Receiver for discovered device events
-    event_rx: Arc<Mutex<mpsc::Receiver<DiscoveredDevice>>>,
+    event_rx: Option<mpsc::Receiver<DiscoveredDevice>>,
     /// Background task handle for event processing
     event_listener: Mutex<Option<JoinHandle<()>>>,
     /// Token for controlling event listener lifecycle
@@ -193,7 +193,7 @@ impl DiscoveryRuntime {
             store,
             announcements_cancel_token: CancellationToken::new(),
             _event_tx: event_tx,
-            event_rx: Arc::new(Mutex::new(event_rx)),
+            event_rx: Some(event_rx),
             event_listener: Mutex::new(None),
             listener_token: CancellationToken::new(),
         })
@@ -209,7 +209,7 @@ impl DiscoveryRuntime {
             store,
             announcements_cancel_token: CancellationToken::new(),
             _event_tx: event_tx,
-            event_rx: Arc::new(Mutex::new(event_rx)),
+            event_rx: Some(event_rx),
             event_listener: Mutex::new(None),
             listener_token: CancellationToken::new(),
         }
@@ -223,7 +223,7 @@ impl DiscoveryRuntime {
     ///
     /// # Returns
     /// * `Result<()>` - Success if listener started, error if already running
-    pub async fn start_listening(&self, self_fingerprint: Option<String>) -> Result<()> {
+    pub async fn start_listening(&mut self, self_fingerprint: Option<String>) -> Result<()> {
         info!("Start listening for new devices");
         let cancel_token = self.listener_token.child_token();
 
@@ -237,19 +237,20 @@ impl DiscoveryRuntime {
             return Err(anyhow::anyhow!("Listener already running"));
         }
 
-        let event_rx_mutex = self.event_rx.clone();
+        let mut event_rx = self
+            .event_rx
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("Event receiver already taken"))?;
+
         let store_clone = self.store.clone();
 
         let handle = tokio::spawn(async move {
             info!("Event processing task started");
-            let mut event_rx_guard = event_rx_mutex.lock().await;
-            while let Some(device) = event_rx_guard.recv().await {
-                warn!("Received event in processor");
+            while let Some(device) = event_rx.recv().await {
                 if let Err(e) = store_clone.update_device(device).await {
                     error!("Failed to update device: {}", e);
                 }
             }
-
             info!("Event processing task ended");
         });
 

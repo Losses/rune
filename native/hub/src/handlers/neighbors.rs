@@ -18,7 +18,7 @@ use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
 
 impl ParamsExtractor for StartBroadcastRequest {
-    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -29,7 +29,7 @@ impl ParamsExtractor for StartBroadcastRequest {
 }
 
 impl Signal for StartBroadcastRequest {
-    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>, Arc<String>);
     type Response = ();
 
     async fn handle(
@@ -47,6 +47,8 @@ impl Signal for StartBroadcastRequest {
         );
 
         scanner
+            .read()
+            .await
             .start_announcements(
                 DeviceInfo {
                     alias: request.alias.clone(),
@@ -66,7 +68,7 @@ impl Signal for StartBroadcastRequest {
 }
 
 impl ParamsExtractor for StopBroadcastRequest {
-    type Params = (Arc<DiscoveryRuntime>,);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.device_scanner),)
@@ -74,17 +76,17 @@ impl ParamsExtractor for StopBroadcastRequest {
 }
 
 impl Signal for StopBroadcastRequest {
-    type Params = (Arc<DiscoveryRuntime>,);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>,);
     type Response = ();
 
     async fn handle(&self, (scanner,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
-        scanner.stop_announcements();
+        scanner.read().await.stop_announcements();
         Ok(None)
     }
 }
 
 impl ParamsExtractor for StartListeningRequest {
-    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
@@ -95,7 +97,7 @@ impl ParamsExtractor for StartListeningRequest {
 }
 
 impl Signal for StartListeningRequest {
-    type Params = (Arc<DiscoveryRuntime>, Arc<String>);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>, Arc<String>);
     type Response = ();
 
     async fn handle(
@@ -107,13 +109,17 @@ impl Signal for StartListeningRequest {
         let (fingerprint, _, _) =
             generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
 
-        scanner.start_listening(Some(fingerprint)).await?;
+        scanner
+            .write()
+            .await
+            .start_listening(Some(fingerprint))
+            .await?;
         Ok(None)
     }
 }
 
 impl ParamsExtractor for StopListeningRequest {
-    type Params = (Arc<DiscoveryRuntime>,);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.device_scanner),)
@@ -121,7 +127,7 @@ impl ParamsExtractor for StopListeningRequest {
 }
 
 impl Signal for StopListeningRequest {
-    type Params = (Arc<DiscoveryRuntime>,);
+    type Params = (Arc<RwLock<DiscoveryRuntime>>,);
     type Response = ();
 
     async fn handle(
@@ -129,13 +135,13 @@ impl Signal for StopListeningRequest {
         (scanner,): Self::Params,
         _: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
-        scanner.stop_listening().await;
+        scanner.read().await.stop_listening().await;
         Ok(None)
     }
 }
 
 impl ParamsExtractor for GetDiscoveredDeviceRequest {
-    type Params = Arc<DiscoveryRuntime>;
+    type Params = Arc<RwLock<DiscoveryRuntime>>;
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         Arc::clone(&all_params.device_scanner)
@@ -143,7 +149,7 @@ impl ParamsExtractor for GetDiscoveredDeviceRequest {
 }
 
 impl Signal for GetDiscoveredDeviceRequest {
-    type Params = Arc<DiscoveryRuntime>;
+    type Params = Arc<RwLock<DiscoveryRuntime>>;
     type Response = GetDiscoveredDeviceResponse;
 
     async fn handle(
@@ -152,6 +158,8 @@ impl Signal for GetDiscoveredDeviceRequest {
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
         let devices = scanner
+            .read()
+            .await
             .store
             .get_devices()
             .await
