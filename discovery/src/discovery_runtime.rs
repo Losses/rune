@@ -211,6 +211,7 @@ impl DiscoveryRuntime {
     /// # Returns
     /// * `Result<()>` - Success if listener started, error if already running
     pub async fn start_listening(&self, self_fingerprint: Option<String>) -> Result<()> {
+        info!("Start listening for new devices");
         let cancel_token = self.listener_token.child_token();
 
         self.service
@@ -247,6 +248,7 @@ impl DiscoveryRuntime {
     /// - Cancelling the listener token
     /// - Aborting the event processing task
     pub async fn stop_listening(&self) {
+        info!("Stop listening for new devices");
         self.listener_token.cancel();
         if let Some(handle) = self.event_listener.lock().await.take() {
             handle.abort();
