@@ -129,7 +129,6 @@ class BroadcastProvider extends ChangeNotifier {
     StartBroadcastRequest(
       durationSeconds: duration,
       alias: _deviceAlias,
-      fingerprint: _fingerprint,
     ).sendSignalToRust();
 
     _startCountdownTimer(duration);

@@ -16,7 +16,6 @@ import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
 
-import 'providers/discovery.dart';
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
 import 'utils/platform.dart';
@@ -284,7 +283,6 @@ void mainLoop(LicenseProvider licenseProvider) {
         ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => licenseProvider),
         ChangeNotifierProvider(create: (_) => BroadcastProvider()),
-        ChangeNotifierProvider(create: (_) => DiscoveryProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
         ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
         ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),

@@ -60,7 +60,7 @@ pub async fn local_player_loop(
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
-        let device_scanner = DeviceScanner::new(broadcaster.clone());
+        let device_scanner = DeviceScanner::new();
 
         let device_scanner = Arc::new(device_scanner);
 

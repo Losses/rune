@@ -364,6 +364,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
+            request: "GetDiscoveredDeviceRequest".to_string(),
+            response: Some("GetDiscoveredDeviceResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "StartServerRequest".to_string(),
             response: Some("StartServerResponse".to_string()),
             local_only: false,

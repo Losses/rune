@@ -14,5 +14,4 @@ broadcastable!(
     RealtimeFft
 );
 broadcastable!(PlaylistUpdate);
-broadcastable!(DiscoveredDeviceMessage);
 broadcastable!(TrustListUpdated);

@@ -29,8 +29,8 @@ use hub::{
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::{
-    permission::PermissionManager, udp_multicast::DiscoveryServiceImplementation, verifier::CertValidator,
-    DiscoveryParams,
+    permission::PermissionManager, udp_multicast::DiscoveryServiceImplementation,
+    verifier::CertValidator, DiscoveryParams,
 };
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
@@ -212,7 +212,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let scrobbler = Arc::new(Mutex::new(scrobbler));
 
     let broadcaster = Arc::new(WebSocketService::new());
-    let device_scanner = Arc::new(DeviceScanner::new(broadcaster.clone()));
+    let device_scanner = Arc::new(DeviceScanner::new());
 
     let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path.as_str())?));
     let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str()).await?));

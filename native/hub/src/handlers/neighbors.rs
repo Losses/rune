@@ -17,25 +17,32 @@ use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
 
 impl ParamsExtractor for StartBroadcastRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DeviceScanner>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.device_scanner),)
+        (
+            Arc::clone(&all_params.device_scanner),
+            Arc::clone(&all_params.config_path),
+        )
     }
 }
 
 impl Signal for StartBroadcastRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DeviceScanner>, Arc<String>);
     type Response = ();
 
     async fn handle(
         &self,
-        (scanner,): Self::Params,
+        (scanner, config_path): Self::Params,
         request: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
+        let certificate_id = request.alias.clone();
+        let (fingerprint, _, _) =
+            generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
+
         info!(
             "Start broadcasting the device: {}({})",
-            request.alias, request.fingerprint
+            request.alias, fingerprint
         );
 
         scanner
@@ -45,7 +52,7 @@ impl Signal for StartBroadcastRequest {
                     device_model: Some("RuneAudio".to_string()),
                     version: "Technical Preview".to_owned(),
                     device_type: Some(DeviceType::Desktop),
-                    fingerprint: request.fingerprint.clone(),
+                    fingerprint: fingerprint.clone(),
                     api_port: 7863,
                     protocol: "http".to_owned(),
                 },
@@ -75,25 +82,30 @@ impl Signal for StopBroadcastRequest {
 }
 
 impl ParamsExtractor for StartListeningRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DeviceScanner>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.device_scanner),)
+        (
+            Arc::clone(&all_params.device_scanner),
+            Arc::clone(&all_params.config_path),
+        )
     }
 }
 
 impl Signal for StartListeningRequest {
-    type Params = (Arc<DeviceScanner>,);
+    type Params = (Arc<DeviceScanner>, Arc<String>);
     type Response = ();
 
     async fn handle(
         &self,
-        (scanner,): Self::Params,
+        (scanner, config_path): Self::Params,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
-        scanner
-            .start_listening(Some(request.fingerprint.clone()))
-            .await;
+        let certificate_id = request.alias.clone();
+        let (fingerprint, _, _) =
+            generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
+
+        scanner.start_listening(Some(fingerprint)).await;
         Ok(None)
     }
 }
@@ -117,6 +129,41 @@ impl Signal for StopListeningRequest {
     ) -> anyhow::Result<Option<Self::Response>> {
         scanner.stop_listening().await;
         Ok(None)
+    }
+}
+
+impl ParamsExtractor for GetDiscoveredDeviceRequest {
+    type Params = Arc<DeviceScanner>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.device_scanner)
+    }
+}
+
+impl Signal for GetDiscoveredDeviceRequest {
+    type Params = Arc<DeviceScanner>;
+    type Response = GetDiscoveredDeviceResponse;
+
+    async fn handle(
+        &self,
+        scanner: Self::Params,
+        _request: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let devices = scanner
+            .get_devices()
+            .await
+            .into_iter()
+            .map(|x| DiscoveredDeviceMessage {
+                alias: x.alias,
+                fingerprint: x.fingerprint,
+                device_model: x.device_model,
+                device_type: x.device_type.to_string(),
+                last_seen_unix_epoch: x.last_seen.timestamp(),
+                ips: x.ips.into_iter().map(|ip| ip.to_string()).collect(),
+            })
+            .collect();
+
+        Ok(Some(GetDiscoveredDeviceResponse { devices }))
     }
 }
 

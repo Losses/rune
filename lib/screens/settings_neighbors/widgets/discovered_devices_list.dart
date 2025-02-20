@@ -1,10 +1,11 @@
-import 'package:provider/provider.dart';
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../../messages/all.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
-import '../../../providers/discovery.dart';
 
 import '../utils/show_fingerprint_quiz_dialog.dart';
 
@@ -16,20 +17,51 @@ class DiscoveredDevicesList extends StatefulWidget {
 }
 
 class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
-  late final DiscoveryProvider _provider;
-
   String? _selectedFingerprint;
+  List<DiscoveredDeviceMessage> _devices = [];
+  String? _error;
+  Timer? _pollingTimer;
+  StreamSubscription? _responseSubscription;
 
   @override
   void initState() {
     super.initState();
-    _provider = context.read<DiscoveryProvider>();
-    _provider.startListening();
+    _startDiscovery();
+  }
+
+  void _startDiscovery() {
+    final startRequest = StartListeningRequest(alias: 'discovery');
+    startRequest.sendSignalToRust();
+
+    _pollingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _fetchDevices();
+    });
+    _fetchDevices();
+  }
+
+  Future<void> _fetchDevices() async {
+    final request = GetDiscoveredDeviceRequest();
+    request.sendSignalToRust();
+
+    try {
+      final response = await GetDiscoveredDeviceResponse.rustSignalStream.first;
+      setState(() {
+        _devices = response.message.devices;
+        _error = null;
+      });
+    } catch (e) {
+      setState(() => _error = e.toString());
+    }
   }
 
   @override
   void dispose() {
-    _provider.stopListening();
+    _pollingTimer?.cancel();
+    _responseSubscription?.cancel();
+
+    final stopRequest = StopListeningRequest();
+    stopRequest.sendSignalToRust();
+
     super.dispose();
   }
 
@@ -37,58 +69,50 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   Widget build(BuildContext context) {
     final s = S.of(context);
 
-    return Consumer<DiscoveryProvider>(
-      builder: (context, provider, _) {
-        if (provider.error != null) {
-          return Center(
-            child: Text(s.error(provider.error!)),
-          );
-        }
+    if (_error != null) {
+      return Center(child: Text(s.error(_error!)));
+    }
 
-        if (provider.devices.isEmpty) {
-          return Center(
-            child: Text(s.noDevicesFound),
-          );
-        }
+    if (_devices.isEmpty) {
+      return Center(child: Text(s.noDevicesFound));
+    }
 
-        return ListView.builder(
-          itemCount: provider.devices.length,
-          itemBuilder: (context, index) {
-            final device = provider.devices.values.elementAt(index);
-            final isSelected = _selectedFingerprint == device.fingerprint;
+    return ListView.builder(
+      itemCount: _devices.length,
+      itemBuilder: (context, index) {
+        final device = _devices[index];
+        final isSelected = _selectedFingerprint == device.fingerprint;
 
-            return ListTile.selectable(
-              title: SettingsTileTitle(
-                icon: deviceTypeToIcon(device.deviceType),
-                title: device.alias,
-                subtitle: device.deviceModel,
-                showActions: isSelected,
-                actionsBuilder: (context) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildDetailItem(s.fingerprint, device.fingerprint),
-                    _buildDetailItem(
-                      s.ipAddresses,
-                      device.ips.join(', '),
-                    ),
-                    SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Button(
-                          onPressed: () => _handlePairDevice(device),
-                          child: Text(S.of(context).pair),
-                        ),
-                      ],
-                    )
-                  ],
+        return ListTile.selectable(
+          title: SettingsTileTitle(
+            icon: deviceTypeToIcon(device.deviceType),
+            title: device.alias,
+            subtitle: device.deviceModel,
+            showActions: isSelected,
+            actionsBuilder: (context) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildDetailItem(s.fingerprint, device.fingerprint),
+                _buildDetailItem(
+                  s.ipAddresses,
+                  device.ips.join(', '),
                 ),
-              ),
-              selected: isSelected,
-              onSelectionChange: (v) =>
-                  setState(() => _selectedFingerprint = device.fingerprint),
-            );
-          },
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Button(
+                      onPressed: () => _handlePairDevice(device),
+                      child: Text(s.pair),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+          selected: isSelected,
+          onSelectionChange: (v) =>
+              setState(() => _selectedFingerprint = device.fingerprint),
         );
       },
     );
@@ -99,7 +123,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       padding: const EdgeInsets.symmetric(vertical: 4.0),
       child: RichText(
         text: TextSpan(
-          style: TextStyle(height: 1.4),
+          style: const TextStyle(height: 1.4),
           children: [
             TextSpan(
               text: '$label: ',
@@ -112,31 +136,26 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     );
   }
 
-  void _handlePairDevice(DiscoveredDevice device) {
-    showFingerprintQuizDialog(context, device.ips[0]);
+  void _handlePairDevice(DiscoveredDeviceMessage device) {
+    if (device.ips.isNotEmpty) {
+      showFingerprintQuizDialog(context, device.ips.first);
+    }
   }
 }
 
 IconData deviceTypeToIcon(String deviceType) {
-  if (deviceType == "Mobile") {
-    return Symbols.smartphone;
+  switch (deviceType) {
+    case "Mobile":
+      return Symbols.smartphone;
+    case "Desktop":
+      return Symbols.computer;
+    case "Web":
+      return Symbols.public;
+    case "Headless":
+      return Symbols.psychology_alt;
+    case "Server":
+      return Symbols.host;
+    default:
+      return Symbols.help;
   }
-
-  if (deviceType == "Desktop") {
-    return Symbols.computer;
-  }
-
-  if (deviceType == "Web") {
-    return Symbols.public;
-  }
-
-  if (deviceType == "Headless") {
-    return Symbols.psychology_alt;
-  }
-
-  if (deviceType == "Server") {
-    return Symbols.host;
-  }
-
-  return Symbols.help;
 }

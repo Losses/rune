@@ -7,15 +7,13 @@ use std::{
     time::Duration,
 };
 
-use log::{error, info};
-use tokio::sync::{broadcast::Receiver, Mutex, RwLock};
+use log::error;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 use discovery::{
     discovery_runtime::DiscoveryRuntime, udp_multicast::DiscoveredDevice, utils::DeviceInfo,
 };
-
-use super::{Broadcaster, DiscoveredDeviceMessage};
 
 /// DeviceScanner is responsible for discovering and tracking network devices through UDP multicast.
 /// It provides functionality to both broadcast device presence and listen for other devices on the network.
@@ -31,71 +29,31 @@ pub struct DeviceScanner {
     pub listen_task: Mutex<Option<JoinHandle<()>>>,
     /// Thread-safe cache of discovered devices, keyed by device fingerprint
     pub devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
-    /// Interface for broadcasting device discovery events to other system components
-    broadcaster: Arc<dyn Broadcaster>,
     /// Flag indicating whether the scanner is currently broadcasting
     is_broadcasting: Arc<AtomicBool>,
+}
+
+impl Default for DeviceScanner {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceScanner {
     /// Creates a new DeviceScanner instance with the specified broadcaster.
     ///
-    /// # Arguments
-    /// * `broadcaster` - Implementation of the Broadcaster trait for handling device discovery events
-    ///
     /// # Returns
     /// A new DeviceScanner instance with initialized components and started event forwarding
-    pub fn new(broadcaster: Arc<dyn Broadcaster>) -> Self {
+    pub fn new() -> Self {
         let discovery_runtime = Arc::new(DiscoveryRuntime::new_without_store());
-        let event_rx = discovery_runtime.subscribe();
 
-        let scanner = Self {
+        Self {
             discovery_runtime,
             broadcast_task: Mutex::new(None),
             listen_task: Mutex::new(None),
             devices: Arc::new(RwLock::new(HashMap::new())),
-            broadcaster: Arc::clone(&broadcaster),
             is_broadcasting: Arc::new(AtomicBool::new(false)),
-        };
-
-        scanner.start_event_forwarder(event_rx);
-        scanner
-    }
-
-    /// Initiates the event forwarding process for discovered devices.
-    /// This method spawns a background task that:
-    /// 1. Receives device discovery events
-    /// 2. Updates the local device cache
-    /// 3. Converts the device info to a protocol message
-    /// 4. Broadcasts the message to registered listeners
-    ///
-    /// # Arguments
-    /// * `event_rx` - Receiver channel for device discovery events
-    fn start_event_forwarder(&self, mut event_rx: Receiver<DiscoveredDevice>) {
-        let devices = self.devices.clone();
-        let broadcaster = self.broadcaster.clone();
-
-        tokio::spawn(async move {
-            while let Ok(device) = event_rx.recv().await {
-                // Update local cache
-                let mut devices_map = devices.write().await;
-                devices_map.insert(device.fingerprint.clone(), device.clone());
-
-                info!("Found device: {}", device.fingerprint);
-
-                // Convert to proto message and broadcast
-                let message = DiscoveredDeviceMessage {
-                    alias: device.alias,
-                    device_model: device.device_model,
-                    device_type: device.device_type.to_string(),
-                    fingerprint: device.fingerprint,
-                    last_seen_unix_epoch: device.last_seen.timestamp(),
-                    ips: device.ips.iter().map(|x| x.to_string()).collect(),
-                };
-
-                broadcaster.broadcast(&message);
-            }
-        });
+        }
     }
 
     /// Starts broadcasting this device's presence on the network.
@@ -184,5 +142,16 @@ impl DeviceScanner {
     /// `true` if broadcasting is active, `false` otherwise
     pub fn is_broadcasting(&self) -> bool {
         self.is_broadcasting.load(Ordering::SeqCst)
+    }
+
+    /// Get a list of discovered devices, sorted by last seen time.
+    ///
+    /// # Returns
+    /// A list of discovered devices, sorted by last seen time
+    pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
+        let mut devices: Vec<DiscoveredDevice> =
+            self.devices.read().await.clone().into_values().collect();
+        devices.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+        devices
     }
 }

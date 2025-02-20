@@ -5,13 +5,11 @@ package neighbors;
 message StartBroadcastRequest {
   uint32 duration_seconds = 1;
   string alias = 2;
-  string fingerprint = 3;
 }
 
 // [DART-SIGNAL]
 message StartListeningRequest {
   string alias = 1;
-  string fingerprint = 2;
 }
 
 // [DART-SIGNAL]
@@ -28,6 +26,14 @@ message DiscoveredDeviceMessage {
   string fingerprint = 4;
   int64 last_seen_unix_epoch = 5;
   repeated string ips = 6;
+}
+
+// [DART-SIGNAL]
+message GetDiscoveredDeviceRequest {}
+
+// [RUST-SIGNAL]
+message GetDiscoveredDeviceResponse {
+  repeated DiscoveredDeviceMessage devices = 1;
 }
 
 // [DART-SIGNAL]
