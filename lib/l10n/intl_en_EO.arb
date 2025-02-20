@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Statusa teksto indikanta ke pluraj dosierujoj estis elektitaj.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Konfirmi",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} La bibliotekon estas skanata, do analizo ne povas esti farita.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} La bibliotekon estas analizata; bonvolu atendi ĝis la procezo finiĝos.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Bonvolu analizi vian bibliotekon por la plej bona sperto.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Ne Preta",

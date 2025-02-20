@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "確認",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 資料集を検査中のため、解析は実行できません。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 資料集を解析中です。処理が終了するまでお待ちください。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 最良の体験のために資料集を解析してください。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "準備ができていません",

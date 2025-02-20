@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "定",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 方正析庫，請俟其畢。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 請析理庫藏，以臻至善",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "未畢",

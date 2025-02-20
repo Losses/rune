@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Текст статусу, що вказує, що обрано кілька каталогів.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "Підтвердити",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} Бібліотека сканується, тому аналіз не може бути виконаний.",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} Бібліотека аналізується; будь ласка, зачекайте, поки процес завершиться.",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} Для найкращого досвіду, проаналізуйте свою бібліотеку.",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "Не готово",

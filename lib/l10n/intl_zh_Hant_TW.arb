@@ -251,19 +251,25 @@
   "noAnalysisScanning": "{baseMessage} 資料庫正在掃描中，無法執行分析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 資料庫正在分析中，請等待過程完成。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 請分析您的資料庫以獲得最佳體驗。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "尚未準備好",
@@ -397,7 +403,9 @@
   "manyDirectories": "{count} 個目錄",
   "@manyDirectories": {
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "removePlaylistTitle": "移除播放清單",
