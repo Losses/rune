@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -7,10 +6,11 @@ use std::{
 
 use anyhow::Result;
 use chrono::Utc;
+use dashmap::DashMap;
 use log::{error, info};
 use tokio::{
     fs::{read_to_string, write},
-    sync::{mpsc, Mutex, RwLock},
+    sync::{mpsc, Mutex},
     task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
@@ -30,7 +30,7 @@ pub struct DiscoveryStore {
     /// Path to the persistent storage file
     path: Option<PathBuf>,
     /// In-memory device list with thread-safe access
-    devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
+    devices: Arc<DashMap<String, DiscoveredDevice>>,
 }
 
 impl DiscoveryStore {
@@ -39,7 +39,7 @@ impl DiscoveryStore {
     pub fn new<P: AsRef<Path>>(base_path: Option<P>) -> Self {
         Self {
             path: base_path.map(|base_path| base_path.as_ref().join(".discovered")),
-            devices: Arc::new(RwLock::new(HashMap::new())),
+            devices: Arc::new(DashMap::new()),
         }
     }
 
@@ -65,13 +65,19 @@ impl DiscoveryStore {
                 .filter_map(|v| v.try_into().ok())
                 .collect();
 
-            let mut map = HashMap::new();
+            let map = DashMap::new();
             for device in devices {
                 map.insert(device.fingerprint.clone(), device);
             }
 
-            *self.devices.write().await = map.clone();
-            Ok(map.values().cloned().collect())
+            self.devices.clear();
+
+            let cloned_devices: Vec<_> = map.iter().map(|entry| entry.value().clone()).collect();
+            for device in map.into_iter() {
+                self.devices.insert(device.0.clone(), device.1.clone());
+            }
+
+            Ok(cloned_devices)
         } else {
             Ok(Vec::new())
         }
@@ -114,17 +120,18 @@ impl DiscoveryStore {
     pub async fn prune_expired(&self) -> Result<()> {
         info!("Pruning expired discovery entries");
 
-        let expired_devices = {
-            let mut devices = self.devices.write().await;
-            let now = Utc::now();
+        let now = Utc::now();
 
-            devices.retain(|_, d| {
-                let elapsed = now.signed_duration_since(d.last_seen);
-                elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
-            });
+        self.devices.retain(|_, d| {
+            let elapsed = now.signed_duration_since(d.last_seen);
+            elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
+        });
 
-            devices.values().cloned().collect::<Vec<_>>()
-        };
+        let expired_devices = self
+            .devices
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect::<Vec<_>>();
 
         self.save(&expired_devices).await
     }
@@ -133,17 +140,16 @@ impl DiscoveryStore {
     pub async fn update_device(&self, device: DiscoveredDevice) -> Result<()> {
         let fingerprint = device.fingerprint.clone();
 
-        {
-            let mut devices = self.devices.write().await;
-            devices.insert(fingerprint, device);
+        self.devices.insert(fingerprint, device);
+
+        if self.path.is_some() {
+            let devices_to_save = self
+                .devices
+                .iter()
+                .map(|entry| entry.value().clone())
+                .collect::<Vec<_>>();
+            self.save(&devices_to_save).await?;
         }
-
-        let devices_to_save = {
-            let devices = self.devices.read().await;
-            devices.values().cloned().collect::<Vec<_>>()
-        };
-
-        self.save(&devices_to_save).await?;
 
         Ok(())
     }
@@ -151,8 +157,10 @@ impl DiscoveryStore {
     /// Returns a copy of the current device list
     pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
         info!("Getting devices");
-        let devices = self.devices.read().await;
-        devices.values().cloned().collect()
+        self.devices
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 }
 
