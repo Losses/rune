@@ -156,11 +156,12 @@ impl DiscoveryStore {
 
     /// Returns a copy of the current device list
     pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
-        info!("Getting devices");
-        self.devices
+        let snapshot: Vec<_> = self
+            .devices
             .iter()
             .map(|entry| entry.value().clone())
-            .collect()
+            .collect();
+        snapshot
     }
 }
 
@@ -253,13 +254,21 @@ impl DiscoveryRuntime {
         let store_clone = self.store.clone();
 
         let handle = tokio::spawn(async move {
-            info!("Event processing task started");
+            let mut batch = Vec::new();
+
             while let Some(device) = event_rx.recv().await {
-                if let Err(e) = store_clone.update_device(device).await {
-                    error!("Failed to update device: {}", e);
+                batch.push(device);
+
+                while let Ok(device) = event_rx.try_recv() {
+                    batch.push(device);
+                }
+
+                for device in batch.drain(..) {
+                    if let Err(e) = store_clone.update_device(device).await {
+                        error!("Failed to update device: {}", e);
+                    }
                 }
             }
-            info!("Event processing task ended");
         });
 
         *event_listener = Some(handle);
