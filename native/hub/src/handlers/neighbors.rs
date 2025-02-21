@@ -157,12 +157,12 @@ impl Signal for GetDiscoveredDeviceRequest {
         scanner: Self::Params,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let devices = scanner
-            .read()
-            .await
-            .store
-            .get_devices()
-            .await
+        let devices = {
+            let reader_guard = scanner.read().await;
+            reader_guard.store.get_devices().await
+        };
+
+        let devices_message = devices
             .into_iter()
             .map(|x| DiscoveredDeviceMessage {
                 alias: x.alias,
@@ -174,7 +174,9 @@ impl Signal for GetDiscoveredDeviceRequest {
             })
             .collect();
 
-        Ok(Some(GetDiscoveredDeviceResponse { devices }))
+        Ok(Some(GetDiscoveredDeviceResponse {
+            devices: devices_message,
+        }))
     }
 }
 
