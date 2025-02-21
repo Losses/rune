@@ -47,7 +47,7 @@ impl Signal for StartBroadcastRequest {
         );
 
         scanner
-            .read()
+            .write()
             .await
             .start_announcements(
                 DeviceInfo {
@@ -135,7 +135,7 @@ impl Signal for StopListeningRequest {
         (scanner,): Self::Params,
         _: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
-        scanner.read().await.stop_listening().await;
+        scanner.read().await.stop_listening();
         Ok(None)
     }
 }
@@ -159,7 +159,7 @@ impl Signal for GetDiscoveredDeviceRequest {
     ) -> Result<Option<Self::Response>> {
         let devices = {
             let reader_guard = scanner.read().await;
-            reader_guard.store.get_devices().await
+            reader_guard.get_all_devices().await
         };
 
         let devices_message = devices

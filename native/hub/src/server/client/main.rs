@@ -175,23 +175,23 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
             // Terminate services and persist
             rt.shutdown().await?;
-            let final_devices = rt.store.get_devices().await;
-            rt.store.save(&final_devices).await?;
+
+            let final_devices = rt.get_all_devices().await;
             print_device_table(&final_devices);
         }
         DiscoveryCmd::Ls => {
             let rt = DiscoveryRuntime::new(config_dir).await?;
-            print_device_table(&rt.store.get_devices().await);
+            print_device_table(&rt.get_all_devices().await);
         }
         DiscoveryCmd::Inspect { index } => {
             let rt = DiscoveryRuntime::new(config_dir).await?;
-            let devices = rt.store.load().await?;
+            let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             print_device_details(dev);
         }
         DiscoveryCmd::Trust { index, domains } => {
             let rt = DiscoveryRuntime::new(config_dir.clone()).await?;
-            let devices = rt.store.load().await?;
+            let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             let hosts = domains
                 .map(|d| {

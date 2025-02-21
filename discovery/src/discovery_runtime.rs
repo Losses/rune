@@ -1,187 +1,24 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Result;
-use chrono::Utc;
-use dashmap::DashMap;
 use log::{error, info};
-use tokio::{
-    fs::{read_to_string, write},
-    sync::{mpsc, Mutex},
-    task::JoinHandle,
-};
 use tokio_util::sync::CancellationToken;
-use toml::Value;
 
 use crate::{
+    persistent::PersistentDataManager,
     udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation},
     utils::DeviceInfo,
 };
-
-const CHANNEL_SIZE: usize = 1;
-
-/// Manages persistent storage and in-memory cache of discovered devices.
-/// Automatically handles data expiration and file I/O operations.
-#[derive(Clone)]
-pub struct DiscoveryStore {
-    /// Path to the persistent storage file
-    path: Option<PathBuf>,
-    /// In-memory device list with thread-safe access
-    devices: Arc<DashMap<String, DiscoveredDevice>>,
-}
-
-impl DiscoveryStore {
-    /// Creates a new DiscoveryStore instance with the specified base directory.
-    /// The actual storage file will be created at `{base_dir}/.discovered`.
-    pub fn new<P: AsRef<Path>>(base_path: Option<P>) -> Self {
-        Self {
-            path: base_path.map(|base_path| base_path.as_ref().join(".discovered")),
-            devices: Arc::new(DashMap::new()),
-        }
-    }
-
-    /// Loads devices from persistent storage into memory.
-    /// Creates an empty list if the storage file doesn't exist.
-    pub async fn load(&self) -> Result<Vec<DiscoveredDevice>> {
-        if let Some(path) = &self.path {
-            if !path.exists() {
-                return Ok(Vec::new());
-            }
-
-            let content = read_to_string(path).await?;
-            let parsed: Value = toml::from_str(&content)?;
-
-            let devices = parsed
-                .get("devices")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default();
-
-            let devices: Vec<DiscoveredDevice> = devices
-                .into_iter()
-                .filter_map(|v| v.try_into().ok())
-                .collect();
-
-            let map = DashMap::new();
-            for device in devices {
-                map.insert(device.fingerprint.clone(), device);
-            }
-
-            self.devices.clear();
-
-            let cloned_devices: Vec<_> = map.iter().map(|entry| entry.value().clone()).collect();
-            for device in map.into_iter() {
-                self.devices.insert(device.0.clone(), device.1.clone());
-            }
-
-            Ok(cloned_devices)
-        } else {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Persists the current device list to storage, automatically removing
-    /// devices that haven't been seen in the last 30 seconds.
-    pub async fn save(&self, devices: &[DiscoveredDevice]) -> Result<()> {
-        if let Some(path) = &self.path {
-            let filtered: Vec<_> = devices
-                .iter()
-                .filter(|d| {
-                    let elapsed = Utc::now().signed_duration_since(d.last_seen);
-                    elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(120)
-                })
-                .cloned()
-                .collect();
-
-            let mut root = toml::map::Map::new();
-            root.insert(
-                "devices".to_string(),
-                Value::Array(
-                    filtered
-                        .iter()
-                        .map(|d| toml::Value::try_from(d).unwrap())
-                        .collect(),
-                ),
-            );
-
-            let content = toml::to_string(&Value::Table(root)).inspect_err(|_| {
-                error!("TOML serialization failed: {:?}", filtered);
-            })?;
-
-            write(path, content).await?;
-        }
-        Ok(())
-    }
-
-    /// Removes expired devices from both memory and persistent storage
-    pub async fn prune_expired(&self) -> Result<()> {
-        info!("Pruning expired discovery entries");
-
-        let now = Utc::now();
-
-        self.devices.retain(|_, d| {
-            let elapsed = now.signed_duration_since(d.last_seen);
-            elapsed.to_std().unwrap_or(Duration::MAX) < Duration::from_secs(30)
-        });
-
-        let expired_devices = self
-            .devices
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect::<Vec<_>>();
-
-        self.save(&expired_devices).await
-    }
-
-    /// Updates or inserts a device into the store and persists changes
-    pub async fn update_device(&self, device: DiscoveredDevice) -> Result<()> {
-        let fingerprint = device.fingerprint.clone();
-
-        self.devices.insert(fingerprint, device);
-
-        if self.path.is_some() {
-            let devices_to_save = self
-                .devices
-                .iter()
-                .map(|entry| entry.value().clone())
-                .collect::<Vec<_>>();
-            self.save(&devices_to_save).await?;
-        }
-
-        Ok(())
-    }
-
-    /// Returns a copy of the current device list
-    pub async fn get_devices(&self) -> Vec<DiscoveredDevice> {
-        let snapshot: Vec<_> = self
-            .devices
-            .iter()
-            .map(|entry| entry.value().clone())
-            .collect();
-        snapshot
-    }
-}
 
 /// Manages the discovery service lifecycle and coordinates between network operations
 /// and device state storage.
 pub struct DiscoveryRuntime {
     /// Handle to the discovery service
     service: Arc<DiscoveryServiceImplementation>,
-    /// Central device state management
-    pub store: Arc<DiscoveryStore>,
     /// Token for graceful shutdown management
-    announcements_cancel_token: CancellationToken,
-    /// Sender for discovered device events
-    _event_tx: mpsc::Sender<DiscoveredDevice>,
-    /// Receiver for discovered device events
-    event_rx: Option<mpsc::Receiver<DiscoveredDevice>>,
-    /// Background task handle for event processing
-    event_listener: Mutex<Option<JoinHandle<()>>>,
+    announcements_cancel_token: Option<CancellationToken>,
     /// Token for controlling event listener lifecycle
-    listener_token: CancellationToken,
+    listening_cancel_token: Option<CancellationToken>,
 }
 
 impl DiscoveryRuntime {
@@ -190,37 +27,26 @@ impl DiscoveryRuntime {
     /// - Network event channel setup
     /// - Device state loading from storage
     pub async fn new(config_dir: Option<PathBuf>) -> Result<Self> {
-        let (event_tx, event_rx) = mpsc::channel(CHANNEL_SIZE);
-        let service = Arc::new(DiscoveryServiceImplementation::new(event_tx.clone()));
-        let store = Arc::new(DiscoveryStore::new(config_dir));
-
-        // Load persisted devices into memory
-        store.load().await?;
+        let store = match config_dir {
+            Some(config_dir) => Some(Arc::new(PersistentDataManager::new(config_dir)?)),
+            None => None,
+        };
+        let service = Arc::new(DiscoveryServiceImplementation::new(store).await);
 
         Ok(Self {
             service,
-            store,
-            announcements_cancel_token: CancellationToken::new(),
-            _event_tx: event_tx,
-            event_rx: Some(event_rx),
-            event_listener: Mutex::new(None),
-            listener_token: CancellationToken::new(),
+            announcements_cancel_token: None,
+            listening_cancel_token: None,
         })
     }
 
     pub fn new_without_store() -> Self {
-        let (event_tx, event_rx) = mpsc::channel(CHANNEL_SIZE);
-        let service = Arc::new(DiscoveryServiceImplementation::new(event_tx.clone()));
-        let store = Arc::new(DiscoveryStore::new::<PathBuf>(None));
+        let service = Arc::new(DiscoveryServiceImplementation::new_without_store());
 
         Self {
             service,
-            store,
-            announcements_cancel_token: CancellationToken::new(),
-            _event_tx: event_tx,
-            event_rx: Some(event_rx),
-            event_listener: Mutex::new(None),
-            listener_token: CancellationToken::new(),
+            announcements_cancel_token: None,
+            listening_cancel_token: None,
         }
     }
 
@@ -233,56 +59,38 @@ impl DiscoveryRuntime {
     /// # Returns
     /// * `Result<()>` - Success if listener started, error if already running
     pub async fn start_listening(&mut self, self_fingerprint: Option<String>) -> Result<()> {
-        info!("Start listening for new devices");
-        let cancel_token = self.listener_token.child_token();
-
-        self.service
-            .listen(self_fingerprint, Some(cancel_token.clone()))
-            .await?;
-
-        let mut event_listener = self.event_listener.lock().await;
-        if event_listener.is_some() {
-            error!("Listener already running");
-            return Err(anyhow::anyhow!("Listener already running"));
-        }
-
-        let mut event_rx = self
-            .event_rx
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Event receiver already taken"))?;
-
-        let store_clone = self.store.clone();
-
-        let handle = tokio::spawn(async move {
-            let mut batch = Vec::new();
-
-            while let Some(device) = event_rx.recv().await {
-                batch.push(device);
-
-                while let Ok(device) = event_rx.try_recv() {
-                    batch.push(device);
-                }
-
-                for device in batch.drain(..) {
-                    if let Err(e) = store_clone.update_device(device).await {
-                        error!("Failed to update device: {}", e);
-                    }
-                }
+        match self.listening_cancel_token {
+            Some(_) => {
+                error!("Listener already running");
+                Err(anyhow::anyhow!("Listener already running"))
             }
-        });
+            None => {
+                info!("Start listening for new devices");
+                let cancel_token = CancellationToken::new();
 
-        *event_listener = Some(handle);
-        Ok(())
+                self.service
+                    .listen(self_fingerprint, Some(cancel_token.clone()))
+                    .await?;
+
+                self.listening_cancel_token = Some(cancel_token);
+
+                Ok(())
+            }
+        }
     }
 
     /// Completely stops the listening service by:
     /// - Cancelling the listener token
     /// - Aborting the event processing task
-    pub async fn stop_listening(&self) {
-        info!("Stop listening for new devices");
-        self.listener_token.cancel();
-        if let Some(handle) = self.event_listener.lock().await.take() {
-            handle.abort();
+    pub fn stop_listening(&self) {
+        match &self.listening_cancel_token {
+            Some(token) => {
+                info!("Stop listening for new devices");
+                token.cancel();
+            }
+            None => {
+                info!("Listener not running");
+            }
         }
     }
 
@@ -293,40 +101,52 @@ impl DiscoveryRuntime {
     /// * `device_info` - Local device information to advertise
     /// * `interval` - Broadcast interval for service announcements
     pub async fn start_announcements(
-        &self,
+        &mut self,
         device_info: DeviceInfo,
         interval: Duration,
         duration_limit: Option<Duration>,
     ) -> Result<()> {
-        let service = self.service.clone();
-        let cancel_token = self.announcements_cancel_token.child_token();
-
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(interval);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-            let sleep_future = duration_limit.map(tokio::time::sleep);
-            tokio::pin!(sleep_future);
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        if let Err(e) = service.announce(device_info.clone()).await {
-                            error!("Announcement failed: {}", e);
-                        }
-                    }
-                    _ = cancel_token.cancelled() => break,
-                    _ = async {
-                        if let Some(future) = sleep_future.as_mut().as_pin_mut() {
-                            future.await
-                        }
-                    } => {
-                        info!("Announcement duration limit reached");
-                        break;
-                    }
-                }
+        match &self.announcements_cancel_token {
+            Some(_) => {
+                error!("Announcements already running");
+                return Err(anyhow::anyhow!("Announcements already running"));
             }
-        });
+            None => {
+                info!("Starting device announcements");
+                let cancel_token = CancellationToken::new();
+                let service = self.service.clone();
+                let cancel_token_clone = cancel_token.clone();
+
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(interval);
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+                    let sleep_future = duration_limit.map(tokio::time::sleep);
+                    tokio::pin!(sleep_future);
+
+                    loop {
+                        tokio::select! {
+                            _ = interval.tick() => {
+                                if let Err(e) = service.announce(device_info.clone()).await {
+                                    error!("Announcement failed: {}", e);
+                                }
+                            }
+                            _ = cancel_token_clone.cancelled() => break,
+                            _ = async {
+                                if let Some(future) = sleep_future.as_mut().as_pin_mut() {
+                                    future.await
+                                }
+                            } => {
+                                info!("Announcement duration limit reached");
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                self.announcements_cancel_token = Some(cancel_token);
+            }
+        }
 
         Ok(())
     }
@@ -344,7 +164,9 @@ impl DiscoveryRuntime {
     /// * `()` - The method always succeeds as it just triggers cancellation
     pub fn stop_announcements(&self) {
         info!("Stopping device announcements");
-        self.announcements_cancel_token.cancel();
+        if let Some(token) = &self.announcements_cancel_token {
+            token.cancel();
+        }
     }
 
     /// Gracefully shuts down the discovery service:
@@ -353,20 +175,19 @@ impl DiscoveryRuntime {
     /// 3. Persists final device state
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down discovery runtime");
-        self.announcements_cancel_token.cancel();
-        self.stop_listening().await;
-        self.listener_token.cancel();
+        self.stop_announcements();
+        self.stop_listening();
 
-        let devices = self.store.get_devices().await;
-
-        self.store.save(&devices).await?;
-
-        if let Some(handle) = self.event_listener.lock().await.take() {
-            handle.await.ok();
-        }
-
-        self.service.shutdown().await;
+        self.service.shutdown().await?;
 
         Ok(())
+    }
+
+    pub async fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
+        self.service.get_all_devices().await
+    }
+
+    pub async fn save(&self) -> Result<()> {
+        self.service.save().await
     }
 }

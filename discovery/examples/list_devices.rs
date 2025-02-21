@@ -14,19 +14,16 @@
 /// 2. By default, the loopback interface (lo) has multicast disabled
 /// 3. Without enabling multicast on loopback, the service won't be able to receive
 ///    its own announcements during local testing
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
 use clap::Parser;
 use rand::Rng;
 use tokio::signal;
-use tokio::sync::{mpsc, RwLock};
 use tokio::time;
 use uuid::Uuid;
 
-use discovery::udp_multicast::{DiscoveredDevice, DiscoveryServiceImplementation};
+use discovery::udp_multicast::DiscoveryServiceImplementation;
 use discovery::utils::{DeviceInfo, DeviceType};
 
 #[derive(Parser, Debug)]
@@ -44,57 +41,20 @@ struct Args {
 
 struct DeviceDiscovery {
     discovery_service: Arc<DiscoveryServiceImplementation>,
-    devices: Arc<RwLock<HashMap<String, DiscoveredDevice>>>,
 }
 
 impl DeviceDiscovery {
     async fn new() -> anyhow::Result<Self> {
-        let (event_tx, mut event_rx) = mpsc::channel(100);
-
-        let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
-        let devices = Arc::new(RwLock::new(HashMap::new()));
-
-        let devices_clone = devices.clone();
-        tokio::spawn(async move {
-            while let Some(device) = event_rx.recv().await {
-                let mut devices = devices_clone.write().await;
-                devices.insert(device.fingerprint.clone(), device);
-
-                println!("\nDiscovered Devices:");
-                println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
-                println!("{:-<52}", "");
-                for device in devices.values() {
-                    println!(
-                        "{:<20} {:<15} {:<15}",
-                        device.alias, device.device_model, device.device_type
-                    );
-                }
-            }
-        });
-
-        Ok(Self {
-            discovery_service,
-            devices,
-        })
+        let discovery_service = Arc::new(DiscoveryServiceImplementation::new_without_store());
+        Ok(Self { discovery_service })
     }
 
     async fn start(&self, device_info: DeviceInfo) -> anyhow::Result<()> {
-        let devices = self.devices.clone();
-
         let listen_service = self.discovery_service.clone();
         let self_fingerprint = device_info.fingerprint.clone();
         tokio::spawn(async move {
             if let Err(e) = listen_service.listen(Some(self_fingerprint), None).await {
                 eprintln!("Error in listen task: {}", e);
-            }
-        });
-
-        let cleanup_devices = devices.clone();
-        tokio::spawn(async move {
-            let mut interval = time::interval(Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                Self::cleanup_old_devices(&cleanup_devices).await;
             }
         });
 
@@ -110,16 +70,6 @@ impl DeviceDiscovery {
         });
 
         Ok(())
-    }
-
-    async fn cleanup_old_devices(devices: &RwLock<HashMap<String, DiscoveredDevice>>) {
-        let mut devices = devices.write().await;
-        let now = Utc::now();
-        devices.retain(|_, device| {
-            let duration = now.signed_duration_since(device.last_seen);
-            let secs = duration.num_seconds();
-            (0..10).contains(&secs)
-        });
     }
 }
 

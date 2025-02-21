@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use discovery::discovery_runtime::DiscoveryRuntime;
 use log::info;
 use rustls::crypto::aws_lc_rs::default_provider;
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
@@ -26,10 +26,7 @@ use hub::{
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
-use ::discovery::{
-    permission::PermissionManager, udp_multicast::DiscoveryServiceImplementation,
-    verifier::CertValidator, DiscoveryParams,
-};
+use ::discovery::{permission::PermissionManager, verifier::CertValidator, DiscoveryParams};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -127,33 +124,12 @@ async fn handle_broadcast() -> Result<()> {
     let config_path = get_config_dir()?;
     let device_info = load_device_info(&config_path).await?;
 
-    let (event_tx, _) = mpsc::channel(32);
-    let discovery_service = Arc::new(DiscoveryServiceImplementation::new(event_tx));
-    let cancel_token = CancellationToken::new();
+    let mut discovery_service = DiscoveryRuntime::new(Some(config_path)).await?;
 
-    let handle = tokio::spawn({
-        let cancel_token = cancel_token.clone();
-        let discovery_service = discovery_service.clone();
-        let device_info = device_info.clone();
-        async move {
-            info!("Announcing this server as {}", device_info.alias);
-            loop {
-                if let Err(e) = discovery_service.announce(device_info.clone()).await {
-                    eprintln!("Failed to announce: {}", e);
-                }
+    discovery_service
+        .start_announcements(device_info, Duration::from_secs(3), None)
+        .await?;
 
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-                    _ = cancel_token.cancelled() => break,
-                }
-            }
-        }
-    });
-
-    tokio::signal::ctrl_c().await?;
-    cancel_token.cancel();
-    handle.await?;
-    discovery_service.shutdown().await;
     Ok(())
 }
 

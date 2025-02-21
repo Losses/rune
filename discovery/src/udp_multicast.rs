@@ -14,19 +14,18 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use netdev::Interface;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use socket2::{Domain, Protocol, Socket, Type};
-use tokio::{
-    net::UdpSocket,
-    sync::{mpsc::Sender, Mutex},
-    task::JoinHandle,
-};
+use tokio::{net::UdpSocket, sync::Mutex, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::utils::{DeviceInfo, DeviceType};
+use crate::{
+    persistent::PersistentDataManager,
+    utils::{DeviceInfo, DeviceType},
+};
 
 /// Represents a discovered device in the network
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,14 +53,14 @@ const MULTICAST_PORT: u16 = 57863;
 pub struct DiscoveryServiceImplementation {
     /// Lazily initialized multicast sockets with retry status
     sockets_init: Mutex<Option<Result<Vec<Arc<UdpSocket>>>>>,
-    /// Broadcast channel for discovery events
-    event_tx: Sender<DiscoveredDevice>,
+    /// Persistence layer for device discovery
+    store: Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>,
     /// Active listener tasks
     listeners: Mutex<Vec<JoinHandle<()>>>,
     /// Policy for network operation retries
     retry_policy: RetryPolicy,
-    /// Track IP addresses per device fingerprint
-    device_ips: Arc<DashMap<String, Vec<IpAddr>>>,
+    /// Track the detailed information of all devices
+    device_states: Arc<DashMap<String, DiscoveredDevice>>,
 }
 
 /// Configuration for network operation retry behavior
@@ -94,15 +93,44 @@ impl DiscoveryServiceImplementation {
     /// Creates a new DiscoveryService with the specified event channel
     ///
     /// # Arguments
-    /// * `event_tx` - Broadcast channel sender for discovery events
-    pub fn new(event_tx: Sender<DiscoveredDevice>) -> Self {
-        Self {
+    /// * `store` - Optional persistence layer for device discovery
+    pub async fn new(store: Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>) -> Self {
+        let result = Self {
             sockets_init: Mutex::new(None),
-            event_tx,
+            store,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
-            device_ips: Arc::new(DashMap::new()),
+            device_states: Arc::new(DashMap::new()),
+        };
+
+        match result.initialize().await {
+            Ok(_) => info!("Discovery service initialized"),
+            Err(e) => error!("Failed to initialize discovery service: {}", e),
+        };
+
+        result
+    }
+
+    pub fn new_without_store() -> Self {
+        Self {
+            sockets_init: Mutex::new(None),
+            store: None,
+            listeners: Mutex::new(Vec::new()),
+            retry_policy: RetryPolicy::default(),
+            device_states: Arc::new(DashMap::new()),
         }
+    }
+
+    async fn initialize(&self) -> Result<()> {
+        if let Some(store) = &self.store {
+            let devices = store.read().await.clone().into_iter();
+            for device in devices {
+                self.device_states
+                    .insert(device.fingerprint.clone(), device);
+            }
+        }
+
+        Ok(())
     }
 
     /// Configures the retry policy for network operations
@@ -258,15 +286,16 @@ impl DiscoveryServiceImplementation {
         info!("Starting to listen on {} interfaces", sockets.len());
 
         let cancel_token = cancel_token.unwrap_or_default();
-        let device_ips = self.device_ips.clone();
+        let devices = self.device_states.clone();
+        let store = self.store.clone();
 
         let mut handles = Vec::with_capacity(sockets.len());
         for socket in sockets.iter() {
             let socket = Arc::clone(socket);
             let self_fingerprint = self_fingerprint.clone();
-            let event_tx = self.event_tx.clone();
+            let store = store.clone();
             let cancel_token = cancel_token.clone();
-            let device_ips = device_ips.clone();
+            let devices = devices.clone();
 
             // Spawn listener task per socket
             let handle = tokio::spawn(async move {
@@ -284,8 +313,8 @@ impl DiscoveryServiceImplementation {
                                         &self_fingerprint,
                                         &buf[..len],
                                         addr,
-                                        &event_tx,
-                                        &device_ips
+                                        &store,
+                                        &devices
                                     ).await {
                                         if e.to_string().contains("channel closed") {
                                             debug!("Channel closed, stopping listener on {}",
@@ -310,62 +339,26 @@ impl DiscoveryServiceImplementation {
     }
 
     /// Processes incoming announcement datagrams
-    async fn handle_datagram(
+    pub async fn handle_datagram(
         self_fingerprint: &Option<String>,
         data: &[u8],
         addr: SocketAddr,
-        event_tx: &Sender<DiscoveredDevice>,
-        device_ips: &Arc<DashMap<String, Vec<IpAddr>>>,
+        store: &Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>,
+        devices: &Arc<DashMap<String, DiscoveredDevice>>,
     ) -> Result<()> {
-        let announcement: serde_json::Value =
-            serde_json::from_slice(data).context("Failed to parse announcement")?;
+        let announcement: serde_json::Value = serde_json::from_slice(data)?;
 
-        debug!("Received announcement from {}: {}", addr, announcement);
-
-        // Extract and validate fingerprint
         let fingerprint = match announcement.get("fingerprint") {
             Some(v) => v.as_str().unwrap_or_default().to_string(),
-            None => {
-                warn!("Received announcement without fingerprint");
-                return Ok(());
-            }
+            None => return Ok(()),
         };
 
-        // Filter self-announcements
         if Some(fingerprint.clone()) == *self_fingerprint {
-            debug!("Ignoring self-announcement");
             return Ok(());
         }
 
-        // Update IP tracking
-        let source_ip = addr.ip();
-        let current_ips = {
-            let mut ips_entry = device_ips.entry(fingerprint.clone()).or_default();
-
-            if ips_entry.is_empty() {
-                info!("Found a new fingerprint {}", fingerprint);
-            }
-            let is_new_ip = !ips_entry.contains(&source_ip);
-            if is_new_ip {
-                info!(
-                    "Received a new IP address {} for the fingerprint {}",
-                    source_ip, fingerprint
-                );
-                ips_entry.push(source_ip);
-            }
-
-            ips_entry.clone()
-        };
-
-        // Parse device type
-        let device_type_value = announcement
-            .get("deviceType")
-            .ok_or_else(|| anyhow!("Announcement missing deviceType"))?;
-        let device_type: DeviceType = serde_json::from_value(device_type_value.clone())
-            .context("Failed to parse deviceType")?;
-
-        // Build discovery event
-        let discovered = DiscoveredDevice {
+        let device = DiscoveredDevice {
+            fingerprint: fingerprint.clone(),
             alias: announcement["alias"]
                 .as_str()
                 .unwrap_or("Unknown")
@@ -374,24 +367,72 @@ impl DiscoveryServiceImplementation {
                 .as_str()
                 .unwrap_or("Unknown")
                 .to_string(),
-            device_type,
-            fingerprint,
-            ips: current_ips,
+            device_type: serde_json::from_value(announcement["deviceType"].clone())?,
+            ips: vec![addr.ip()],
             last_seen: Utc::now(),
         };
 
-        // Broadcast discovery event
-        event_tx.send(discovered).await?;
+        if let Some(mut existing) = devices.get_mut(&fingerprint) {
+            if !existing.ips.contains(&addr.ip()) {
+                existing.ips.push(addr.ip());
+            }
+            existing.last_seen = Utc::now();
+        } else {
+            devices.insert(fingerprint, device);
+        }
+
+        if let Some(store) = store {
+            store
+                .update(|_| async move {
+                    let d = devices
+                        .iter()
+                        .map(|entry| entry.value().clone())
+                        .collect::<Vec<_>>();
+
+                    Ok::<_, anyhow::Error>((d, ()))
+                })
+                .await?;
+        }
 
         Ok(())
     }
 
+    pub async fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
+        self.device_states
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
     /// Stops all active listeners and cleans up resources
-    pub async fn shutdown(&self) {
+    pub async fn shutdown(&self) -> Result<()> {
         let mut listeners = self.listeners.lock().await;
         for handle in listeners.drain(..) {
             handle.abort(); // Forcefully terminate tasks
         }
+
+        // Finally ensure store is saved before shutdown
+        self.save().await?;
+
+        Ok(())
+    }
+
+    pub async fn save(&self) -> Result<()> {
+        if let Some(store) = &self.store {
+            return store
+                .update(|_| async move {
+                    let d = self
+                        .device_states
+                        .iter()
+                        .map(|entry| entry.value().clone())
+                        .collect::<Vec<_>>();
+
+                    Ok::<_, anyhow::Error>((d, ()))
+                })
+                .await;
+        }
+
+        Ok(())
     }
 
     /// Checks if the service has successfully initialized sockets

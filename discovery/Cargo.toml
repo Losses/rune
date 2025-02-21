@@ -53,5 +53,6 @@ notify = "8.0.0"
 dashmap = "6.1.0"
 
 [dev-dependencies]
+clearscreen = "4.0.1"
 clap = { version = "4.5.27", features = ["derive"] }
 rand = "0.8.5"
