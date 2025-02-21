@@ -6,7 +6,6 @@
 //! retry logic, and event broadcasting.
 
 use std::{
-    collections::HashMap,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
@@ -14,6 +13,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use log::{debug, error, info, warn};
 use netdev::Interface;
 use serde::{Deserialize, Serialize};
@@ -61,7 +61,7 @@ pub struct DiscoveryServiceImplementation {
     /// Policy for network operation retries
     retry_policy: RetryPolicy,
     /// Track IP addresses per device fingerprint
-    device_ips: Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
+    device_ips: Arc<DashMap<String, Vec<IpAddr>>>,
 }
 
 /// Configuration for network operation retry behavior
@@ -101,7 +101,7 @@ impl DiscoveryServiceImplementation {
             event_tx,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
-            device_ips: Arc::new(Mutex::new(HashMap::new())),
+            device_ips: Arc::new(DashMap::new()),
         }
     }
 
@@ -315,7 +315,7 @@ impl DiscoveryServiceImplementation {
         data: &[u8],
         addr: SocketAddr,
         event_tx: &Sender<DiscoveredDevice>,
-        device_ips: &Arc<Mutex<HashMap<String, Vec<IpAddr>>>>,
+        device_ips: &Arc<DashMap<String, Vec<IpAddr>>>,
     ) -> Result<()> {
         let announcement: serde_json::Value =
             serde_json::from_slice(data).context("Failed to parse announcement")?;
@@ -339,22 +339,23 @@ impl DiscoveryServiceImplementation {
 
         // Update IP tracking
         let source_ip = addr.ip();
-        let mut ips_map = device_ips.lock().await;
-        let ips_entry = ips_map.entry(fingerprint.clone()).or_default();
+        let current_ips = {
+            let mut ips_entry = device_ips.entry(fingerprint.clone()).or_default();
 
-        if ips_entry.is_empty() {
-            info!("Found a new fingerprint {}", fingerprint);
-        }
-        let is_new_ip = !ips_entry.contains(&source_ip);
-        if is_new_ip {
-            info!(
-                "Received a new IP address {} for the fingerprint {}",
-                source_ip, fingerprint
-            );
-            ips_entry.push(source_ip);
-        }
-        let current_ips = ips_entry.clone();
-        drop(ips_map);
+            if ips_entry.is_empty() {
+                info!("Found a new fingerprint {}", fingerprint);
+            }
+            let is_new_ip = !ips_entry.contains(&source_ip);
+            if is_new_ip {
+                info!(
+                    "Received a new IP address {} for the fingerprint {}",
+                    source_ip, fingerprint
+                );
+                ips_entry.push(source_ip);
+            }
+
+            ips_entry.clone()
+        };
 
         // Parse device type
         let device_type_value = announcement
