@@ -57,11 +57,11 @@ sequenceDiagram
 ### Fingerprint Verification
 
 For robust device pairing, implement visual fingerprint verification:
-    1. Display Rune Fingerprint: Present the 40-character Rune encoded fingerprint on both devices involved in pairing.
-    2. Interactive Challenge: Implement a challenge-response mechanism, for example:
-        * Remove a few characters from the displayed Rune sequence.
-        * Present multiple-choice options including the correct sequence and similar variations.
-        * Require the user to correctly identify the original sequence to confirm visual verification and proceed with pairing.
+1. Display Rune Fingerprint: Present the 40-character Rune encoded fingerprint on both devices involved in pairing.
+2. Interactive Challenge: Implement a challenge-response mechanism, for example:
+    * Remove a few characters from the displayed Rune sequence.
+    * Present multiple-choice options including the correct sequence and similar variations.
+    * Require the user to correctly identify the original sequence to confirm visual verification and proceed with pairing.
 
 ### TLS Configuration
 
