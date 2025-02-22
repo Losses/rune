@@ -207,22 +207,6 @@ impl DiscoveryService {
     ///
     /// # Returns
     /// `Self` - Returns the `DiscoveryService` instance with the updated retry policy, allowing for method chaining.
-    ///
-    /// # Example
-    /// ```
-    /// # use std::time::Duration;
-    /// # use your_module::discovery::DiscoveryService; // Replace your_module
-    /// # use your_module::discovery::RetryPolicy;     // Replace your_module
-    /// #
-    /// # async fn example() -> anyhow::Result<()> {
-    /// # let service = DiscoveryService::new_without_store();
-    /// let service = service.with_retry_policy(RetryPolicy {
-    ///     max_retries: 5,
-    ///     initial_backoff: Duration::from_secs(2)
-    /// });
-    /// # Ok(())
-    /// # }
-    /// ```
     pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
         self.retry_policy = policy;
         self
