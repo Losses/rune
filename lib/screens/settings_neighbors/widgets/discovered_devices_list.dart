@@ -38,8 +38,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 
   void _startDiscovery() {
-    final startRequest = StartListeningRequest(alias: 'discovery');
-    startRequest.sendSignalToRust();
+    StartListeningRequest(alias: 'discovery').sendSignalToRust();
 
     _pollingTimer = Timer.periodic(const Duration(seconds: 2), (_) {
       _fetchDevices();
@@ -48,8 +47,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
   }
 
   Future<void> _fetchDevices() async {
-    final request = GetDiscoveredDeviceRequest();
-    request.sendSignalToRust();
+    GetDiscoveredDeviceRequest().sendSignalToRust();
   }
 
   _onData(RustSignal<GetDiscoveredDeviceResponse> response) {

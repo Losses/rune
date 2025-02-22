@@ -103,13 +103,13 @@ impl Signal for StartListeningRequest {
         (scanner, config_path): Self::Params,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
+        info!("Start listening for devices with alias: {}", request.alias);
         let certificate_id = request.alias.clone();
         let (fingerprint, _, _) =
             generate_or_load_certificates(Path::new(&*config_path), &certificate_id).await?;
 
-        scanner
-            .start_listening(Some(fingerprint))
-            .await?;
+        scanner.start_listening(Some(fingerprint)).await?;
+
         Ok(None)
     }
 }
@@ -153,7 +153,7 @@ impl Signal for GetDiscoveredDeviceRequest {
         scanner: Self::Params,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
-        let devices = scanner.get_all_devices().await;
+        let devices = scanner.get_all_devices();
 
         let devices_message = devices
             .into_iter()
