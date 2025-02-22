@@ -384,38 +384,43 @@ impl DiscoveryService {
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip); // Skip missed ticks if behind
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            let sleep_future = duration_limit.map(tokio::time::sleep);
-            tokio::pin!(sleep_future); // Pin the sleep future for use in select!
+            let send_announcement_message = || async {
+                let announcement = json!({
+                    "alias": device_info.alias,
+                    "version": device_info.version,
+                    "deviceModel": device_info.device_model,
+                    "deviceType": device_info.device_type,
+                    "fingerprint": device_info.fingerprint,
+                    "api_port": device_info.api_port,
+                    "protocol": device_info.protocol,
+                    "announce": true
+                });
+                if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
+                    error!("Announcement failed: {}", e);
+                }
+            };
 
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        // Construct the announcement message with device information
-                        let announcement = json!({
-                            "alias": device_info.alias,
-                            "version": device_info.version,
-                            "deviceModel": device_info.device_model,
-                            "deviceType": device_info.device_type,
-                            "fingerprint": device_info.fingerprint,
-                            "api_port": device_info.api_port,
-                            "protocol": device_info.protocol,
-                            "announce": true // Flag indicating this is an announcement message
-                        });
+            if let Some(limit) = duration_limit {
+                let sleep = tokio::time::sleep(limit);
+                tokio::pin!(sleep);
 
-                        if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
-                            error!("Announcement failed: {}", e);
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => send_announcement_message().await,
+                        _ = cancel_token_clone.cancelled() => break,
+                        _ = &mut sleep => {
+                            info!("Announcement duration limit reached");
+                            break;
                         }
                     }
-                    _ = cancel_token_clone.cancelled() => break, // Exit loop if announcement is cancelled
-                    _ = async { // Asynchronous block to handle optional duration limit
-                        if let Some(future) = sleep_future.as_mut().as_pin_mut() {
-                            future.await // Await the sleep future if duration limit is set
-                        }
-                    } => {
-                        info!("Announcement duration limit reached");
-                        break; // Exit loop when duration limit is reached
+                }
+            } else {
+                loop {
+                    tokio::select! {
+                        _ = interval.tick() => send_announcement_message().await,
+                        _ = cancel_token_clone.cancelled() => break,
                     }
                 }
             }

@@ -14,12 +14,15 @@
 /// 2. By default, the loopback interface (lo) has multicast disabled
 /// 3. Without enabling multicast on loopback, the service won't be able to receive
 ///    its own announcements during local testing
+use std::process::exit;
 use std::sync::Arc;
 use std::time::Duration;
 
 use clap::Parser;
+use clearscreen::clear;
 use rand::Rng;
 use tokio::signal;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use discovery::protocol::DiscoveryService;
@@ -53,17 +56,40 @@ impl DeviceDiscovery {
         let self_fingerprint = device_info.fingerprint.clone();
         tokio::spawn(async move {
             if let Err(e) = listen_service.start_listening(Some(self_fingerprint)).await {
-                eprintln!("Error in listen task: {}", e);
+                println!("Error in listen task: {}", e);
+            } else {
+                println!("Listening for devices...");
             }
         });
 
         let discovery_service = self.discovery_service.clone();
         tokio::spawn(async move {
             if let Err(e) = discovery_service
-                .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+                .start_announcements(device_info.clone(), Duration::from_secs(1), None)
                 .await
             {
-                eprintln!("Failed to announce: {}", e);
+                println!("Failed to announce: {}", e);
+            } else {
+                println!("Announcing device with alias: {}", device_info.alias);
+            }
+        });
+
+        let listen_service = self.discovery_service.clone();
+        tokio::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(1)).await;
+                let devices = listen_service.get_all_devices().await;
+
+                clear().unwrap();
+                println!("\nDiscovered Devices:");
+                println!("{:<20} {:<15} {:<15}", "Alias", "Model", "Type");
+                println!("{:-<52}", "");
+                for device in devices {
+                    println!(
+                        "{:<20} {:<15} {:<15}",
+                        device.alias, device.device_model, device.device_type
+                    );
+                }
             }
         });
 
@@ -116,6 +142,6 @@ async fn main() -> anyhow::Result<()> {
 
     signal::ctrl_c().await?;
     println!("\nReceived Ctrl+C, shutting down...");
-
-    Ok(())
+    discovery.discovery_service.shutdown().await?;
+    exit(0);
 }
