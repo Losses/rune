@@ -12,7 +12,6 @@ use std::{process::exit, sync::Arc};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
-use discovery::discovery_runtime::DiscoveryRuntime;
 use log::{error, info};
 use regex::Regex;
 use rustls::crypto::aws_lc_rs::default_provider;
@@ -24,7 +23,7 @@ use tracing_subscriber::EnvFilter;
 
 use hub::server::utils::path::get_config_dir;
 
-use ::discovery::verifier::CertValidator;
+use ::discovery::{protocol::DiscoveryService, verifier::CertValidator};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
@@ -161,11 +160,11 @@ async fn handle_repl_command(command: ReplCommand, state: Arc<AppState>) -> Resu
 }
 
 async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
-    let config_dir = Some(get_config_dir()?);
+    let config_dir = get_config_dir()?;
 
     match cmd {
         DiscoveryCmd::Scan => {
-            let mut rt = DiscoveryRuntime::new(config_dir).await?;
+            let rt = DiscoveryService::new(config_dir).await?;
 
             // Start discovery services
             rt.start_listening(None).await?;
@@ -180,17 +179,17 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             print_device_table(&final_devices);
         }
         DiscoveryCmd::Ls => {
-            let rt = DiscoveryRuntime::new(config_dir).await?;
+            let rt = DiscoveryService::new(config_dir).await?;
             print_device_table(&rt.get_all_devices().await);
         }
         DiscoveryCmd::Inspect { index } => {
-            let rt = DiscoveryRuntime::new(config_dir).await?;
+            let rt = DiscoveryService::new(config_dir).await?;
             let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             print_device_details(dev);
         }
         DiscoveryCmd::Trust { index, domains } => {
-            let rt = DiscoveryRuntime::new(config_dir.clone()).await?;
+            let rt = DiscoveryService::new(config_dir.clone()).await?;
             let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             let hosts = domains
@@ -201,12 +200,10 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
                 })
                 .unwrap_or_else(|| dev.ips.iter().map(|ip| ip.to_string()).collect());
 
-            if let Some(config_dir) = config_dir {
-                let validator = CertValidator::new(config_dir).await?;
-                validator
-                    .add_trusted_domains(hosts, &dev.fingerprint)
-                    .await?;
-            }
+            let validator = CertValidator::new(config_dir).await?;
+            validator
+                .add_trusted_domains(hosts, &dev.fingerprint)
+                .await?;
         }
     }
 

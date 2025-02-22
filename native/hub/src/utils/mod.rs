@@ -6,27 +6,30 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
-use discovery::discovery_runtime::DiscoveryRuntime;
-use discovery::verifier::CertValidator;
 use dunce::canonicalize;
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use discovery::permission::PermissionManager;
-
-use ::database::actions::{
-    collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
-    metadata::MetadataSummary, mixes::query_mix_media_files,
+use ::database::{
+    actions::{
+        collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
+        metadata::MetadataSummary, mixes::query_mix_media_files,
+    },
+    connection::{
+        check_library_state, connect_main_db, connect_recommendation_db, create_redirect,
+        LibraryState, MainDbConnection, RecommendationDbConnection,
+    },
+    entities::media_files,
+    playing_item::MediaFileHandle,
 };
-use ::database::connection::{
-    check_library_state, connect_main_db, connect_recommendation_db, create_redirect, LibraryState,
-    MainDbConnection, RecommendationDbConnection,
+use ::discovery::{
+    permission::PermissionManager, protocol::DiscoveryService, verifier::CertValidator,
 };
-use ::database::entities::media_files;
-use ::database::playing_item::MediaFileHandle;
-use ::playback::player::{Playable, PlayingItem};
-use ::playback::sfx_player::SfxPlayer;
+use ::playback::{
+    player::{Playable, PlayingItem},
+    sfx_player::SfxPlayer,
+};
 use ::scrobbling::manager::ScrobblingManager;
 
 use crate::local::local_player_loop;
@@ -81,7 +84,7 @@ pub struct GlobalParams {
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
     pub scrobbler: Arc<Mutex<ScrobblingManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
-    pub device_scanner: Arc<RwLock<DiscoveryRuntime>>,
+    pub device_scanner: Arc<RwLock<DiscoveryService>>,
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,

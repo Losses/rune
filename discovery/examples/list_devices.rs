@@ -20,10 +20,9 @@ use std::time::Duration;
 use clap::Parser;
 use rand::Rng;
 use tokio::signal;
-use tokio::time;
 use uuid::Uuid;
 
-use discovery::udp_multicast::DiscoveryServiceImplementation;
+use discovery::protocol::DiscoveryService;
 use discovery::utils::{DeviceInfo, DeviceType};
 
 #[derive(Parser, Debug)]
@@ -40,12 +39,12 @@ struct Args {
 }
 
 struct DeviceDiscovery {
-    discovery_service: Arc<DiscoveryServiceImplementation>,
+    discovery_service: Arc<DiscoveryService>,
 }
 
 impl DeviceDiscovery {
     async fn new() -> anyhow::Result<Self> {
-        let discovery_service = Arc::new(DiscoveryServiceImplementation::new_without_store());
+        let discovery_service = Arc::new(DiscoveryService::new_without_store());
         Ok(Self { discovery_service })
     }
 
@@ -53,19 +52,18 @@ impl DeviceDiscovery {
         let listen_service = self.discovery_service.clone();
         let self_fingerprint = device_info.fingerprint.clone();
         tokio::spawn(async move {
-            if let Err(e) = listen_service.listen(Some(self_fingerprint), None).await {
+            if let Err(e) = listen_service.start_listening(Some(self_fingerprint)).await {
                 eprintln!("Error in listen task: {}", e);
             }
         });
 
         let discovery_service = self.discovery_service.clone();
         tokio::spawn(async move {
-            let mut interval = time::interval(Duration::from_secs(3));
-            loop {
-                interval.tick().await;
-                if let Err(e) = discovery_service.announce(device_info.clone()).await {
-                    eprintln!("Failed to announce: {}", e);
-                }
+            if let Err(e) = discovery_service
+                .start_announcements(device_info.clone(), Duration::from_secs(3), None)
+                .await
+            {
+                eprintln!("Failed to announce: {}", e);
             }
         });
 

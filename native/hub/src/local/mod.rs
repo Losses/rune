@@ -4,14 +4,15 @@ mod gui_request;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use discovery::discovery_runtime::DiscoveryRuntime;
-use discovery::verifier::CertValidator;
+
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 pub use tokio;
 
+use ::discovery::verifier::CertValidator;
+use ::discovery::protocol::DiscoveryService;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::permission::PermissionManager;
 use ::playback::player::Player;
@@ -60,7 +61,7 @@ pub async fn local_player_loop(
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
-        let device_scanner = DiscoveryRuntime::new_without_store();
+        let device_scanner = DiscoveryService::new_without_store();
 
         let device_scanner = Arc::new(RwLock::new(device_scanner));
 

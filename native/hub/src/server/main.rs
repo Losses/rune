@@ -6,7 +6,6 @@ use std::{
 
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
-use discovery::discovery_runtime::DiscoveryRuntime;
 use log::info;
 use rustls::crypto::aws_lc_rs::default_provider;
 use tokio::sync::{Mutex, RwLock};
@@ -26,6 +25,7 @@ use hub::{
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
+use ::discovery::protocol::DiscoveryService;
 use ::discovery::{permission::PermissionManager, verifier::CertValidator, DiscoveryParams};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
@@ -124,7 +124,7 @@ async fn handle_broadcast() -> Result<()> {
     let config_path = get_config_dir()?;
     let device_info = load_device_info(&config_path).await?;
 
-    let mut discovery_service = DiscoveryRuntime::new(Some(config_path)).await?;
+    let discovery_service = DiscoveryService::new(config_path).await?;
 
     discovery_service
         .start_announcements(device_info, Duration::from_secs(3), None)
@@ -186,7 +186,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let scrobbler = Arc::new(Mutex::new(scrobbler));
 
     let broadcaster = Arc::new(WebSocketService::new());
-    let device_scanner = Arc::new(RwLock::new(DiscoveryRuntime::new_without_store()));
+    let device_scanner = Arc::new(RwLock::new(DiscoveryService::new_without_store()));
 
     let permission_manager = Arc::new(RwLock::new(PermissionManager::new(config_path.as_str())?));
     let cert_validator = Arc::new(RwLock::new(CertValidator::new(config_path.as_str()).await?));

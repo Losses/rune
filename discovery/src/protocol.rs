@@ -7,6 +7,7 @@
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::Path,
     sync::Arc,
     time::Duration,
 };
@@ -50,7 +51,7 @@ const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
 const MULTICAST_PORT: u16 = 57863;
 
 /// Main discovery service handling network communication and device tracking
-pub struct DiscoveryServiceImplementation {
+pub struct DiscoveryService {
     /// Lazily initialized multicast sockets with retry status
     sockets_init: Mutex<Option<Result<Vec<Arc<UdpSocket>>>>>,
     /// Persistence layer for device discovery
@@ -61,6 +62,11 @@ pub struct DiscoveryServiceImplementation {
     retry_policy: RetryPolicy,
     /// Track the detailed information of all devices
     device_states: Arc<DashMap<String, DiscoveredDevice>>,
+
+    /// Token for graceful shutdown management
+    announcements_cancel_token: Mutex<Option<CancellationToken>>, // Wrapped in Mutex
+    /// Token for controlling event listener lifecycle
+    listening_cancel_token: Mutex<Option<CancellationToken>>, // Wrapped in Mutex
 }
 
 /// Configuration for network operation retry behavior
@@ -89,18 +95,24 @@ fn get_multicast_interfaces() -> Vec<Interface> {
         .collect()
 }
 
-impl DiscoveryServiceImplementation {
+impl DiscoveryService {
     /// Creates a new DiscoveryService with the specified event channel
     ///
     /// # Arguments
     /// * `store` - Optional persistence layer for device discovery
-    pub async fn new(store: Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>) -> Self {
+    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let storage_path = path.as_ref().join(".discovered");
+
+        let store = Some(Arc::new(PersistentDataManager::new(storage_path)?));
         let result = Self {
             sockets_init: Mutex::new(None),
             store,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
+
+            announcements_cancel_token: Mutex::new(None), // Initialize Mutex
+            listening_cancel_token: Mutex::new(None),     // Initialize Mutex
         };
 
         match result.initialize().await {
@@ -108,17 +120,22 @@ impl DiscoveryServiceImplementation {
             Err(e) => error!("Failed to initialize discovery service: {}", e),
         };
 
-        result
+        Ok(result)
     }
 
     pub fn new_without_store() -> Self {
-        Self {
+        let result = Self {
             sockets_init: Mutex::new(None),
             store: None,
             listeners: Mutex::new(Vec::new()),
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
-        }
+
+            announcements_cancel_token: Mutex::new(None), // Initialize Mutex
+            listening_cancel_token: Mutex::new(None),     // Initialize Mutex
+        };
+        info!("Discovery service initialized without store");
+        result
     }
 
     async fn initialize(&self) -> Result<()> {
@@ -242,22 +259,12 @@ impl DiscoveryServiceImplementation {
     ///
     /// # Errors
     /// Returns error if socket initialization fails or message serialization fails
-    pub async fn announce(&self, device_info: DeviceInfo) -> Result<()> {
-        let sockets = self.get_sockets_with_retry().await?;
-        let announcement = json!({
-            "alias": device_info.alias,
-            "version": device_info.version,
-            "deviceModel": device_info.device_model,
-            "deviceType": device_info.device_type,
-            "fingerprint": device_info.fingerprint,
-            "api_port": device_info.api_port,
-            "protocol": device_info.protocol,
-            "announce": true  // Flag to distinguish announcements
-        });
-
+    async fn send_announcement(
+        sockets: &[Arc<UdpSocket>],
+        announcement: &serde_json::Value,
+    ) -> Result<()> {
         let msg = serde_json::to_vec(&announcement)?;
 
-        // Send announcement through all sockets
         for socket in sockets.iter() {
             let target = format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT);
             match socket.send_to(&msg, &target).await {
@@ -269,6 +276,105 @@ impl DiscoveryServiceImplementation {
         Ok(())
     }
 
+    /// Starts the discovery service with specified network parameters.
+    /// Spawns a background task that periodically announces the local device presence.
+    ///
+    /// # Arguments
+    /// * `device_info` - Local device information to advertise
+    /// * `interval` - Broadcast interval for service announcements
+    pub async fn start_announcements(
+        &self,
+        device_info: DeviceInfo,
+        interval: Duration,
+        duration_limit: Option<Duration>,
+    ) -> Result<()> {
+        {
+            let announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
+            if announcements_cancel_token_guard.is_some() {
+                error!("Announcements already running");
+                return Err(anyhow::anyhow!("Announcements already running"));
+            }
+        }
+
+        info!("Starting device announcements");
+        let cancel_token = CancellationToken::new();
+        let cancel_token_clone = cancel_token.clone();
+
+        {
+            let mut announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
+            *announcements_cancel_token_guard = Some(cancel_token);
+        }
+
+        // Get sockets before spawning the task
+        let sockets = self.get_sockets_with_retry().await?;
+
+        // Clone only what we need for the announcement task
+        let sockets = Arc::new(sockets);
+        let device_info = Arc::new(device_info);
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            let sleep_future = duration_limit.map(tokio::time::sleep);
+            tokio::pin!(sleep_future);
+
+            loop {
+                tokio::select! {
+                    _ = interval.tick() => {
+                        // Create the announcement message
+                        let announcement = json!({
+                            "alias": device_info.alias,
+                            "version": device_info.version,
+                            "deviceModel": device_info.device_model,
+                            "deviceType": device_info.device_type,
+                            "fingerprint": device_info.fingerprint,
+                            "api_port": device_info.api_port,
+                            "protocol": device_info.protocol,
+                            "announce": true
+                        });
+
+                        if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
+                            error!("Announcement failed: {}", e);
+                        }
+                    }
+                    _ = cancel_token_clone.cancelled() => break,
+                    _ = async {
+                        if let Some(future) = sleep_future.as_mut().as_pin_mut() {
+                            future.await
+                        }
+                    } => {
+                        info!("Announcement duration limit reached");
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+
+    /// Stops the device announcement service by cancelling the announcement task.
+    ///
+    /// This method will:
+    /// 1. Cancel all ongoing announcement operations using the cancel token
+    /// 2. Allow any in-progress announcement to complete gracefully
+    ///
+    /// # Note
+    /// This does not affect the discovery listener - use `stop_listening()` for that.
+    ///
+    /// # Returns
+    /// * `()` - The method always succeeds as it just triggers cancellation
+    pub async fn stop_announcements(&self) {
+        let announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
+        if let Some(token) = &*announcements_cancel_token_guard {
+            info!("Stop announcementing this device");
+            token.cancel();
+        } else {
+            info!("Announcements not running");
+        }
+    }
+
     /// Starts listening for device announcements
     ///
     /// # Arguments
@@ -277,15 +383,26 @@ impl DiscoveryServiceImplementation {
     ///
     /// # Returns
     /// Returns immediately after starting listeners. Use shutdown() to stop.
-    pub async fn listen(
-        &self,
-        self_fingerprint: Option<String>,
-        cancel_token: Option<CancellationToken>,
-    ) -> Result<()> {
+    pub async fn start_listening(&self, self_fingerprint: Option<String>) -> Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         info!("Starting to listen on {} interfaces", sockets.len());
 
-        let cancel_token = cancel_token.unwrap_or_default();
+        let cancel_token = {
+            // Scope to create and lock MutexGuard
+            let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
+            if listening_cancel_token_guard.is_some() {
+                error!("Listener already running");
+                return Err(anyhow!("Listener already running"));
+            }
+            CancellationToken::new()
+        };
+
+        {
+            // Scope to set cancel token
+            let mut listening_cancel_token_guard = self.listening_cancel_token.lock().await;
+            *listening_cancel_token_guard = Some(cancel_token.clone());
+        }
+
         let devices = self.device_states.clone();
         let store = self.store.clone();
 
@@ -309,7 +426,7 @@ impl DiscoveryServiceImplementation {
                         result = socket.recv_from(&mut buf) => {
                             match result {
                                 Ok((len, addr)) => {
-                                    if let Err(e) = Self::handle_datagram(
+                                    if let Err(e) = Self::handle_datagram( // Still using Self::
                                         &self_fingerprint,
                                         &buf[..len],
                                         addr,
@@ -397,6 +514,19 @@ impl DiscoveryServiceImplementation {
         Ok(())
     }
 
+    /// Completely stops the listening service by:
+    /// - Cancelling the listener token
+    /// - Aborting the event processing task
+    pub async fn stop_listening(&self) {
+        let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
+        if let Some(token) = &*listening_cancel_token_guard {
+            info!("Stop listening for new devices");
+            token.cancel();
+        } else {
+            info!("Listener not running");
+        }
+    }
+
     pub async fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
         self.device_states
             .iter()
@@ -406,10 +536,14 @@ impl DiscoveryServiceImplementation {
 
     /// Stops all active listeners and cleans up resources
     pub async fn shutdown(&self) -> Result<()> {
+        info!("Shutting down the whole UDP multicast service");
         let mut listeners = self.listeners.lock().await;
         for handle in listeners.drain(..) {
             handle.abort(); // Forcefully terminate tasks
         }
+
+        self.stop_announcements().await;
+        self.stop_listening().await;
 
         // Finally ensure store is saved before shutdown
         self.save().await?;

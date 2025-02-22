@@ -6,7 +6,8 @@ use log::error;
 use tokio::sync::{Mutex, RwLock};
 
 use discovery::{
-    discovery_runtime::DiscoveryRuntime, udp_multicast::DiscoveredDevice, verifier::CertValidator,
+    protocol::{DiscoveredDevice, DiscoveryService},
+    verifier::CertValidator,
 };
 
 use crate::fs::VirtualFS;
@@ -14,7 +15,7 @@ use crate::fs::VirtualFS;
 pub struct AppState {
     pub fs: Arc<RwLock<VirtualFS>>,
     pub validator: CertValidator,
-    pub discovery: Arc<Mutex<Option<DiscoveryRuntime>>>,
+    pub discovery: Arc<Mutex<Option<DiscoveryService>>>,
     pub config_dir: PathBuf,
 }
 
