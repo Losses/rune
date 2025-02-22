@@ -277,6 +277,8 @@ impl DiscoveryService {
                 // Use blocking task for socket configuration as socket2 is blocking
                 let socket = tokio::task::spawn_blocking(move || {
                     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+                    socket.set_nonblocking(true)?;
+
                     let bind_addr =
                         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
 
@@ -437,10 +439,11 @@ impl DiscoveryService {
     /// # Note
     /// This method only stops device announcements. To stop listening for announcements from other devices, use [`stop_listening`].
     pub async fn stop_announcements(&self) {
-        let announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
+        let mut announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
         if let Some(token) = &*announcements_cancel_token_guard {
             info!("Stop announcementing this device");
             token.cancel();
+            *announcements_cancel_token_guard = None;
         } else {
             info!("Announcements not running");
         }
@@ -463,15 +466,13 @@ impl DiscoveryService {
         let sockets = self.get_sockets_with_retry().await?;
         info!("Starting to listen on {} interfaces", sockets.len());
 
-        let cancel_token = {
-            // Scope to create and lock MutexGuard to check if listener is already running
-            let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
-            if listening_cancel_token_guard.is_some() {
-                error!("Listener already running");
-                return Err(anyhow!("Listener already running"));
-            }
-            CancellationToken::new() // Create a new cancellation token if not already running
-        };
+        let mut token_guard = self.listening_cancel_token.lock().await;
+        if token_guard.is_some() {
+            return Err(anyhow!("Listener already running"));
+        }
+        let cancel_token = CancellationToken::new();
+        *token_guard = Some(cancel_token.clone());
+        drop(token_guard);
 
         {
             // Scope to set the new cancel token after checking and creating it
@@ -496,7 +497,7 @@ impl DiscoveryService {
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
-                            debug!("Listener exiting on {}", socket.local_addr().unwrap());
+                            info!("Listener exiting on {}", socket.local_addr().unwrap());
                             break; // Exit loop if listening is cancelled
                         }
                         result = socket.recv_from(&mut buf) => {
@@ -615,10 +616,16 @@ impl DiscoveryService {
     /// This method cancels all active listener tasks, causing them to stop processing incoming device announcements.
     /// It signals the listener tasks to terminate gracefully but does not immediately abort any currently processing datagrams.
     pub async fn stop_listening(&self) {
-        let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
+        let mut listeners = self.listeners.lock().await;
+        for handle in listeners.drain(..) {
+            handle.abort(); // Forcefully terminate listener tasks to ensure immediate shutdown
+        }
+
+        let mut listening_cancel_token_guard = self.listening_cancel_token.lock().await;
         if let Some(token) = &*listening_cancel_token_guard {
             info!("Stop listening for new devices");
             token.cancel();
+            *listening_cancel_token_guard = None;
         } else {
             info!("Listener not running");
         }
@@ -647,10 +654,6 @@ impl DiscoveryService {
     /// `Result<()>` - Returns `Ok(())` if shutdown is successful, or an error if saving the device state fails.
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down the whole UDP multicast service");
-        let mut listeners = self.listeners.lock().await;
-        for handle in listeners.drain(..) {
-            handle.abort(); // Forcefully terminate listener tasks to ensure immediate shutdown
-        }
 
         self.stop_announcements().await; // Stop device announcements
         self.stop_listening().await; // Stop device listening
