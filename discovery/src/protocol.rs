@@ -125,10 +125,10 @@ fn get_multicast_interfaces() -> Vec<Interface> {
 }
 
 impl DiscoveryService {
-    /// Creates a new `DiscoveryService` instance, optionally with persistence enabled.
+    /// Creates a new `DiscoveryService` instance, with persistence enabled.
     ///
     /// This constructor initializes the discovery service, setting up internal state and optionally loading
-    /// previously discovered devices from persistent storage if a storage path is provided.
+    /// previously discovered devices from persistent storage.
     ///
     /// # Arguments
     /// * `path` -  Path to the directory where device discovery data will be persisted.
