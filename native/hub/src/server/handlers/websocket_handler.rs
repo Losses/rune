@@ -8,7 +8,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use discovery::permission::{User, UserStatus};
+use discovery::server::{User, UserStatus};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;

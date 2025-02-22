@@ -24,7 +24,7 @@ use ::database::{
     playing_item::MediaFileHandle,
 };
 use ::discovery::{
-    permission::PermissionManager, protocol::DiscoveryService, verifier::CertValidator,
+    server::PermissionManager, protocol::DiscoveryService, client::CertValidator,
 };
 use ::playback::{
     player::{Playable, PlayingItem},

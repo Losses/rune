@@ -23,7 +23,7 @@ use tracing_subscriber::EnvFilter;
 
 use hub::server::utils::path::get_config_dir;
 
-use ::discovery::{protocol::DiscoveryService, verifier::CertValidator};
+use ::discovery::{protocol::DiscoveryService, client::CertValidator};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;

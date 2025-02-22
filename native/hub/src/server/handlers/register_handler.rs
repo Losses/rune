@@ -8,7 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use discovery::{permission::PermissionError, utils::DeviceType};
+use discovery::{server::PermissionError, utils::DeviceType};
 
 use crate::server::ServerState;
 

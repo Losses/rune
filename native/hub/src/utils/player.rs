@@ -16,7 +16,7 @@ use ::database::connection::MainDbConnection;
 use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use ::database::playing_item::library_item::extract_in_library_ids;
 use ::database::playing_item::PlayingItemMetadataSummary;
-use ::discovery::verifier::CertValidator;
+use ::discovery::client::CertValidator;
 use ::playback::controller::get_default_cover_art_path;
 use ::playback::controller::handle_media_control_event;
 use ::playback::controller::MediaControlManager;

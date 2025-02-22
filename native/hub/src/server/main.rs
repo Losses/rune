@@ -26,7 +26,7 @@ use hub::{
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::protocol::DiscoveryService;
-use ::discovery::{permission::PermissionManager, verifier::CertValidator, DiscoveryParams};
+use ::discovery::{server::PermissionManager, client::CertValidator, DiscoveryParams};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 

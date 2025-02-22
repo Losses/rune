@@ -1,7 +1,7 @@
 use anyhow::Result;
 use colored::*;
 
-use discovery::permission::{UserStatus, UserSummary};
+use discovery::server::{UserStatus, UserSummary};
 
 pub fn print_permission_table(users: &[UserSummary]) {
     for (i, user) in users.iter().enumerate() {

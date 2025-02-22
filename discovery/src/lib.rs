@@ -1,12 +1,12 @@
 use utils::DeviceInfo;
 
-pub mod permission;
+pub mod server;
 pub mod persistent;
 pub mod request;
 pub mod ssl;
 pub mod protocol;
 pub mod utils;
-pub mod verifier;
+pub mod client;
 
 pub struct DiscoveryParams {
     pub device_info: DeviceInfo,

@@ -11,10 +11,10 @@ use tokio_util::sync::CancellationToken;
 
 pub use tokio;
 
-use ::discovery::verifier::CertValidator;
+use ::discovery::client::CertValidator;
 use ::discovery::protocol::DiscoveryService;
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
-use ::discovery::permission::PermissionManager;
+use ::discovery::server::PermissionManager;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;

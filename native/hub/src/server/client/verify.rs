@@ -9,7 +9,7 @@ use hub::server::{
 };
 use log::info;
 
-use discovery::verifier::{fetch_server_certificate, parse_certificate};
+use discovery::client::{fetch_server_certificate, parse_certificate};
 use rustls::ClientConfig;
 
 use crate::api::{fetch_device_info, register_device};

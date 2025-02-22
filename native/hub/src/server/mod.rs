@@ -10,7 +10,7 @@ pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
-use discovery::{permission::PermissionManager, utils::DeviceInfo};
+use discovery::{server::PermissionManager, utils::DeviceInfo};
 use log::error;
 use tokio::sync::{broadcast, Mutex, RwLock};
 

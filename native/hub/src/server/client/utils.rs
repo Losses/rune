@@ -7,7 +7,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use discovery::{
     protocol::{DiscoveredDevice, DiscoveryService},
-    verifier::CertValidator,
+    client::CertValidator,
 };
 
 use crate::fs::VirtualFS;

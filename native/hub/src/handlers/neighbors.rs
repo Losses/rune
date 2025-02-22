@@ -8,9 +8,9 @@ use log::info;
 use tokio::sync::RwLock;
 
 use ::discovery::protocol::DiscoveryService;
-use ::discovery::permission::{PermissionManager, UserStatus};
+use ::discovery::server::{PermissionManager, UserStatus};
 use ::discovery::utils::{DeviceInfo, DeviceType};
-use ::discovery::verifier::{fetch_server_certificate, try_connect, CertValidator};
+use ::discovery::client::{fetch_server_certificate, try_connect, CertValidator};
 use ::discovery::DiscoveryParams;
 
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};

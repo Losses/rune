@@ -13,7 +13,7 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
-use discovery::verifier::parse_certificate;
+use discovery::client::parse_certificate;
 use log::{error, info};
 use prost::Message;
 use rand::distributions::{Alphanumeric, DistString};
