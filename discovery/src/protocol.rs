@@ -136,7 +136,7 @@ impl DiscoveryService {
     ///
     /// # Returns
     /// `Result<Self>` - A `Result` containing the new `DiscoveryService` instance, or an error if initialization fails.
-    pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub async fn with_store<P: AsRef<Path>>(path: P) -> Result<Self> {
         let storage_path = path.as_ref().join(".discovered");
 
         let store = Some(Arc::new(PersistentDataManager::new(storage_path)?));
@@ -166,7 +166,7 @@ impl DiscoveryService {
     ///
     /// # Returns
     /// `Self` - A new `DiscoveryService` instance without persistence.
-    pub fn new_without_store() -> Self {
+    pub fn without_store() -> Self {
         let result = Self {
             sockets_init: Mutex::new(None),
             store: None,
@@ -547,7 +547,7 @@ impl DiscoveryService {
     ///
     /// # Returns
     /// `Result<()>` - Returns `Ok(())` if the datagram is processed successfully, or an error if parsing or processing fails.
-    pub async fn handle_datagram(
+    async fn handle_datagram(
         self_fingerprint: &Option<String>,
         data: &[u8],
         addr: SocketAddr,

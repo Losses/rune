@@ -47,7 +47,7 @@ struct DeviceDiscovery {
 
 impl DeviceDiscovery {
     async fn new() -> anyhow::Result<Self> {
-        let discovery_service = Arc::new(DiscoveryService::new_without_store());
+        let discovery_service = Arc::new(DiscoveryService::without_store());
         Ok(Self { discovery_service })
     }
 

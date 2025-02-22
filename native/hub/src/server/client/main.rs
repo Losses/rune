@@ -164,7 +164,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
     match cmd {
         DiscoveryCmd::Scan => {
-            let rt = DiscoveryService::new(config_dir).await?;
+            let rt = DiscoveryService::with_store(config_dir).await?;
 
             // Start discovery services
             rt.start_listening(None).await?;
@@ -179,17 +179,17 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             print_device_table(&final_devices);
         }
         DiscoveryCmd::Ls => {
-            let rt = DiscoveryService::new(config_dir).await?;
+            let rt = DiscoveryService::with_store(config_dir).await?;
             print_device_table(&rt.get_all_devices().await);
         }
         DiscoveryCmd::Inspect { index } => {
-            let rt = DiscoveryService::new(config_dir).await?;
+            let rt = DiscoveryService::with_store(config_dir).await?;
             let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             print_device_details(dev);
         }
         DiscoveryCmd::Trust { index, domains } => {
-            let rt = DiscoveryService::new(config_dir.clone()).await?;
+            let rt = DiscoveryService::with_store(config_dir.clone()).await?;
             let devices = rt.get_all_devices().await;
             let dev = devices.get(index - 1).context("Invalid index")?;
             let hosts = domains
