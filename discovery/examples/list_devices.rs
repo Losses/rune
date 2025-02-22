@@ -78,7 +78,7 @@ impl DeviceDiscovery {
         tokio::spawn(async move {
             loop {
                 sleep(Duration::from_secs(1)).await;
-                let devices = listen_service.get_all_devices().await;
+                let devices = listen_service.get_all_devices();
 
                 clear().unwrap();
                 println!("\nDiscovered Devices:");

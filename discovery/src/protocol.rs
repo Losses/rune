@@ -631,7 +631,7 @@ impl DiscoveryService {
     ///
     /// # Returns
     /// `Vec<DiscoveredDevice>` - A vector containing all currently discovered devices.
-    pub async fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
+    pub fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
         self.device_states
             .iter()
             .map(|entry| entry.value().clone())

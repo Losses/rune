@@ -23,7 +23,7 @@ use tracing_subscriber::EnvFilter;
 
 use hub::server::utils::path::get_config_dir;
 
-use ::discovery::{protocol::DiscoveryService, client::CertValidator};
+use ::discovery::{client::CertValidator, protocol::DiscoveryService};
 
 use cli::{Cli, DiscoveryCmd, RemoteCmd, ReplCommand};
 use connection::WSConnection;
@@ -175,22 +175,22 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
             // Terminate services and persist
             rt.shutdown().await?;
 
-            let final_devices = rt.get_all_devices().await;
+            let final_devices = rt.get_all_devices();
             print_device_table(&final_devices);
         }
         DiscoveryCmd::Ls => {
             let rt = DiscoveryService::with_store(config_dir).await?;
-            print_device_table(&rt.get_all_devices().await);
+            print_device_table(&rt.get_all_devices());
         }
         DiscoveryCmd::Inspect { index } => {
             let rt = DiscoveryService::with_store(config_dir).await?;
-            let devices = rt.get_all_devices().await;
+            let devices = rt.get_all_devices();
             let dev = devices.get(index - 1).context("Invalid index")?;
             print_device_details(dev);
         }
         DiscoveryCmd::Trust { index, domains } => {
             let rt = DiscoveryService::with_store(config_dir.clone()).await?;
-            let devices = rt.get_all_devices().await;
+            let devices = rt.get_all_devices();
             let dev = devices.get(index - 1).context("Invalid index")?;
             let hosts = domains
                 .map(|d| {
