@@ -3,7 +3,19 @@
 //! This module provides functionality for discovering devices on a local network using
 //! IPv4 multicast. Devices can announce their presence and listen for announcements from
 //! other devices. The service handles network interface management, socket configuration,
-//! retry logic, and event broadcasting.
+//! retry logic, and event broadcasting for device discovery and presence tracking.
+//!
+//! ## Features
+//!
+//! - **Multicast Discovery:** Utilizes IPv4 multicast for efficient device discovery within a local network.
+//! - **Device Announcement:** Allows devices to broadcast their presence and information on the network.
+//! - **Device Listening:** Enables services to listen for announcements from other devices on the network.
+//! - **Interface Management:** Automatically selects and manages suitable network interfaces for multicast communication.
+//! - **Socket Configuration:** Configures UDP sockets with necessary options for multicast, including reuse and loopback.
+//! - **Retry Mechanism:** Implements a configurable retry policy with exponential backoff for robust socket initialization.
+//! - **Device Tracking:** Maintains a registry of discovered devices, updating their status and last seen time.
+//! - **Persistence (Optional):** Supports optional persistence of discovered device information across service restarts.
+//! - **Graceful Shutdown:** Provides mechanisms for graceful shutdown of announcement and listening services.
 
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
@@ -28,66 +40,83 @@ use crate::{
     utils::{DeviceInfo, DeviceType},
 };
 
-/// Represents a discovered device in the network
+/// Represents a discovered device on the network.
+///
+/// This struct encapsulates information about a device discovered through multicast announcements,
+/// including its alias, model, type, unique fingerprint, last seen timestamp, and IP addresses.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiscoveredDevice {
-    /// Human-readable name of the device
+    /// Human-readable name of the device, often user-configured.
     pub alias: String,
-    /// Manufacturer's device model identifier
+    /// Manufacturer's device model identifier, indicating the specific model.
     pub device_model: String,
-    /// Type classification of the device
+    /// Type classification of the device, categorizing its functionality (e.g., Light, Sensor).
     pub device_type: DeviceType,
-    /// Unique identifier for the device (cryptographic hash)
+    /// Unique identifier for the device, typically a cryptographic hash for device identification.
     pub fingerprint: String,
-    /// Last time the device was seen (UTC timestamp)
+    /// Last time the device was detected and its announcement was received (UTC timestamp).
     #[serde(with = "chrono::serde::ts_seconds")]
     pub last_seen: DateTime<Utc>,
-    /// List of IP addresses where the device was observed
+    /// List of IP addresses from which the device's announcements have been observed.
     pub ips: Vec<IpAddr>,
 }
 
-/// Multicast configuration constants
+/// Multicast group address for device discovery.
+///
+/// Devices send announcements to this IPv4 multicast group address.
 const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
+/// Port number used for multicast communication in device discovery.
 const MULTICAST_PORT: u16 = 57863;
 
-/// Main discovery service handling network communication and device tracking
+/// Manages the device discovery service, handling network communication and device tracking.
+///
+/// The `DiscoveryService` is responsible for initializing multicast sockets, sending device announcements,
+/// listening for announcements from other devices, and maintaining a registry of discovered devices.
 pub struct DiscoveryService {
-    /// Lazily initialized multicast sockets with retry status
+    /// Lazily initialized multicast sockets, wrapped in a Mutex for thread-safe access and to handle retry status.
     sockets_init: Mutex<Option<Result<Vec<Arc<UdpSocket>>>>>,
-    /// Persistence layer for device discovery
+    /// Optional persistence layer for storing and retrieving discovered device information.
     store: Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>,
-    /// Active listener tasks
+    /// List of active listener tasks, managed to allow for graceful shutdown.
     listeners: Mutex<Vec<JoinHandle<()>>>,
-    /// Policy for network operation retries
+    /// Policy defining retry behavior for network operations like socket initialization.
     retry_policy: RetryPolicy,
-    /// Track the detailed information of all devices
+    /// A map storing detailed information about all discovered devices, indexed by fingerprint.
     device_states: Arc<DashMap<String, DiscoveredDevice>>,
 
-    /// Token for graceful shutdown management
-    announcements_cancel_token: Mutex<Option<CancellationToken>>, // Wrapped in Mutex
-    /// Token for controlling event listener lifecycle
-    listening_cancel_token: Mutex<Option<CancellationToken>>, // Wrapped in Mutex
+    /// Cancellation token for managing the lifecycle of announcement tasks.
+    announcements_cancel_token: Mutex<Option<CancellationToken>>,
+    /// Cancellation token for controlling the lifecycle of device listening tasks.
+    listening_cancel_token: Mutex<Option<CancellationToken>>,
 }
 
-/// Configuration for network operation retry behavior
+/// Configuration for defining the retry behavior of network operations.
+///
+/// The `RetryPolicy` allows customization of the maximum number of retry attempts and the initial backoff duration
+/// for operations like socket initialization, providing resilience to transient network issues.
 #[derive(Clone)]
 pub struct RetryPolicy {
-    /// Maximum number of retry attempts
+    /// Maximum number of retry attempts before giving up on an operation.
     max_retries: usize,
-    /// Initial delay between retries (exponential backoff)
+    /// Initial delay between retry attempts, used as the base for exponential backoff.
     initial_backoff: Duration,
 }
 
 impl Default for RetryPolicy {
     fn default() -> Self {
         Self {
+            // Default maximum retry attempts is set to 3.
             max_retries: 3,
+            // Default initial backoff duration is 1 second.
             initial_backoff: Duration::from_secs(1),
         }
     }
 }
 
-/// Filters network interfaces to those suitable for multicast
+/// Retrieves a list of network interfaces that are suitable for multicast communication.
+///
+/// This function filters all available network interfaces and returns only those that are up and multicast-enabled.
+/// These interfaces are considered valid candidates for setting up multicast sockets.
 fn get_multicast_interfaces() -> Vec<Interface> {
     netdev::get_interfaces()
         .into_iter()
@@ -96,10 +125,17 @@ fn get_multicast_interfaces() -> Vec<Interface> {
 }
 
 impl DiscoveryService {
-    /// Creates a new DiscoveryService with the specified event channel
+    /// Creates a new `DiscoveryService` instance, optionally with persistence enabled.
+    ///
+    /// This constructor initializes the discovery service, setting up internal state and optionally loading
+    /// previously discovered devices from persistent storage if a storage path is provided.
     ///
     /// # Arguments
-    /// * `store` - Optional persistence layer for device discovery
+    /// * `path` -  Path to the directory where device discovery data will be persisted.
+    ///             If persistence is not required, use [`DiscoveryService::new_without_store`].
+    ///
+    /// # Returns
+    /// `Result<Self>` - A `Result` containing the new `DiscoveryService` instance, or an error if initialization fails.
     pub async fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let storage_path = path.as_ref().join(".discovered");
 
@@ -111,8 +147,8 @@ impl DiscoveryService {
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
 
-            announcements_cancel_token: Mutex::new(None), // Initialize Mutex
-            listening_cancel_token: Mutex::new(None),     // Initialize Mutex
+            announcements_cancel_token: Mutex::new(None),
+            listening_cancel_token: Mutex::new(None),
         };
 
         match result.initialize().await {
@@ -123,6 +159,13 @@ impl DiscoveryService {
         Ok(result)
     }
 
+    /// Creates a new `DiscoveryService` instance without persistent storage.
+    ///
+    /// This constructor creates a `DiscoveryService` that operates in memory, without saving or loading
+    /// discovered device information to disk. This is suitable for ephemeral discovery scenarios.
+    ///
+    /// # Returns
+    /// `Self` - A new `DiscoveryService` instance without persistence.
     pub fn new_without_store() -> Self {
         let result = Self {
             sockets_init: Mutex::new(None),
@@ -131,13 +174,17 @@ impl DiscoveryService {
             retry_policy: RetryPolicy::default(),
             device_states: Arc::new(DashMap::new()),
 
-            announcements_cancel_token: Mutex::new(None), // Initialize Mutex
-            listening_cancel_token: Mutex::new(None),     // Initialize Mutex
+            announcements_cancel_token: Mutex::new(None),
+            listening_cancel_token: Mutex::new(None),
         };
         info!("Discovery service initialized without store");
         result
     }
 
+    /// Initializes the discovery service by loading device states from persistent storage, if enabled.
+    ///
+    /// If a persistent store is configured, this method attempts to read previously discovered devices from storage
+    /// and populate the internal device state map. This ensures that known devices are tracked across service restarts.
     async fn initialize(&self) -> Result<()> {
         if let Some(store) = &self.store {
             let devices = store.read().await.clone().into_iter();
@@ -150,24 +197,46 @@ impl DiscoveryService {
         Ok(())
     }
 
-    /// Configures the retry policy for network operations
+    /// Configures the retry policy for network operations performed by the discovery service.
+    ///
+    /// This method allows setting a custom retry policy, which dictates the number of retries and the backoff strategy
+    /// for operations such as socket initialization. This can be useful to adjust the service's resilience to network issues.
     ///
     /// # Arguments
-    /// * `policy` - Retry policy configuration
+    /// * `policy` - The `RetryPolicy` configuration to apply to the discovery service.
+    ///
+    /// # Returns
+    /// `Self` - Returns the `DiscoveryService` instance with the updated retry policy, allowing for method chaining.
     ///
     /// # Example
     /// ```
-    /// service.with_retry_policy(RetryPolicy {
+    /// # use std::time::Duration;
+    /// # use your_module::discovery::DiscoveryService; // Replace your_module
+    /// # use your_module::discovery::RetryPolicy;     // Replace your_module
+    /// #
+    /// # async fn example() -> anyhow::Result<()> {
+    /// # let service = DiscoveryService::new_without_store();
+    /// let service = service.with_retry_policy(RetryPolicy {
     ///     max_retries: 5,
     ///     initial_backoff: Duration::from_secs(2)
     /// });
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
         self.retry_policy = policy;
         self
     }
 
-    /// Initializes multicast sockets with retry logic
+    /// Retrieves multicast sockets, initializing them if necessary with retry logic.
+    ///
+    /// This method ensures that multicast sockets are initialized and available for communication. It uses a retry mechanism
+    /// defined by the service's `retry_policy` to handle potential socket initialization failures. The sockets are initialized
+    /// only once and then reused for subsequent calls, unless initialization fails persistently.
+    ///
+    /// # Returns
+    /// `Result<Arc<Vec<Arc<UdpSocket>>>>` - A `Result` containing a vector of `Arc<UdpSocket>` representing the initialized multicast sockets,
+    ///                                     or an error if socket initialization fails after all retry attempts.
     async fn get_sockets_with_retry(&self) -> Result<Arc<Vec<Arc<UdpSocket>>>> {
         let mut lock = self.sockets_init.lock().await;
 
@@ -205,7 +274,14 @@ impl DiscoveryService {
         Err(error)
     }
 
-    /// Attempts to initialize multicast sockets on all suitable interfaces
+    /// Attempts to initialize multicast sockets on all suitable network interfaces.
+    ///
+    /// This method iterates through available multicast-capable interfaces and creates a UDP socket for each.
+    /// It configures each socket to join the multicast group and sets necessary socket options for multicast communication.
+    ///
+    /// # Returns
+    /// `Result<Vec<Arc<UdpSocket>>>` - A `Result` containing a vector of `Arc<UdpSocket>` for successfully initialized sockets,
+    ///                                or an error if no valid multicast interfaces are found or socket initialization fails.
     async fn try_init_sockets() -> Result<Vec<Arc<UdpSocket>>> {
         let mut sockets = Vec::new();
 
@@ -214,29 +290,29 @@ impl DiscoveryService {
             for ipv4_net in iface.ipv4 {
                 let interface_ip = ipv4_net.addr();
 
-                // Use blocking task for socket configuration
+                // Use blocking task for socket configuration as socket2 is blocking
                 let socket = tokio::task::spawn_blocking(move || {
                     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
                     let bind_addr =
                         SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), MULTICAST_PORT);
 
-                    // Configure socket options
-                    socket.set_reuse_address(true)?;
+                    // Configure socket options for multicast
+                    socket.set_reuse_address(true)?; // Allow reuse of the socket address
                     #[cfg(not(target_os = "windows"))]
-                    socket.set_reuse_port(true)?;
-                    socket.bind(&bind_addr.into())?;
+                    socket.set_reuse_port(true)?; // Allow multiple processes to bind to the same port
+                    socket.bind(&bind_addr.into())?; // Bind to the multicast port
 
-                    // Set multicast parameters
-                    socket.set_multicast_ttl_v4(255)?; // Maximum TTL for local network
-                    socket.set_multicast_loop_v4(true)?; // Enable local loopback
-                    socket.set_multicast_if_v4(&interface_ip)?; // Bind to specific interface
-                    socket.join_multicast_v4(&MULTICAST_GROUP, &interface_ip)?;
+                    // Configure multicast specific options
+                    socket.set_multicast_ttl_v4(255)?; // Set TTL to maximum for local network scope
+                    socket.set_multicast_loop_v4(true)?; // Enable multicast loopback for local announcements
+                    socket.set_multicast_if_v4(&interface_ip)?; // Specify the interface for multicast
+                    socket.join_multicast_v4(&MULTICAST_GROUP, &interface_ip)?; // Join the multicast group on the interface
 
                     Ok::<_, anyhow::Error>(socket)
                 })
-                .await??; // Handle both join and socket errors
+                .await??; // Handle both task join errors and socket errors
 
-                // Convert to tokio socket
+                // Convert the standard socket to a Tokio UdpSocket for async operations
                 let std_socket = socket.into();
                 let tokio_socket =
                     UdpSocket::from_std(std_socket).context("Failed to convert to tokio socket")?;
@@ -252,13 +328,17 @@ impl DiscoveryService {
         Ok(sockets)
     }
 
-    /// Broadcasts device announcement to the network
+    /// Broadcasts a device announcement message to the multicast group.
+    ///
+    /// This function serializes the provided device announcement data into JSON and sends it over all initialized
+    /// multicast sockets to the configured multicast group and port.
     ///
     /// # Arguments
-    /// * `device_info` - Device information to announce
+    /// * `sockets` - A slice of `Arc<UdpSocket>` representing the multicast sockets to use for broadcasting.
+    /// * `announcement` - A `serde_json::Value` representing the announcement message to be sent.
     ///
     /// # Errors
-    /// Returns error if socket initialization fails or message serialization fails
+    /// Returns an error if message serialization fails or if sending the message over any socket fails.
     async fn send_announcement(
         sockets: &[Arc<UdpSocket>],
         announcement: &serde_json::Value,
@@ -276,12 +356,18 @@ impl DiscoveryService {
         Ok(())
     }
 
-    /// Starts the discovery service with specified network parameters.
-    /// Spawns a background task that periodically announces the local device presence.
+    /// Starts the device announcement service, periodically broadcasting device information.
+    ///
+    /// This method spawns a background task that sends out device announcements at a specified interval.
+    /// It uses the provided `DeviceInfo` to construct the announcement messages and broadcasts them to the multicast group.
     ///
     /// # Arguments
-    /// * `device_info` - Local device information to advertise
-    /// * `interval` - Broadcast interval for service announcements
+    /// * `device_info` - Information about the local device to be announced.
+    /// * `interval` - The interval at which device announcements should be broadcasted.
+    /// * `duration_limit` - An optional duration limit for how long announcements should be sent. If `Some`, announcements will stop after this duration.
+    ///
+    /// # Errors
+    /// Returns an error if socket initialization fails or if announcements are already running.
     pub async fn start_announcements(
         &self,
         device_info: DeviceInfo,
@@ -305,24 +391,24 @@ impl DiscoveryService {
             *announcements_cancel_token_guard = Some(cancel_token);
         }
 
-        // Get sockets before spawning the task
+        // Get sockets before spawning the task to ensure sockets are available
         let sockets = self.get_sockets_with_retry().await?;
 
-        // Clone only what we need for the announcement task
+        // Clone necessary data for the announcement task
         let sockets = Arc::new(sockets);
         let device_info = Arc::new(device_info);
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip); // Skip missed ticks if behind
 
             let sleep_future = duration_limit.map(tokio::time::sleep);
-            tokio::pin!(sleep_future);
+            tokio::pin!(sleep_future); // Pin the sleep future for use in select!
 
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
-                        // Create the announcement message
+                        // Construct the announcement message with device information
                         let announcement = json!({
                             "alias": device_info.alias,
                             "version": device_info.version,
@@ -331,21 +417,21 @@ impl DiscoveryService {
                             "fingerprint": device_info.fingerprint,
                             "api_port": device_info.api_port,
                             "protocol": device_info.protocol,
-                            "announce": true
+                            "announce": true // Flag indicating this is an announcement message
                         });
 
                         if let Err(e) = Self::send_announcement(&sockets, &announcement).await {
                             error!("Announcement failed: {}", e);
                         }
                     }
-                    _ = cancel_token_clone.cancelled() => break,
-                    _ = async {
+                    _ = cancel_token_clone.cancelled() => break, // Exit loop if announcement is cancelled
+                    _ = async { // Asynchronous block to handle optional duration limit
                         if let Some(future) = sleep_future.as_mut().as_pin_mut() {
-                            future.await
+                            future.await // Await the sleep future if duration limit is set
                         }
                     } => {
                         info!("Announcement duration limit reached");
-                        break;
+                        break; // Exit loop when duration limit is reached
                     }
                 }
             }
@@ -354,17 +440,13 @@ impl DiscoveryService {
         Ok(())
     }
 
-    /// Stops the device announcement service by cancelling the announcement task.
+    /// Stops the device announcement service.
     ///
-    /// This method will:
-    /// 1. Cancel all ongoing announcement operations using the cancel token
-    /// 2. Allow any in-progress announcement to complete gracefully
+    /// This method cancels the ongoing device announcement task, causing it to stop broadcasting device information.
+    /// It does not immediately terminate any announcements currently in progress but signals the task to stop after the current iteration.
     ///
     /// # Note
-    /// This does not affect the discovery listener - use `stop_listening()` for that.
-    ///
-    /// # Returns
-    /// * `()` - The method always succeeds as it just triggers cancellation
+    /// This method only stops device announcements. To stop listening for announcements from other devices, use [`stop_listening`].
     pub async fn stop_announcements(&self) {
         let announcements_cancel_token_guard = self.announcements_cancel_token.lock().await;
         if let Some(token) = &*announcements_cancel_token_guard {
@@ -375,32 +457,37 @@ impl DiscoveryService {
         }
     }
 
-    /// Starts listening for device announcements
+    /// Starts listening for device announcements from the network.
+    ///
+    /// This method initializes listeners on all available multicast sockets to receive device announcements.
+    /// It spawns a background task for each socket that listens for incoming UDP datagrams and processes them to discover devices.
     ///
     /// # Arguments
-    /// * `self_fingerprint` - Optional fingerprint to filter self-announcements
-    /// * `cancel_token` - Optional cancellation token for graceful shutdown
+    /// * `self_fingerprint` - An optional fingerprint of the local device. If provided, announcements from this device will be ignored.
     ///
     /// # Returns
-    /// Returns immediately after starting listeners. Use shutdown() to stop.
+    /// `Result<()>` - Returns `Ok(())` if listeners are successfully started, or an error if socket initialization fails or listeners are already running.
+    ///
+    /// # Remarks
+    /// This method returns immediately after starting the listeners in the background. Use [`shutdown`] to stop the listeners and the discovery service gracefully.
     pub async fn start_listening(&self, self_fingerprint: Option<String>) -> Result<()> {
         let sockets = self.get_sockets_with_retry().await?;
         info!("Starting to listen on {} interfaces", sockets.len());
 
         let cancel_token = {
-            // Scope to create and lock MutexGuard
+            // Scope to create and lock MutexGuard to check if listener is already running
             let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
             if listening_cancel_token_guard.is_some() {
                 error!("Listener already running");
                 return Err(anyhow!("Listener already running"));
             }
-            CancellationToken::new()
+            CancellationToken::new() // Create a new cancellation token if not already running
         };
 
         {
-            // Scope to set cancel token
+            // Scope to set the new cancel token after checking and creating it
             let mut listening_cancel_token_guard = self.listening_cancel_token.lock().await;
-            *listening_cancel_token_guard = Some(cancel_token.clone());
+            *listening_cancel_token_guard = Some(cancel_token.clone()); // Store the new cancel token
         }
 
         let devices = self.device_states.clone();
@@ -414,21 +501,22 @@ impl DiscoveryService {
             let cancel_token = cancel_token.clone();
             let devices = devices.clone();
 
-            // Spawn listener task per socket
+            // Spawn a listener task for each socket to handle incoming datagrams
             let handle = tokio::spawn(async move {
-                let mut buf = vec![0u8; 65535]; // Maximum UDP packet size
+                let mut buf = vec![0u8; 65535]; // Buffer for incoming UDP packets (max size)
                 loop {
                     tokio::select! {
                         _ = cancel_token.cancelled() => {
                             debug!("Listener exiting on {}", socket.local_addr().unwrap());
-                            break;
+                            break; // Exit loop if listening is cancelled
                         }
                         result = socket.recv_from(&mut buf) => {
                             match result {
                                 Ok((len, addr)) => {
-                                    if let Err(e) = Self::handle_datagram( // Still using Self::
+                                    // Process the received datagram
+                                    if let Err(e) = Self::handle_datagram( // Using Self:: to call associated function
                                         &self_fingerprint,
-                                        &buf[..len],
+                                        &buf[..len], // Slice buffer to received length
                                         addr,
                                         &store,
                                         &devices
@@ -436,26 +524,40 @@ impl DiscoveryService {
                                         if e.to_string().contains("channel closed") {
                                             debug!("Channel closed, stopping listener on {}",
                                                 socket.local_addr().unwrap());
-                                            break;
+                                            break; // Exit loop if channel is closed (likely during shutdown)
                                         }
 
                                         error!("Error handling datagram: {}", e);
                                     }
                                 }
-                                Err(e) => error!("Receive error: {}", e),
+                                Err(e) => error!("Receive error: {}", e), // Log socket receive errors
                             }
                         }
                     }
                 }
             });
-            handles.push(handle);
+            handles.push(handle); // Store the handle to manage listener tasks
         }
 
-        self.listeners.lock().await.extend(handles);
+        self.listeners.lock().await.extend(handles); // Add new handles to the list of listeners
         Ok(())
     }
 
-    /// Processes incoming announcement datagrams
+    /// Handles an incoming device announcement datagram.
+    ///
+    /// This function is responsible for parsing the received datagram, extracting device information, and updating the device registry.
+    /// It deserializes the JSON announcement, checks if it's from the local device (if `self_fingerprint` is provided),
+    /// updates the `device_states` map with new or updated device information, and persists the changes if a store is configured.
+    ///
+    /// # Arguments
+    /// * `self_fingerprint` - An optional fingerprint of the local device to ignore self-announcements.
+    /// * `data` - A slice of bytes representing the received datagram data.
+    /// * `addr` - The `SocketAddr` of the sender.
+    /// * `store` - An optional `Arc<PersistentDataManager>` for persisting device information.
+    /// * `devices` - An `Arc<DashMap>` storing the current device states.
+    ///
+    /// # Returns
+    /// `Result<()>` - Returns `Ok(())` if the datagram is processed successfully, or an error if parsing or processing fails.
     pub async fn handle_datagram(
         self_fingerprint: &Option<String>,
         data: &[u8],
@@ -465,15 +567,18 @@ impl DiscoveryService {
     ) -> Result<()> {
         let announcement: serde_json::Value = serde_json::from_slice(data)?;
 
+        // Extract fingerprint from the announcement, ignore if missing
         let fingerprint = match announcement.get("fingerprint") {
             Some(v) => v.as_str().unwrap_or_default().to_string(),
-            None => return Ok(()),
+            None => return Ok(()), // Ignore announcements without fingerprint
         };
 
+        // Ignore self-announcements if self_fingerprint is provided and matches
         if Some(fingerprint.clone()) == *self_fingerprint {
-            return Ok(());
+            return Ok(()); // Skip processing self-announcements
         }
 
+        // Construct DiscoveredDevice from announcement data
         let device = DiscoveredDevice {
             fingerprint: fingerprint.clone(),
             alias: announcement["alias"]
@@ -484,29 +589,31 @@ impl DiscoveryService {
                 .as_str()
                 .unwrap_or("Unknown")
                 .to_string(),
-            device_type: serde_json::from_value(announcement["deviceType"].clone())?,
-            ips: vec![addr.ip()],
-            last_seen: Utc::now(),
+            device_type: serde_json::from_value(announcement["deviceType"].clone())?, // Deserialize device type
+            ips: vec![addr.ip()],  // Record sender IP address
+            last_seen: Utc::now(), // Update last seen timestamp to now
         };
 
+        // Update device state or insert new device if not already known
         if let Some(mut existing) = devices.get_mut(&fingerprint) {
             if !existing.ips.contains(&addr.ip()) {
-                existing.ips.push(addr.ip());
+                existing.ips.push(addr.ip()); // Add new IP if not already listed
             }
-            existing.last_seen = Utc::now();
+            existing.last_seen = Utc::now(); // Update last seen timestamp
         } else {
-            devices.insert(fingerprint, device);
+            devices.insert(fingerprint, device); // Insert new device into device states
         }
 
+        // Persist device states if store is configured
         if let Some(store) = store {
             store
                 .update(|_| async move {
                     let d = devices
                         .iter()
                         .map(|entry| entry.value().clone())
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<_>>(); // Collect all device states to persist
 
-                    Ok::<_, anyhow::Error>((d, ()))
+                    Ok::<_, anyhow::Error>((d, ())) // Return collected devices for persistence update
                 })
                 .await?;
         }
@@ -514,9 +621,10 @@ impl DiscoveryService {
         Ok(())
     }
 
-    /// Completely stops the listening service by:
-    /// - Cancelling the listener token
-    /// - Aborting the event processing task
+    /// Stops the device listening service.
+    ///
+    /// This method cancels all active listener tasks, causing them to stop processing incoming device announcements.
+    /// It signals the listener tasks to terminate gracefully but does not immediately abort any currently processing datagrams.
     pub async fn stop_listening(&self) {
         let listening_cancel_token_guard = self.listening_cancel_token.lock().await;
         if let Some(token) = &*listening_cancel_token_guard {
@@ -527,6 +635,13 @@ impl DiscoveryService {
         }
     }
 
+    /// Retrieves a list of all currently discovered devices.
+    ///
+    /// This method returns a snapshot of all devices currently tracked by the discovery service. The list is derived from the internal
+    /// `device_states` map and provides a read-only view of the discovered devices at the time of calling.
+    ///
+    /// # Returns
+    /// `Vec<DiscoveredDevice>` - A vector containing all currently discovered devices.
     pub async fn get_all_devices(&self) -> Vec<DiscoveredDevice> {
         self.device_states
             .iter()
@@ -534,23 +649,36 @@ impl DiscoveryService {
             .collect()
     }
 
-    /// Stops all active listeners and cleans up resources
+    /// Shuts down the entire device discovery service gracefully.
+    ///
+    /// This method stops all active listeners and announcers, cleans up resources, and persists the current device states if persistence is enabled.
+    /// It ensures that all ongoing operations are either completed or gracefully terminated before the service is fully stopped.
+    ///
+    /// # Returns
+    /// `Result<()>` - Returns `Ok(())` if shutdown is successful, or an error if saving the device state fails.
     pub async fn shutdown(&self) -> Result<()> {
         info!("Shutting down the whole UDP multicast service");
         let mut listeners = self.listeners.lock().await;
         for handle in listeners.drain(..) {
-            handle.abort(); // Forcefully terminate tasks
+            handle.abort(); // Forcefully terminate listener tasks to ensure immediate shutdown
         }
 
-        self.stop_announcements().await;
-        self.stop_listening().await;
+        self.stop_announcements().await; // Stop device announcements
+        self.stop_listening().await; // Stop device listening
 
-        // Finally ensure store is saved before shutdown
+        // Ensure device states are saved before shutdown if persistence is enabled
         self.save().await?;
 
         Ok(())
     }
 
+    /// Saves the current device states to persistent storage if a store is configured.
+    ///
+    /// This method triggers a save operation on the persistent data manager, writing the current list of discovered devices
+    /// to storage. This is typically called during shutdown or at other points where persistence of the device list is desired.
+    ///
+    /// # Returns
+    /// `Result<()>` - Returns `Ok(())` if save operation is successful or if no store is configured, or an error if saving fails.
     pub async fn save(&self) -> Result<()> {
         if let Some(store) = &self.store {
             return store
@@ -559,17 +687,23 @@ impl DiscoveryService {
                         .device_states
                         .iter()
                         .map(|entry| entry.value().clone())
-                        .collect::<Vec<_>>();
+                        .collect::<Vec<_>>(); // Collect current device states for saving
 
-                    Ok::<_, anyhow::Error>((d, ()))
+                    Ok::<_, anyhow::Error>((d, ())) // Return devices for persistence update
                 })
                 .await;
         }
 
-        Ok(())
+        Ok(()) // No store configured, save operation is a no-op
     }
 
-    /// Checks if the service has successfully initialized sockets
+    /// Checks if the discovery service is operational, meaning sockets are successfully initialized.
+    ///
+    /// This method checks the initialization status of the multicast sockets. If socket initialization was successful,
+    /// the service is considered operational and ready for announcements and listening.
+    ///
+    /// # Returns
+    /// `bool` - Returns `true` if the service is operational (sockets initialized successfully), `false` otherwise.
     pub async fn is_operational(&self) -> bool {
         self.sockets_init
             .lock()
