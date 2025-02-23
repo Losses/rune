@@ -1,5 +1,6 @@
+mod cli;
+
 use std::{
-    net::SocketAddr,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -12,21 +13,15 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
+use cli::{broadcast::handle_broadcast, permission::handle_permission, server::handle_server};
 use hub::{
-    server::{
-        utils::{
-            device::load_device_info,
-            path::get_config_dir,
-            permission::{parse_status, print_permission_table, validate_index},
-        },
-        ServerManager, WebSocketService,
-    },
+    server::{ServerManager, WebSocketService},
     utils::{initialize_databases, player::initialize_local_player, GlobalParams, TaskTokens},
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::protocol::DiscoveryService;
-use ::discovery::{server::PermissionManager, client::CertValidator, DiscoveryParams};
+use ::discovery::{client::CertValidator, server::PermissionManager};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
@@ -101,64 +96,6 @@ fn setup_logging() {
          tantivy::directory=off,tantivy::indexer=off,sea_orm_migration::migrator=off,info",
     );
     tracing_subscriber::fmt().with_env_filter(filter).init();
-}
-
-async fn handle_server(addr: String, lib_path: String) -> Result<()> {
-    let config_path = get_config_dir()?;
-    let device_info = load_device_info(&config_path).await?;
-    let global_params = initialize_global_params(&lib_path, config_path.to_str().unwrap()).await?;
-
-    let server_manager = Arc::new(ServerManager::new(global_params).await?);
-    let socket_addr: SocketAddr = addr.parse()?;
-
-    server_manager
-        .start(socket_addr, DiscoveryParams { device_info })
-        .await?;
-
-    tokio::signal::ctrl_c().await?;
-    server_manager.stop().await?;
-    Ok(())
-}
-
-async fn handle_broadcast() -> Result<()> {
-    let config_path = get_config_dir()?;
-    let device_info = load_device_info(&config_path).await?;
-
-    let discovery_service = DiscoveryService::with_store(config_path).await?;
-
-    discovery_service
-        .start_announcements(device_info, Duration::from_secs(3), None)
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_permission(action: PermissionAction) -> Result<()> {
-    let config_path = get_config_dir()?;
-    let pm = PermissionManager::new(config_path)?;
-
-    match action {
-        PermissionAction::Ls => {
-            let users = pm.list_users().await;
-            print_permission_table(&users);
-        }
-        PermissionAction::Modify { index, status } => {
-            let users = pm.list_users().await;
-            validate_index(index, users.len())?;
-            let user = &users[index - 1];
-            let status = parse_status(&status)?;
-            pm.change_user_status(&user.fingerprint, status).await?;
-            info!("User status updated successfully");
-        }
-        PermissionAction::Delete { index } => {
-            let users = pm.list_users().await;
-            validate_index(index, users.len())?;
-            let user = &users[index - 1];
-            pm.remove_user(&user.fingerprint).await?;
-            info!("User deleted successfully");
-        }
-    }
-    Ok(())
 }
 
 async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<Arc<GlobalParams>> {

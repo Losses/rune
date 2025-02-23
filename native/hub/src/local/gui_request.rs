@@ -32,7 +32,6 @@ macro_rules! handle_single_gui_event {
                     }
                     _ = async {
                         while let Some(dart_signal) = receiver.recv().await {
-                            info!("! Received event: {:?}", stringify!($request));
                             let event = dart_signal.message;
                             let params = event.extract_params(&global_params);
 

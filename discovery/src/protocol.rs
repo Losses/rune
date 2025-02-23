@@ -68,6 +68,11 @@ const MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 167);
 /// Port number used for multicast communication in device discovery.
 const MULTICAST_PORT: u16 = 57863;
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DeviceList {
+    devices: Vec<DiscoveredDevice>,
+}
+
 /// Manages the device discovery service, handling network communication and device tracking.
 ///
 /// The `DiscoveryService` is responsible for initializing multicast sockets, sending device announcements,
@@ -76,7 +81,7 @@ pub struct DiscoveryService {
     /// Lazily initialized multicast sockets, wrapped in a Mutex for thread-safe access and to handle retry status.
     sockets_init: Mutex<Option<Result<Vec<Arc<UdpSocket>>>>>,
     /// Optional persistence layer for storing and retrieving discovered device information.
-    store: Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>,
+    store: Option<Arc<PersistentDataManager<DeviceList>>>,
     /// List of active listener tasks, managed to allow for graceful shutdown.
     listeners: Mutex<Vec<JoinHandle<()>>>,
     /// Policy defining retry behavior for network operations like socket initialization.
@@ -187,7 +192,7 @@ impl DiscoveryService {
     /// and populate the internal device state map. This ensures that known devices are tracked across service restarts.
     async fn initialize(&self) -> Result<()> {
         if let Some(store) = &self.store {
-            let devices = store.read().await.clone().into_iter();
+            let devices = store.read().await.clone().devices.into_iter();
             for device in devices {
                 self.device_states
                     .insert(device.fingerprint.clone(), device);
@@ -552,7 +557,7 @@ impl DiscoveryService {
         self_fingerprint: &Option<String>,
         data: &[u8],
         addr: SocketAddr,
-        store: &Option<Arc<PersistentDataManager<Vec<DiscoveredDevice>>>>,
+        store: &Option<Arc<PersistentDataManager<DeviceList>>>,
         devices: &Arc<DashMap<String, DiscoveredDevice>>,
     ) -> Result<()> {
         let announcement: serde_json::Value = serde_json::from_slice(data)?;
@@ -603,7 +608,7 @@ impl DiscoveryService {
                         .map(|entry| entry.value().clone())
                         .collect::<Vec<_>>(); // Collect all device states to persist
 
-                    Ok::<_, anyhow::Error>((d, ())) // Return collected devices for persistence update
+                    Ok::<_, anyhow::Error>((DeviceList { devices: d }, ())) // Return collected devices for persistence update
                 })
                 .await?;
         }
@@ -681,7 +686,7 @@ impl DiscoveryService {
                         .map(|entry| entry.value().clone())
                         .collect::<Vec<_>>(); // Collect current device states for saving
 
-                    Ok::<_, anyhow::Error>((d, ())) // Return devices for persistence update
+                    Ok::<_, anyhow::Error>((DeviceList { devices: d }, ())) // Return devices for persistence update
                 })
                 .await;
         }

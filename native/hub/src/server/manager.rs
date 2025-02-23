@@ -28,10 +28,9 @@ use ::discovery::{ssl::generate_self_signed_cert, DiscoveryParams};
 use crate::{
     messages::*,
     server::{
-        handlers::{
-            device_info_handler::device_info_handler, file_handler::file_handler,
-            ping_handler::ping_handler, register_handler::register_handler,
-            websocket_handler::websocket_handler,
+        http::{
+            device_info::device_info_handler, file::file_handler, ping::ping_handler,
+            register::register_handler, websocket::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
     },
