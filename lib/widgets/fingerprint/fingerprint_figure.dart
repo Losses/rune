@@ -37,13 +37,26 @@ class FingerprintFigure extends StatelessWidget {
                     startIndex >= localFingerprint.length
                 ? ''
                 : '${localFingerprint[startIndex]}${startIndex + 1 < localFingerprint.length ? localFingerprint[startIndex + 1] : ''}';
-            final displayText = mask.contains(index) ? '' : text;
+
+            final masked = mask.contains(index);
+
+            if (masked) {
+              return FilledButton(
+                onPressed: () {},
+                style: buttonStyle,
+                child: Text(
+                  "",
+                  style: textStyle,
+                  textAlign: TextAlign.center,
+                ),
+              );
+            }
 
             return Button(
               onPressed: () {},
               style: buttonStyle,
               child: Text(
-                displayText,
+                text,
                 style: textStyle,
                 textAlign: TextAlign.center,
               ),

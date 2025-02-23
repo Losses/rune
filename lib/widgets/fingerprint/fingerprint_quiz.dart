@@ -161,18 +161,19 @@ class _FingerprintQuizState extends State<FingerprintQuiz> {
           mask: {maskedIndex},
         ),
         const SizedBox(height: 20),
-        Wrap(
+        Row(
           spacing: 8,
-          runSpacing: 8,
           children: List.generate(options.length, (index) {
-            return Button(
-              onPressed: () => _handleAnswer(index),
-              child: Text(
-                options[index],
-                style: const TextStyle(
-                  fontFamily: 'NotoRunic',
-                  fontSize: 20,
-                  letterSpacing: 4,
+            return Expanded(
+              child: FilledButton(
+                onPressed: () => _handleAnswer(index),
+                child: Text(
+                  options[index],
+                  style: const TextStyle(
+                    fontFamily: 'NotoRunic',
+                    fontSize: 20,
+                    letterSpacing: 4,
+                  ),
                 ),
               ),
             );

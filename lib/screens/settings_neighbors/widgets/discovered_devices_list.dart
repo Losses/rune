@@ -11,7 +11,9 @@ import '../../../widgets/settings/settings_tile_title.dart';
 import '../utils/show_fingerprint_quiz_dialog.dart';
 
 class DiscoveredDevicesList extends StatefulWidget {
-  const DiscoveredDevicesList({super.key});
+  const DiscoveredDevicesList({super.key, required this.onPaired});
+
+  final void Function() onPaired;
 
   @override
   State<DiscoveredDevicesList> createState() => _DiscoveredDevicesListState();
@@ -91,12 +93,6 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
             actionsBuilder: (context) => Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildDetailItem(s.fingerprint, device.fingerprint),
-                _buildDetailItem(
-                  s.ipAddresses,
-                  device.ips.join(', '),
-                ),
-                const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
@@ -117,26 +113,9 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     );
   }
 
-  Widget _buildDetailItem(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4.0),
-      child: RichText(
-        text: TextSpan(
-          style: const TextStyle(height: 1.4),
-          children: [
-            TextSpan(
-              text: '$label: ',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            TextSpan(text: value),
-          ],
-        ),
-      ),
-    );
-  }
-
   void _handlePairDevice(DiscoveredDeviceMessage device) {
     if (device.ips.isNotEmpty) {
+      widget.onPaired();
       showFingerprintQuizDialog(context, device.ips.first);
     }
   }

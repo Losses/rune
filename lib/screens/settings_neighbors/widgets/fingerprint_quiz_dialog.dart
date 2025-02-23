@@ -46,7 +46,12 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
 
     return NoShortcuts(
       ContentDialog(
-        title: Text(s.pairingTitle),
+        title: Column(
+          children: [
+            SizedBox(height: 8),
+            Text(S.of(context).pairingTitle),
+          ],
+        ),
         content: FutureBuilder<String>(
           future: _fingerprintFuture,
           builder: (context, snapshot) {
@@ -61,20 +66,23 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
               );
             }
             if (snapshot.hasError) {
-              return Text('Error: ${snapshot.error}');
+              return Text(
+                'Error: ${snapshot.error}',
+                style: TextStyle(height: 1.4),
+              );
             }
             return Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(s.pairingInstructions),
+                Text(
+                  s.pairingInstructions,
+                  style: TextStyle(height: 1.4),
+                ),
                 const SizedBox(height: 24),
-                SizedBox(
-                  height: 420,
-                  child: FingerprintQuiz(
-                    fingerprint: snapshot.data!,
-                    onAnswer: _handleAnswer,
-                  ),
+                FingerprintQuiz(
+                  fingerprint: snapshot.data!,
+                  onAnswer: _handleAnswer,
                 )
               ],
             );
