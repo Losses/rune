@@ -9,6 +9,8 @@ import '../../../utils/router/navigation.dart';
 import '../widgets/search_remote_device_dialog.dart';
 
 void showSearchRemoteDeviceDialog(BuildContext context) {
+  final libraryPath = Provider.of<LibraryPathProvider>(context, listen: false);
+
   $showModal<void>(
     context,
     (context, $close) => SearchRemoteDeviceDialog(
@@ -23,9 +25,6 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
             subtitle: s.pairingFailureMessage,
           );
         } else if (result == true) {
-          final libraryPath =
-              Provider.of<LibraryPathProvider>(context, listen: false);
-
           libraryPath.addLibraryPath(
             context,
             '@RR|wss://${device.ips.first}:7863',

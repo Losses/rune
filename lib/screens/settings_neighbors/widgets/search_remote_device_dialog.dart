@@ -35,7 +35,7 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
         ).merge(
           FluentTheme.of(context).dialogTheme.merge(
                 ContentDialogThemeData(
-                  padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  padding: EdgeInsets.fromLTRB(0, 0, 0, 12),
                 ),
               ),
         ),
@@ -56,9 +56,12 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
             ),
             SizedBox(
               height: 420,
-              child: DiscoveredDevicesList(
-                onPaired: () => widget.$close(null),
-                onAnswered: widget.onAnswered,
+              child: Padding(
+                padding: EdgeInsetsDirectional.symmetric(horizontal: 12),
+                child: DiscoveredDevicesList(
+                  onPaired: () => widget.$close(null),
+                  onAnswered: widget.onAnswered,
+                ),
               ),
             )
           ],
