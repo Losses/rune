@@ -1,22 +1,24 @@
 import 'dart:async';
 
+import 'package:rinf/rinf.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
-import 'package:rinf/rinf.dart';
 
 import '../../../messages/all.dart';
-import '../../../providers/library_path.dart';
-import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 
 import '../utils/show_fingerprint_quiz_dialog.dart';
 
 class DiscoveredDevicesList extends StatefulWidget {
-  const DiscoveredDevicesList({super.key, required this.onPaired});
+  const DiscoveredDevicesList({
+    super.key,
+    required this.onPaired,
+    required this.onAnswered,
+  });
 
   final void Function() onPaired;
+  final void Function(DiscoveredDeviceMessage, bool?) onAnswered;
 
   @override
   State<DiscoveredDevicesList> createState() => _DiscoveredDevicesListState();
@@ -121,24 +123,7 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
       widget.onPaired();
       final result = await showFingerprintQuizDialog(context, device.ips.first);
 
-      if (!mounted) return;
-      if (result == false) {
-        final s = S.of(context);
-
-        showInformationDialog(
-          context: context,
-          title: s.pairingFailureTitle,
-          subtitle: s.pairingFailureMessage,
-        );
-      } else if (result == true) {
-        final libraryPath =
-            Provider.of<LibraryPathProvider>(context, listen: false);
-
-        libraryPath.addLibraryPath(
-          context,
-          '@RR|wss://${device.ips.first}:7863',
-        );
-      }
+      widget.onAnswered(device, result);
     }
   }
 }

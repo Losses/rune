@@ -1,7 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/api/fetch_server_certificate.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 

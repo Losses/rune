@@ -2,15 +2,18 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../widgets/no_shortcuts.dart';
+import '../../../messages/all.dart';
 
 import 'discovered_devices_list.dart';
 
 class SearchRemoteDeviceDialog extends StatefulWidget {
   final void Function(void) $close;
+  final void Function(DiscoveredDeviceMessage, bool?) onAnswered;
 
   const SearchRemoteDeviceDialog({
     super.key,
     required this.$close,
+    required this.onAnswered,
   });
 
   @override
@@ -55,6 +58,7 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
               height: 420,
               child: DiscoveredDevicesList(
                 onPaired: () => widget.$close(null),
+                onAnswered: widget.onAnswered,
               ),
             )
           ],
