@@ -398,7 +398,7 @@ pub async fn initialize_local_player(
 
     task::spawn(async move {
         while let Ok(user) = permission_receiver.recv().await {
-            broadcaster_for_permission_manager.broadcast(&IncommingClientPermissionRequest {
+            broadcaster_for_permission_manager.broadcast(&IncommingClientPermissionNotification {
                 user: Some(ClientSummary {
                     alias: user.alias,
                     fingerprint: user.fingerprint,

@@ -44,6 +44,7 @@ import 'widgets/ax_reveal/widgets/reveal_effect_context.dart';
 import 'widgets/router/rune_with_navigation_bar_and_playback_controllor.dart';
 
 import 'screens/settings_theme/constants/window_sizes.dart';
+import 'screens/settings_server/utils/show_review_connection_dialog.dart';
 
 import 'messages/all.dart';
 
@@ -455,6 +456,11 @@ class RuneLifecycleState extends State<RuneLifecycle> {
             fallbackPlayingItems: []);
       });
     }
+
+    IncommingClientPermissionNotification.rustSignalStream.listen((data) {
+      if (!mounted) return;
+      showReviewConnectionDialog(context, data.message.user);
+    });
   }
 
   @override
