@@ -202,7 +202,7 @@ impl PermissionManager {
                 // Update operation on persistent storage
                 if permissions.users.contains_key(&fingerprint) {
                     // Check if user already exists
-                    return Ok::<(PermissionList, ()), PermissionError>((permissions, ()))
+                    return Ok::<(PermissionList, ()), PermissionError>((permissions, ()));
                 }
 
                 let mut ip_apps = self.ip_applications.write().await; // Acquire write lock on IP applications map
