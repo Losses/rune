@@ -136,6 +136,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         scrobbler.clone(),
         broadcaster.clone(),
         cert_validator.clone(),
+        permission_manager.clone(),
     ));
 
     let global_params = Arc::new(GlobalParams {

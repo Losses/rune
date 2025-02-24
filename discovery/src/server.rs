@@ -34,11 +34,11 @@ pub struct User {
     /// Public key of the user, used for identification and potentially authentication.
     pub public_key: String,
     /// Unique fingerprint identifying the user, often derived from the public key.
-    fingerprint: String,
+    pub fingerprint: String,
     /// Human-readable alias or name for the user.
     pub alias: String,
     /// Device model associated with the user, providing context about their device.
-    device_model: String,
+    pub device_model: String,
     /// Type of device associated with the user, categorizing the device (e.g., Light, Sensor).
     device_type: DeviceType,
     /// Current status of the user in the permission system (`Approved`, `Pending`, `Blocked`).
@@ -387,5 +387,9 @@ impl PermissionManager {
     /// `broadcast::Receiver<PermissionList>` - A broadcast receiver for `PermissionList` updates.
     pub fn subscribe_changes(&self) -> broadcast::Receiver<PermissionList> {
         self.storage.subscribe() // Subscribe to storage changes and return the receiver
+    }
+
+    pub fn subscribe_new_user(&self) -> broadcast::Receiver<User> {
+        self.request_sender.subscribe()
     }
 }

@@ -4,16 +4,15 @@ mod gui_request;
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-
 use log::{error, info};
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
 pub use tokio;
 
+use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::client::CertValidator;
 use ::discovery::protocol::DiscoveryService;
-use ::database::connection::{MainDbConnection, RecommendationDbConnection};
 use ::discovery::server::PermissionManager;
 use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
@@ -78,6 +77,7 @@ pub async fn local_player_loop(
             scrobbler.clone(),
             broadcaster.clone(),
             cert_validator.clone(),
+            permission_manager.clone(),
         ));
 
         info!("Initializing UI events");

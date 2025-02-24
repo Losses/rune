@@ -68,6 +68,11 @@ message ListClientsResponse {
   string error = 3;
 }
 
+// [RUST-SIGNAL]
+message IncommingClientPermissionRequest {
+  ClientSummary user = 1;
+}
+
 message ClientSummary {
   string alias = 1;
   string fingerprint = 2;

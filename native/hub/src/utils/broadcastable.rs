@@ -15,3 +15,4 @@ broadcastable!(
 );
 broadcastable!(PlaylistUpdate);
 broadcastable!(TrustListUpdated);
+broadcastable!(IncommingClientPermissionRequest);
