@@ -202,8 +202,14 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
             let validator = CertValidator::new(config_dir).await?;
             validator
-                .add_trusted_domains(hosts, &dev.fingerprint)
+                .add_trusted_domains(hosts.clone(), &dev.fingerprint)
                 .await?;
+
+            info!(
+                "Trusted fingerprint: {}, with hosts: {}",
+                dev.fingerprint,
+                hosts.join(", ")
+            );
         }
     }
 

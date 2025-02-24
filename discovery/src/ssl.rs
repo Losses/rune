@@ -5,8 +5,8 @@ use num_bigint::BigUint as NumBigUint;
 use num_integer::Integer;
 use num_traits::{identities::Zero, ToPrimitive};
 use rcgen::{
-    BasicConstraints, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
-    SanType,
+    CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
 };
 use rsa::{
     pkcs8::{EncodePrivateKey, EncodePublicKey},
@@ -44,7 +44,17 @@ pub fn generate_self_signed_cert(
 
     let mut params = CertificateParams::default();
     params.distinguished_name = create_distinguished_name(common_name, organization, country);
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.is_ca = IsCa::NoCa;
+    params.key_usages = vec![
+        KeyUsagePurpose::DigitalSignature,
+        KeyUsagePurpose::KeyEncipherment,
+    ];
+    params.extended_key_usages = vec![
+        ExtendedKeyUsagePurpose::ServerAuth,
+        ExtendedKeyUsagePurpose::ClientAuth,
+    ];
+    params.serial_number = Some(rand::random::<u64>().to_be_bytes().to_vec().into());
+
     // Create Ia5String using from() instead of new()
     params.subject_alt_names = vec![SanType::DnsName(common_name.to_string().try_into()?)];
 

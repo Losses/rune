@@ -10,6 +10,7 @@ use anyhow::{anyhow, bail, Result};
 use http_body_util::Empty;
 use hyper::{body::Bytes, http::Error as HttpError, Uri};
 use hyper_util::rt::TokioIo;
+use log::warn;
 use pem::Pem;
 use rustls::{
     client::{
@@ -362,14 +363,9 @@ impl CertValidator {
         let fingerprint = calculate_base85_fingerprint(raw_cert.public_key().raw)
             .map_err(|e| CertValidatorError::CertificateParsing(e.to_string()))?; // Calculate fingerprint
 
-        let valid = self
-            .storage
-            .read()
-            .await // Acquire read lock on persistent storage
-            .entries
-            .get(&fingerprint) // Get trusted hosts for the fingerprint
-            .map(|hosts| hosts.contains(&server_name.to_string())) // Check if server name is in the trusted hosts list
-            .unwrap_or(false); // Default to false if fingerprint not found
+        let trusted_fingerprints = self.find_fingerprints_by_host(server_name).await;
+
+        let valid = trusted_fingerprints.contains(&fingerprint);
 
         if valid {
             Ok(()) // Certificate is trusted based on fingerprint and server name
@@ -470,6 +466,9 @@ impl ServerCertVerifier for CertValidator {
         if is_trusted {
             Ok(ServerCertVerified::assertion()) // Certificate is trusted based on fingerprint
         } else {
+            warn!(
+                "This server is not trust in the local cert list, falling back to the buildin one"
+            );
             self.inner_verifier.verify_server_cert(
                 // Fallback to WebPKI verifier if not fingerprint-trusted
                 end_entity,
