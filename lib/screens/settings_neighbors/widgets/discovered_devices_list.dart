@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:provider/provider.dart';
 import 'package:rinf/rinf.dart';
 
 import '../../../messages/all.dart';
+import '../../../providers/library_path.dart';
+import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/settings/settings_tile_title.dart';
 
@@ -113,10 +116,29 @@ class _DiscoveredDevicesListState extends State<DiscoveredDevicesList> {
     );
   }
 
-  void _handlePairDevice(DiscoveredDeviceMessage device) {
+  void _handlePairDevice(DiscoveredDeviceMessage device) async {
     if (device.ips.isNotEmpty) {
       widget.onPaired();
-      showFingerprintQuizDialog(context, device.ips.first);
+      final result = await showFingerprintQuizDialog(context, device.ips.first);
+
+      if (!mounted) return;
+      if (result == false) {
+        final s = S.of(context);
+
+        showInformationDialog(
+          context: context,
+          title: s.pairingFailureTitle,
+          subtitle: s.pairingFailureMessage,
+        );
+      } else if (result == true) {
+        final libraryPath =
+            Provider.of<LibraryPathProvider>(context, listen: false);
+
+        libraryPath.addLibraryPath(
+          context,
+          '@RR|wss://${device.ips.first}:7863',
+        );
+      }
     }
   }
 }

@@ -50,7 +50,10 @@ class AddRemoteDeviceDialogState extends State<AddRemoteDeviceDialog> {
     if (!mounted) return;
 
     final (switched, cancelled, error) = await libraryPath.setLibraryPath(
-        context, '@RR|${controller.toWebSocketUrl()}', null);
+      context,
+      '@RR|${controller.toWebSocketUrl()}',
+      null,
+    );
 
     widget.$close(null);
     if (!cancelled) {

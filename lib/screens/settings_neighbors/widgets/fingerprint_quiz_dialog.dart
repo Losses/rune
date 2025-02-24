@@ -1,17 +1,19 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/api/fetch_server_certificate.dart';
-import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/l10n.dart';
 import '../../../widgets/fingerprint/fingerprint_quiz.dart';
 import '../../../widgets/no_shortcuts.dart';
 
 class FingerprintQuizDialog extends StatefulWidget {
-  const FingerprintQuizDialog(
-      {super.key, required this.$close, required this.host});
+  const FingerprintQuizDialog({
+    super.key,
+    required this.$close,
+    required this.host,
+  });
 
   final String host;
-  final void Function(void) $close;
+  final void Function(bool?) $close;
 
   @override
   FingerprintQuizDialogState createState() => FingerprintQuizDialogState();
@@ -26,18 +28,8 @@ class FingerprintQuizDialogState extends State<FingerprintQuizDialog> {
     _fingerprintFuture = fetchServerCertificate(widget.host);
   }
 
-  void _handleAnswer(bool correct) {
-    widget.$close(null);
-
-    final s = S.of(context);
-
-    if (!correct) {
-      showInformationDialog(
-        context: context,
-        title: s.pairingFailureTitle,
-        subtitle: s.pairingFailureMessage,
-      );
-    }
+  void _handleAnswer(bool correct) async {
+    widget.$close(correct);
   }
 
   @override

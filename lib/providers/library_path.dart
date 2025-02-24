@@ -100,6 +100,14 @@ class LibraryPathProvider with ChangeNotifier {
 
   Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
+  addLibraryPath(BuildContext? context, String filePath) async {
+    final entry = LibraryPathEntry(filePath);
+
+    if (_libraryHistory.add(entry)) {
+      notifyListeners();
+    }
+  }
+
   Future<(bool, bool, String?)> setLibraryPath(
     BuildContext? context,
     String filePath,
