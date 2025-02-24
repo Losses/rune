@@ -110,6 +110,7 @@ pub struct PermissionManager {
     /// In-memory cache mapping IP addresses to a queue of application fingerprints.
     /// Used for tracking recent applications from specific IPs, possibly for rate limiting or security.
     ip_applications: Arc<RwLock<HashMap<String, VecDeque<String>>>>,
+    request_sender: broadcast::Sender<User>,
 }
 
 impl PermissionManager {
@@ -134,9 +135,12 @@ impl PermissionManager {
         let storage =
             PersistentDataManager::new(storage_path).map_err(PermissionError::Persistence)?;
 
+        let (request_sender, _) = broadcast::channel(256);
+
         Ok(Self {
             storage,
             ip_applications: Arc::new(RwLock::new(HashMap::new())),
+            request_sender,
         })
     }
 
@@ -194,6 +198,8 @@ impl PermissionManager {
         device_type: DeviceType,
         ip: String,
     ) -> Result<(), PermissionError> {
+        let fingerprint_clone = fingerprint.clone();
+
         self.storage
             .update(|mut permissions| async move {
                 // Update operation on persistent storage
@@ -228,7 +234,15 @@ impl PermissionManager {
                 );
                 Ok((permissions, ())) // Return updated permissions and success result
             })
-            .await
+            .await?;
+
+        if let Some(user) = self.verify_by_fingerprint(&fingerprint_clone).await {
+            if user.status != UserStatus::Blocked && user.status != UserStatus::Approved {
+                let _ = self.request_sender.send(user.clone());
+            }
+        }
+
+        Ok(())
     }
 
     /// Verifies a user by their fingerprint.

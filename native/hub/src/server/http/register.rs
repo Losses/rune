@@ -8,7 +8,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use discovery::{server::PermissionError, utils::DeviceType};
+use discovery::{
+    server::{PermissionError, UserStatus},
+    utils::DeviceType,
+};
 
 use crate::server::ServerState;
 
@@ -37,19 +40,34 @@ pub async fn register_handler(
     Json(request): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let ip = addr.ip().to_string();
-    state
-        .permission_manager
-        .write()
-        .await
-        .add_user(
-            request.public_key,
-            request.fingerprint,
-            request.alias,
-            request.device_model,
-            DeviceType::from_str(&request.device_type)?,
-            ip,
-        )
-        .await?;
+    {
+        let permission_manager = state.permission_manager.read().await;
+        let user = permission_manager
+            .verify_by_fingerprint(&request.fingerprint)
+            .await;
+
+        if let Some(user) = user {
+            if user.status == UserStatus::Blocked {
+                return Ok(StatusCode::FORBIDDEN);
+            }
+        }
+    }
+
+    {
+        state
+            .permission_manager
+            .write()
+            .await
+            .add_user(
+                request.public_key,
+                request.fingerprint,
+                request.alias,
+                request.device_model,
+                DeviceType::from_str(&request.device_type)?,
+                ip,
+            )
+            .await?;
+    }
 
     Ok(StatusCode::CREATED)
 }
