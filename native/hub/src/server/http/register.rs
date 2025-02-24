@@ -93,10 +93,7 @@ impl From<discovery::utils::ParseDeviceTypeError> for AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response<axum::body::Body> {
         let (status, message) = match self {
-            AppError::Permission(e) => match e {
-                PermissionError::UserAlreadyExists => (StatusCode::CONFLICT, e.to_string()),
-                _ => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
-            },
+            AppError::Permission(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             AppError::ParseDevice(e) => (StatusCode::BAD_REQUEST, e.to_string()),
         };
         (status, message).into_response()

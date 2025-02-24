@@ -86,9 +86,6 @@ pub enum PermissionError {
     /// Error indicating a requested user was not found in the permission list.
     #[error("User not found")]
     UserNotFound,
-    /// Error indicating an attempt to add a user that already exists.
-    #[error("User already exists")]
-    UserAlreadyExists,
     /// Error indicating that a provided path is not a directory when a directory is expected.
     #[error("Path is not a directory")]
     NotADirectory,
@@ -205,7 +202,7 @@ impl PermissionManager {
                 // Update operation on persistent storage
                 if permissions.users.contains_key(&fingerprint) {
                     // Check if user already exists
-                    return Err(PermissionError::UserAlreadyExists); // Return error if user exists
+                    return Ok::<(PermissionList, ()), PermissionError>((permissions, ()))
                 }
 
                 let mut ip_apps = self.ip_applications.write().await; // Acquire write lock on IP applications map
