@@ -4,6 +4,8 @@ mod remote_request;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
+use discovery::client::select_best_host;
+use discovery::client::CertValidator;
 use futures::SinkExt;
 use futures::StreamExt;
 use log::debug;
@@ -15,6 +17,7 @@ use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+use ::discovery::url::decode_rnsrv_url;
 use ::playback::sfx_player::SfxPlayer;
 
 use crate::forward_event_to_remote;
@@ -254,10 +257,15 @@ impl WebSocketDartBridge {
     }
 }
 
-pub async fn server_player_loop(url: &String) {
+pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
-    let url = url.to_owned();
+    let cert_validator = CertValidator::new(config_path).await?;
+
+    let hosts = decode_rnsrv_url(url).map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let host = select_best_host(hosts, cert_validator.into_client_config()).await?;
+
+    let url = format!("wss://{}:7863", host);
 
     tokio::spawn(async move {
         info!("Initializing bridge");
@@ -281,4 +289,6 @@ pub async fn server_player_loop(url: &String) {
 
         bridge.run(&url).await
     });
+
+    Ok(())
 }

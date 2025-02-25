@@ -23,9 +23,7 @@ use ::database::{
     entities::media_files,
     playing_item::MediaFileHandle,
 };
-use ::discovery::{
-    server::PermissionManager, protocol::DiscoveryService, client::CertValidator,
-};
+use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::playback::{
     player::{Playable, PlayingItem},
     sfx_player::SfxPlayer,
@@ -235,7 +233,10 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         }
                     }
                 }
-                OperationDestination::Remote => server_player_loop(media_library_path).await,
+                OperationDestination::Remote => {
+                    let config_path = &dart_signal.message.config_path;
+                    server_player_loop(media_library_path, config_path).await?
+                }
             }
         }
 

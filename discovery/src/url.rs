@@ -167,6 +167,25 @@ impl From<DecodeError> for UrlError {
     }
 }
 
+impl std::fmt::Display for UrlError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidProtocol => write!(f, "Invalid URL protocol: expected 'rnsrv://'"),
+            Self::InvalidFormat => write!(f, "Invalid URL format after protocol prefix"),
+            Self::DecodeError(e) => write!(f, "IP address decode error: {}", e),
+        }
+    }
+}
+
+impl std::error::Error for UrlError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::DecodeError(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
 /// Encodes a slice of IPv4 address strings into a RuneScape server URL format.
 ///
 /// This function takes a slice of IPv4 address strings, encodes each IP address using `encode_ipv4`,
