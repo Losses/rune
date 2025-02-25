@@ -31,7 +31,7 @@ pub async fn websocket_handler(
         .cloned();
 
     let auth_result = async {
-        let auth_key = auth_key.ok_or(StatusCode::UNAUTHORIZED)?;
+        let auth_key = auth_key.ok_or(StatusCode::BAD_REQUEST)?;
 
         if let Some(user) = state
             .permission_manager
