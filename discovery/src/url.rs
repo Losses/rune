@@ -186,7 +186,7 @@ impl From<DecodeError> for UrlError {
 ///
 /// * `EncodeError::InvalidIPv4`: If any of the IPv4 addresses in the input slice are invalid.
 ///   This error is propagated from the `encode_ipv4` function.
-pub fn encode_rune_url(ips: &[&str]) -> Result<String, EncodeError> {
+pub fn encode_rnsrv_url(ips: &[&str]) -> Result<String, EncodeError> {
     // Initialize a String buffer to build the URL efficiently.
     // Pre-allocate capacity to avoid reallocations, assuming 7 characters per IP and 8 for "rnsrv://".
     let mut buffer = String::with_capacity(7 * ips.len() + 8);
@@ -225,7 +225,7 @@ pub fn encode_rune_url(ips: &[&str]) -> Result<String, EncodeError> {
 ///   of 7-character encoded IPv4 addresses (i.e., length is not a multiple of 7).
 /// * `UrlError::DecodeError`: If any of the 7-character chunks within the URL fail to decode
 ///   into a valid IPv4 address. This wraps a `DecodeError` from the `decode_ipv4` function.
-pub fn decode_rune_url(url: &str) -> Result<Vec<String>, UrlError> {
+pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     // Check if the URL starts with the "rnsrv://" protocol prefix.
     // If not, return an `InvalidProtocol` error.
     if !url.starts_with("rnsrv://") {
