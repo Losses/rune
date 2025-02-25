@@ -25,22 +25,47 @@ class LibraryPathEntry {
   final String cleanPath;
   final OperationDestination source;
   final OperationDestination destination;
+  final String alias;
 
   const LibraryPathEntry._({
     required this.rawPath,
     required this.cleanPath,
     required this.source,
     required this.destination,
+    required this.alias,
   });
 
-  factory LibraryPathEntry(String path) {
+  factory LibraryPathEntry(String path, {String? alias}) {
     final (src, dest) = determineConnectionType(path);
     return LibraryPathEntry._(
       rawPath: path,
       cleanPath: _removePrefix(path),
       source: src,
       destination: dest,
+      alias: alias ?? _generateDefaultAlias(_removePrefix(path), src, dest),
     );
+  }
+
+  factory LibraryPathEntry.fromLegacy(String path) {
+    return LibraryPathEntry(path);
+  }
+
+  static String _generateDefaultAlias(
+    String cleanPath,
+    OperationDestination src,
+    OperationDestination dest,
+  ) {
+    if (src == OperationDestination.Local &&
+        dest == OperationDestination.Local) {
+      final segments = cleanPath.split('/');
+      return segments.lastWhere((s) => s.isNotEmpty, orElse: () => cleanPath);
+    }
+
+    final uri = Uri.tryParse(cleanPath);
+    if (uri != null && uri.host.isNotEmpty) {
+      return uri.host;
+    }
+    return cleanPath;
   }
 
   static String _removePrefix(String path) {
