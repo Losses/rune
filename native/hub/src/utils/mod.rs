@@ -235,7 +235,24 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                 }
                 OperationDestination::Remote => {
                     let config_path = &dart_signal.message.config_path;
-                    server_player_loop(media_library_path, config_path).await?
+                    match server_player_loop(media_library_path, config_path).await {
+                        Ok(_) => {
+                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                path: media_library_path.clone(),
+                                success: true,
+                                error: None,
+                                not_ready: false,
+                            });
+                        }
+                        Err(e) => {
+                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                path: media_library_path.clone(),
+                                success: false,
+                                error: Some(format!("{:#?}", e)),
+                                not_ready: false,
+                            });
+                        }
+                    }
                 }
             }
         }
