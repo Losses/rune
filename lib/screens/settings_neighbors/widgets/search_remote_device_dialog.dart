@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/l10n.dart';
@@ -7,13 +9,13 @@ import '../../../messages/all.dart';
 import 'discovered_devices_list.dart';
 
 class SearchRemoteDeviceDialog extends StatefulWidget {
-  final void Function(void) $close;
-  final void Function(DiscoveredDeviceMessage, bool?) onAnswered;
+  final void Function((DiscoveredDeviceMessage, bool?)?) $close;
+  final Completer<(DiscoveredDeviceMessage, bool?)?> completer;
 
   const SearchRemoteDeviceDialog({
     super.key,
     required this.$close,
-    required this.onAnswered,
+    required this.completer,
   });
 
   @override
@@ -60,7 +62,8 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
                 padding: EdgeInsetsDirectional.symmetric(horizontal: 12),
                 child: DiscoveredDevicesList(
                   onPaired: () => widget.$close(null),
-                  onAnswered: widget.onAnswered,
+                  onAnswered: (device, correct) =>
+                      {widget.completer.complete((device, correct))},
                 ),
               ),
             )

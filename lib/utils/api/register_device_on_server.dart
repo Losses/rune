@@ -3,11 +3,12 @@ import '../../constants/configurations.dart';
 
 import '../settings_manager.dart';
 
-registerDeviceOnServer() async {
+registerDeviceOnServer(List<String> hosts) async {
   final settingsManager = SettingsManager();
 
   final registerRequest = RegisterDeviceOnServerRequest(
     alias: await settingsManager.getValue(kDeviceAliasKey),
+    hosts: hosts,
   );
   registerRequest.sendSignalToRust();
 

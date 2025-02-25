@@ -577,8 +577,17 @@ impl Signal for RegisterDeviceOnServerRequest {
         let (fingerprint, cert, _) =
             generate_or_load_certificates(config_path, &certificate_id).await?;
 
-        let host =
-            select_best_host(req.hosts.clone(), validator.clone().into_client_config()).await?;
+        let host = match select_best_host(req.hosts.clone(), validator.clone().into_client_config())
+            .await
+        {
+            Ok(x) => x,
+            Err(e) => {
+                return Ok(Some(RegisterDeviceOnServerResponse {
+                    success: false,
+                    error: format!("{:#?}", e),
+                }))
+            }
+        };
 
         match register_device(
             &host,
