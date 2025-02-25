@@ -34,7 +34,7 @@ class FancyCoverPainter extends CustomPainter {
 
     final textStyle = TextStyle(
       color: color,
-      fontSize: scaledFontSize,
+      fontSize: max(scaledFontSize, 1),
       fontWeight: config.fontWeight,
       height: 1,
     );
