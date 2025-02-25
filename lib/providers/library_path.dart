@@ -131,6 +131,8 @@ class LibraryPathProvider with ChangeNotifier {
     if (_libraryHistory.add(entry)) {
       notifyListeners();
     }
+
+    _fileStorageService.storeFilePath(filePath, alias: alias);
   }
 
   Future<(bool, bool, String?)> setLibraryPath(
