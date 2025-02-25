@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
@@ -77,19 +75,16 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                       shrinkWrap: true,
                       itemCount: allOpenedFiles.length,
                       itemBuilder: (context, index) {
-                        final itemPath = allOpenedFiles[index].rawPath;
+                        final item = allOpenedFiles[index];
                         final isCurrentLibrary =
-                            itemPath == libraryPath.currentPath;
-                        final isSelectedLibrary = itemPath == selectedItem;
-
-                        final String fileName =
-                            File(itemPath).uri.pathSegments.last;
+                            item.rawPath == libraryPath.currentPath;
+                        final isSelectedLibrary = item.rawPath == selectedItem;
 
                         return ListTile.selectable(
                           title: SettingsTileTitle(
                             icon: Symbols.devices,
-                            title: fileName,
-                            subtitle: allOpenedFiles[index].cleanPath,
+                            title: item.alias,
+                            subtitle: item.cleanPath,
                             showActions: isSelectedLibrary,
                             actionsBuilder: (context) => Row(
                               children: [
@@ -99,14 +94,14 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                       : () async {
                                           try {
                                             await serverAvailabilityTest(
-                                              itemPath,
+                                              item.cleanPath,
                                             );
                                           } catch (e) {
                                             if (!context.mounted) return;
                                             showErrorDialog(
                                               context: context,
                                               title: s.unknownError,
-                                              subtitle: s.error(e.toString()),
+                                              errorMessage: e.toString(),
                                             );
                                             return;
                                           }
@@ -143,7 +138,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                           ),
                           selected: isSelectedLibrary,
                           onSelectionChange: (v) =>
-                              setState(() => selectedItem = itemPath),
+                              setState(() => selectedItem = item.rawPath),
                         );
                       },
                     ),
