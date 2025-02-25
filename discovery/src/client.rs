@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
+use futures::{future::select_all, FutureExt};
 use http_body_util::Empty;
 use hyper::{body::Bytes, http::Error as HttpError, Uri};
 use hyper_util::rt::TokioIo;
@@ -24,7 +25,10 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::{net::TcpStream, sync::broadcast};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, oneshot},
+};
 use tokio_rustls::TlsConnector;
 use webpki_roots::TLS_SERVER_ROOTS;
 use x509_parser::parse_x509_certificate;
@@ -772,4 +776,152 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
     let _ = connector.connect(sni, tcp).await?; // Establish TLS connection
 
     Ok(host.to_string()) // Return host string on successful connection
+}
+
+/// Selects the best host from a list of candidates by connecting to all of them in parallel
+/// and returning the first one that successfully establishes a TLS connection and validates
+/// the certificate.
+///
+/// This function attempts to connect to all provided hosts simultaneously and returns as soon
+/// as one host successfully connects. It cancels all remaining connection attempts once a
+/// successful connection is established.
+///
+/// # Arguments
+/// * `hosts` - A vector of host URLs to try connecting to.
+/// * `config` - The rustls `ClientConfig` to use for establishing the TLS connections.
+///
+/// # Returns
+/// `Result<String, anyhow::Error>` - A `Result` containing the URL of the first host that
+///                                   successfully connected, or an `anyhow::Error` if all
+///                                   connection attempts failed.
+///
+/// # Errors
+/// Returns `anyhow::Error` if:
+/// - All connection attempts fail.
+/// - No hosts are provided in the input vector.
+pub async fn select_best_host(hosts: Vec<String>, config: ClientConfig) -> Result<String> {
+    if hosts.is_empty() {
+        return Err(anyhow!("No hosts provided"));
+    }
+
+    // Create a shared ClientConfig for all connection attempts
+    let config = Arc::new(config);
+
+    // Create a channel for cancellation
+    let (tx, rx) = oneshot::channel();
+    let cancel_signal = rx.shared();
+
+    // Create a future for each host that can be cancelled
+    let mut connection_tasks = Vec::with_capacity(hosts.len());
+
+    for host in hosts {
+        let config_clone = config.clone();
+        let cancel_clone = cancel_signal.clone();
+
+        // Create a future that will try to connect to the host and can be cancelled
+        let task = async move {
+            let host_clone = host.clone();
+
+            // Create a cancellable connection future
+            let connection_future = async move {
+                match try_connect(&host_clone, (*config_clone).clone()).await {
+                    Ok(_) => Ok(host_clone),
+                    Err(e) => Err(anyhow!("Failed to connect to {}: {}", host_clone, e)),
+                }
+            };
+
+            // Race the connection future against the cancellation signal
+            match futures::future::select(connection_future.boxed(), cancel_clone).await {
+                futures::future::Either::Left((result, _)) => result,
+                futures::future::Either::Right((_, _)) => {
+                    // Connection was cancelled, return a dummy error
+                    Err(anyhow!("Connection to {} was cancelled", host))
+                }
+            }
+        };
+
+        connection_tasks.push(task.boxed());
+    }
+
+    // Use select_all to race all connection futures
+    let (result, _, remaining_tasks) = select_all(connection_tasks).await;
+
+    // Cancel all remaining tasks
+    let _ = tx.send(());
+
+    // Drop remaining futures to free resources
+    drop(remaining_tasks);
+
+    // Return the result of the first completed future
+    match result {
+        Ok(host) => Ok(host),
+        Err(e) => {
+            // If all tasks failed, aggregate the errors
+            Err(anyhow!(
+                "All connection attempts failed. First error: {}",
+                e
+            ))
+        }
+    }
+}
+
+/// Utility function to test multiple hosts and measure their response times.
+///
+/// This function connects to all provided hosts in parallel and reports their response times.
+/// Unlike `select_best_host`, this function does not cancel any connection attempts and waits
+/// for all of them to complete or fail.
+///
+/// # Arguments
+/// * `hosts` - A vector of host URLs to try connecting to.
+/// * `config` - The rustls `ClientConfig` to use for establishing the TLS connections.
+///
+/// # Returns
+/// `Result<Vec<(String, std::time::Duration)>, anyhow::Error>` - A `Result` containing a vector
+///                                                               of tuples with host URLs and their
+///                                                               response times, sorted by response time.
+///
+/// # Errors
+/// Returns `anyhow::Error` if no hosts are provided.
+pub async fn measure_host_response_times(
+    hosts: Vec<String>,
+    config: ClientConfig,
+) -> Result<Vec<(String, std::time::Duration)>> {
+    if hosts.is_empty() {
+        return Err(anyhow!("No hosts provided"));
+    }
+
+    let config = Arc::new(config);
+    let mut tasks = Vec::with_capacity(hosts.len());
+
+    for host in hosts {
+        let config_clone = config.clone();
+        let task = async move {
+            let start = std::time::Instant::now();
+            let result = try_connect(&host, (*config_clone).clone()).await;
+            let duration = start.elapsed();
+
+            (host, result, duration)
+        };
+
+        tasks.push(task);
+    }
+
+    let results = futures::future::join_all(tasks).await;
+
+    // Filter successful connections and sort by response time
+    let mut response_times: Vec<(String, std::time::Duration)> = results
+        .into_iter()
+        .filter_map(|(host, result, duration)| {
+            if result.is_ok() {
+                Some((host, duration))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Sort by response time (fastest first)
+    response_times.sort_by_key(|(_, duration)| *duration);
+
+    Ok(response_times)
 }
