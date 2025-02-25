@@ -39,10 +39,10 @@ class LibraryPathEntry {
     final (src, dest) = determineConnectionType(path);
     return LibraryPathEntry._(
       rawPath: path,
-      cleanPath: _removePrefix(path),
+      cleanPath: removePrefix(path),
       source: src,
       destination: dest,
-      alias: alias ?? _generateDefaultAlias(_removePrefix(path), src, dest),
+      alias: alias ?? _generateDefaultAlias(removePrefix(path), src, dest),
     );
   }
 
@@ -68,7 +68,7 @@ class LibraryPathEntry {
     return cleanPath;
   }
 
-  static String _removePrefix(String path) {
+  static String removePrefix(String path) {
     if (path.startsWith('@RR|')) return path.substring(4);
     if (path.startsWith('@LR|')) return path.substring(4);
     return path;
