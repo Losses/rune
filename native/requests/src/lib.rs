@@ -414,6 +414,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
+            request: "ServerAvailabilityTestRequest".to_string(),
+            response: Some("ServerAvailabilityTestResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
             response: Some("RegisterDeviceOnServerResponse".to_string()),
             local_only: false,

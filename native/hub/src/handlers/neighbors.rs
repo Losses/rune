@@ -4,13 +4,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
-use discovery::client::select_best_host;
 use log::info;
 use tokio::sync::RwLock;
 
-use ::discovery::client::{fetch_server_certificate, try_connect, CertValidator};
+use ::discovery::client::{fetch_server_certificate, select_best_host, try_connect, CertValidator};
 use ::discovery::protocol::DiscoveryService;
 use ::discovery::server::{PermissionManager, UserStatus};
+use ::discovery::url::decode_rnsrv_url;
 use ::discovery::utils::{DeviceInfo, DeviceType};
 use ::discovery::DiscoveryParams;
 
@@ -228,11 +228,11 @@ impl Signal for StartServerRequest {
             match server_manager.start(addr, discovery_params).await {
                 Ok(_) => Ok(Some(StartServerResponse {
                     success: true,
-                    error: "".into(),
+                    error: String::new(),
                 })),
                 Err(e) => Ok(Some(StartServerResponse {
                     success: false,
-                    error: e.to_string(),
+                    error: format!("{:#?}", e),
                 })),
             }
         }
@@ -269,7 +269,7 @@ impl Signal for StopServerRequest {
             })),
             Err(e) => Ok(Some(StopServerResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -362,9 +362,48 @@ impl Signal for RemoveTrustedClientRequest {
             })),
             Err(e) => Ok(Some(RemoveTrustedClientResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
+    }
+}
+
+impl ParamsExtractor for ServerAvailabilityTestRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for ServerAvailabilityTestRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = ServerAvailabilityTestResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let validator = Arc::new(validator.read().await.clone());
+
+        let hosts = match decode_rnsrv_url(&req.url) {
+            Ok(x) => x,
+            Err(e) => {
+                return Ok(Some(ServerAvailabilityTestResponse {
+                    success: false,
+                    error: format!("{:#?}", e),
+                }))
+            }
+        };
+        let host = select_best_host(hosts, validator.clone().into_client_config()).await;
+
+        Ok(Some(match host {
+            Ok(_) => ServerAvailabilityTestResponse {
+                success: true,
+                error: String::new(),
+            },
+            Err(e) => ServerAvailabilityTestResponse {
+                success: false,
+                error: format!("{:#?}", e),
+            },
+        }))
     }
 }
 
@@ -401,11 +440,11 @@ impl Signal for UpdateClientStatusRequest {
         {
             Ok(_) => Ok(Some(UpdateClientStatusResponse {
                 success: true,
-                error: "".to_owned(),
+                error: String::new(),
             })),
             Err(e) => Ok(Some(UpdateClientStatusResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -436,7 +475,7 @@ impl Signal for EditHostsRequest {
             })),
             Err(e) => Ok(Some(EditHostsResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -477,7 +516,7 @@ impl Signal for AddTrustedServerRequest {
             })),
             Err(e) => Ok(Some(AddTrustedServerResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -508,7 +547,7 @@ impl Signal for RemoveTrustedServerRequest {
             })),
             Err(e) => Ok(Some(RemoveTrustedServerResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -538,7 +577,8 @@ impl Signal for RegisterDeviceOnServerRequest {
         let (fingerprint, cert, _) =
             generate_or_load_certificates(config_path, &certificate_id).await?;
 
-        let host = select_best_host(req.hosts.clone(), validator.clone().into_client_config()).await?;
+        let host =
+            select_best_host(req.hosts.clone(), validator.clone().into_client_config()).await?;
 
         match register_device(
             &host,
@@ -548,14 +588,16 @@ impl Signal for RegisterDeviceOnServerRequest {
             req.alias.clone(),
             "RuneAudio".to_string(),
             "Desktop".to_string(),
-        ).await {
+        )
+        .await
+        {
             Ok(_) => Ok(Some(RegisterDeviceOnServerResponse {
                 success: true,
                 error: String::new(),
             })),
             Err(e) => Ok(Some(RegisterDeviceOnServerResponse {
                 success: false,
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }
@@ -629,7 +671,7 @@ impl Signal for FetchServerCertificateRequest {
             Err(e) => Ok(Some(FetchServerCertificateResponse {
                 success: false,
                 fingerprint: String::new(),
-                error: e.to_string(),
+                error: format!("{:#?}", e),
             })),
         }
     }

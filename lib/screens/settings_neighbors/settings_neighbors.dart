@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/api/server_availability_test_request.dart';
+import '../../utils/dialogs/information/error.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
@@ -47,6 +49,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final s = S.of(context);
     final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
 
     return PageContentFrame(
@@ -94,6 +97,20 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                   onPressed: isCurrentLibrary
                                       ? null
                                       : () async {
+                                          try {
+                                            await serverAvailabilityTest(
+                                              itemPath,
+                                            );
+                                          } catch (e) {
+                                            if (!context.mounted) return;
+                                            showErrorDialog(
+                                              context: context,
+                                              title: s.unknownError,
+                                              subtitle: s.error(e.toString()),
+                                            );
+                                            return;
+                                          }
+
                                           if (!context.mounted) return;
                                           await closeLibrary(context);
 
@@ -108,7 +125,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                           if (!context.mounted) return;
                                           $push('/library');
                                         },
-                                  child: Text(S.of(context).switchTo),
+                                  child: Text(s.switchTo),
                                 ),
                                 const SizedBox(width: 12),
                                 Button(
@@ -119,7 +136,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                             allOpenedFiles[index].rawPath,
                                           );
                                         },
-                                  child: Text(S.of(context).removeLibrary),
+                                  child: Text(s.removeLibrary),
                                 ),
                               ],
                             ),

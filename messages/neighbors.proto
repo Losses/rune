@@ -158,6 +158,16 @@ message RemoveTrustedServerResponse {
   string error = 2;
 }
 
+// [DART-SIGNAL]
+message ServerAvailabilityTestRequest {
+  string url = 1;
+}
+
+// [RUST-SIGNAL]
+message ServerAvailabilityTestResponse {
+  bool success = 1;
+  string error = 2;
+}
 
 // [DART-SIGNAL]
 message RegisterDeviceOnServerRequest {
