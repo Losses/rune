@@ -82,6 +82,10 @@ class SettingsTileTitle extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    if (showActions)
+                      const SizedBox(
+                        height: 6,
+                      ),
                     Text(
                       title,
                       style: theme.typography.body?.apply(fontSizeFactor: 1.1),
