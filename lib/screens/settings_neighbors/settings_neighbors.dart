@@ -9,7 +9,6 @@ import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
-import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
@@ -95,20 +94,6 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                   onPressed: isCurrentLibrary
                                       ? null
                                       : () async {
-                                          final result =
-                                              await testAndSelectLibraryMode(
-                                            context,
-                                            allOpenedFiles[index].rawPath,
-                                          );
-
-                                          if (result == null) return;
-                                          final (initialized, initializeMode) =
-                                              result;
-                                          if (!initialized &&
-                                              initializeMode == null) {
-                                            return;
-                                          }
-
                                           if (!context.mounted) return;
                                           await closeLibrary(context);
 
@@ -117,7 +102,7 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                           libraryPath.setLibraryPath(
                                             context,
                                             allOpenedFiles[index].rawPath,
-                                            initializeMode,
+                                            null,
                                           );
 
                                           if (!context.mounted) return;
