@@ -2,6 +2,8 @@ use std::error::Error;
 use std::fmt;
 use std::net::Ipv4Addr;
 
+use log::error;
+
 /// Represents errors that can occur during IPv4 address encoding.
 #[derive(Debug)]
 pub enum EncodeError {
@@ -248,6 +250,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     // Check if the URL starts with the "rnsrv://" protocol prefix.
     // If not, return an `InvalidProtocol` error.
     if !url.starts_with("rnsrv://") {
+        error!("Unable to parse: {}", url);
         return Err(UrlError::InvalidProtocol);
     }
 

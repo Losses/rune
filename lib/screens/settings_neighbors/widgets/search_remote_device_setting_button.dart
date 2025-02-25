@@ -60,7 +60,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
           showErrorDialog(
             context: context,
             title: s.unknownError,
-            subtitle: s.error(e.toString()),
+            errorMessage: e.toString(),
           );
         }
 
@@ -72,7 +72,7 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
           showErrorDialog(
             context: context,
             title: s.unknownError,
-            subtitle: s.error(e.toString()),
+            errorMessage: e.toString(),
           );
         }
 

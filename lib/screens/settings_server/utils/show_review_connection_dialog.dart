@@ -34,7 +34,7 @@ Future<void> showReviewConnectionDialog(
       showErrorDialog(
         context: context,
         title: s.unknownError,
-        subtitle: e.toString(),
+        errorMessage: e.toString(),
       );
     }
   }
