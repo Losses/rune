@@ -5,8 +5,7 @@ import '../../utils/file_storage/mac_secure_manager.dart';
 final SettingsManager settingsManager = SettingsManager();
 
 class FileStorageService {
-  static const openedFilesKey = 'library_path';
-
+  static const _openedFilesKey = 'library_path';
   static const _dataVersionKey = 'library_path_version';
   static const _currentDataVersion = 2;
 
@@ -17,21 +16,25 @@ class FileStorageService {
       await _migrateData(version);
     }
 
-    final raw = await settingsManager.getValue<List<dynamic>>(openedFilesKey);
+    final raw = await settingsManager.getValue<List<dynamic>>(_openedFilesKey);
+
     return List<Map<String, dynamic>>.from(raw ?? []);
   }
 
   Future<void> _migrateData(int oldVersion) async {
     if (oldVersion == 1) {
-      final legacyPaths =
-          await settingsManager.getValue<List<dynamic>>(openedFilesKey);
-      if (legacyPaths is List<String>) {
-        final migrated =
-            legacyPaths.map((path) => _migrateLegacyPath(path)).toList();
-        await settingsManager.setValue(openedFilesKey, migrated);
-      }
+      final List<String> legacyPaths =
+          ((await settingsManager.getValue<List<dynamic>>(_openedFilesKey)) ??
+                  [])
+              .map((x) => x.toString())
+              .toList();
+
+      final migrated =
+          legacyPaths.map((path) => _migrateLegacyPath(path)).toList();
+
+      await settingsManager.setValue(_openedFilesKey, migrated);
+      await settingsManager.setValue(_dataVersionKey, _currentDataVersion);
     }
-    await settingsManager.setValue(_dataVersionKey, _currentDataVersion);
   }
 
   Map<String, dynamic> _migrateLegacyPath(String path) {
@@ -57,7 +60,7 @@ class FileStorageService {
     });
 
     await MacSecureManager().saveBookmark(path);
-    await settingsManager.setValue(openedFilesKey, entries);
+    await settingsManager.setValue(_openedFilesKey, entries);
   }
 
   Future<void> renameFilePath(String oldPath, String newAlias) async {
@@ -66,7 +69,7 @@ class FileStorageService {
 
     if (index != -1) {
       entries[index]['alias'] = newAlias;
-      await settingsManager.setValue(openedFilesKey, entries);
+      await settingsManager.setValue(_openedFilesKey, entries);
     }
   }
 
@@ -87,13 +90,13 @@ class FileStorageService {
 
   // Clear all opened files
   Future<void> clearAllOpenedFiles() async {
-    await settingsManager.removeValue(openedFilesKey);
+    await settingsManager.removeValue(_openedFilesKey);
   }
 
   // Remove a specific file path
   Future<void> removeFilePath(String filePath) async {
     final entries = await _getOpenedFiles();
     final newEntries = entries.where((e) => e['path'] != filePath).toList();
-    await settingsManager.setValue(openedFilesKey, newEntries);
+    await settingsManager.setValue(_openedFilesKey, newEntries);
   }
 }

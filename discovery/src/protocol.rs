@@ -374,6 +374,7 @@ impl DiscoveryService {
         }
 
         info!("Starting device announcements");
+        info!("The device fingerprint is: {}", device_info.fingerprint);
         let cancel_token = CancellationToken::new();
         let cancel_token_clone = cancel_token.clone();
 
