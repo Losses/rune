@@ -8,7 +8,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use discovery::server::{User, UserStatus};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
@@ -17,6 +16,7 @@ use crate::{
     remote::{decode_message, encode_message},
     server::ServerState,
 };
+use discovery::server::{User, UserStatus};
 
 pub async fn websocket_handler(
     ws: WebSocketUpgrade,
