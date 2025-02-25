@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, sync::Arc};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -122,7 +122,7 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
     Ok(())
 }
 
-pub async fn inspect_host(host: &str, config: ClientConfig) -> Result<()> {
+pub async fn inspect_host(host: &str, config: Arc<ClientConfig>) -> Result<()> {
     let device_info = fetch_device_info(host, config).await?;
 
     println!("{}", format!("Device Info for {}", host).bold().yellow());
@@ -136,7 +136,7 @@ pub async fn inspect_host(host: &str, config: ClientConfig) -> Result<()> {
     Ok(())
 }
 
-pub async fn register_current_device(host: &str, config: ClientConfig) -> Result<()> {
+pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> Result<()> {
     let config_dir = get_config_dir()?;
     let certificate_id = get_or_generate_certificate_id(&config_dir).await?;
     let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)

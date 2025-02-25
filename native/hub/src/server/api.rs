@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{anyhow, Context, Result};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Method, Request, StatusCode, Uri};
@@ -8,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use super::utils::device::SanitizedDeviceInfo;
 
-pub async fn fetch_device_info(host: &str, config: ClientConfig) -> Result<SanitizedDeviceInfo> {
+pub async fn fetch_device_info(host: &str, config: Arc<ClientConfig>) -> Result<SanitizedDeviceInfo> {
     let uri = Uri::builder()
         .scheme("https")
         .authority(format!("{}:7863", host))
@@ -54,7 +56,7 @@ struct RegisterRequest {
 
 pub async fn register_device(
     host: &str,
-    config: ClientConfig,
+    config: Arc<ClientConfig>,
     public_key: String,
     fingerprint: String,
     alias: String,
@@ -118,7 +120,7 @@ pub struct CheckFingerprintResponse {
 /// Checks if a device fingerprint is trusted by the server
 pub async fn check_fingerprint(
     host: &str,
-    config: ClientConfig,
+    config: Arc<ClientConfig>,
     fingerprint: &str,
 ) -> Result<CheckFingerprintResponse> {
     let uri = Uri::builder()

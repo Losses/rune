@@ -14,7 +14,7 @@ use tokio_rustls::TlsConnector;
 pub async fn create_https_client(
     host: String,
     port: u16,
-    config: ClientConfig,
+    config: Arc<ClientConfig>,
 ) -> Result<hyper::client::conn::http1::SendRequest<UnsyncBoxBody<Bytes, anyhow::Error>>> {
     let host = host.to_string();
     let tcp_stream = TcpStream::connect((host.clone(), port))
@@ -24,7 +24,7 @@ pub async fn create_https_client(
     let server_name =
         ServerName::try_from(host.clone()).map_err(|_| anyhow!("Invalid server name: {}", host))?;
 
-    let connector = TlsConnector::from(Arc::new(config));
+    let connector = TlsConnector::from(config);
     let tls_stream = connector
         .connect(server_name, tcp_stream)
         .await

@@ -582,7 +582,7 @@ impl Signal for RegisterDeviceOnServerRequest {
 
         match register_device(
             &host,
-            validator.into_client_config(),
+            Arc::new(validator.into_client_config()),
             cert,
             fingerprint,
             req.alias.clone(),

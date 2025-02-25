@@ -264,12 +264,12 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
         }
         RemoteCmd::Inspect { host } => {
             let client_config = validator.into_client_config();
-            inspect_host(&host, client_config).await
+            inspect_host(&host, Arc::new(client_config)).await
         }
 
         RemoteCmd::Register { host } => {
             let client_config = validator.into_client_config();
-            register_current_device(&host, client_config).await
+            register_current_device(&host, Arc::new(client_config)).await
         }
 
         RemoteCmd::SelfInfo => print_device_information().await,

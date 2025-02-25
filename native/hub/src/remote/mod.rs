@@ -1,9 +1,8 @@
 #[macro_use]
 mod remote_request;
 
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
-use urlencoding::encode;
 use anyhow::{bail, Result};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
@@ -14,6 +13,7 @@ use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage, Connector,
 };
 use tokio_util::sync::CancellationToken;
+use urlencoding::encode;
 use uuid::Uuid;
 
 use ::discovery::{
@@ -22,7 +22,6 @@ use ::discovery::{
 };
 use ::playback::sfx_player::SfxPlayer;
 
-use crate::forward_event_to_remote;
 use crate::implement_rinf_dart_signal_trait;
 use crate::messages::*;
 use crate::register_remote_handlers;
@@ -30,6 +29,7 @@ use crate::server::generate_or_load_certificates;
 use crate::utils::RinfRustSignal;
 use crate::CrashResponse;
 use crate::SfxPlayRequest;
+use crate::{forward_event_to_remote, server::api::check_fingerprint};
 
 pub trait RinfDartSignal: ProstMessage {
     fn name(&self) -> String;
@@ -124,31 +124,15 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run<P: AsRef<Path>>(
+    pub async fn run(
         &mut self,
         url: &str,
         config: Arc<ClientConfig>,
-        config_path: P,
-        alias: &str,
+        fingerprint: &str,
     ) -> Result<()> {
         let raw_url = url;
 
-        let fingerprint = match generate_or_load_certificates(&config_path, alias).await {
-            Ok((fingerprint, _, _)) => fingerprint,
-            Err(e) => {
-                let error_msg = format!("Failed to load certificate: {}", e);
-                error!("{}", error_msg);
-
-                CrashResponse {
-                    detail: error_msg.clone(),
-                }
-                .send_signal_to_dart();
-
-                bail!(error_msg)
-            }
-        };
-
-        let url = format!("{}/ws?fingerprint={}", url, encode(&fingerprint));
+        let url = format!("{}/ws?fingerprint={}", url, encode(fingerprint));
 
         info!("Connecting to {}", raw_url);
 
@@ -278,12 +262,18 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
     let hosts = decode_rnsrv_url(url).map_err(|e| anyhow::anyhow!(e.to_string()))?;
     let host = select_best_host(hosts, cert_validator.clone().into_client_config()).await?;
 
-    let url = format!("wss://{}:7863", host);
-
     let client_config = Arc::new(cert_validator.clone().into_client_config());
 
-    let config_path_clone = config_path.to_string();
-    let alias_clone = alias.to_string();
+    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, alias).await?;
+
+    let result = check_fingerprint(&host, client_config.clone(), &fingerprint).await?;
+
+    if !result.is_trusted {
+        bail!("This client is not trusted by the server");
+    }
+
+    let url = format!("wss://{}:7863", host);
+
     tokio::spawn(async move {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
@@ -304,7 +294,7 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
             PlaylistUpdate
         );
 
-        bridge.run(&url, client_config, config_path_clone, &alias_clone).await
+        bridge.run(&url, client_config, &fingerprint).await
     });
 
     Ok(())
