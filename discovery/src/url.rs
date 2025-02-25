@@ -252,7 +252,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     }
 
     // Extract the encoded part of the URL, which is after the "rnsrv://" prefix.
-    let encoded = &url[7..];
+    let encoded = &url[8..];
     // Check if the length of the encoded part is a multiple of 7.
     // If not, the format is invalid, return `InvalidFormat` error.
     if encoded.len() % 7 != 0 {
