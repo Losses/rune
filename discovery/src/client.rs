@@ -471,7 +471,8 @@ impl ServerCertVerifier for CertValidator {
             Ok(ServerCertVerified::assertion()) // Certificate is trusted based on fingerprint
         } else {
             warn!(
-                "This server is not trust in the local cert list, falling back to the buildin one"
+                "{}({}) is not trust in the local cert list, falling back to the buildin one",
+                server_name.to_str(), fingerprint
             );
             self.inner_verifier.verify_server_cert(
                 // Fallback to WebPKI verifier if not fingerprint-trusted
