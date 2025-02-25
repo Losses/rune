@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../providers/library_path.dart';
 import '../../../utils/api/add_trusted_server.dart';
+import '../../../utils/api/register_device_on_server.dart';
+import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
@@ -12,6 +14,7 @@ import '../widgets/search_remote_device_dialog.dart';
 
 void showSearchRemoteDeviceDialog(BuildContext context) {
   final libraryPath = Provider.of<LibraryPathProvider>(context, listen: false);
+  final s = S.of(context);
 
   $showModal<void>(
     context,
@@ -19,8 +22,6 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
       $close: $close,
       onAnswered: (device, result) async {
         if (result == false) {
-          final s = S.of(context);
-
           showInformationDialog(
             context: context,
             title: s.pairingFailureTitle,
@@ -32,7 +33,30 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
             '@RR|${encodeRnSrvUrl(device.ips)}',
             device.alias,
           );
-          await addTrustedServer(device.fingerprint, device.ips);
+
+          try {
+            await addTrustedServer(device.fingerprint, device.ips);
+          } catch (e) {
+            if (!context.mounted) return;
+
+            showErrorDialog(
+              context: context,
+              title: s.unknownError,
+              subtitle: s.error(e.toString()),
+            );
+          }
+
+          try {
+            await registerDeviceOnServer();
+          } catch (e) {
+            if (!context.mounted) return;
+
+            showErrorDialog(
+              context: context,
+              title: s.unknownError,
+              subtitle: s.error(e.toString()),
+            );
+          }
         }
       },
     ),
