@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../providers/library_path.dart';
 import '../../../utils/dialogs/information/information.dart';
+import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
 import '../../../utils/router/navigation.dart';
 
@@ -27,7 +28,8 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
         } else if (result == true) {
           libraryPath.addLibraryPath(
             context,
-            '@RR|wss://${device.ips.first}:7863',
+            '@RR|${encodeRnSrvUrl(device.ips)}',
+            device.alias,
           );
         }
       },

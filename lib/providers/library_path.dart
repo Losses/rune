@@ -125,8 +125,8 @@ class LibraryPathProvider with ChangeNotifier {
 
   Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
-  addLibraryPath(BuildContext? context, String filePath) async {
-    final entry = LibraryPathEntry(filePath);
+  addLibraryPath(BuildContext? context, String filePath, String alias) async {
+    final entry = LibraryPathEntry(filePath, alias: alias);
 
     if (_libraryHistory.add(entry)) {
       notifyListeners();
