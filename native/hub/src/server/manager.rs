@@ -13,7 +13,6 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
-use discovery::client::parse_certificate;
 use log::{error, info};
 use prost::Message;
 use rand::distributions::{Alphanumeric, DistString};
@@ -23,7 +22,7 @@ use tower_governor::{
 };
 
 use ::database::actions::cover_art::COVER_TEMP_DIR;
-use ::discovery::{ssl::generate_self_signed_cert, DiscoveryParams};
+use ::discovery::{client::parse_certificate, ssl::generate_self_signed_cert, DiscoveryParams};
 
 use crate::{
     messages::*,

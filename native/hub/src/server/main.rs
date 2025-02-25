@@ -20,8 +20,7 @@ use hub::{
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
-use ::discovery::protocol::DiscoveryService;
-use ::discovery::{client::CertValidator, server::PermissionManager};
+use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
 use ::playback::{player::Player, sfx_player::SfxPlayer};
 use ::scrobbling::manager::ScrobblingManager;
 
