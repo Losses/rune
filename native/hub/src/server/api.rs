@@ -4,7 +4,7 @@ use hyper::{body::Bytes, Method, Request, StatusCode, Uri};
 use rustls::ClientConfig;
 
 use discovery::request::{create_https_client, send_http_request};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::utils::device::SanitizedDeviceInfo;
 
@@ -106,4 +106,61 @@ pub async fn register_device(
         ));
     }
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CheckFingerprintResponse {
+    pub is_trusted: bool,
+    pub status: String,
+    pub message: String,
+}
+
+/// Checks if a device fingerprint is trusted by the server
+pub async fn check_fingerprint(
+    host: &str,
+    config: ClientConfig,
+    fingerprint: &str,
+) -> Result<CheckFingerprintResponse> {
+    let uri = Uri::builder()
+        .scheme("https")
+        .authority(format!("{}:7863", host))
+        .path_and_query(format!("/check-fingerprint?fingerprint={}", fingerprint))
+        .build()
+        .context("Invalid URL format")?;
+
+    let mut sender = create_https_client(host.to_owned(), 7863, config)
+        .await
+        .context("Failed to create HTTPS client")?;
+
+    let req = Request::builder()
+        .uri(uri)
+        .header("Accept", "application/json")
+        .body(Empty::<Bytes>::new())
+        .context("Failed to build request")?;
+
+    let res = send_http_request(&mut sender, req)
+        .await
+        .context("Failed to execute request")?;
+
+    let status = res.status();
+    let body = res
+        .into_body()
+        .collect()
+        .await
+        .context("Failed to read response body")?
+        .to_bytes();
+
+    if status != StatusCode::OK {
+        let error_message = String::from_utf8_lossy(&body);
+        return Err(anyhow::anyhow!(
+            "Fingerprint check failed with status code {}: {}",
+            status,
+            error_message
+        ));
+    }
+
+    let response: CheckFingerprintResponse =
+        serde_json::from_slice(&body).context("Failed to parse fingerprint check response")?;
+
+    Ok(response)
 }

@@ -28,8 +28,7 @@ use crate::{
     messages::*,
     server::{
         http::{
-            device_info::device_info_handler, file::file_handler, ping::ping_handler,
-            register::register_handler, websocket::websocket_handler,
+            check_fingerprint::check_fingerprint_handler, device_info::device_info_handler, file::file_handler, ping::ping_handler, register::register_handler, websocket::websocket_handler
         },
         AppState, ServerState, WebSocketService,
     },
@@ -115,6 +114,7 @@ impl ServerManager {
             .merge(register_route)
             .route("/ping", get(ping_handler))
             .route("/ws", get(websocket_handler))
+            .route("/check-fingerprint", get(check_fingerprint_handler))
             .route("/files/{*file_path}", get(file_handler))
             .route("/device-info", get(device_info_handler))
             .with_state(server_state);
