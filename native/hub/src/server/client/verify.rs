@@ -5,14 +5,12 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
 use hub::server::{
-    generate_or_load_certificates, get_or_generate_certificate_id, utils::path::get_config_dir,
+    api::{fetch_device_info, register_device}, generate_or_load_certificates, get_or_generate_certificate_id, utils::path::get_config_dir
 };
 use log::info;
 
 use discovery::client::{fetch_server_certificate, parse_certificate};
 use rustls::ClientConfig;
-
-use crate::api::{fetch_device_info, register_device};
 
 #[derive(Debug)]
 enum VerificationResult {

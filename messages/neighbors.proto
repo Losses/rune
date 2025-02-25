@@ -158,6 +158,19 @@ message RemoveTrustedServerResponse {
   string error = 2;
 }
 
+
+// [DART-SIGNAL]
+message RegisterDeviceOnServerRequest {
+  string alias = 1;
+  repeated string hosts = 2;
+}
+
+// [RUST-SIGNAL]
+message RegisterDeviceOnServerResponse {
+  bool success = 1;
+  string error = 2;
+}
+
 // [RUST-SIGNAL]
 message TrustListUpdated {
   repeated TrustedServerCertificate certificates = 1;

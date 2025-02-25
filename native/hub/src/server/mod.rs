@@ -1,5 +1,6 @@
 #[macro_use]
 mod server_request;
+pub mod api;
 pub mod http;
 mod manager;
 pub mod utils;

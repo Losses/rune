@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use discovery::client::select_best_host;
 use log::info;
 use tokio::sync::RwLock;
 
@@ -13,6 +14,7 @@ use ::discovery::server::{PermissionManager, UserStatus};
 use ::discovery::utils::{DeviceInfo, DeviceType};
 use ::discovery::DiscoveryParams;
 
+use crate::server::api::register_device;
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Signal};
@@ -505,6 +507,53 @@ impl Signal for RemoveTrustedServerRequest {
                 error: String::new(),
             })),
             Err(e) => Ok(Some(RemoveTrustedServerResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for RegisterDeviceOnServerRequest {
+    type Params = (Arc<String>, Arc<RwLock<CertValidator>>);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.config_path),
+            Arc::clone(&all_params.cert_validator),
+        )
+    }
+}
+
+impl Signal for RegisterDeviceOnServerRequest {
+    type Params = (Arc<String>, Arc<RwLock<CertValidator>>);
+    type Response = RegisterDeviceOnServerResponse;
+
+    async fn handle(&self, config: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let (config_path, validator) = config;
+        let validator = Arc::new(validator.read().await.clone());
+        let config_path = config_path.to_string();
+
+        let certificate_id = req.alias.clone();
+        let (fingerprint, cert, _) =
+            generate_or_load_certificates(config_path, &certificate_id).await?;
+
+        let host = select_best_host(req.hosts.clone(), validator.clone().into_client_config()).await?;
+
+        match register_device(
+            &host,
+            validator.into_client_config(),
+            cert,
+            fingerprint,
+            req.alias.clone(),
+            "RuneAudio".to_string(),
+            "Desktop".to_string(),
+        ).await {
+            Ok(_) => Ok(Some(RegisterDeviceOnServerResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(RegisterDeviceOnServerResponse {
                 success: false,
                 error: e.to_string(),
             })),

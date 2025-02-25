@@ -1,13 +1,8 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Context, Result};
-use http_body_util::{BodyExt, Empty, Full};
-use hyper::{body::Bytes, Method, Request, StatusCode, Uri};
-use rustls::ClientConfig;
+use anyhow::{anyhow, Result};
 
-use discovery::request::{create_https_client, send_http_request};
-use hub::{messages::*, server::utils::device::SanitizedDeviceInfo};
-use serde::Serialize;
+use hub::messages::*;
 
 use crate::{
     cli::{OperateMode, PlaybackMode},
@@ -181,104 +176,4 @@ pub async fn send_set_playback_mode_request(
     connection
         .request_simple("SetPlaybackModeRequest", request)
         .await
-}
-
-pub async fn fetch_device_info(host: &str, config: ClientConfig) -> Result<SanitizedDeviceInfo> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{}:7863", host))
-        .path_and_query("/device-info")
-        .build()
-        .context("Invalid URL format")?;
-
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
-        .await
-        .context("Failed to create HTTPS client")?;
-
-    let req = Request::builder()
-        .uri(uri)
-        .header("Accept", "application/json")
-        .body(Empty::<Bytes>::new())
-        .context("Failed to build request")?;
-
-    let res = send_http_request(&mut sender, req)
-        .await
-        .context("Failed to execute request")?;
-
-    let body = res
-        .into_body()
-        .collect()
-        .await
-        .context("Failed to read response body")?
-        .to_bytes();
-
-    let device_info: SanitizedDeviceInfo =
-        serde_json::from_slice(&body).context("Failed to parse device info")?;
-
-    Ok(device_info)
-}
-
-#[derive(Debug, Serialize)]
-struct RegisterRequest {
-    public_key: String,
-    fingerprint: String,
-    alias: String,
-    device_model: String,
-    device_type: String,
-}
-
-pub async fn register_device(
-    host: &str,
-    config: ClientConfig,
-    public_key: String,
-    fingerprint: String,
-    alias: String,
-    device_model: String,
-    device_type: String,
-) -> Result<()> {
-    let uri = Uri::builder()
-        .scheme("https")
-        .authority(format!("{}:7863", host))
-        .path_and_query("/register")
-        .build()
-        .context("Invalid URL format")?;
-
-    let mut sender = create_https_client(host.to_owned(), 7863, config)
-        .await
-        .context("Failed to create HTTPS client")?;
-
-    let register_request = RegisterRequest {
-        public_key,
-        fingerprint,
-        alias,
-        device_model,
-        device_type,
-    };
-
-    let json_body =
-        serde_json::to_vec(&register_request).context("Failed to serialize register request")?;
-
-    let req = Request::builder()
-        .uri(uri)
-        .method(Method::POST)
-        .header("Content-Type", "application/json")
-        .body(Full::new(Bytes::from(json_body)))
-        .context("Failed to build request")?;
-
-    let response = send_http_request(&mut sender, req)
-        .await
-        .context("Failed to execute request")?;
-
-    let status = response.status();
-    let error_body = response.into_body().collect().await?.to_bytes();
-
-    if status != StatusCode::CREATED {
-        let error_message = String::from_utf8_lossy(&error_body);
-        return Err(anyhow!(
-            "Registration failed with status code {}: {}",
-            status,
-            error_message
-        ));
-    }
-    Ok(())
 }
