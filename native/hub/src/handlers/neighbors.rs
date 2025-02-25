@@ -488,7 +488,7 @@ impl Signal for ConnectRequest {
             let validator = Arc::clone(&validator);
             let host = host.clone();
             tokio::spawn(async move {
-                try_connect(&host, validator.read().await.clone().into_client_config()).await
+                try_connect(&host, Arc::new(validator.read().await.clone()).into_client_config()).await
             })
         });
 

@@ -386,10 +386,10 @@ impl CertValidator {
     ///
     /// # Returns
     /// `ClientConfig` - A rustls `ClientConfig` configured to use this `CertValidator`.
-    pub fn into_client_config(self) -> ClientConfig {
+    pub fn into_client_config(self: Arc<Self>) -> ClientConfig {
         ClientConfig::builder()
             .dangerous() // Dangerous because it bypasses normal CA verification for fingerprints
-            .with_custom_certificate_verifier(Arc::new(self)) // Set the custom certificate verifier
+            .with_custom_certificate_verifier(self) // Set the custom certificate verifier
             .with_no_client_auth() // Disable client authentication
     }
 

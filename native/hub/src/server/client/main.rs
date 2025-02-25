@@ -218,7 +218,7 @@ async fn handle_discovery_command(cmd: DiscoveryCmd) -> Result<()> {
 
 async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
     let config_dir = get_config_dir()?;
-    let validator = CertValidator::new(config_dir.clone()).await?;
+    let validator = Arc::new(CertValidator::new(config_dir.clone()).await?);
 
     match cmd {
         RemoteCmd::Ls => {

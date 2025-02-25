@@ -4,20 +4,21 @@ mod remote_request;
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use discovery::client::select_best_host;
-use discovery::client::CertValidator;
-use futures::SinkExt;
-use futures::StreamExt;
-use log::debug;
-use log::{error, info};
+use futures::{SinkExt, StreamExt};
+use log::{debug, error, info};
 use prost::Message as ProstMessage;
+use rustls::ClientConfig;
 use tokio::sync::Mutex;
-use tokio_tungstenite::connect_async;
-use tokio_tungstenite::tungstenite::protocol::Message as TungsteniteMessage;
+use tokio_tungstenite::{
+    connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage, Connector,
+};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use ::discovery::url::decode_rnsrv_url;
+use ::discovery::{
+    client::{select_best_host, CertValidator},
+    url::decode_rnsrv_url,
+};
 use ::playback::sfx_player::SfxPlayer;
 
 use crate::forward_event_to_remote;
@@ -121,13 +122,20 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(&mut self, url: &str) -> Result<()> {
+    pub async fn run(&mut self, url: &str, config: Arc<ClientConfig>) -> Result<()> {
         let raw_url = url;
         let url = format!("{}/ws", url);
 
         info!("Connecting to {}", url);
 
-        match connect_async(url.clone()).await {
+        match connect_async_tls_with_config(
+            url.clone(),
+            None,
+            false,
+            Some(Connector::Rustls(config)),
+        )
+        .await
+        {
             Ok((ws_stream, _)) => {
                 info!("WebSocket connection established");
 
@@ -260,12 +268,14 @@ impl WebSocketDartBridge {
 pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
-    let cert_validator = CertValidator::new(config_path).await?;
+    let cert_validator = Arc::new(CertValidator::new(config_path).await?);
 
     let hosts = decode_rnsrv_url(url).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let host = select_best_host(hosts, cert_validator.into_client_config()).await?;
+    let host = select_best_host(hosts, cert_validator.clone().into_client_config()).await?;
 
     let url = format!("wss://{}:7863", host);
+
+    let client_config = Arc::new(cert_validator.clone().into_client_config());
 
     tokio::spawn(async move {
         info!("Initializing bridge");
@@ -287,7 +297,7 @@ pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
             PlaylistUpdate
         );
 
-        bridge.run(&url).await
+        bridge.run(&url, client_config).await
     });
 
     Ok(())
