@@ -123,7 +123,6 @@ impl WebSocketDartBridge {
     }
 
     pub async fn run(&mut self, url: &str, config: Arc<ClientConfig>) -> Result<()> {
-        let raw_url = url;
         let url = format!("{}/ws", url);
 
         info!("Connecting to {}", url);
@@ -138,16 +137,6 @@ impl WebSocketDartBridge {
         {
             Ok((ws_stream, _)) => {
                 info!("WebSocket connection established");
-
-                SetMediaLibraryPathResponse {
-                    path: raw_url.to_owned(),
-                    success: true,
-                    error: None,
-                    not_ready: false,
-                }
-                .send_signal_to_dart();
-
-                info!("Connection success signal sent");
 
                 let (write, mut read) = ws_stream.split();
                 let write = Arc::new(Mutex::new(write));
@@ -249,13 +238,7 @@ impl WebSocketDartBridge {
                 let error_msg = format!("Failed to connect: {}", e);
                 error!("{}", error_msg);
 
-                SetMediaLibraryPathResponse {
-                    path: raw_url.to_owned(),
-                    success: false,
-                    error: Some(format!("{:#?}", e)),
-                    not_ready: false,
-                }
-                .send_signal_to_dart();
+                CrashResponse { detail: error_msg }.send_signal_to_dart();
 
                 info!("Connection failed signal sent");
 
