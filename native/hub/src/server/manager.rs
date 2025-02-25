@@ -213,10 +213,12 @@ fn generate_random_alias() -> String {
     format!("R-{}", suffix)
 }
 
-pub async fn generate_or_load_certificates(
-    config_path: &Path,
+pub async fn generate_or_load_certificates<P: AsRef<Path>>(
+    config_path: P,
     certificate_id: &str,
 ) -> Result<(String, String, String)> {
+    let config_path: &Path = config_path.as_ref();
+
     let cert_path = config_path.join("certificate.pem");
     let key_path = config_path.join("private_key.pem");
 

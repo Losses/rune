@@ -71,7 +71,14 @@ pub async fn websocket_handler(
             ws.on_upgrade(|socket| handle_socket(socket, state, user))
         }
         Err(code) => {
-            warn!("Unauthorized connection attempt from {}", addr);
+            warn!(
+                "Unauthorized connection attempt from {}({})",
+                addr,
+                match params.get("fingerprint") {
+                    Some(x) => x,
+                    None => "",
+                }
+            );
             code.into_response()
         }
     }

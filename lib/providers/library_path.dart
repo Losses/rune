@@ -125,7 +125,8 @@ class LibraryPathProvider with ChangeNotifier {
 
   Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
 
-  void addLibraryPath(BuildContext? context, String filePath, String alias) async {
+  void addLibraryPath(
+      BuildContext? context, String filePath, String alias) async {
     final entry = LibraryPathEntry(filePath, alias: alias);
 
     if (_libraryHistory.add(entry)) {
@@ -145,6 +146,10 @@ class LibraryPathProvider with ChangeNotifier {
 
     var (success, notReady, error) =
         await setMediaLibraryPath(filePath, selectedMode);
+
+    print(success);
+    print(notReady);
+    print(error);
 
     if (notReady && context == null) {
       return (false, true, null);

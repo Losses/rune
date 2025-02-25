@@ -1,9 +1,10 @@
 #[macro_use]
 mod remote_request;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, path::Path, sync::Arc};
 
-use anyhow::Result;
+use urlencoding::encode;
+use anyhow::{bail, Result};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use prost::Message as ProstMessage;
@@ -25,6 +26,7 @@ use crate::forward_event_to_remote;
 use crate::implement_rinf_dart_signal_trait;
 use crate::messages::*;
 use crate::register_remote_handlers;
+use crate::server::generate_or_load_certificates;
 use crate::utils::RinfRustSignal;
 use crate::CrashResponse;
 use crate::SfxPlayRequest;
@@ -122,10 +124,33 @@ impl WebSocketDartBridge {
         }
     }
 
-    pub async fn run(&mut self, url: &str, config: Arc<ClientConfig>) -> Result<()> {
-        let url = format!("{}/ws", url);
+    pub async fn run<P: AsRef<Path>>(
+        &mut self,
+        url: &str,
+        config: Arc<ClientConfig>,
+        config_path: P,
+        alias: &str,
+    ) -> Result<()> {
+        let raw_url = url;
 
-        info!("Connecting to {}", url);
+        let fingerprint = match generate_or_load_certificates(&config_path, alias).await {
+            Ok((fingerprint, _, _)) => fingerprint,
+            Err(e) => {
+                let error_msg = format!("Failed to load certificate: {}", e);
+                error!("{}", error_msg);
+
+                CrashResponse {
+                    detail: error_msg.clone(),
+                }
+                .send_signal_to_dart();
+
+                bail!(error_msg)
+            }
+        };
+
+        let url = format!("{}/ws?fingerprint={}", url, encode(&fingerprint));
+
+        info!("Connecting to {}", raw_url);
 
         match connect_async_tls_with_config(
             url.clone(),
@@ -239,16 +264,13 @@ impl WebSocketDartBridge {
                 error!("{}", error_msg);
 
                 CrashResponse { detail: error_msg }.send_signal_to_dart();
-
-                info!("Connection failed signal sent");
-
                 Err(e.into())
             }
         }
     }
 }
 
-pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
+pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
     let cert_validator = Arc::new(CertValidator::new(config_path).await?);
@@ -260,6 +282,8 @@ pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
 
     let client_config = Arc::new(cert_validator.clone().into_client_config());
 
+    let config_path_clone = config_path.to_string();
+    let alias_clone = alias.to_string();
     tokio::spawn(async move {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
@@ -280,7 +304,7 @@ pub async fn server_player_loop(url: &str, config_path: &str) -> Result<()> {
             PlaylistUpdate
         );
 
-        bridge.run(&url, client_config).await
+        bridge.run(&url, client_config, config_path_clone, &alias_clone).await
     });
 
     Ok(())

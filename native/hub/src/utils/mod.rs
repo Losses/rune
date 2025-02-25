@@ -148,6 +148,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
         while let Some(dart_signal) = receiver.recv().await {
             let media_library_path = &dart_signal.message.path;
             let config_path = &dart_signal.message.config_path;
+            let alias = &dart_signal.message.alias;
 
             match &dart_signal.message.hosted_on() {
                 OperationDestination::Local => {
@@ -235,7 +236,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                 }
                 OperationDestination::Remote => {
                     let config_path = &dart_signal.message.config_path;
-                    match server_player_loop(media_library_path, config_path).await {
+                    match server_player_loop(media_library_path, config_path, alias).await {
                         Ok(_) => {
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.clone(),

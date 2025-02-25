@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use database::connection::{check_library_state, LibraryState, MainDbConnection};
+use log::info;
 
 use crate::{
     messages::*,
@@ -29,6 +30,8 @@ impl Signal for TestLibraryInitializedRequest {
     ) -> Result<Option<Self::Response>> {
         let media_library_path = dart_signal.path.clone();
         let test_result = check_library_state(&media_library_path);
+
+        info!("Testing the library path {}", media_library_path);
 
         let result = match test_result {
             Ok(state) => match &state {
