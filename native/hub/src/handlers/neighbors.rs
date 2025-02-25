@@ -440,6 +440,47 @@ impl Signal for EditHostsRequest {
     }
 }
 
+impl ParamsExtractor for AddTrustedServerRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for AddTrustedServerRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = AddTrustedServerResponse;
+
+    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+        let certificate = match &req.certificate {
+            Some(x) => x,
+            None => {
+                return Ok(Some(AddTrustedServerResponse {
+                    success: true,
+                    error: String::new(),
+                }))
+            }
+        };
+
+        let result = validator
+            .write()
+            .await
+            .add_trusted_domains(&certificate.hosts, certificate.fingerprint.clone())
+            .await;
+        match result {
+            Ok(_) => Ok(Some(AddTrustedServerResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(AddTrustedServerResponse {
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
 impl ParamsExtractor for RemoveTrustedServerRequest {
     type Params = Arc<RwLock<CertValidator>>;
 
@@ -488,7 +529,11 @@ impl Signal for ConnectRequest {
             let validator = Arc::clone(&validator);
             let host = host.clone();
             tokio::spawn(async move {
-                try_connect(&host, Arc::new(validator.read().await.clone()).into_client_config()).await
+                try_connect(
+                    &host,
+                    Arc::new(validator.read().await.clone()).into_client_config(),
+                )
+                .await
             })
         });
 

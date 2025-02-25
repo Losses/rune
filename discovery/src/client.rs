@@ -474,6 +474,7 @@ impl ServerCertVerifier for CertValidator {
                 "{}({}) is not trust in the local cert list, falling back to the buildin one",
                 server_name.to_str(), fingerprint
             );
+            println!("{:#?}", entries);
             self.inner_verifier.verify_server_cert(
                 // Fallback to WebPKI verifier if not fingerprint-trusted
                 end_entity,

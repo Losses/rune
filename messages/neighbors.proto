@@ -131,6 +131,22 @@ message EditHostsResponse {
   string error = 2;
 }
 
+message TrustedServerCertificate {
+  string fingerprint = 1;
+  repeated string hosts = 2;
+}
+
+// [DART-SIGNAL]
+message AddTrustedServerRequest {
+  TrustedServerCertificate certificate = 1;
+}
+
+// [RUST-SIGNAL]
+message AddTrustedServerResponse {
+  bool success = 1;
+  string error = 2;
+}
+
 // [DART-SIGNAL]
 message RemoveTrustedServerRequest {
   string fingerprint = 1;
@@ -140,11 +156,6 @@ message RemoveTrustedServerRequest {
 message RemoveTrustedServerResponse {
   bool success = 1;
   string error = 2;
-}
-
-message TrustedServerCertificate {
-  string fingerprint = 1;
-  repeated string hosts = 2;
 }
 
 // [RUST-SIGNAL]

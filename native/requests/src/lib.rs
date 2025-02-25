@@ -389,6 +389,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: false,
         },
         RequestResponse {
+            request: "AddTrustedServerRequest".to_string(),
+            response: Some("AddTrustedServerResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
             response: Some("RemoveTrustedClientResponse".to_string()),
             local_only: false,

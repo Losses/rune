@@ -2,6 +2,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:provider/provider.dart';
 
 import '../../../providers/library_path.dart';
+import '../../../utils/api/add_trusted_server.dart';
 import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/discovery_url.dart';
 import '../../../utils/l10n.dart';
@@ -16,7 +17,7 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
     context,
     (context, $close) => SearchRemoteDeviceDialog(
       $close: $close,
-      onAnswered: (device, result) {
+      onAnswered: (device, result) async {
         if (result == false) {
           final s = S.of(context);
 
@@ -31,6 +32,7 @@ void showSearchRemoteDeviceDialog(BuildContext context) {
             '@RR|${encodeRnSrvUrl(device.ips)}',
             device.alias,
           );
+          await addTrustedServer(device.fingerprint, device.ips);
         }
       },
     ),
