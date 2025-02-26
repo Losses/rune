@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
+use async_trait::async_trait;
 use log::{error, info, warn};
 use simple_channel::{SimpleChannel, SimpleReceiver, SimpleSender};
 use tokio::sync::Mutex;
@@ -75,6 +76,29 @@ pub struct LoginStatus {
     pub error_message: Option<String>,
 }
 
+#[async_trait]
+pub trait ScrobblingServiceManager: Send + Sync {
+    async fn send_login_status(&self);
+    async fn authenticate(
+        &mut self,
+        service: &ScrobblingService,
+        username: &str,
+        password: &str,
+        api_key: Option<String>,
+        api_secret: Option<String>,
+        enable_retry: bool,
+    ) -> Result<()>;
+    async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack);
+    fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>);
+    fn restore_session(&mut self, service: &ScrobblingService, session_key: String) -> Result<()>;
+    fn update_now_playing_all(&mut self, track: ScrobblingTrack);
+    async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack);
+    fn scrobble_all(&mut self, track: ScrobblingTrack);
+    async fn logout(&mut self, service: ScrobblingService);
+    fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError>;
+    fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>>;
+}
+
 pub struct ScrobblingManager {
     lastfm: Option<LastFmClient>,
     librefm: Option<LibreFmClient>,
@@ -127,7 +151,74 @@ impl ScrobblingManager {
         }
     }
 
-    pub async fn send_login_status(&self) {
+    async fn process_cache(&mut self) {
+        if self.is_authenticating {
+            return;
+        }
+
+        while let Some(track) = self.now_playing_cache.pop_front() {
+            self.update_now_playing_all(track);
+        }
+
+        while let Some(track) = self.scrobble_cache.pop_front() {
+            self.scrobble_all(track);
+        }
+    }
+
+    async fn retry_update_now_playing<T>(
+        client: &mut T,
+        track: &ScrobblingTrack,
+        max_retries: u32,
+        retry_delay: Duration,
+    ) -> Result<()>
+    where
+        T: ScrobblingClient + ?Sized,
+    {
+        let mut attempts = 0;
+
+        loop {
+            match client.update_now_playing(track).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= max_retries {
+                        return Err(e);
+                    }
+                    sleep(retry_delay).await;
+                }
+            }
+        }
+    }
+
+    async fn retry_scrobble<T>(
+        client: &mut T,
+        track: &ScrobblingTrack,
+        max_retries: u32,
+        retry_delay: Duration,
+    ) -> Result<()>
+    where
+        T: ScrobblingClient + ?Sized,
+    {
+        let mut attempts = 0;
+
+        loop {
+            match client.scrobble(track).await {
+                Ok(_) => return Ok(()),
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= max_retries {
+                        return Err(e);
+                    }
+                    sleep(retry_delay).await;
+                }
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl ScrobblingServiceManager for ScrobblingManager {
+    async fn send_login_status(&self) {
         let statuses = vec![
             LoginStatus {
                 service: ScrobblingService::LastFm,
@@ -149,7 +240,7 @@ impl ScrobblingManager {
         self.login_status_sender.send(statuses);
     }
 
-    pub async fn authenticate(
+    async fn authenticate(
         &mut self,
         service: &ScrobblingService,
         username: &str,
@@ -226,25 +317,7 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    async fn process_cache(&mut self) {
-        if self.is_authenticating {
-            return;
-        }
-
-        while let Some(track) = self.now_playing_cache.pop_front() {
-            self.update_now_playing_all(track);
-        }
-
-        while let Some(track) = self.scrobble_cache.pop_front() {
-            self.scrobble_all(track);
-        }
-    }
-
-    pub async fn update_now_playing(
-        &mut self,
-        service: &ScrobblingService,
-        track: ScrobblingTrack,
-    ) {
+    async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack) {
         if self.is_authenticating {
             self.now_playing_cache.push_back(track);
             if self.now_playing_cache.len() > 1 {
@@ -298,35 +371,7 @@ impl ScrobblingManager {
         }
     }
 
-    async fn retry_update_now_playing<T>(
-        client: &mut T,
-        track: &ScrobblingTrack,
-        max_retries: u32,
-        retry_delay: Duration,
-    ) -> Result<()>
-    where
-        T: ScrobblingClient + ?Sized,
-    {
-        let mut attempts = 0;
-
-        loop {
-            match client.update_now_playing(track).await {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    attempts += 1;
-                    if attempts >= max_retries {
-                        return Err(e);
-                    }
-                    sleep(retry_delay).await;
-                }
-            }
-        }
-    }
-
-    pub fn authenticate_all(
-        manager: Arc<Mutex<Self>>,
-        credentials_list: Vec<ScrobblingCredential>,
-    ) {
+    fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
@@ -352,11 +397,7 @@ impl ScrobblingManager {
         });
     }
 
-    pub fn restore_session(
-        &mut self,
-        service: &ScrobblingService,
-        session_key: String,
-    ) -> Result<()> {
+    fn restore_session(&mut self, service: &ScrobblingService, session_key: String) -> Result<()> {
         match service {
             ScrobblingService::LastFm => {
                 if let Some(client) = &mut self.lastfm {
@@ -383,7 +424,7 @@ impl ScrobblingManager {
         Ok(())
     }
 
-    pub fn update_now_playing_all(&mut self, track: ScrobblingTrack) {
+    fn update_now_playing_all(&mut self, track: ScrobblingTrack) {
         if self.is_authenticating {
             self.now_playing_cache.push_back(track);
             if self.now_playing_cache.len() > 1 {
@@ -440,7 +481,7 @@ impl ScrobblingManager {
         });
     }
 
-    pub async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack) {
+    async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack) {
         if self.is_authenticating {
             self.scrobble_cache.push_back(track);
             if self.scrobble_cache.len() > 48 {
@@ -492,7 +533,7 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn scrobble_all(&mut self, track: ScrobblingTrack) {
+    fn scrobble_all(&mut self, track: ScrobblingTrack) {
         if self.is_authenticating {
             self.scrobble_cache.push_back(track);
             if self.scrobble_cache.len() > 48 {
@@ -575,32 +616,7 @@ impl ScrobblingManager {
         });
     }
 
-    async fn retry_scrobble<T>(
-        client: &mut T,
-        track: &ScrobblingTrack,
-        max_retries: u32,
-        retry_delay: Duration,
-    ) -> Result<()>
-    where
-        T: ScrobblingClient + ?Sized,
-    {
-        let mut attempts = 0;
-
-        loop {
-            match client.scrobble(track).await {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    attempts += 1;
-                    if attempts >= max_retries {
-                        return Err(e);
-                    }
-                    sleep(retry_delay).await;
-                }
-            }
-        }
-    }
-
-    pub async fn logout(&mut self, service: ScrobblingService) {
+    async fn logout(&mut self, service: ScrobblingService) {
         match service {
             ScrobblingService::LastFm => {
                 self.lastfm = None;
@@ -620,11 +636,96 @@ impl ScrobblingManager {
         self.send_login_status().await;
     }
 
-    pub fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
+    fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
         self.error_sender.subscribe()
     }
 
-    pub fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
+    fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
+        self.login_status_sender.subscribe()
+    }
+}
+
+pub struct MockScrobblingManager {
+    error_sender: Arc<SimpleSender<ScrobblingError>>,
+    login_status_sender: Arc<SimpleSender<Vec<LoginStatus>>>,
+}
+
+impl MockScrobblingManager {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl Default for MockScrobblingManager {
+    fn default() -> Self {
+        let (error_sender, _) = SimpleChannel::channel(32);
+        let (login_status_sender, _) = SimpleChannel::channel(32);
+
+        Self {
+            error_sender: Arc::new(error_sender),
+            login_status_sender: Arc::new(login_status_sender),
+        }
+    }
+}
+
+#[async_trait]
+impl ScrobblingServiceManager for MockScrobblingManager {
+    async fn send_login_status(&self) {
+        // Mock implementation: send empty login status list
+        self.login_status_sender.send(Vec::new());
+    }
+
+    async fn authenticate(
+        &mut self,
+        _service: &ScrobblingService,
+        _username: &str,
+        _password: &str,
+        _api_key: Option<String>,
+        _api_secret: Option<String>,
+        _enable_retry: bool,
+    ) -> Result<()> {
+        // Mock implementation: always succeed
+        Ok(())
+    }
+
+    async fn update_now_playing(&mut self, _service: &ScrobblingService, _track: ScrobblingTrack) {
+        // Mock implementation: do nothing
+    }
+
+    fn authenticate_all(_manager: Arc<Mutex<Self>>, _credentials_list: Vec<ScrobblingCredential>) {
+        // Mock implementation: do nothing
+    }
+
+    fn restore_session(
+        &mut self,
+        _service: &ScrobblingService,
+        _session_key: String,
+    ) -> Result<()> {
+        // Mock implementation: always succeed
+        Ok(())
+    }
+
+    fn update_now_playing_all(&mut self, _track: ScrobblingTrack) {
+        // Mock implementation: do nothing
+    }
+
+    async fn scrobble(&mut self, _service: ScrobblingService, _track: ScrobblingTrack) {
+        // Mock implementation: do nothing
+    }
+
+    fn scrobble_all(&mut self, _track: ScrobblingTrack) {
+        // Mock implementation: do nothing
+    }
+
+    async fn logout(&mut self, _service: ScrobblingService) {
+        // Mock implementation: do nothing
+    }
+
+    fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError> {
+        self.error_sender.subscribe()
+    }
+
+    fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
         self.login_status_sender.subscribe()
     }
 }

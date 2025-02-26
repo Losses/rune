@@ -31,7 +31,7 @@ pub struct ScrobblingTrack {
 }
 
 #[async_trait]
-pub trait ScrobblingClient {
+pub trait ScrobblingClient: Send {
     async fn authenticate(&mut self, username: &str, password: &str) -> Result<()>;
     async fn update_now_playing(&self, track: &ScrobblingTrack) -> Result<Response>;
     async fn scrobble(&self, track: &ScrobblingTrack) -> Result<Response>;
