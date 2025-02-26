@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt;
 use std::net::Ipv4Addr;
+use std::str::from_utf8;
 
 use log::error;
 
@@ -268,7 +269,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     for chunk in encoded.as_bytes().chunks_exact(7) {
         // Convert each 7-character chunk to a string slice.
         // This should be safe as we are expecting base-36 ASCII characters.
-        let s = std::str::from_utf8(chunk).map_err(|_| UrlError::InvalidFormat)?;
+        let s = from_utf8(chunk).map_err(|_| UrlError::InvalidFormat)?;
         // Decode each 7-character chunk using `decode_ipv4` and push the result to the `ips` vector.
         // Propagate any `DecodeError` from `decode_ipv4` by converting it to `UrlError::DecodeError`.
         ips.push(decode_ipv4(s)?);
