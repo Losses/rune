@@ -147,6 +147,10 @@ class LibraryPathProvider with ChangeNotifier {
     var (success, notReady, error) =
         await setMediaLibraryPath(filePath, selectedMode);
 
+    if (!success) {
+      return (false, false, error);
+    }
+
     if (notReady && context == null) {
       return (false, true, null);
     }

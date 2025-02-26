@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/server_availability_test_request.dart';
+import '../../utils/dialogs/failed_to_initialize_library.dart';
 import '../../utils/dialogs/information/error.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
@@ -111,11 +112,21 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
 
                                           if (!context.mounted) return;
 
-                                          libraryPath.setLibraryPath(
+                                          final (success, notReady, error) =
+                                              await libraryPath.setLibraryPath(
                                             context,
                                             allOpenedFiles[index].rawPath,
                                             null,
                                           );
+
+                                          if (!success) {
+                                            showFailedToInitializeLibrary(
+                                              context,
+                                              error,
+                                            );
+
+                                            return;
+                                          }
 
                                           if (!context.mounted) return;
                                           $push('/library');
