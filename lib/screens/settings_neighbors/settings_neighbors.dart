@@ -120,10 +120,12 @@ class _SettingsNeighborsPageState extends State<SettingsNeighborsPage> {
                                           );
 
                                           if (!success) {
-                                            showFailedToInitializeLibrary(
+                                            await showFailedToInitializeLibrary(
                                               context,
                                               error,
                                             );
+
+                                            $$replace("/");
 
                                             return;
                                           }

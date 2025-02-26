@@ -158,12 +158,12 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                       );
 
                                       if (!success) {
-                                        showFailedToInitializeLibrary(
+                                        await showFailedToInitializeLibrary(
                                           context,
                                           error,
                                         );
 
-                                        $$replace('/welcome');
+                                        $$replace("/");
                                         return;
                                       }
 
