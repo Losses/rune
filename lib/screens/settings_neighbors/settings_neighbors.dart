@@ -2,22 +2,22 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
-import '../../utils/api/server_availability_test_request.dart';
-import '../../utils/dialogs/failed_to_initialize_library.dart';
-import '../../utils/dialogs/information/error.dart';
 import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
+import '../../utils/api/server_availability_test_request.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../utils/dialogs/information/error.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../providers/library_path.dart';
 
+import 'widgets/settings_tile_title.dart';
+import 'widgets/search_remote_device_setting_button.dart';
 import 'widgets/add_neighbor_manually_setting_button.dart';
 import 'widgets/edit_device_information_setting_button.dart';
-import 'widgets/search_remote_device_setting_button.dart';
-import 'widgets/settings_tile_title.dart';
 
 class SettingsNeighborsPage extends StatefulWidget {
   const SettingsNeighborsPage({super.key});
