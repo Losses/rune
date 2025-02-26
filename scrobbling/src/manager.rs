@@ -96,6 +96,7 @@ pub trait ScrobblingServiceManager: Send + Sync {
     async fn logout(&mut self, service: ScrobblingService);
     fn subscribe_error(&self) -> SimpleReceiver<ScrobblingError>;
     fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>>;
+    fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>>;
 }
 
 pub struct ScrobblingManager {
@@ -214,7 +215,10 @@ impl ScrobblingManager {
         }
     }
 
-    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
+    pub fn authenticate_all(
+        manager: Arc<Mutex<dyn ScrobblingServiceManager>>,
+        credentials_list: Vec<ScrobblingCredential>,
+    ) {
         tokio::spawn(async move {
             for credentials in credentials_list {
                 let mut manager = manager.lock().await;
@@ -230,7 +234,7 @@ impl ScrobblingManager {
                     .await;
 
                 if let Err(e) = result {
-                    manager.error_sender.send(ScrobblingError {
+                    manager.error_sender().send(ScrobblingError {
                         service: credentials.service,
                         action: ActionType::Authenticate,
                         error: e,
@@ -642,6 +646,10 @@ impl ScrobblingServiceManager for ScrobblingManager {
     fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
         self.login_status_sender.subscribe()
     }
+
+    fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>> {
+        Arc::clone(&self.error_sender)
+    }
 }
 
 pub struct MockScrobblingManager {
@@ -722,5 +730,9 @@ impl ScrobblingServiceManager for MockScrobblingManager {
 
     fn subscribe_login_status(&self) -> SimpleReceiver<Vec<LoginStatus>> {
         self.login_status_sender.subscribe()
+    }
+
+    fn error_sender(&self) -> Arc<SimpleSender<ScrobblingError>> {
+        Arc::clone(&self.error_sender)
     }
 }

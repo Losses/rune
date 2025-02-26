@@ -29,7 +29,6 @@ use ::scrobbling::manager::ScrobblingManager;
 use utils::receive_media_library_path;
 use utils::TaskTokens;
 
-use crate::messages::*;
 use crate::utils::init_logging;
 
 pub trait Signal: Sized {

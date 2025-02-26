@@ -8,6 +8,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
+use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
@@ -80,7 +81,7 @@ pub struct GlobalParams {
     pub task_tokens: Arc<Mutex<TaskTokens>>,
     pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
-    pub scrobbler: Arc<Mutex<ScrobblingManager>>,
+    pub scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
     pub device_scanner: Arc<DiscoveryService>,
     pub cert_validator: Arc<RwLock<CertValidator>>,

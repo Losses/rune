@@ -10,6 +10,7 @@ use sea_orm::{DatabaseConnection, TransactionTrait};
 use tokio::sync::{Mutex, RwLock};
 use tokio::task;
 
+use ::scrobbling::manager::ScrobblingServiceManager;
 use ::database::actions::logging::insert_log;
 use ::database::actions::playback_queue::replace_playback_queue;
 use ::database::actions::stats::increase_played_through;
@@ -26,7 +27,6 @@ use ::playback::player::{Playable, PlaylistStatus};
 use ::playback::MediaMetadata;
 use ::playback::MediaPlayback;
 use ::playback::MediaPosition;
-use ::scrobbling::manager::ScrobblingManager;
 use ::scrobbling::ScrobblingTrack;
 
 use crate::messages::*;
@@ -54,7 +54,7 @@ pub async fn initialize_local_player(
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<dyn Playable>>,
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
     broadcaster: Arc<dyn Broadcaster>,
     cert_validator: Arc<RwLock<CertValidator>>,
     permission_manager: Arc<RwLock<PermissionManager>>,

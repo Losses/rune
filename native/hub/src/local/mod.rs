@@ -60,9 +60,7 @@ pub async fn local_player_loop(
 
         let main_cancel_token = Arc::new(main_cancel_token);
 
-        let device_scanner = DiscoveryService::without_store();
-        let device_scanner = Arc::new(device_scanner);
-
+        let device_scanner = Arc::new(DiscoveryService::without_store());
         let permission_manager =
             Arc::new(RwLock::new(PermissionManager::new(&**config_path).unwrap()));
         let cert_validator = Arc::new(RwLock::new(

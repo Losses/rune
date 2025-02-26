@@ -1,14 +1,17 @@
 #[macro_use]
 mod remote_request;
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, OnceLock},
+};
 
 use anyhow::{bail, Context, Result};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use prost::Message as ProstMessage;
 use rustls::ClientConfig;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::protocol::Message as TungsteniteMessage, Connector,
 };
@@ -16,20 +19,25 @@ use tokio_util::sync::CancellationToken;
 use urlencoding::encode;
 use uuid::Uuid;
 
+use ::database::connection::{connect_fake_main_db, connect_fake_recommendation_db};
 use ::discovery::{
     client::{select_best_host, CertValidator},
+    protocol::DiscoveryService,
+    server::PermissionManager,
     url::decode_rnsrv_url,
 };
-use ::playback::sfx_player::SfxPlayer;
+use ::playback::{player::MockPlayer, sfx_player::SfxPlayer};
+use ::scrobbling::manager::MockScrobblingManager;
 
-use crate::implement_rinf_dart_signal_trait;
-use crate::messages::*;
-use crate::register_remote_handlers;
-use crate::server::generate_or_load_certificates;
-use crate::utils::RinfRustSignal;
-use crate::CrashResponse;
-use crate::SfxPlayRequest;
-use crate::{forward_event_to_remote, server::api::check_fingerprint};
+use crate::{
+    forward_event_to_remote, implement_rinf_dart_signal_trait,
+    messages::*,
+    register_remote_handlers,
+    server::{api::check_fingerprint, generate_or_load_certificates},
+    utils::LocalGuiBroadcaster,
+    utils::{GlobalParams, ParamsExtractor, RinfRustSignal, TaskTokens},
+    Signal,
+};
 
 pub trait RinfDartSignal: ProstMessage {
     fn name(&self) -> String;
@@ -127,6 +135,7 @@ impl WebSocketDartBridge {
     pub async fn run(
         &mut self,
         url: &str,
+        config_path: &str,
         config: Arc<ClientConfig>,
         fingerprint: &str,
     ) -> Result<()> {
@@ -175,6 +184,7 @@ impl WebSocketDartBridge {
                 tokio::spawn(handle_event_close_library_request());
 
                 let cancel_token_clone = Arc::clone(&cancel_token);
+                let sfx_player_clone = Arc::clone(&sfx_player);
                 let handle_event_sfx_play_request = || async move {
                     let receiver = SfxPlayRequest::get_dart_signal_receiver();
                     loop {
@@ -183,7 +193,7 @@ impl WebSocketDartBridge {
                                 break;
                             }
                             Some(dart_signal) = receiver.recv() => {
-                                sfx_player
+                                sfx_player_clone
                                 .lock()
                                 .await
                                 .load(dart_signal.message.path.clone().into());
@@ -197,12 +207,13 @@ impl WebSocketDartBridge {
                 for_all_non_local_requests3!(
                     forward_event_to_remote,
                     self_arc,
-                    cancel_token,
+                    cancel_token.clone(),
                     write.clone()
                 );
 
                 let handlers = self.handlers.clone();
                 let write_clone = Arc::clone(&write);
+                let cancel_token_clone = Arc::clone(&cancel_token);
                 let message_loop = || async move {
                     loop {
                         tokio::select! {
@@ -227,7 +238,7 @@ impl WebSocketDartBridge {
                                     None => break,
                                 }
                             }
-                            _ = cancel_token.cancelled() => {
+                            _ = cancel_token_clone.cancelled() => {
                                 info!("Received cancel signal, closing connection");
                                 let mut write = write_clone.lock().await;
                                 if let Err(e) = write.close().await {
@@ -240,6 +251,41 @@ impl WebSocketDartBridge {
                 };
 
                 tokio::spawn(message_loop());
+
+                let device_scanner = Arc::new(DiscoveryService::without_store());
+                let permission_manager =
+                    Arc::new(RwLock::new(PermissionManager::new(config_path).unwrap()));
+                let cert_validator =
+                    Arc::new(RwLock::new(CertValidator::new(config_path).await.unwrap()));
+
+                info!("Initializing UI events");
+                let global_params = GlobalParams {
+                    lib_path: Arc::new(url),
+                    config_path: Arc::new(config_path.to_string()),
+                    main_db: Arc::new(connect_fake_main_db().await?),
+                    recommend_db: Arc::new(connect_fake_recommendation_db()?),
+                    main_token: Arc::clone(&cancel_token),
+                    task_tokens: Arc::new(Mutex::new(TaskTokens {
+                        scan_token: None,
+                        analyze_token: None,
+                    })),
+                    player: Arc::new(Mutex::new(MockPlayer {})),
+                    sfx_player,
+                    scrobbler: Arc::new(Mutex::new(MockScrobblingManager::new())),
+                    broadcaster: Arc::new(LocalGuiBroadcaster),
+                    device_scanner,
+                    cert_validator,
+                    permission_manager,
+                    server_manager: OnceLock::new(),
+                };
+
+                let global_params = Arc::new(global_params);
+
+                for_all_local_only_request_pairs2!(
+                    listen_local_gui_event,
+                    global_params,
+                    cancel_token
+                );
 
                 Ok(())
             }
@@ -284,6 +330,7 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
 
     let url = format!("wss://{}:7863", host);
 
+    let config_path = config_path.to_string();
     tokio::spawn(async move {
         info!("Initializing bridge");
         let mut bridge = WebSocketDartBridge::new();
@@ -304,7 +351,9 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
             PlaylistUpdate
         );
 
-        bridge.run(&url, client_config, &fingerprint).await
+        bridge
+            .run(&url, &config_path, client_config, &fingerprint)
+            .await
     });
 
     Ok(())
