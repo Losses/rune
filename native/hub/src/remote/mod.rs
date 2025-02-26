@@ -3,7 +3,7 @@ mod remote_request;
 
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use futures::{SinkExt, StreamExt};
 use log::{debug, error, info};
 use prost::Message as ProstMessage;
@@ -257,16 +257,26 @@ impl WebSocketDartBridge {
 pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Result<()> {
     info!("Media Library Received, initialize the server loop");
 
-    let cert_validator = Arc::new(CertValidator::new(config_path).await?);
+    let cert_validator = Arc::new(
+        CertValidator::new(config_path)
+            .await
+            .with_context(|| "Failed to create the cert validator")?,
+    );
 
     let hosts = decode_rnsrv_url(url).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let host = select_best_host(hosts, cert_validator.clone().into_client_config()).await?;
+    let host = select_best_host(hosts, cert_validator.clone().into_client_config())
+        .await
+        .with_context(|| "Failed to select the best host")?;
 
     let client_config = Arc::new(cert_validator.clone().into_client_config());
 
-    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, alias).await?;
+    let (fingerprint, _, _) = generate_or_load_certificates(&config_path, alias)
+        .await
+        .with_context(|| "Failed to kiad certufucates")?;
 
-    let result = check_fingerprint(&host, client_config.clone(), &fingerprint).await?;
+    let result = check_fingerprint(&host, client_config.clone(), &fingerprint)
+        .await
+        .with_context(|| "Failed to check fingerprint")?;
 
     if !result.is_trusted {
         bail!("This client is not trusted by the server");
