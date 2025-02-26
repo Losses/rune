@@ -476,6 +476,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
         .collect();
 
+    let local_requests: Vec<_> = types
+        .iter()
+        .filter(|t| t.local_only)
+        .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
+        .collect();
+
     let expanded = quote! {
         #[macro_export]
         macro_rules! for_all_request_pairs {
@@ -551,6 +557,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_non_local_requests3 {
             ($m:tt, $param1:expr, $param2:expr, $param3:expr) => {
                 $m!($param1, $param2, $param3, #(#non_local_requests),*);
+            };
+        }
+
+        #[macro_export]
+        macro_rules! for_all_local_only_request_pairs2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2, #(#local_requests),*);
             };
         }
     };
