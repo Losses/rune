@@ -4,13 +4,17 @@ use anyhow::{anyhow, Context, Result};
 use http_body_util::{BodyExt, Empty, Full};
 use hyper::{body::Bytes, Method, Request, StatusCode, Uri};
 use rustls::ClientConfig;
-
-use discovery::request::{create_https_client, send_http_request};
 use serde::{Deserialize, Serialize};
+use urlencoding::encode;
+
+use ::discovery::request::{create_https_client, send_http_request};
 
 use super::utils::device::SanitizedDeviceInfo;
 
-pub async fn fetch_device_info(host: &str, config: Arc<ClientConfig>) -> Result<SanitizedDeviceInfo> {
+pub async fn fetch_device_info(
+    host: &str,
+    config: Arc<ClientConfig>,
+) -> Result<SanitizedDeviceInfo> {
     let uri = Uri::builder()
         .scheme("https")
         .authority(format!("{}:7863", host))
@@ -126,7 +130,10 @@ pub async fn check_fingerprint(
     let uri = Uri::builder()
         .scheme("https")
         .authority(format!("{}:7863", host))
-        .path_and_query(format!("/check-fingerprint?fingerprint={}", fingerprint))
+        .path_and_query(format!(
+            "/check-fingerprint?fingerprint={}",
+            encode(fingerprint)
+        ))
         .build()
         .context("Invalid URL format")?;
 
