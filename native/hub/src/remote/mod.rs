@@ -134,14 +134,15 @@ impl WebSocketDartBridge {
 
     pub async fn run(
         &mut self,
-        url: &str,
+        rnsrv_url: &str,
+        wss_url: &str,
         config_path: &str,
         config: Arc<ClientConfig>,
         fingerprint: &str,
     ) -> Result<()> {
-        let raw_url = url;
+        let raw_url = wss_url;
 
-        let url = format!("{}/ws?fingerprint={}", url, encode(fingerprint));
+        let url = format!("{}/ws?fingerprint={}", wss_url, encode(fingerprint));
 
         info!("Connecting to {}", raw_url);
 
@@ -260,7 +261,7 @@ impl WebSocketDartBridge {
 
                 info!("Initializing UI events");
                 let global_params = GlobalParams {
-                    lib_path: Arc::new(url),
+                    lib_path: Arc::new(rnsrv_url.to_owned()),
                     config_path: Arc::new(config_path.to_string()),
                     main_db: Arc::new(connect_fake_main_db().await?),
                     recommend_db: Arc::new(connect_fake_recommendation_db()?),
@@ -328,8 +329,8 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
         bail!("This client is not trusted by the server");
     }
 
-    let url = format!("wss://{}:7863", host);
-
+    let rnsrv_url = url.to_string();
+    let ws_url = format!("wss://{}:7863", host);
     let config_path = config_path.to_string();
     tokio::spawn(async move {
         info!("Initializing bridge");
@@ -352,7 +353,13 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
         );
 
         bridge
-            .run(&url, &config_path, client_config, &fingerprint)
+            .run(
+                &rnsrv_url,
+                &ws_url,
+                &config_path,
+                client_config,
+                &fingerprint,
+            )
             .await
     });
 

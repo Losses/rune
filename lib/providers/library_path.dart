@@ -68,7 +68,8 @@ class LibraryPathEntry {
     return cleanPath;
   }
 
-  static String removePrefix(String path) {
+  static String removePrefix(String? path) {
+    if (path == null) return "";
     if (path.startsWith('@RR|')) return path.substring(4);
     if (path.startsWith('@LR|')) return path.substring(4);
     return path;

@@ -46,6 +46,7 @@ impl Signal for CloseLibraryRequest {
         info!("Closing library: {:#?}", request.path);
 
         if request.path != *lib_path {
+            warn!("Library path mismatch: {:#?} != {:#?}", request.path, *lib_path);
             return Ok(None);
         }
 
