@@ -356,12 +356,12 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "StartListeningRequest".to_string(),
             response: None,
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "StopListeningRequest".to_string(),
             response: None,
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "GetDiscoveredDeviceRequest".to_string(),
@@ -386,17 +386,17 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "GetSslCertificateFingerprintRequest".to_string(),
             response: Some("GetSslCertificateFingerprintResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "AddTrustedServerRequest".to_string(),
             response: Some("AddTrustedServerResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "RemoveTrustedClientRequest".to_string(),
             response: Some("RemoveTrustedClientResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "UpdateClientStatusRequest".to_string(),
@@ -406,32 +406,32 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         RequestResponse {
             request: "EditHostsRequest".to_string(),
             response: Some("EditHostsResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "RemoveTrustedServerRequest".to_string(),
             response: Some("RemoveTrustedServerResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "ServerAvailabilityTestRequest".to_string(),
             response: Some("ServerAvailabilityTestResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "RegisterDeviceOnServerRequest".to_string(),
             response: Some("RegisterDeviceOnServerResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "ConnectRequest".to_string(),
             response: Some("ConnectResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
         RequestResponse {
             request: "FetchServerCertificateRequest".to_string(),
             response: Some("FetchServerCertificateResponse".to_string()),
-            local_only: false,
+            local_only: true,
         },
     ];
 

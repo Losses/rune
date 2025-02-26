@@ -8,12 +8,12 @@ message StartBroadcastRequest {
 }
 
 // [DART-SIGNAL]
+message StopBroadcastRequest {}
+
+// [DART-SIGNAL]
 message StartListeningRequest {
   string alias = 1;
 }
-
-// [DART-SIGNAL]
-message StopBroadcastRequest {}
 
 // [DART-SIGNAL]
 message StopListeningRequest {}
