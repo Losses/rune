@@ -89,7 +89,6 @@ pub trait ScrobblingServiceManager: Send + Sync {
         enable_retry: bool,
     ) -> Result<()>;
     async fn update_now_playing(&mut self, service: &ScrobblingService, track: ScrobblingTrack);
-    fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>);
     fn restore_session(&mut self, service: &ScrobblingService, session_key: String) -> Result<()>;
     fn update_now_playing_all(&mut self, track: ScrobblingTrack);
     async fn scrobble(&mut self, service: ScrobblingService, track: ScrobblingTrack);
@@ -213,6 +212,32 @@ impl ScrobblingManager {
                 }
             }
         }
+    }
+
+    pub fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
+        tokio::spawn(async move {
+            for credentials in credentials_list {
+                let mut manager = manager.lock().await;
+                let result = manager
+                    .authenticate(
+                        &credentials.service,
+                        &credentials.username,
+                        &credentials.password,
+                        credentials.api_key.clone(),
+                        credentials.api_secret.clone(),
+                        true,
+                    )
+                    .await;
+
+                if let Err(e) = result {
+                    manager.error_sender.send(ScrobblingError {
+                        service: credentials.service,
+                        action: ActionType::Authenticate,
+                        error: e,
+                    });
+                }
+            }
+        });
     }
 }
 
@@ -369,32 +394,6 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 }
             }
         }
-    }
-
-    fn authenticate_all(manager: Arc<Mutex<Self>>, credentials_list: Vec<ScrobblingCredential>) {
-        tokio::spawn(async move {
-            for credentials in credentials_list {
-                let mut manager = manager.lock().await;
-                let result = manager
-                    .authenticate(
-                        &credentials.service,
-                        &credentials.username,
-                        &credentials.password,
-                        credentials.api_key.clone(),
-                        credentials.api_secret.clone(),
-                        true,
-                    )
-                    .await;
-
-                if let Err(e) = result {
-                    manager.error_sender.send(ScrobblingError {
-                        service: credentials.service,
-                        action: ActionType::Authenticate,
-                        error: e,
-                    });
-                }
-            }
-        });
     }
 
     fn restore_session(&mut self, service: &ScrobblingService, session_key: String) -> Result<()> {
@@ -689,10 +688,6 @@ impl ScrobblingServiceManager for MockScrobblingManager {
     }
 
     async fn update_now_playing(&mut self, _service: &ScrobblingService, _track: ScrobblingTrack) {
-        // Mock implementation: do nothing
-    }
-
-    fn authenticate_all(_manager: Arc<Mutex<Self>>, _credentials_list: Vec<ScrobblingCredential>) {
         // Mock implementation: do nothing
     }
 
