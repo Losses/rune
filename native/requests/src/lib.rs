@@ -476,10 +476,23 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
         .collect();
 
-    let local_requests: Vec<_> = types
+    let local_response_pairs: Vec<_> = with_response
         .iter()
         .filter(|t| t.local_only)
-        .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
+        .map(|t| {
+            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+            quote! { (#req_ident, #resp_ident) }
+        })
+        .collect();
+
+    let local_request_only: Vec<_> = without_response
+        .iter()
+        .filter(|t| t.local_only)
+        .map(|t| {
+            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            quote! { #ident }
+        })
         .collect();
 
     let expanded = quote! {
@@ -494,6 +507,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_request_pairs2 {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
+            };
+        }
+
+        #[macro_export]
+        macro_rules! for_all_local_only_request_pairs2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2 #(, #local_response_pairs)* #(, #local_request_only)*);
             };
         }
 
@@ -557,13 +577,6 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_non_local_requests3 {
             ($m:tt, $param1:expr, $param2:expr, $param3:expr) => {
                 $m!($param1, $param2, $param3, #(#non_local_requests),*);
-            };
-        }
-
-        #[macro_export]
-        macro_rules! for_all_local_only_request_pairs2 {
-            ($m:tt, $param1:expr, $param2:expr) => {
-                $m!($param1, $param2, #(#local_requests),*);
             };
         }
     };
