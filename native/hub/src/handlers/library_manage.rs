@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use log::{debug, info, warn};
-use tokio::sync::Mutex;
-use tokio::task;
+use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
 
 use database::actions::analysis::analysis_audio_library;
@@ -43,6 +42,8 @@ impl Signal for CloseLibraryRequest {
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
+
+        info!("Closing library: {:#?}", request.path);
 
         if request.path != *lib_path {
             return Ok(None);
