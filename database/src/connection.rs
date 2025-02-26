@@ -8,6 +8,7 @@ use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
 use log::{info, LevelFilter};
 use sea_orm::{ConnectOptions, Database};
+use tempfile::tempdir;
 use uuid::Uuid;
 #[cfg(windows)]
 use windows::core::PWSTR;
@@ -168,6 +169,20 @@ pub async fn connect_main_db(lib_path: &str, db_path: Option<&str>) -> Result<Ma
     Ok(db)
 }
 
+pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
+    Migrator::up(conn, None).await?;
+    initialize_mix_queries(conn).await?;
+    Ok(())
+}
+
+pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
+    info!("Initializing fake main database.");
+
+    let db = Database::connect("sqlite::memory:").await?;
+
+    Ok(db)
+}
+
 const DB_SIZE: usize = 2 * 1024 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
@@ -211,8 +226,23 @@ pub fn connect_recommendation_db(
     Ok(RecommendationDbConnection { env, db })
 }
 
-pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
-    Migrator::up(conn, None).await?;
-    initialize_mix_queries(conn).await?;
-    Ok(())
+pub fn connect_fake_recommendation_db() -> Result<RecommendationDbConnection> {
+    info!("Initializing fake recommendation database");
+
+    let dir = tempdir()?;
+    let env = unsafe {
+        EnvOpenOptions::new()
+            .map_size(DB_SIZE)
+            .flags(EnvFlags::NO_LOCK)
+            .open(dir.path())?
+    };
+
+    let mut wtxn = env.write_txn()?;
+    let db: ArroyDatabase<Euclidean> = env
+        .database_options()
+        .types::<KeyCodec, NodeCodec<Euclidean>>()
+        .create(&mut wtxn)?;
+    wtxn.commit()?;
+
+    Ok(RecommendationDbConnection { env, db })
 }

@@ -46,3 +46,4 @@ async-trait = "0.1.83"
 thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
 regex = "1.11.1"
+tempfile = "3.17.1"
