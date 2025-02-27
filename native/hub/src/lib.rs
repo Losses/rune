@@ -3,10 +3,8 @@ mod apple_bridge;
 mod macros;
 mod handlers;
 #[macro_use]
-mod local;
+pub mod backends;
 pub mod messages;
-#[macro_use]
-pub mod remote;
 #[macro_use]
 pub mod server;
 pub mod utils;

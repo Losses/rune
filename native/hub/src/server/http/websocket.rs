@@ -13,7 +13,7 @@ use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 
 use crate::{
-    remote::{decode_message, encode_message},
+    backends::remote::{decode_message, encode_message},
     server::ServerState,
 };
 use discovery::server::{User, UserStatus};

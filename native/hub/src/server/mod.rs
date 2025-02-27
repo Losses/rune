@@ -11,12 +11,13 @@ pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
-use discovery::{server::PermissionManager, utils::DeviceInfo};
 use log::error;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
+use ::discovery::{server::PermissionManager, utils::DeviceInfo};
+
 use crate::{
-    remote::encode_message,
+    backends::remote::encode_message,
     utils::{Broadcaster, RinfRustSignal},
 };
 

@@ -10,7 +10,7 @@ use tokio_tungstenite::{connect_async, tungstenite};
 use tungstenite::Message;
 use uuid::Uuid;
 
-use hub::remote::{decode_message, encode_message};
+use hub::backends::remote::{decode_message, encode_message};
 
 pub struct WSConnection {
     tx: mpsc::Sender<(String, Vec<u8>, Uuid)>,

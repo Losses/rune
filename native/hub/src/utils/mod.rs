@@ -31,9 +31,8 @@ use ::playback::{
 };
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::local::local_player_loop;
+use crate::backends::{local::local_player_loop, remote::server_player_loop};
 use crate::messages::*;
-use crate::remote::server_player_loop;
 use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
