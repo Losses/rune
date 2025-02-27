@@ -4,7 +4,9 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/nearest_power_of_two.dart';
 import '../../../utils/load_and_resize_image.dart';
+import '../../../utils/process_cover_art_path.dart';
 
+import '../../../utils/rune_log.dart';
 import '../utils/generate_tiles_of_size.dart';
 import '../utils/calculate_cover_wall_size.dart';
 import '../utils/cover_wall_background_painter.dart';
@@ -74,12 +76,20 @@ class CoverWallBackgroundImplementationState
     for (int i = 0; i < widget.paths.length; i += 1) {
       final path = widget.paths[i];
 
-      loadAndResizeImage(path, nextSize).then((image) {
-        if (!context.mounted) return;
+      // First process the cover art path to handle remote URLs
+      processCoverArtPath(path).then((processedPath) {
+        // Then load and resize the image from the processed path
+        loadAndResizeImage(processedPath, nextSize).then((image) {
+          if (!context.mounted) return;
 
-        setState(() {
-          images[i] = image;
+          setState(() {
+            images[i] = image;
+          });
+        }).catchError((error) {
+          error$('Error loading image: $error');
         });
+      }).catchError((error) {
+        error$('Error processing cover art path: $error');
       });
     }
   }

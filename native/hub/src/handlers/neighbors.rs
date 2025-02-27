@@ -1,14 +1,20 @@
+use std::fs;
 use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use http_body_util::BodyExt;
+use hyper::{body::Bytes, Request, Uri};
 use log::info;
 use tokio::sync::RwLock;
+use url::Url;
 
+use ::database::actions::cover_art::COVER_TEMP_DIR;
 use ::discovery::client::{fetch_server_certificate, select_best_host, try_connect, CertValidator};
 use ::discovery::protocol::DiscoveryService;
+use ::discovery::request::{create_https_client, send_http_request};
 use ::discovery::server::{PermissionManager, UserStatus};
 use ::discovery::url::decode_rnsrv_url;
 use ::discovery::utils::{DeviceInfo, DeviceType};
@@ -741,5 +747,188 @@ impl Signal for FetchServerCertificateRequest {
                 error: format!("{:#?}", e),
             })),
         }
+    }
+}
+
+impl ParamsExtractor for FetchRemoteFileRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        Arc::clone(&all_params.cert_validator)
+    }
+}
+
+impl Signal for FetchRemoteFileRequest {
+    type Params = Arc<RwLock<CertValidator>>;
+    type Response = FetchRemoteFileResponse;
+
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let validator = Arc::new(validator.read().await.clone());
+
+        // Parse the URL to extract host, port, and path
+        let url = match Url::parse(&req.url) {
+            Ok(url) => url,
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Invalid URL: {}", e),
+                }));
+            }
+        };
+
+        // Extract hostname and port
+        let host = match url.host_str() {
+            Some(host) => host.to_string(),
+            None => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: "Missing host in URL".to_string(),
+                }));
+            }
+        };
+
+        let port = url.port().unwrap_or(7863);
+
+        // Extract the file name from the URL path
+        let path = url.path();
+        let file_name = Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default();
+
+        if file_name.is_empty() {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: "Invalid file path in URL".to_string(),
+            }));
+        }
+
+        // Ensure the cover arts directory exists
+        if let Err(e) = fs::create_dir_all(COVER_TEMP_DIR.clone()) {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: format!("Failed to create temp directory: {}", e),
+            }));
+        }
+
+        // Create the local file path
+        let local_path = COVER_TEMP_DIR.clone().join(file_name);
+
+        // Check if the file already exists locally
+        if local_path.exists() {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: true,
+                local_path: local_path.to_str().unwrap_or_default().to_string(),
+                error: String::new(),
+            }));
+        }
+
+        // Create an HTTPS client with the custom TLS configuration
+        let mut sender = match create_https_client(
+            host.clone(),
+            port,
+            validator.clone().into_client_config().into(),
+        )
+        .await
+        {
+            Ok(sender) => sender,
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to create HTTPS client: {}", e),
+                }));
+            }
+        };
+
+        // Build the request URI
+        let uri = match Uri::builder()
+            .scheme("https")
+            .authority(format!("{}:{}", host, port))
+            .path_and_query(path)
+            .build()
+        {
+            Ok(uri) => uri,
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to build request URI: {}", e),
+                }));
+            }
+        };
+
+        // Build the HTTP request
+        let req = match Request::builder()
+            .uri(uri)
+            .body(http_body_util::Empty::<Bytes>::new())
+        {
+            Ok(req) => req,
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to build HTTP request: {}", e),
+                }));
+            }
+        };
+
+        // Send the request
+        let res = match send_http_request(&mut sender, req).await {
+            Ok(res) => res,
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to send HTTP request: {}", e),
+                }));
+            }
+        };
+
+        // Check the response status
+        if !res.status().is_success() {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: format!("HTTP request failed with status: {}", res.status()),
+            }));
+        }
+
+        // Read the response body
+        let body = match res.into_body().collect().await {
+            Ok(body) => body.to_bytes(),
+            Err(e) => {
+                return Ok(Some(FetchRemoteFileResponse {
+                    success: false,
+                    local_path: String::new(),
+                    error: format!("Failed to read response body: {}", e),
+                }));
+            }
+        };
+
+        // Write the file to disk
+        if let Err(e) = fs::write(&local_path, &body) {
+            return Ok(Some(FetchRemoteFileResponse {
+                success: false,
+                local_path: String::new(),
+                error: format!("Failed to write file to disk: {}", e),
+            }));
+        }
+
+        // Return the successful response with the local file path
+        Ok(Some(FetchRemoteFileResponse {
+            success: true,
+            local_path: local_path.to_str().unwrap_or_default().to_string(),
+            error: String::new(),
+        }))
     }
 }

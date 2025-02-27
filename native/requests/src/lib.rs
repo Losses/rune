@@ -433,6 +433,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("FetchServerCertificateResponse".to_string()),
             local_only: true,
         },
+        RequestResponse {
+            request: "FetchRemoteFileRequest".to_string(),
+            response: Some("FetchRemoteFileResponse".to_string()),
+            local_only: true,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =

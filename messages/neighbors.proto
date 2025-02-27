@@ -209,3 +209,15 @@ message FetchServerCertificateResponse {
   string fingerprint = 2;
   string error = 3;
 }
+
+// [DART-SIGNAL]
+message FetchRemoteFileRequest {
+  string url = 1;
+}
+
+// [RUST-SIGNAL]
+message FetchRemoteFileResponse {
+  bool success = 1;
+  string local_path = 2;
+  string error = 3;
+}
