@@ -74,7 +74,7 @@ pub async fn websocket_handler(
     match auth_result {
         Ok(user) => {
             info!("Connection authorized for {} @ {}", user.alias, addr);
-            let host = host.to_string();
+            let host = format!("https://{}:7863", host);
             ws.on_upgrade(move |socket| handle_socket(socket, state, user, host))
         }
         Err(code) => {
