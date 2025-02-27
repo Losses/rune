@@ -67,6 +67,11 @@
     </release>
     <release version="2.0.0-alpha.1" date="2025-02-27">
       <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon not working on Flatpak for Linux by @Fei1Yang.</li>
+          <li>Add `type` field to all placeholders in arb by @balthild.</li>
+        </ul>
         <p>Features</p>
         <ul>
           <li>Implementing the remote control protocol.</li>
