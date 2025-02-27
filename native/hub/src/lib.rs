@@ -29,12 +29,18 @@ use utils::TaskTokens;
 
 use crate::utils::init_logging;
 
+pub struct Session {
+    pub fingerprint: String,
+    pub host: String,
+}
+
 pub trait Signal: Sized {
     type Params;
     type Response;
     fn handle(
         &self,
         params: Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send;
 }

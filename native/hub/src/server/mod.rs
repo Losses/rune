@@ -19,9 +19,10 @@ use ::discovery::{server::PermissionManager, utils::DeviceInfo};
 use crate::{
     backends::remote::encode_message,
     utils::{Broadcaster, RinfRustSignal},
+    Session,
 };
 
-pub type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
+pub type HandlerFn = Box<dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
 pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -62,12 +63,12 @@ impl WebSocketService {
 
     pub async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
-        F: Fn(Vec<u8>) -> Fut + Send + Sync + 'static,
+        F: Fn(Vec<u8>, Option<Session>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = (String, Vec<u8>)> + Send + 'static,
     {
         self.handlers.lock().await.insert(
             msg_type.to_string(),
-            Box::new(move |payload| Box::pin(handler(payload))),
+            Box::new(move |payload, session| Box::pin(handler(payload, session))),
         );
     }
 
@@ -75,10 +76,11 @@ impl WebSocketService {
         &self,
         msg_type: &str,
         payload: Vec<u8>,
+        session: Option<Session>,
     ) -> Option<(String, Vec<u8>)> {
         let handlers = self.handlers.lock().await;
         let handler = handlers.get(msg_type)?;
-        Some(handler(payload).await)
+        Some(handler(payload, session).await)
     }
 }
 

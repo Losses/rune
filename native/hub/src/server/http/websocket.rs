@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 use crate::{
     backends::remote::{decode_message, encode_message},
     server::ServerState,
+    Session,
 };
 use discovery::server::{User, UserStatus};
 
@@ -29,6 +30,11 @@ pub async fn websocket_handler(
         .or_else(|| params.get("public_key"))
         .or_else(|| params.get("fingerprint"))
         .cloned();
+
+    let host = params
+        .get("host")
+        .cloned()
+        .unwrap_or("127.0.0.1".to_owned());
 
     let auth_result = async {
         let auth_key = auth_key.ok_or(StatusCode::BAD_REQUEST)?;
@@ -68,7 +74,8 @@ pub async fn websocket_handler(
     match auth_result {
         Ok(user) => {
             info!("Connection authorized for {} @ {}", user.alias, addr);
-            ws.on_upgrade(|socket| handle_socket(socket, state, user))
+            let host = host.to_string();
+            ws.on_upgrade(move |socket| handle_socket(socket, state, user, host))
         }
         Err(code) => {
             warn!(
@@ -84,12 +91,13 @@ pub async fn websocket_handler(
     }
 }
 
-pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User) {
+pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: User, host: String) {
     let (mut sender, mut receiver) = socket.split();
     let mut broadcast_rx = state.websocket_service.broadcast_tx.subscribe();
     let (tx, mut rx) = mpsc::channel(32);
 
     let alias = user.alias.clone();
+    let fingerprint = user.fingerprint.clone();
 
     info!("[{}] WebSocket connection established", alias);
 
@@ -115,7 +123,14 @@ pub async fn handle_socket(socket: WebSocket, state: Arc<ServerState>, user: Use
 
                     if let Some((resp_type, response)) = state
                         .websocket_service
-                        .handle_message(&msg_type, msg_payload)
+                        .handle_message(
+                            &msg_type,
+                            msg_payload,
+                            Some(Session {
+                                fingerprint: fingerprint.to_owned(),
+                                host: host.to_owned(),
+                            }),
+                        )
                         .await
                     {
                         let response_payload = encode_message(&resp_type, &response, Some(uuid));

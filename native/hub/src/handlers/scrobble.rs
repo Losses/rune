@@ -7,9 +7,7 @@ use tokio::sync::Mutex;
 use ::scrobbling::manager::{ScrobblingCredential, ScrobblingManager};
 
 use crate::{
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
 };
 
 impl ParamsExtractor for AuthenticateSingleServiceRequest {
@@ -27,6 +25,7 @@ impl Signal for AuthenticateSingleServiceRequest {
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = &dart_signal.request;
@@ -78,6 +77,7 @@ impl Signal for AuthenticateMultipleServiceRequest {
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let requests = &dart_signal.requests;
@@ -115,6 +115,7 @@ impl Signal for LogoutSingleServiceRequest {
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         scrobbler

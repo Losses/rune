@@ -1,6 +1,7 @@
 pub mod broadcastable;
 pub mod player;
 
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -71,6 +72,12 @@ pub struct TaskTokens {
     pub analyze_token: Option<CancellationToken>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum RunningMode {
+    Server,
+    Client
+}
+
 pub struct GlobalParams {
     pub lib_path: Arc<String>,
     pub config_path: Arc<String>,
@@ -86,6 +93,7 @@ pub struct GlobalParams {
     pub cert_validator: Arc<RwLock<CertValidator>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
     pub server_manager: OnceLock<Arc<ServerManager>>,
+    pub running_mode: RunningMode,
 }
 
 impl Debug for GlobalParams {
@@ -267,6 +275,8 @@ pub async fn inject_cover_art_map(
     recommend_db: Arc<RecommendationDbConnection>,
     collection: Collection,
     n: Option<i32>,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
 ) -> Result<Collection> {
     let files = query_cover_arts(
         main_db,
@@ -283,7 +293,16 @@ pub async fn inject_cover_art_map(
         n,
     )
     .await?;
-    let cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
+    
+    // Get the base cover art paths
+    let raw_cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
+    
+    // Process the cover art paths based on the running mode
+    let cover_art_map: HashMap<i32, String> = raw_cover_art_map
+        .into_iter()
+        .map(|(id, path)| (id, process_cover_art_path(&path, running_mode, remote_host)))
+        .collect();
+    
     Ok(Collection {
         id: collection.id,
         name: collection.name,
@@ -330,6 +349,40 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
     let max_batch_size = 1000;
 
     std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
+}
+
+pub fn process_cover_art_path(
+    path: &str,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
+) -> String {
+    match running_mode {
+        RunningMode::Server => {
+            // Path is from server, we need to convert to a remote URL
+            if path.is_empty() {
+                path.to_string()
+            } else {
+                // If we have a remote host, we need to construct a URL for the file
+                if let Some(host) = remote_host {
+                    // Extract the filename from the path, as we only need the cache part
+                    let file_name = Path::new(path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default();
+                    
+                    // Construct the URL using the host and cache prefix
+                    format!("{}/files/cache/{}", host, file_name)
+                } else {
+                    // No host available, return the original path
+                    path.to_string()
+                }
+            }
+        },
+        RunningMode::Client => {
+            // We're running as a client, so the path is already correct
+            path.to_string()
+        }
+    }
 }
 
 pub async fn parse_media_files(

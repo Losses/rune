@@ -9,7 +9,7 @@ use ::database::connection::MainDbConnection;
 use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    Session, Signal,
 };
 
 impl ParamsExtractor for SystemInfoRequest {
@@ -27,6 +27,7 @@ impl Signal for SystemInfoRequest {
     async fn handle(
         &self,
         (_main_db,): Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         let users = Users::new_with_refreshed_list();

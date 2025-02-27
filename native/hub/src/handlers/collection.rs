@@ -8,9 +8,9 @@ use database::actions::collection::{CollectionQuery, CollectionQueryListMode, Un
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 use database::entities::{albums, artists, mix_queries, mixes, playlists};
 
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
-use crate::utils::{inject_cover_art_map, GlobalParams, ParamsExtractor};
+use crate::utils::{inject_cover_art_map, GlobalParams, ParamsExtractor, RunningMode};
 
 #[derive(Default)]
 pub struct CollectionActionParams {
@@ -50,6 +50,8 @@ async fn handle_fetch_group_summary<T: CollectionQuery>(
 async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
     params: CollectionActionParams,
 ) -> Result<Option<FetchCollectionGroupsResponse>> {
     let entry = T::get_groups(
@@ -68,6 +70,8 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
                 Collection::from_model_bakeable(
                     &main_db,
                     recommend_db,
+                    running_mode,
+                    remote_host,
                     x.0.clone(),
                     params.bake_cover_arts,
                 )
@@ -95,6 +99,8 @@ async fn handle_fetch_groups<T: CollectionQuery + std::clone::Clone>(
 async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
     main_db: &Arc<MainDbConnection>,
     recommend_db: &Arc<RecommendationDbConnection>,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
     params: CollectionActionParams,
 ) -> Result<Option<FetchCollectionByIdsResponse>> {
     let items = T::get_by_ids(
@@ -108,6 +114,8 @@ async fn handle_fetch_by_id<T: CollectionQuery + std::clone::Clone>(
         Collection::from_model_bakeable(
             main_db,
             Arc::clone(recommend_db),
+            running_mode,
+            remote_host,
             item.clone(),
             params.bake_cover_arts,
         )
@@ -205,13 +213,23 @@ impl Collection {
     pub async fn from_model_bakeable<T: CollectionQuery>(
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
+        running_mode: &RunningMode,
+        remote_host: &Option<String>,
         model: T,
         bake_cover_arts: bool,
     ) -> Result<Self> {
         let mut collection = Collection::from_model(main_db, &model).await?;
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
+            collection = inject_cover_art_map(
+                main_db,
+                recommend_db,
+                collection,
+                None,
+                running_mode,
+                remote_host,
+            )
+            .await?;
         }
 
         Ok(collection)
@@ -220,13 +238,23 @@ impl Collection {
     pub async fn from_unified_collection_bakeable(
         main_db: &MainDbConnection,
         recommend_db: Arc<RecommendationDbConnection>,
+        running_mode: &RunningMode,
+        remote_host: &Option<String>,
         x: UnifiedCollection,
         bake_cover_arts: bool,
     ) -> Result<Self> {
         let mut collection = Collection::from_unified_collection(x);
 
         if bake_cover_arts {
-            collection = inject_cover_art_map(main_db, recommend_db, collection, None).await?;
+            collection = inject_cover_art_map(
+                main_db,
+                recommend_db,
+                collection,
+                None,
+                running_mode,
+                remote_host,
+            )
+            .await?;
         }
 
         Ok(collection)
@@ -248,6 +276,7 @@ impl Signal for FetchCollectionGroupSummaryRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         match dart_signal.collection_type {
@@ -261,23 +290,33 @@ impl Signal for FetchCollectionGroupSummaryRequest {
 }
 
 impl ParamsExtractor for FetchCollectionGroupsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        RunningMode,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
+            all_params.running_mode,
         )
     }
 }
 
 impl Signal for FetchCollectionGroupsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        RunningMode,
+    );
     type Response = FetchCollectionGroupsResponse;
 
     async fn handle(
         &self,
-        (main_db, recommend_db): Self::Params,
+        (main_db, recommend_db, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let params = CollectionActionParams {
@@ -286,34 +325,85 @@ impl Signal for FetchCollectionGroupsRequest {
             ..Default::default()
         };
 
+        let remote_host = match session {
+            Some(x) => Some(x.host),
+            None => None,
+        };
+
         match dart_signal.collection_type {
-            0 => handle_fetch_groups::<albums::Model>(&main_db, &recommend_db, params).await,
-            1 => handle_fetch_groups::<artists::Model>(&main_db, &recommend_db, params).await,
-            2 => handle_fetch_groups::<playlists::Model>(&main_db, &recommend_db, params).await,
-            3 => handle_fetch_groups::<mixes::Model>(&main_db, &recommend_db, params).await,
+            0 => {
+                handle_fetch_groups::<albums::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            1 => {
+                handle_fetch_groups::<artists::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            2 => {
+                handle_fetch_groups::<playlists::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            3 => {
+                handle_fetch_groups::<mixes::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }
 }
 
 impl ParamsExtractor for FetchCollectionByIdsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        RunningMode,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
+            all_params.running_mode,
         )
     }
 }
 
 impl Signal for FetchCollectionByIdsRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        RunningMode,
+    );
     type Response = FetchCollectionByIdsResponse;
 
     async fn handle(
         &self,
-        (main_db, recommend_db): Self::Params,
+        (main_db, recommend_db, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let params = CollectionActionParams {
@@ -321,11 +411,52 @@ impl Signal for FetchCollectionByIdsRequest {
             ..Default::default()
         };
 
+        let remote_host = match session {
+            Some(x) => Some(x.host),
+            None => None,
+        };
+
         match dart_signal.collection_type {
-            0 => handle_fetch_by_id::<albums::Model>(&main_db, &recommend_db, params).await,
-            1 => handle_fetch_by_id::<artists::Model>(&main_db, &recommend_db, params).await,
-            2 => handle_fetch_by_id::<playlists::Model>(&main_db, &recommend_db, params).await,
-            3 => handle_fetch_by_id::<mixes::Model>(&main_db, &recommend_db, params).await,
+            0 => {
+                handle_fetch_by_id::<albums::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            1 => {
+                handle_fetch_by_id::<artists::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            2 => {
+                handle_fetch_by_id::<playlists::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            3 => {
+                handle_fetch_by_id::<mixes::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }
@@ -346,6 +477,7 @@ impl Signal for SearchCollectionSummaryRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let params = CollectionActionParams {

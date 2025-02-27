@@ -35,7 +35,7 @@ macro_rules! handle_single_gui_event {
                             let event = dart_signal.message;
                             let params = event.extract_params(&global_params);
 
-                            match event.handle(params, &event).await {
+                            match event.handle(params, None, &event).await {
                                 Ok(_response) => {
                                     handle_response!(_response, $response_type);
                                 }

@@ -16,7 +16,10 @@ use tracing_subscriber::EnvFilter;
 use cli::{broadcast::handle_broadcast, permission::handle_permission, server::handle_server};
 use hub::{
     server::{ServerManager, WebSocketService},
-    utils::{initialize_databases, player::initialize_local_player, GlobalParams, TaskTokens},
+    utils::{
+        initialize_databases, player::initialize_local_player, GlobalParams, RunningMode,
+        TaskTokens,
+    },
 };
 
 use ::database::connection::{MainDbConnection, RecommendationDbConnection};
@@ -153,6 +156,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
         cert_validator,
         permission_manager,
         server_manager: OnceLock::new(),
+        running_mode: RunningMode::Server,
     });
 
     let server_manager = Arc::new(ServerManager::new(global_params.clone()).await?);

@@ -17,6 +17,7 @@ use crate::utils::determine_batch_size;
 use crate::utils::Broadcaster;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
+use crate::Session;
 use crate::TaskTokens;
 use crate::{messages::*, Signal};
 
@@ -39,6 +40,7 @@ impl Signal for CloseLibraryRequest {
     async fn handle(
         &self,
         (lib_path, main_token, task_tokens): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -46,7 +48,10 @@ impl Signal for CloseLibraryRequest {
         info!("Closing library: {:#?}", request.path);
 
         if request.path != *lib_path {
-            warn!("Library path mismatch: {:#?} != {:#?}", request.path, *lib_path);
+            warn!(
+                "Library path mismatch: {:#?} != {:#?}",
+                request.path, *lib_path
+            );
             return Ok(None);
         }
 
@@ -93,6 +98,7 @@ impl Signal for ScanAudioLibraryRequest {
     async fn handle(
         &self,
         (main_db, task_tokens, broadcaster): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
         let mut tokens = task_tokens.lock().await;
@@ -209,6 +215,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
     async fn handle(
         &self,
         (main_db, recommend_db, task_tokens, broadcaster): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let mut tokens = task_tokens.lock().await;
@@ -287,6 +294,7 @@ impl Signal for CancelTaskRequest {
     async fn handle(
         &self,
         (task_tokens,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

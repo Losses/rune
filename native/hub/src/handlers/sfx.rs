@@ -6,9 +6,7 @@ use tokio::sync::Mutex;
 use ::playback::sfx_player::SfxPlayer;
 
 use crate::{
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
 };
 
 impl ParamsExtractor for SfxPlayRequest {
@@ -26,6 +24,7 @@ impl Signal for SfxPlayRequest {
     async fn handle(
         &self,
         (sfx_player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         sfx_player

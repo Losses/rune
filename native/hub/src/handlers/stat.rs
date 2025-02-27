@@ -11,7 +11,7 @@ use ::playback::player::PlayingItem;
 use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    Session, Signal,
 };
 
 impl ParamsExtractor for SetLikedRequest {
@@ -29,6 +29,7 @@ impl Signal for SetLikedRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -87,6 +88,7 @@ impl Signal for GetLikedRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

@@ -34,8 +34,9 @@ use crate::{
     messages::*,
     register_remote_handlers,
     server::{api::check_fingerprint, generate_or_load_certificates},
-    utils::LocalGuiBroadcaster,
-    utils::{GlobalParams, ParamsExtractor, RinfRustSignal, TaskTokens},
+    utils::{
+        GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens,
+    },
     Signal,
 };
 
@@ -135,16 +136,19 @@ impl WebSocketDartBridge {
     pub async fn run(
         &mut self,
         rnsrv_url: &str,
-        wss_url: &str,
+        host: &str,
         config_path: &str,
         config: Arc<ClientConfig>,
         fingerprint: &str,
     ) -> Result<()> {
-        let raw_url = wss_url;
+        let url = format!(
+            "wss://{}:7863/ws?fingerprint={}&host={}",
+            host,
+            encode(fingerprint),
+            encode(host)
+        );
 
-        let url = format!("{}/ws?fingerprint={}", wss_url, encode(fingerprint));
-
-        info!("Connecting to {}", raw_url);
+        info!("Connecting to {}", host);
 
         match connect_async_tls_with_config(
             url.clone(),
@@ -278,6 +282,7 @@ impl WebSocketDartBridge {
                     cert_validator,
                     permission_manager,
                     server_manager: OnceLock::new(),
+                    running_mode: RunningMode::Server,
                 };
 
                 let global_params = Arc::new(global_params);
@@ -330,7 +335,6 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
     }
 
     let rnsrv_url = url.to_string();
-    let ws_url = format!("wss://{}:7863", host);
     let config_path = config_path.to_string();
     tokio::spawn(async move {
         info!("Initializing bridge");
@@ -353,13 +357,7 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
         );
 
         bridge
-            .run(
-                &rnsrv_url,
-                &ws_url,
-                &config_path,
-                client_config,
-                &fingerprint,
-            )
+            .run(&rnsrv_url, &host, &config_path, client_config, &fingerprint)
             .await
     });
 

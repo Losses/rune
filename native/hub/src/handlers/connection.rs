@@ -6,7 +6,7 @@ use database::connection::{check_library_state, LibraryState};
 use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    Session, Signal,
 };
 
 impl ParamsExtractor for TestLibraryInitializedRequest {
@@ -19,7 +19,12 @@ impl Signal for TestLibraryInitializedRequest {
     type Params = ();
     type Response = TestLibraryInitializedResponse;
 
-    async fn handle(&self, _: Self::Params, dart_signal: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
         let media_library_path = dart_signal.path.clone();
         let test_result = check_library_state(&media_library_path);
 

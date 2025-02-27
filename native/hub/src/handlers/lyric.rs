@@ -9,9 +9,7 @@ use ::lyric::parser::parse_audio_lyrics;
 use ::playback::player::PlayingItem;
 
 use crate::{
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
 };
 
 impl ParamsExtractor for GetLyricByTrackIdRequest {
@@ -32,6 +30,7 @@ impl Signal for GetLyricByTrackIdRequest {
     async fn handle(
         &self,
         (lib_path, main_db): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let item = &dart_signal.item;

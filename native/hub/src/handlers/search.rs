@@ -7,9 +7,11 @@ use ::database::actions::search::convert_to_collection_types;
 use ::database::actions::search::search_for;
 use ::database::connection::MainDbConnection;
 
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
-use crate::{messages::*, Signal};
+use crate::{
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Session, Signal,
+};
 
 impl ParamsExtractor for SearchForRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -26,6 +28,7 @@ impl Signal for SearchForRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

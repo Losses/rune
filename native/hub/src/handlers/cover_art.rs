@@ -11,6 +11,7 @@ use tokio::task;
 use crate::utils::query_cover_arts;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
+use crate::Session;
 use crate::{messages::*, Signal};
 
 impl ParamsExtractor for GetCoverArtIdsByMixQueriesRequest {
@@ -30,6 +31,7 @@ impl Signal for GetCoverArtIdsByMixQueriesRequest {
     async fn handle(
         &self,
         (main_db, recommend_db): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -83,6 +85,7 @@ impl Signal for GetPrimaryColorByTrackIdRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let item = dart_signal.item.clone();

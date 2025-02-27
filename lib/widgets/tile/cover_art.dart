@@ -73,13 +73,24 @@ class CoverArt extends StatelessWidget {
                 size: size ?? double.infinity,
                 texts: hint!,
               )
-        : Image.file(
-            File(path!),
-            width: size ?? double.infinity,
-            height: size ?? double.infinity,
-            fit: BoxFit.cover,
-            cacheHeight: cachedSize,
-            filterQuality: FilterQuality.high,
-          );
+        : path!.startsWith('http://') || path!.startsWith('https://')
+            // For remote images from server
+            ? Image.network(
+                path!,
+                width: size ?? double.infinity,
+                height: size ?? double.infinity,
+                fit: BoxFit.cover,
+                cacheHeight: cachedSize,
+                filterQuality: FilterQuality.high,
+              )
+            // For local files
+            : Image.file(
+                File(path!),
+                width: size ?? double.infinity,
+                height: size ?? double.infinity,
+                fit: BoxFit.cover,
+                cacheHeight: cachedSize,
+                filterQuality: FilterQuality.high,
+              );
   }
 }

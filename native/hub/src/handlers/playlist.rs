@@ -11,7 +11,7 @@ use ::database::actions::playlists::{
 use ::database::connection::MainDbConnection;
 
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
 impl ParamsExtractor for FetchAllPlaylistsRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -27,6 +27,7 @@ impl Signal for FetchAllPlaylistsRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let playlists = get_all_playlists(&main_db)
@@ -60,6 +61,7 @@ impl Signal for CreatePlaylistRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -99,6 +101,7 @@ impl Signal for UpdatePlaylistRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -144,6 +147,7 @@ impl Signal for RemovePlaylistRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -173,6 +177,7 @@ impl Signal for AddItemToPlaylistRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -209,6 +214,7 @@ impl Signal for ReorderPlaylistItemPositionRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -245,6 +251,7 @@ impl Signal for GetPlaylistByIdRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -281,6 +288,7 @@ impl Signal for CreateM3u8PlaylistRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

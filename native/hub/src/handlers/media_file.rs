@@ -10,7 +10,7 @@ use ::database::actions::metadata::{get_metadata_summary_by_files, get_parsed_fi
 use ::database::connection::MainDbConnection;
 
 use crate::utils::{parse_media_files, GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
 impl ParamsExtractor for FetchMediaFilesRequest {
     type Params = (Arc<MainDbConnection>, Arc<String>);
@@ -30,6 +30,7 @@ impl Signal for FetchMediaFilesRequest {
     async fn handle(
         &self,
         (main_db, lib_path): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -80,6 +81,7 @@ impl Signal for FetchMediaFileByIdsRequest {
     async fn handle(
         &self,
         (main_db, lib_path): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -127,6 +129,7 @@ impl Signal for FetchParsedMediaFileRequest {
     async fn handle(
         &self,
         (db, lib_path): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let file_id = dart_signal.id;
@@ -179,6 +182,7 @@ impl Signal for SearchMediaFileSummaryRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

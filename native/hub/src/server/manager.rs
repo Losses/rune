@@ -28,7 +28,9 @@ use crate::{
     messages::*,
     server::{
         http::{
-            check_fingerprint::check_fingerprint_handler, device_info::device_info_handler, file::file_handler, ping::ping_handler, register::register_handler, websocket::websocket_handler
+            check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
+            file::file_handler, ping::ping_handler, register::register_handler,
+            websocket::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
     },

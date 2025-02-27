@@ -17,7 +17,7 @@ use ::discovery::DiscoveryParams;
 use crate::server::api::register_device;
 use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
 impl ParamsExtractor for StartBroadcastRequest {
     type Params = (Arc<DiscoveryService>, Arc<String>);
@@ -37,6 +37,7 @@ impl Signal for StartBroadcastRequest {
     async fn handle(
         &self,
         (scanner, config_path): Self::Params,
+        _session: Option<Session>,
         request: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
         let certificate_id = request.alias.clone();
@@ -79,7 +80,12 @@ impl Signal for StopBroadcastRequest {
     type Params = (Arc<DiscoveryService>,);
     type Response = ();
 
-    async fn handle(&self, (scanner,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        (scanner,): Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
         scanner.stop_announcements().await;
         Ok(None)
     }
@@ -103,6 +109,7 @@ impl Signal for StartListeningRequest {
     async fn handle(
         &self,
         (scanner, config_path): Self::Params,
+        _session: Option<Session>,
         request: &Self,
     ) -> Result<Option<Self::Response>> {
         info!("Start listening for devices with alias: {}", request.alias);
@@ -131,6 +138,7 @@ impl Signal for StopListeningRequest {
     async fn handle(
         &self,
         (scanner,): Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> anyhow::Result<Option<Self::Response>> {
         scanner.stop_listening().await;
@@ -153,6 +161,7 @@ impl Signal for GetDiscoveredDeviceRequest {
     async fn handle(
         &self,
         scanner: Self::Params,
+        _session: Option<Session>,
         _request: &Self,
     ) -> Result<Option<Self::Response>> {
         let devices = scanner.get_all_devices();
@@ -200,6 +209,7 @@ impl Signal for StartServerRequest {
     fn handle(
         &self,
         (config_path, server_manager): Self::Params,
+        _session: Option<Session>,
         request: &Self,
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send {
         async move {
@@ -260,6 +270,7 @@ impl Signal for StopServerRequest {
     async fn handle(
         &self,
         server_manager: Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         match server_manager.stop().await {
@@ -290,6 +301,7 @@ impl Signal for ListClientsRequest {
     async fn handle(
         &self,
         permission_manager: Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         let users = permission_manager.read().await.list_users().await;
@@ -328,7 +340,12 @@ impl Signal for GetSslCertificateFingerprintRequest {
     type Params = Arc<String>;
     type Response = GetSslCertificateFingerprintResponse;
 
-    async fn handle(&self, config_path: Self::Params, _: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        config_path: Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
         let path = Path::new(&**config_path);
         let certificate_id = get_or_generate_certificate_id(path).await?;
 
@@ -353,7 +370,12 @@ impl Signal for RemoveTrustedClientRequest {
     type Params = Arc<RwLock<PermissionManager>>;
     type Response = RemoveTrustedClientResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let result = validator.write().await.remove_user(&req.fingerprint).await;
         match result {
             Ok(_) => Ok(Some(RemoveTrustedClientResponse {
@@ -380,7 +402,12 @@ impl Signal for ServerAvailabilityTestRequest {
     type Params = Arc<RwLock<CertValidator>>;
     type Response = ServerAvailabilityTestResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let validator = Arc::new(validator.read().await.clone());
 
         let hosts = match decode_rnsrv_url(&req.url) {
@@ -422,6 +449,7 @@ impl Signal for UpdateClientStatusRequest {
     async fn handle(
         &self,
         permission_manager: Self::Params,
+        _session: Option<Session>,
         message: &Self,
     ) -> Result<Option<Self::Response>> {
         match permission_manager
@@ -462,7 +490,12 @@ impl Signal for EditHostsRequest {
     type Params = Arc<RwLock<CertValidator>>;
     type Response = EditHostsResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let result = validator
             .write()
             .await
@@ -493,7 +526,12 @@ impl Signal for AddTrustedServerRequest {
     type Params = Arc<RwLock<CertValidator>>;
     type Response = AddTrustedServerResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let certificate = match &req.certificate {
             Some(x) => x,
             None => {
@@ -534,7 +572,12 @@ impl Signal for RemoveTrustedServerRequest {
     type Params = Arc<RwLock<CertValidator>>;
     type Response = RemoveTrustedServerResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let result = validator
             .write()
             .await
@@ -568,7 +611,12 @@ impl Signal for RegisterDeviceOnServerRequest {
     type Params = (Arc<String>, Arc<RwLock<CertValidator>>);
     type Response = RegisterDeviceOnServerResponse;
 
-    async fn handle(&self, config: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        config: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let (config_path, validator) = config;
         let validator = Arc::new(validator.read().await.clone());
         let config_path = config_path.to_string();
@@ -624,7 +672,12 @@ impl Signal for ConnectRequest {
     type Params = Arc<RwLock<CertValidator>>;
     type Response = ConnectResponse;
 
-    async fn handle(&self, validator: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        validator: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         let tasks = req.hosts.iter().map(|host| {
             let validator = Arc::clone(&validator);
             let host = host.clone();
@@ -670,7 +723,12 @@ impl Signal for FetchServerCertificateRequest {
     type Params = ();
     type Response = FetchServerCertificateResponse;
 
-    async fn handle(&self, _: Self::Params, req: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        _: Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
         match fetch_server_certificate(&req.url).await {
             Ok(cert) => Ok(Some(FetchServerCertificateResponse {
                 success: true,
