@@ -153,13 +153,13 @@ class GradientContainerState extends State<GradientContainer> {
               ..setFloat(11, widget.effectParams.noise)
               ..setFloat(12, widget.effectParams.bw)
               // u_color
-              ..setFloat(13, widget.color.r / 255.0)
-              ..setFloat(14, widget.color.g / 255.0)
-              ..setFloat(15, widget.color.b / 255.0)
+              ..setFloat(13, widget.color.r)
+              ..setFloat(14, widget.color.g)
+              ..setFloat(15, widget.color.b)
               // u_color2
-              ..setFloat(16, widget.color2.r / 255.0)
-              ..setFloat(17, widget.color2.g / 255.0)
-              ..setFloat(18, widget.color2.b / 255.0)
+              ..setFloat(16, widget.color2.r)
+              ..setFloat(17, widget.color2.g)
+              ..setFloat(18, widget.color2.b)
               // u_is_dark
               ..setFloat(19, isDark ? 1 : 0);
 
