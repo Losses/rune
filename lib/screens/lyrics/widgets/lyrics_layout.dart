@@ -7,6 +7,7 @@ import '../../../utils/playing_item.dart';
 import '../../../utils/color_brightness.dart';
 import '../../../widgets/tile/cover_art.dart';
 import '../../../widgets/navigation_bar/page_content_frame.dart';
+import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../messages/all.dart';
@@ -14,7 +15,6 @@ import '../../../providers/status.dart';
 import '../../../providers/responsive_providers.dart';
 
 import '../../cover_wall/widgets/cover_wall_layout.dart';
-import '../../cover_wall/widgets/gradient_container.dart';
 
 import 'lyric_display.dart';
 

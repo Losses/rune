@@ -2,6 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../../utils/color_brightness.dart';
+import '../../../widgets/cover_wall_background/gradient_container.dart';
 import '../../../widgets/cover_wall_background/cover_wall_background.dart';
 import '../../../widgets/cover_wall_background/utils/calculate_cover_wall_size.dart';
 import '../../../widgets/playback_controller/constants/playback_controller_height.dart';
@@ -9,7 +10,6 @@ import '../../../providers/responsive_providers.dart';
 
 import 'back_button.dart';
 import 'playing_track.dart';
-import 'gradient_container.dart';
 
 class CoverWallLayout extends StatefulWidget {
   const CoverWallLayout({super.key});
