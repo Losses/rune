@@ -1,3 +1,15 @@
+/// This key is used to store and retrieve the paths of files that have been
+/// previously opened by the user. This allows the application to maintain a
+/// history of accessed files and provide quick access to recently used content
+/// across sessions.
+const kOpenedFilesKey = 'library_path';
+
+/// The purpose of this key is to track the version of the stored file path data
+/// structure. When the application's data model changes, this version number is
+/// incremented, enabling seamless migration of user data from older formats to
+/// newer ones without data loss.
+const kDataVersionKey = 'library_path_version';
+
 /// The key is used to check if there is a predefined layout mode that the user
 /// or application has set, which should take precedence over the dynamically
 /// calculated device type based on screen size and orientation.
@@ -106,6 +118,20 @@ const kDeviceAliasKey = 'device_alias';
 
 /// This key stores the fingerprint of the SSL public certificate used to authenticate
 /// secure communication channels during Neighbor Discovery. The fingerprint serves
-/// as a trust anchor for peer verification, ensuring connections are established only 
+/// as a trust anchor for peer verification, ensuring connections are established only
 /// with cryptographically validated devices.
 const kFingerprintKey = 'device_fingerprint';
+
+/// This key is used to track whether the minimization notification has been
+/// shown to the user. When a user closes the application window for the first time
+/// and it minimizes to the system tray instead of terminating, a notification
+/// is displayed to inform the user of this behavior. Setting this flag prevents
+/// the notification from appearing on subsequent window closes, providing a
+/// better user experience by avoiding repetitive notifications.
+const kCloseNotificationShownKey = 'close_notification_shown';
+
+/// The primary purpose of this key is to determine the behavior when a user
+/// clicks the close button on the application window. It can be configured to
+/// either minimize the application to the system tray or completely close the
+/// window and terminate the application.
+const kClosingWindowBehaviorKey = 'closing_window_behavior';

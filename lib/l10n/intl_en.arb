@@ -1264,5 +1264,25 @@
   "pairingFailureMessage": "The fingerprint doesn't match. Please ensure you're connecting to the correct device and try the verification again.",
   "@pairingFailureMessage": {
     "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
+  },
+  "closingWindowBehaviorTitle": "Closing Window Behavior",
+  "@closingWindowBehaviorTitle": {
+    "description": "Title text for the window close behavior settings section. Emphasizes user control over how the application closes."
+  },
+  "closingWindowBehaviorSubtitle": "Choose how the application behaves when you click the close button.",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explains that users can customize the close button behavior. Use 'customize' or 'configure' as alternatives."
+  },
+  "minimizeToTray": "Minimize to Tray",
+  "@minimizeToTray": {
+    "description": "Option text indicating the program will continue running in the background when window is closed. Use 'Hide to tray' or 'Keep running' as alternative phrasing."
+  },
+  "exitProgram": "Exit Completely",
+  "@exitProgram": {
+    "description": "Option text indicating the program will terminate completely when window is closed. Use 'Close application' or 'Terminate app' as alternative phrasing."
+  },
+  "systemTabTitle": "System",
+  "@systemTabTitle": {
+    "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
   }
 }

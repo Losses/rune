@@ -5,6 +5,7 @@ import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
 import 'widgets/performance_level_setting.dart';
+import 'widgets/closing_window_behavior_setting.dart';
 
 class SettingsAnalysis extends StatefulWidget {
   const SettingsAnalysis({super.key});
@@ -26,6 +27,7 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
                 // The setting has been hidden due to significant stability issues.
                 // ComputingDeviceSetting(),
                 PerformanceLevelSetting(),
+                ClosingWindowBehaviorSetting(),
               ],
             ),
           ),
