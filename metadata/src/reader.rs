@@ -6,7 +6,7 @@ use anyhow::{bail, Result};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataOptions, MetadataRevision, StandardTagKey, Value};
-use symphonia::core::probe::Hint;
+use symphonia::core::probe::{Hint, ProbeResult};
 
 fn create_standard_tag_key_maps() -> (
     HashMap<StandardTagKey, &'static str>,
@@ -211,23 +211,21 @@ fn push_tags(
     }
 }
 
-pub fn get_metadata(
-    file_path: &str,
-    field_blacklist: Option<Vec<&str>>,
-) -> Result<Vec<(String, String)>> {
-    if !Path::new(file_path).exists() {
+fn probe_audio_file<P: AsRef<Path>>(file_path: P) -> Result<ProbeResult> {
+    if !Path::new(file_path.as_ref()).exists() {
         bail!("File not found");
     }
 
+    // Create a probe hint using the file's extension.
+    let mut hint = Hint::new();
+    let file_path_str = file_path.as_ref().to_string_lossy();
+
     // Open the media source.
-    let src = File::open(file_path)?;
+    let src = File::open(&file_path)?;
 
     // Create the media source stream.
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
-
-    // Create a probe hint using the file's extension.
-    let mut hint = Hint::new();
-    let ext = file_path.split('.').last().unwrap_or_default();
+    let ext = file_path_str.split('.').last().unwrap_or_default();
     hint.with_extension(ext);
 
     // Use the default options for metadata and format readers.
@@ -235,8 +233,52 @@ pub fn get_metadata(
     let meta_opts: MetadataOptions = Default::default();
 
     // Probe the media source.
-    let mut probed = symphonia::default::get_probe().format(&hint, mss, &fmt_opts, &meta_opts)?;
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &fmt_opts, &meta_opts)
+        .map_err(|e| anyhow::anyhow!("Failed to probe file: {}", e))?;
 
+    Ok(probed)
+}
+
+pub fn get_lyrics<P: AsRef<Path>>(file_path: P) -> Result<Option<String>> {
+    let mut probed = probe_audio_file(file_path)?;
+    let mut format = probed.format;
+
+    let format_metadata = format.metadata();
+    let metadata_rev = if let Some(current) = format_metadata.current() {
+        Some(current.clone())
+    } else if let Some(metadata) = probed.metadata.get() {
+        metadata.current().cloned()
+    } else {
+        None
+    };
+
+    if let Some(revision) = metadata_rev {
+        for tag in revision.tags() {
+            // Check if this is the standard lyrics tag
+            if tag.std_key == Some(StandardTagKey::Lyrics) {
+                // Convert value to string based on type
+                let value = match &tag.value {
+                    Value::String(s) => s.clone(),
+                    Value::UnsignedInt(n) => n.to_string(),
+                    Value::SignedInt(n) => n.to_string(),
+                    Value::Float(n) => n.to_string(),
+                    Value::Boolean(b) => b.to_string(),
+                    _ => continue, // Skip binary data and other non-text types
+                };
+                return Ok(Some(value));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+pub fn get_metadata<P: AsRef<Path>>(
+    file_path: P,
+    field_blacklist: Option<Vec<&str>>,
+) -> Result<Vec<(String, String)>> {
+    let mut probed = probe_audio_file(file_path)?;
     let mut format = probed.format;
     let mut metadata_list = Vec::new();
 

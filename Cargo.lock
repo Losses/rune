@@ -2683,6 +2683,7 @@ dependencies = [
  "lazy_static",
  "log",
  "lyric",
+ "metadata",
  "num_cpus",
  "paste",
  "playback",

@@ -5,11 +5,14 @@ use anyhow::Result;
 use ::database::{
     connection::MainDbConnection, playing_item::dispatcher::PlayingItemActionDispatcher,
 };
-use ::lyric::parser::parse_audio_lyrics;
+use ::lyric::{lrc::parse_lrc, parser::parse_audio_lyrics};
+use ::metadata::reader::get_lyrics;
 use ::playback::player::PlayingItem;
 
 use crate::{
-    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Session, Signal,
 };
 
 impl ParamsExtractor for GetLyricByTrackIdRequest {
@@ -51,9 +54,14 @@ impl Signal for GetLyricByTrackIdRequest {
 
             match path {
                 Some(path) => {
-                    let lyric = parse_audio_lyrics(path.to_path_buf());
+                    let build_in_lyric = get_lyrics(path).unwrap_or_default();
 
-                    match lyric {
+                    let lyrics = match build_in_lyric {
+                        Some(x) => Some(parse_lrc(&x)),
+                        None => parse_audio_lyrics(path.to_path_buf()),
+                    };
+
+                    match lyrics {
                         Some(lyric) => match lyric {
                             Ok(lyric) => Ok(Some(GetLyricByTrackIdResponse {
                                 item: Some(item.clone()),

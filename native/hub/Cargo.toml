@@ -30,6 +30,7 @@ database = { path = "../../database" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
 scrobbling = { path = "../../scrobbling" }
+metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }
 lazy_static = "1.5.0"
 dunce = "1.0.4"
