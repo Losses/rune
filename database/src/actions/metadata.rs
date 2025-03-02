@@ -18,7 +18,7 @@ use metadata::scanner::AudioScanner;
 use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
-use crate::actions::index::index_media_files;
+use crate::actions::index::{index_media_files, perform_library_maintenance};
 use crate::actions::logging::{insert_log, LogLevel};
 use crate::actions::search::{add_term, remove_term};
 use crate::entities::{albums, artists, media_file_albums, media_files};
@@ -875,6 +875,11 @@ where
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("{:#?}", e),
         }
+        // Perform library maintenance after indexing is completed.
+        match perform_library_maintenance(main_db, cancel_token.as_ref()).await {
+            Ok(_) => info!("Library maintainence successfully."),
+            Err(e) => error!("{:#?}", e),
+        };
     }
 
     info!("Audio library scan completed.");
