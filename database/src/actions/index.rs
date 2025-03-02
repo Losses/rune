@@ -1,16 +1,35 @@
+use std::collections::{HashMap, HashSet};
+
 use anyhow::{Error, Result};
 use log::{error, info};
-use sea_orm::{prelude::*, ActiveValue};
+use migration::OnConflict;
+use sea_orm::{prelude::*, DatabaseTransaction, QuerySelect};
 use sea_orm::{DatabaseConnection, Set, TransactionTrait};
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::collection::CollectionQueryType;
-use crate::actions::search::add_term;
+use crate::actions::search::{add_term, remove_term};
 use crate::actions::utils::generate_group_name;
 use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
 
-use super::metadata::get_metadata_summary_by_file_ids;
+use super::metadata::{get_metadata_summary_by_file_ids, MetadataSummary};
 
+/// Indexes media files by processing their metadata and updating database records for artists and albums.
+///
+/// This function processes a list of media file IDs, retrieves metadata summaries for each file,
+/// and then iterates through each summary to update artist and album information in the database.
+/// Each file is processed within its own database transaction to ensure atomicity.
+/// It also supports cancellation via a `CancellationToken`.
+///
+/// # Arguments
+///
+/// * `main_db`: A reference to the database connection.
+/// * `file_ids`: A vector of media file IDs to index.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the indexing process is successful, or an `Err(Error)` if any error occurs.
 pub async fn index_media_files(
     main_db: &DatabaseConnection,
     file_ids: Vec<i32>,
@@ -18,6 +37,7 @@ pub async fn index_media_files(
 ) -> Result<()> {
     info!("Indexing media: {:?}", file_ids);
 
+    // Check for cancellation before starting any processing.
     if let Some(token) = &cancel_token {
         if token.is_cancelled() {
             info!("Operation cancelled before starting.");
@@ -25,203 +45,499 @@ pub async fn index_media_files(
         }
     }
 
-    // Fetch metadata summary for provided file_ids
+    // Retrieve metadata summaries for the given file IDs.
     let metadata_summaries = get_metadata_summary_by_file_ids(main_db, file_ids.clone()).await?;
 
-    let txn = main_db.begin().await?;
-
     for summary in metadata_summaries {
+        // Start a new transaction for each file to ensure individual processing atomicity.
+        let txn = match main_db.begin().await {
+            Ok(txn) => txn,
+            Err(e) => {
+                error!("Failed to start transaction: {}", e);
+                continue; // Proceed to the next file if transaction start fails.
+            }
+        };
+
+        // Check for cancellation during processing of each file.
         if let Some(token) = &cancel_token {
             if token.is_cancelled() {
                 info!("Operation cancelled during processing.");
-                txn.rollback().await?;
+                let _ = txn.rollback().await; // Rollback the current transaction if cancelled.
                 return Ok(());
             }
         }
 
-        // Process artists
-        let artists = metadata::artist::split_artists(&summary.artist);
-        let mut artist_ids = Vec::new();
+        // Process artists for the current media file.
+        let artist_result = process_artists(&txn, &summary, cancel_token).await;
+        // Process album for the current media file.
+        let album_result = process_album(&txn, &summary).await;
 
-        for artist_name in artists {
-            if let Some(token) = &cancel_token {
-                if token.is_cancelled() {
-                    info!("Operation cancelled during artist processing.");
-                    txn.rollback().await?;
-                    return Ok(());
+        // Commit transaction if both artist and album processing are successful, otherwise rollback.
+        match (artist_result, album_result) {
+            (Ok(_), Ok(_)) => {
+                if let Err(e) = txn.commit().await {
+                    error!("Commit failed for file {}: {}", summary.id, e);
                 }
             }
-
-            let artist = artists::ActiveModel {
-                name: Set(artist_name.clone()),
-                group: Set(generate_group_name(&artist_name)),
-                ..Default::default()
-            };
-
-            let existing_artist = artists::Entity::find()
-                .filter(artists::Column::Name.eq(artist_name.clone()))
-                .one(&txn)
-                .await?;
-
-            let artist_id = if let Some(existing) = existing_artist {
-                existing.id
-            } else {
-                let inserted_artist = artists::Entity::insert(artist).exec(&txn).await?;
-                add_term(
-                    &txn,
-                    CollectionQueryType::Artist,
-                    inserted_artist.last_insert_id,
-                    &artist_name.clone(),
-                )
-                .await?;
-                inserted_artist.last_insert_id
-            };
-
-            artist_ids.push(artist_id);
+            _ => {
+                let _ = txn.rollback().await; // Rollback transaction if artist or album processing failed.
+                error!("Processing failed for file {}, rolled back", summary.id);
+            }
         }
-
-        // Clean up old artist relationships
-        media_file_artists::Entity::delete_many()
-            .filter(media_file_artists::Column::MediaFileId.eq(summary.id))
-            .exec(&txn)
-            .await?;
-
-        // Insert new artist relationships
-        for artist_id in artist_ids {
-            let media_file_artist = media_file_artists::ActiveModel {
-                id: ActiveValue::NotSet,
-                media_file_id: Set(summary.id),
-                artist_id: Set(artist_id),
-            };
-            media_file_artists::Entity::insert(media_file_artist)
-                .exec(&txn)
-                .await?;
-        }
-
-        // Process album
-        let album_name = summary.album;
-        let album = albums::ActiveModel {
-            name: Set(album_name.clone()),
-            group: Set(generate_group_name(&album_name)),
-            ..Default::default()
-        };
-
-        let existing_album = albums::Entity::find()
-            .filter(albums::Column::Name.eq(album_name.clone()))
-            .one(&txn)
-            .await?;
-
-        let album_id = if let Some(existing) = existing_album {
-            existing.id
-        } else {
-            let inserted_album = albums::Entity::insert(album).exec(&txn).await?;
-            add_term(
-                &txn,
-                CollectionQueryType::Album,
-                inserted_album.last_insert_id,
-                &album_name.clone(),
-            )
-            .await?;
-            inserted_album.last_insert_id
-        };
-
-        // Clean up old album relationships
-        media_file_albums::Entity::delete_many()
-            .filter(media_file_albums::Column::MediaFileId.eq(summary.id))
-            .exec(&txn)
-            .await?;
-
-        // Insert new album relationship
-        let media_file_album = media_file_albums::ActiveModel {
-            id: ActiveValue::NotSet,
-            media_file_id: Set(summary.id),
-            album_id: Set(album_id),
-            track_number: Set(Some(summary.track_number)),
-        };
-
-        media_file_albums::Entity::insert(media_file_album)
-            .exec(&txn)
-            .await?;
     }
-
-    txn.commit().await?;
 
     Ok(())
 }
 
+/// Processes artist information from metadata summary, updating artist records and associations.
+///
+/// This function parses artist names from the metadata summary, identifies existing artists,
+/// inserts new artists if necessary, and updates the relationships between media files and artists
+/// in the database. It also handles search term indexing for new artists.
+///
+/// # Arguments
+///
+/// * `txn`: A reference to the database transaction.
+/// * `summary`: A reference to the metadata summary of the media file.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if artist processing is successful, or an `Err(Error)` if any error occurs.
+async fn process_artists(
+    txn: &DatabaseTransaction,
+    summary: &MetadataSummary,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<()> {
+    // Split and deduplicate artist names from the metadata summary.
+    let artist_names: Vec<String> = {
+        let names = metadata::artist::split_artists(&summary.artist);
+        names
+            .into_iter()
+            .collect::<HashSet<_>>() // Deduplicate artist names using HashSet.
+            .into_iter()
+            .collect() // Convert HashSet back to Vec for ordered processing.
+    };
+
+    // If no artist names are found, return early.
+    if artist_names.is_empty() {
+        return Ok(());
+    }
+
+    // Check for cancellation token.
+    if let Some(token) = cancel_token {
+        if token.is_cancelled() {
+            return Err(Error::msg("Operation cancelled"));
+        }
+    }
+
+    // Fetch existing artists from the database that match the artist names from metadata.
+    let existing_artists = artists::Entity::find()
+        .filter(artists::Column::Name.is_in(&artist_names))
+        .all(txn)
+        .await?;
+
+    // Create a HashMap for efficient lookup of existing artists by name.
+    let existing_map: HashMap<_, _> = existing_artists
+        .into_iter()
+        .map(|a| (a.name, a.id)) // Map artist name to artist ID for quick lookup.
+        .collect();
+
+    // Identify new artist names that do not exist in the database yet.
+    let new_artist_names: Vec<_> = artist_names
+        .iter()
+        .filter(|name| !existing_map.contains_key(*name)) // Filter out names that are already in existing_map.
+        .cloned()
+        .collect();
+
+    // Batch insert new artists into the database with conflict handling (do nothing if artist name already exists).
+    if !new_artist_names.is_empty() {
+        let insert_operation =
+            artists::Entity::insert_many(new_artist_names.into_iter().map(|name| {
+                artists::ActiveModel {
+                    name: Set(name.clone()),                // Set artist name.
+                    group: Set(generate_group_name(&name)), // Generate group name for artist.
+                    ..Default::default()
+                }
+            }))
+            .on_conflict(
+                OnConflict::column(artists::Column::Name) // Define conflict handling on the 'name' column.
+                    .do_nothing() // If conflict occurs, do nothing (skip insertion).
+                    .to_owned(),
+            );
+
+        // Execute the insert operation without expecting any return value.
+        insert_operation.exec_without_returning(txn).await?;
+    }
+
+    // Retrieve the final set of artists from the database, including newly inserted ones.
+    let final_artists = artists::Entity::find()
+        .filter(artists::Column::Name.is_in(&artist_names))
+        .all(txn)
+        .await?;
+
+    // Collect artist IDs and add search terms for newly inserted artists.
+    let mut artist_ids = Vec::new();
+    for artist in final_artists {
+        // Add search term only for artists that were newly inserted in this process.
+        if !existing_map.contains_key(&artist.name) {
+            add_term(txn, CollectionQueryType::Artist, artist.id, &artist.name).await?;
+        }
+        artist_ids.push(artist.id);
+    }
+
+    // Clean up existing artist associations for the media file before creating new ones.
+    media_file_artists::Entity::delete_many()
+        .filter(media_file_artists::Column::MediaFileId.eq(summary.id)) // Delete associations for the current media file.
+        .exec(txn)
+        .await?;
+
+    // Insert new artist associations for the media file.
+    if !artist_ids.is_empty() {
+        media_file_artists::Entity::insert_many(artist_ids.into_iter().map(|artist_id| {
+            media_file_artists::ActiveModel {
+                media_file_id: Set(summary.id), // Set media file ID.
+                artist_id: Set(artist_id),      // Set artist ID.
+                ..Default::default()
+            }
+        }))
+        .exec(txn)
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Processes album information from metadata summary, updating album records and associations.
+///
+/// This function checks if an album exists in the database, inserts it if not,
+/// and updates the relationship between the media file and the album.
+/// It also handles search term indexing for new albums.
+///
+/// # Arguments
+///
+/// * `txn`: A reference to the database transaction.
+/// * `summary`: A reference to the metadata summary of the media file.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if album processing is successful, or an `Err(Error)` if any error occurs.
+async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> Result<()> {
+    let album_name = &summary.album;
+    let album = albums::ActiveModel {
+        name: Set(album_name.clone()),               // Set album name.
+        group: Set(generate_group_name(album_name)), // Generate group name for album.
+        ..Default::default()
+    };
+
+    // Check if the album already exists in the database.
+    let existing_album = albums::Entity::find()
+        .filter(albums::Column::Name.eq(album_name)) // Filter by album name.
+        .one(txn)
+        .await?;
+
+    let album_id = match existing_album {
+        Some(existing) => existing.id, // Use existing album ID if found.
+        None => {
+            // Insert the new album if it doesn't exist.
+            let inserted_album = albums::Entity::insert(album).exec(txn).await?;
+            // Add search term for the newly inserted album.
+            add_term(
+                txn,
+                CollectionQueryType::Album,
+                inserted_album.last_insert_id, // Get the ID of the newly inserted album.
+                album_name,
+            )
+            .await?;
+            inserted_album.last_insert_id // Return the new album ID.
+        }
+    };
+
+    // Clean up existing album associations for the media file before creating new ones.
+    media_file_albums::Entity::delete_many()
+        .filter(media_file_albums::Column::MediaFileId.eq(summary.id)) // Delete associations for the current media file.
+        .exec(txn)
+        .await?;
+
+    // Insert new album association for the media file.
+    media_file_albums::Entity::insert(media_file_albums::ActiveModel {
+        media_file_id: Set(summary.id),                // Set media file ID.
+        album_id: Set(album_id),                       // Set album ID.
+        track_number: Set(Some(summary.track_number)), // Set track number from metadata.
+        ..Default::default()
+    })
+    .exec(txn)
+    .await?;
+
+    Ok(())
+}
+
+/// Indexes the entire audio library in batches, processing media files in parallel.
+///
+/// This function fetches media files in batches from the database and processes them
+/// using `index_media_files`. It utilizes an asynchronous channel to pass files from
+/// a producer task (fetching files) to a consumer task (indexing files), allowing for
+/// concurrent processing. After indexing is complete, it performs library maintenance.
+///
+/// # Arguments
+///
+/// * `main_db`: A reference to the database connection.
+/// * `batch_size`: The number of media files to process in each batch.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if the library indexing is successful, or an `Err(Error)` if any error occurs.
 pub async fn index_audio_library(
     main_db: &DatabaseConnection,
     batch_size: usize,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
-    let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id);
+    let mut cursor = media_files::Entity::find().cursor_by(media_files::Column::Id); // Create a cursor for batch fetching.
+    let (tx, rx) = async_channel::bounded(batch_size); // Create an async channel for file batching.
 
-    info!(
-        "Starting indexing library analysis with batch size: {}",
-        batch_size
-    );
-
-    let (tx, rx) = async_channel::bounded(batch_size);
-
-    // Producer task: fetch batches of files and send them to the consumer
+    // Producer task: Fetches media files in batches from the database and sends them to the channel.
     let producer = async {
         loop {
-            // Fetch the next batch of files
+            // Fetch the next batch of files from the database using the cursor.
             let files: Vec<media_files::Model> =
                 cursor.first(batch_size.try_into()?).all(main_db).await?;
 
             if files.is_empty() {
                 info!("No more files to process. Exiting loop.");
-                break;
+                break; // Exit loop if no more files are found.
             }
 
+            // Send each file to the consumer via the channel.
             for file in &files {
                 tx.send(file.clone()).await?;
             }
 
-            // Move the cursor to the next batch
+            // Move the cursor to the next batch based on the last file's ID.
             if let Some(last_file) = files.last() {
                 info!("Moving cursor after file ID: {}", last_file.id);
                 cursor.after(last_file.id);
             } else {
-                break;
+                break; // Exit loop if there was an issue getting the last file.
             }
         }
 
-        drop(tx); // Close the channel to signal consumers to stop
+        drop(tx); // Close the channel to signal consumers to stop after all files are sent.
         Ok::<(), Error>(())
     };
 
-    // Consumer task: process files as they are received
+    // Consumer task: Receives media files from the channel and processes them in batches.
     let consumer = async {
-        let mut file_ids: Vec<i32> = Vec::new();
+        let mut file_ids = Vec::with_capacity(batch_size); // Initialize vector to hold file IDs for batch processing.
 
+        // Receive files from the channel until the channel is closed.
         while let Ok(file) = rx.recv().await {
-            let db = main_db.clone();
-            let file_id = file.id;
+            file_ids.push(file.id); // Add file ID to the current batch.
 
-            file_ids.push(file_id);
-
+            // Process the batch when it reaches the specified batch size.
             if file_ids.len() >= batch_size {
-                match index_media_files(&db, file_ids, cancel_token).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("Failed to index files: {}", e);
-                    }
-                };
-                file_ids = Vec::new();
+                process_batch(main_db, &mut file_ids, cancel_token).await?; // Process the current batch.
             }
         }
 
-        Ok::<(), sea_orm::DbErr>(())
+        // Process any remaining files in the last batch after the channel is closed.
+        if !file_ids.is_empty() {
+            process_batch(main_db, &mut file_ids, cancel_token).await?; // Process the last batch.
+        }
+
+        Ok::<(), Error>(())
     };
 
-    // Run producer and consumer concurrently
+    // Run the producer and consumer tasks concurrently.
     let (producer_result, consumer_result) = futures::join!(producer, consumer);
-
-    producer_result?;
-    consumer_result?;
+    producer_result?; // Propagate errors from producer task.
+    consumer_result?; // Propagate errors from consumer task.
 
     info!("Audio indexing analysis completed.");
+
+    // Perform library maintenance after indexing is completed.
+    perform_library_maintenance(main_db, cancel_token).await?;
+
+    info!("Full library indexing and maintenance completed.");
+
+    Ok(())
+}
+
+/// Processes a batch of file IDs by calling `index_media_files`.
+///
+/// This is a helper function to handle batch processing of media files. It takes a mutable
+/// vector of file IDs, processes them using `index_media_files`, and clears the vector.
+///
+/// # Arguments
+///
+/// * `db`: A reference to the database connection.
+/// * `file_ids`: A mutable vector of file IDs to process.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if batch processing is successful, or an `Err(Error)` if any error occurs.
+async fn process_batch(
+    db: &DatabaseConnection,
+    file_ids: &mut Vec<i32>,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<()> {
+    let batch = std::mem::take(file_ids); // Take ownership of the file IDs for processing and clear the original vector.
+    if let Err(e) = index_media_files(db, batch, cancel_token).await {
+        error!("Batch processing failed: {}", e); // Log error if batch processing fails.
+    }
+    Ok(())
+}
+
+/// Cleans up orphaned artist and album records from the database.
+///
+/// This function identifies artists and albums that are no longer associated with any media files
+/// and removes them from the database. It also removes associated search terms for these orphaned records.
+///
+/// # Arguments
+///
+/// * `db`: A reference to the database connection.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if cleanup is successful, or an `Err(Error)` if any error occurs.
+pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
+    info!("Starting cleanup of orphaned artists and albums");
+
+    // Start a transaction to ensure atomicity of the cleanup process.
+    let txn = db.begin().await?;
+
+    // 1. Query all artist IDs that are linked to media files through media_file_artists table.
+    let linked_artist_ids: Vec<i32> = media_file_artists::Entity::find()
+        .select_only()
+        .column(media_file_artists::Column::ArtistId) // Select only the artist_id column.
+        .into_tuple() // Convert the result into a tuple of artist IDs.
+        .all(&txn)
+        .await?;
+
+    // 2. Query all album IDs that are linked to media files through media_file_albums table.
+    let linked_album_ids: Vec<i32> = media_file_albums::Entity::find()
+        .select_only()
+        .column(media_file_albums::Column::AlbumId) // Select only the album_id column.
+        .into_tuple() // Convert the result into a tuple of album IDs.
+        .all(&txn)
+        .await?;
+
+    // 3. Find orphaned artists (artists not in the linked_artist_ids list).
+    let orphaned_artists = if linked_artist_ids.is_empty() {
+        // If no artists are linked, all artists are considered orphaned.
+        artists::Entity::find().all(&txn).await?
+    } else {
+        artists::Entity::find()
+            .filter(artists::Column::Id.is_not_in(linked_artist_ids)) // Filter out artists with IDs in linked_artist_ids.
+            .all(&txn)
+            .await?
+    };
+
+    // 4. Find orphaned albums (albums not in the linked_album_ids list).
+    let orphaned_albums = if linked_album_ids.is_empty() {
+        // If no albums are linked, all albums are considered orphaned.
+        albums::Entity::find().all(&txn).await?
+    } else {
+        albums::Entity::find()
+            .filter(albums::Column::Id.is_not_in(linked_album_ids)) // Filter out albums with IDs in linked_album_ids.
+            .all(&txn)
+            .await?
+    };
+
+    info!(
+        "Found {} orphaned artists and {} orphaned albums",
+        orphaned_artists.len(),
+        orphaned_albums.len()
+    );
+
+    // 5. Delete orphaned artists.
+    if !orphaned_artists.is_empty() {
+        let artist_ids: Vec<i32> = orphaned_artists.iter().map(|a| a.id).collect(); // Collect IDs of orphaned artists.
+
+        // 5.1 Remove search terms associated with orphaned artists.
+        for artist_id in &artist_ids {
+            if let Err(e) = remove_term(&txn, CollectionQueryType::Artist, *artist_id).await {
+                error!(
+                    "Failed to remove search terms for artist {}: {}",
+                    artist_id, e
+                );
+            }
+        }
+
+        // 5.2 Delete orphaned artist records from the database.
+        let delete_result = artists::Entity::delete_many()
+            .filter(artists::Column::Id.is_in(artist_ids)) // Filter artists to delete by their IDs.
+            .exec(&txn)
+            .await?;
+
+        info!("Deleted {} orphaned artists", delete_result.rows_affected);
+    }
+
+    // 6. Delete orphaned albums.
+    if !orphaned_albums.is_empty() {
+        let album_ids: Vec<i32> = orphaned_albums.iter().map(|a| a.id).collect(); // Collect IDs of orphaned albums.
+
+        // 6.1 Remove search terms associated with orphaned albums.
+        for album_id in &album_ids {
+            if let Err(e) = remove_term(&txn, CollectionQueryType::Album, *album_id).await {
+                error!(
+                    "Failed to remove search terms for album {}: {}",
+                    album_id, e
+                );
+            }
+        }
+
+        // 6.2 Delete orphaned album records from the database.
+        let delete_result = albums::Entity::delete_many()
+            .filter(albums::Column::Id.is_in(album_ids)) // Filter albums to delete by their IDs.
+            .exec(&txn)
+            .await?;
+
+        info!("Deleted {} orphaned albums", delete_result.rows_affected);
+    }
+
+    // Commit the transaction to apply all changes.
+    txn.commit().await?;
+    info!("Cleanup of orphaned records completed successfully");
+
+    Ok(())
+}
+
+/// Performs library maintenance tasks, such as cleaning up orphaned records.
+///
+/// This function serves as an entry point for library maintenance operations.
+/// Currently, it only includes cleaning up orphaned artist and album records.
+/// It supports cancellation via a `CancellationToken`.
+///
+/// # Arguments
+///
+/// * `db`: A reference to the database connection.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if maintenance is successful, or an `Err(Error)` if any error occurs.
+pub async fn perform_library_maintenance(
+    db: &DatabaseConnection,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<()> {
+    info!("Starting library maintenance");
+
+    // Check for cancellation before starting maintenance.
+    if let Some(token) = &cancel_token {
+        if token.is_cancelled() {
+            info!("Maintenance cancelled before starting");
+            return Ok(());
+        }
+    }
+
+    // Clean up orphaned records.
+    if let Err(e) = cleanup_orphaned_records(db).await {
+        error!("Failed to clean up orphaned records: {}", e);
+        return Err(e);
+    }
+
+    info!("Library maintenance completed successfully");
     Ok(())
 }
