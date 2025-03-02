@@ -1284,5 +1284,9 @@
   "systemTabTitle": "System",
   "@systemTabTitle": {
     "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
+  },
+  "removeFromPlaylist": "Remove from Playlist",
+  "@removeFromPlaylist": {
+    "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
   }
 }

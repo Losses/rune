@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+use database::actions::playlists::remove_item_from_playlist;
 use sea_orm::TransactionTrait;
 
 use ::database::actions::playlists::{
@@ -313,6 +314,46 @@ impl Signal for CreateM3u8PlaylistRequest {
                 playlist: None,
                 imported_count: Some(0),
                 not_found_paths: vec![],
+                success: false,
+                error: e.to_string(),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for RemoveItemFromPlaylistRequest {
+    type Params = (Arc<MainDbConnection>,);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (Arc::clone(&all_params.main_db),)
+    }
+}
+
+impl Signal for RemoveItemFromPlaylistRequest {
+    type Params = (Arc<MainDbConnection>,);
+    type Response = RemoveItemFromPlaylistResponse;
+
+    async fn handle(
+        &self,
+        (main_db,): Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let request = dart_signal;
+
+        match remove_item_from_playlist(
+            &main_db,
+            request.playlist_id,
+            request.media_file_id,
+            request.position,
+        )
+        .await
+        {
+            Ok(_) => Ok(Some(RemoveItemFromPlaylistResponse {
+                success: true,
+                error: String::new(),
+            })),
+            Err(e) => Ok(Some(RemoveItemFromPlaylistResponse {
                 success: false,
                 error: e.to_string(),
             })),

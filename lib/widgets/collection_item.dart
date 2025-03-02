@@ -98,7 +98,10 @@ class _CollectionItemState extends State<CollectionItem> {
                 context,
                 contextAttachKey,
                 contextController,
+                null,
                 widget.collection.id,
+                null,
+                widget.refreshList,
               );
             }
           },

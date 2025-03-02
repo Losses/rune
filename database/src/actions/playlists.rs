@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Result};
 use async_trait::async_trait;
 use chrono::Utc;
+use log::info;
 use sea_orm::ActiveValue;
 use sea_orm::QueryOrder;
 use sea_orm::{prelude::*, TransactionTrait};
@@ -472,4 +473,64 @@ pub async fn create_m3u8_playlist(
             Err(e)
         }
     }
+}
+
+/// Remove a specific item from a playlist by position.
+///
+/// # Arguments
+/// * `main_db` - A reference to the database connection.
+/// * `playlist_id` - The ID of the playlist containing the item.
+/// * `media_file_id` - The ID of the media file to remove.
+/// * `position` - The exact position of the item in the playlist.
+///
+/// # Returns
+/// * `Result<()>` - An empty result or an error.
+pub async fn remove_item_from_playlist(
+    main_db: &DatabaseConnection,
+    playlist_id: i32,
+    media_file_id: i32,
+    position: i32,
+) -> Result<()> {
+    use media_file_playlists::Entity as MediaFilePlaylistEntity;
+    use playlists::Entity as PlaylistEntity;
+
+    let txn = main_db.begin().await?;
+
+    info!(
+        "Removing item {}(pos: {}) from playlist {}",
+        media_file_id, position, playlist_id
+    );
+    let delete_result = MediaFilePlaylistEntity::delete_many()
+        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
+        .filter(media_file_playlists::Column::MediaFileId.eq(media_file_id))
+        .filter(media_file_playlists::Column::Position.eq(position))
+        .exec(&txn)
+        .await?;
+
+    if delete_result.rows_affected == 0 {
+        bail!("Playlist item not found at specified position");
+    }
+
+    MediaFilePlaylistEntity::update_many()
+        .col_expr(
+            media_file_playlists::Column::Position,
+            Expr::col(media_file_playlists::Column::Position).sub(1),
+        )
+        .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))
+        .filter(media_file_playlists::Column::Position.gt(position))
+        .exec(&txn)
+        .await?;
+
+    PlaylistEntity::update_many()
+        .col_expr(
+            playlists::Column::UpdatedAt,
+            Expr::value(Utc::now().to_rfc3339()),
+        )
+        .filter(playlists::Column::Id.eq(playlist_id))
+        .exec(&txn)
+        .await?;
+
+    txn.commit().await?;
+
+    Ok(())
 }
