@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { format } from 'timeago.js';
+
 	type Device = {
 		id: string;
 		name: string;
@@ -31,42 +33,47 @@
 
 <!-- Desktop view - Table -->
 <div class="hidden md:block">
-	<table>
+	<table class="device-list">
 		<thead>
 			<tr>
-				<th>Device Name</th>
-				<th>Fingerprint</th>
-				<th>Status</th>
-				<th>Last Seen</th>
-				<th>Actions</th>
+				<th><fluent-text weight="bold" class="header-text">Device Name</fluent-text></th>
+				<th><fluent-text weight="bold" class="header-text">Fingerprint</fluent-text></th>
+				<th><fluent-text weight="bold" class="header-text">Status</fluent-text></th>
+				<th><fluent-text weight="bold" class="header-text">Last Seen</fluent-text></th>
+				<th><fluent-text weight="bold" class="header-text"></fluent-text></th>
 			</tr>
 		</thead>
 		<tbody>
 			{#each devices as device}
 				<tr>
-					<th>{device.name}</th>
-					<th class="font-mono">{device.fingerprint}</th>
+					<th><fluent-text weight="bold">{device.name}</fluent-text></th>
+					<th><fluent-text font="monospace" truncate="true">{device.fingerprint}</fluent-text></th>
 					<th>
-						<fluent-badge appearance="filled" color={getBadgeColor(device.status)}>
+						<fluent-badge class="badge" appearance="filled" color={getBadgeColor(device.status)}>
 							{device.status}
 						</fluent-badge>
 					</th>
-					<th>{device.lastSeen.toLocaleString()}</th>
+					<th><fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text></th>
 					<th>
-						<fluent-dropdown
-							placeholder="Change Status"
+						<fluent-menu
 							onchange={(event: Event) => {
 								if (event.target) {
-									onUpdateStatus(device.id, (event.target as HTMLSelectElement).value);
+									onUpdateStatus(
+										device.id,
+										(event.target as HTMLElement).getAttribute('value') ?? ''
+									);
 								}
 							}}
 						>
-							<fluent-listbox>
-								<fluent-option value="approved">Approve</fluent-option>
-								<fluent-option value="pending">Pending</fluent-option>
-								<fluent-option value="blocked">Block</fluent-option>
-							</fluent-listbox>
-						</fluent-dropdown>
+							<fluent-menu-button icon-only aria-label="Toggle Menu" slot="trigger">
+							</fluent-menu-button>
+
+							<fluent-menu-list>
+								<fluent-menu-item value="approved">Approve</fluent-menu-item>
+								<fluent-menu-item value="pending">Pending</fluent-menu-item>
+								<fluent-menu-item value="blocked">Block</fluent-menu-item>
+							</fluent-menu-list>
+						</fluent-menu>
 					</th>
 				</tr>
 			{/each}
@@ -75,28 +82,40 @@
 </div>
 
 <!-- Mobile view - Cards -->
-<div class="grid gap-4 md:hidden">
+<div class="md:hidden">
 	{#each devices as device}
-		<ax-elevation class="pt-6" style="--elevation-depth: 2">
-			<div class="space-y-4">
-				<div class="flex items-center justify-between">
-					<h3 class="font-semibold">{device.name}</h3>
+		<div>
+			<div>
+				<div class="card-title">
+					<fluent-text as="h3" size="500" weight="bold" class="device-name"
+						>{device.name}</fluent-text
+					>
 					<fluent-badge appearance="filled" color={getBadgeColor(device.status)}>
 						{device.status}
 					</fluent-badge>
 				</div>
-				<div class="space-y-2 text-sm">
-					<div class="flex flex-col gap-1">
-						<span class="text-muted-foreground">Fingerprint:</span>
-						<code class="bg-muted rounded px-2 py-1">{device.fingerprint}</code>
+				<div>
+					<div>
+						<div>
+							<fluent-text weight="semibold">Fingerprint:</fluent-text>
+						</div>
+						<div>
+							<fluent-text font="monospace">{device.fingerprint}</fluent-text>
+						</div>
 					</div>
 					<div>
-						<span class="text-muted-foreground">Last Seen:</span>
-						<p>{device.lastSeen.toLocaleString()}</p>
+						<div>
+							<fluent-text weight="semibold">Last Seen:</fluent-text>
+						</div>
+						<div>
+							<fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text>
+						</div>
 					</div>
 				</div>
 				<fluent-dropdown
-					title="Change Status"
+					placeholder="Status"
+					class="dropdown"
+					appearance="filled-lighter"
 					onchange={(event: Event) => {
 						if (event.target) {
 							onUpdateStatus(device.id, (event.target as HTMLSelectElement).value);
@@ -110,6 +129,45 @@
 					</fluent-listbox>
 				</fluent-dropdown>
 			</div>
-		</ax-elevation>
+		</div>
 	{/each}
 </div>
+
+<style>
+	.device-list {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.device-list th {
+		padding: 16px;
+		text-align: start;
+		vertical-align: center;
+	}
+
+	.device-list tr {
+		border-bottom: 1px solid #e4e4e4;
+		transition: background-color 100ms;
+	}
+
+	.device-list tr:hover {
+		background-color: #fafafa;
+	}
+
+	.badge {
+		width: 72px;
+	}
+
+	.header-text {
+		opacity: 0.5;
+	}
+
+	.card-title {
+		display: flex;
+		align-items: center;
+	}
+
+	.card-title .device-name {
+		margin-right: 12px;
+	}
+</style>

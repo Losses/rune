@@ -25,14 +25,14 @@
 	// bind:checked={config.broadcastEnabled}
 </script>
 
-<div class="space-y-6">
-	<div class="flex flex-col gap-2 sm:grid sm:grid-cols-2 sm:items-center">
+<div>
+	<div>
 		<fluent-text-input id="serverAlias" value={config.alias} onchange={handleAliasChange}
 			>Server Alias</fluent-text-input
 		>
 	</div>
 
-	<div class="flex items-center gap-2">
+	<div>
 		<fluent-field label-position="after">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label slot="label">Enable Local Network Broadcasting</label>
