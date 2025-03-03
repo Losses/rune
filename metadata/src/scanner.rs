@@ -5,7 +5,7 @@ fn is_audio_file(entry: &DirEntry) -> bool {
     if let Some(ext) = entry.path().extension() {
         matches!(
             ext.to_str().unwrap_or("").to_lowercase().as_str(),
-            "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a"
+            "mp3" | "flac" | "wav" | "aac" | "ogg" | "m4a" | "opus" | "vorbis"
         )
     } else {
         false
