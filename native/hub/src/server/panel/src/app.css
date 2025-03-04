@@ -3,3 +3,8 @@
     inherits: false;
     initial-value: 4;
 }
+
+html, body {
+    margin: 0;
+    padding: 0;
+}

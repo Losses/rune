@@ -18,7 +18,7 @@
 <div class="card">
 	<div class="card-title">
 		<fluent-text as="h3" size="500" weight="bold" class="device-name">{device.name}</fluent-text>
-		<StatusBadge status={device.status} />
+		<div class="badge"><StatusBadge status={device.status} /></div>
 	</div>
 	<div>
 		<div class="field">
@@ -57,6 +57,10 @@
 
 	.card-title .device-name {
 		margin-right: 12px;
+	}
+
+	.card-title .badge {
+		flex-shrink: 0;
 	}
 
 	.field {

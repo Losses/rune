@@ -3,7 +3,7 @@
 	import StatusBadge from './StatusBadge.svelte';
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';
 	import type { IDevice } from '$lib/authorization-manager';
-	import FingerprintIcon from '$lib/icons/FingerprintIcon.svelte';
+	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
 	import FingerprintFigure from './FingerprintFigure.svelte';
 
 	interface Props {
@@ -38,7 +38,7 @@
 		</fluent-dialog>
 	</th>
 	<th>
-		<StatusBadge status={device.status} />
+		<div class="badge"><StatusBadge status={device.status} /></div>
 	</th>
 	<th><fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text></th>
 	<th>
@@ -69,5 +69,9 @@
 	.fingerprint-icon {
 		display: contents;
 		color: rgba(0, 0, 0, 0.75);
+	}
+
+	.badge {
+		transform: translateY(4px);
 	}
 </style>

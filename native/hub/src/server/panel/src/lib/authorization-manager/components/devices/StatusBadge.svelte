@@ -1,4 +1,6 @@
 <script lang="ts">
+	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
+
 	interface Props {
 		status: string;
 	}
@@ -19,9 +21,15 @@
 	};
 </script>
 
-<fluent-badge class="badge" appearance="filled" color={getBadgeColor(status)}>
-	{status}
-</fluent-badge>
+<MediaQuery query="(min-width: 320px)">
+	<fluent-badge class="badge" appearance="filled" color={getBadgeColor(status)}>
+		{status}
+	</fluent-badge>
+</MediaQuery>
+
+<MediaQuery query="(max-width: 320px)">
+	<fluent-badge appearance="filled" color={getBadgeColor(status)} size="extra-small"> </fluent-badge>
+</MediaQuery>
 
 <style>
 	.badge {
