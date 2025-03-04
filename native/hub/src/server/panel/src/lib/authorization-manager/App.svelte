@@ -1,28 +1,16 @@
 <script lang="ts">
 	import { fade } from 'svelte/transition';
+
 	import ServerPanel from './components/ServerPanel.svelte';
 
-	// Types for our server and device data
-	type ServerConfig = {
-		alias: string;
-		broadcastEnabled: boolean;
-	};
+	import type { IDevice, IServerConfig } from '.';
 
-	type Device = {
-		id: string;
-		name: string;
-		fingerprint: string;
-		status: string;
-		lastSeen: Date;
-	};
-
-	// Sample data
-	let serverConfig: ServerConfig = $state({
+	let serverConfig: IServerConfig = $state({
 		alias: 'Main Server',
 		broadcastEnabled: true
 	});
 
-	let devices: Device[] = $state([
+	let devices: IDevice[] = $state([
 		{
 			id: '1',
 			name: 'Development Laptop',
@@ -47,23 +35,20 @@
 	]);
 
 	/** Handle server config updates */
-	const onServerConfigUpdate = (config: ServerConfig) => {
+	const onServerConfigUpdate = (config: IServerConfig) => {
 		serverConfig = config;
 	};
 
 	/** Handle device status updates */
-	const onDeviceStatusUpdate = (
-		deviceId: string,
-		newStatus: string
-	) => {
+	const onDeviceStatusUpdate = (deviceId: string, newStatus: string) => {
 		devices = devices.map((device) =>
 			device.id === deviceId ? { ...device, status: newStatus } : device
 		);
 	};
 </script>
 
-<div class="bg-background min-h-dvh">
-	<main class="container mx-auto p-4 md:p-6" transition:fade>
+<div class="bg-background">
+	<main transition:fade>
 		<ServerPanel
 			{serverConfig}
 			{devices}

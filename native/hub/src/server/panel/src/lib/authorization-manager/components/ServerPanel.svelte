@@ -1,29 +1,17 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
 
+	import type { IDevice, IServerConfig } from '$lib/authorization-manager';
+
 	import ServerConfig from './server/ServerConfig.svelte';
 	import DeviceList from './devices/DeviceList.svelte';
 
-	// Renamed type to avoid conflict with component name
-	type ServerConfigType = {
-		alias: string;
-		broadcastEnabled: boolean;
-	};
-
-	type Device = {
-		id: string;
-		name: string;
-		fingerprint: string;
-		status: string;
-		lastSeen: Date;
-	};
-
-	type Props = {
-		serverConfig: ServerConfigType;
-		devices: Device[];
-		onUpdateConfig: (config: ServerConfigType) => void;
+	interface Props {
+		serverConfig: IServerConfig;
+		devices: IDevice[];
+		onUpdateConfig: (config: IServerConfig) => void;
 		onUpdateDeviceStatus: (deviceId: string, status: string) => void;
-	};
+	}
 
 	let { serverConfig, devices, ...resProps }: Props = $props();
 </script>

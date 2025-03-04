@@ -1,23 +1,18 @@
 <script lang="ts">
-	type ServerConfig = {
-		alias: string;
-		broadcastEnabled: boolean;
-	};
+	import type { IServerConfig } from '$lib/authorization-manager';
 
-	type Props = {
-		config: ServerConfig;
-		onUpdate: (config: ServerConfig) => void;
-	};
+	interface Props {
+		config: IServerConfig;
+		onUpdate: (config: IServerConfig) => void;
+	}
 
 	let { config, onUpdate }: Props = $props();
 
-	/** Handle alias change */
 	const handleAliasChange = (event: Event) => {
 		const input = event.target as HTMLInputElement;
 		onUpdate({ ...config, alias: input.value });
 	};
 
-	/** Handle broadcast toggle */
 	const handleBroadcastChange = (checked: boolean) => {
 		onUpdate({ ...config, broadcastEnabled: checked });
 	};
@@ -27,8 +22,11 @@
 
 <div>
 	<div>
-		<fluent-text-input id="serverAlias" appearance="filled-lighter" value={config.alias} onchange={handleAliasChange}
-			>Server Alias</fluent-text-input
+		<fluent-text-input
+			id="serverAlias"
+			appearance="filled-lighter"
+			value={config.alias}
+			onchange={handleAliasChange}>Server Alias</fluent-text-input
 		>
 	</div>
 

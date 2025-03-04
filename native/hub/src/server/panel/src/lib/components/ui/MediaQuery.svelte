@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { onMount, type Snippet } from 'svelte';
 
-	type Props = {
+	interface Props {
 		query: string;
 		children: Snippet;
-	};
+	}
 
 	let { query, children }: Props = $props();
 

@@ -1,23 +1,16 @@
 <script lang="ts">
-	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
 	import { format } from 'timeago.js';
 
-	type Device = {
-		id: string;
-		name: string;
-		fingerprint: string;
-		status: string;
-		lastSeen: Date;
-	};
+	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
+	import type { IDevice } from '$lib/authorization-manager';
 
-	type Props = {
-		devices: Device[];
+	interface Props {
+		devices: IDevice[];
 		onUpdateStatus: (deviceId: string, status: string) => void;
-	};
+	}
 
 	let { devices, onUpdateStatus }: Props = $props();
 
-	/** Get badge variant based on status */
 	const getBadgeColor = (status: string) => {
 		switch (status) {
 			case 'approved':
