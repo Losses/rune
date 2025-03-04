@@ -21,8 +21,8 @@
 			</tr>
 		</thead>
 		<tbody>
-			{#each devices as device}
-				<DeviceTableRow {device} {onUpdateStatus} />
+			{#each devices as device, i}
+				<DeviceTableRow {device} {onUpdateStatus} isLast={i + 1 >= devices.length} />
 			{/each}
 		</tbody>
 	</table>

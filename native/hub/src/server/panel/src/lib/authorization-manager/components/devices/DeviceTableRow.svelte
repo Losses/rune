@@ -8,15 +8,16 @@
 
 	interface Props {
 		device: IDevice;
+		isLast?: boolean;
 		onUpdateStatus: (deviceId: string, status: string) => void;
 	}
 
-	let { device, onUpdateStatus }: Props = $props();
+	let { device, onUpdateStatus, isLast }: Props = $props();
 
 	let dialog: HTMLDialogElement;
 </script>
 
-<tr>
+<tr class={isLast ? 'is-last' : ''}>
 	<th>
 		<fluent-text weight="bold">{device.name}</fluent-text>
 		<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -56,6 +57,10 @@
 	tr {
 		border-bottom: 1px solid #e4e4e4;
 		transition: background-color 100ms;
+	}
+
+	tr.is-last {
+		border-bottom: 0;
 	}
 
 	tr:hover {
