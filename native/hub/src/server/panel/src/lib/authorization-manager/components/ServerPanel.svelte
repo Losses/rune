@@ -7,6 +7,8 @@
 	import ServerConfig from './server/ServerConfig.svelte';
 	import DeviceTable from './devices/DeviceTable.svelte';
 	import DeviceCard from './devices/DeviceCard.svelte';
+	import Fab from '$lib/components/ui/Fab.svelte';
+	import FingerprintIcon from '$lib/icons/FingerprintIcon.svelte';
 
 	interface Props {
 		serverConfig: IServerConfig;
@@ -65,6 +67,10 @@
 			</section>
 		{/each}
 	</MediaQuery>
+
+	<Fab position={{ bottom: '36px', right: '36px' }} onClick={() => {}}>
+		<FingerprintIcon />
+	</Fab>
 </div>
 
 <style>
