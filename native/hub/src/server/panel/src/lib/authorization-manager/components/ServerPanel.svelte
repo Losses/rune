@@ -5,7 +5,6 @@
 	import type { IDevice, IServerConfig } from '$lib/authorization-manager';
 
 	import ServerConfig from './server/ServerConfig.svelte';
-	import DeviceList from './devices/DeviceList.svelte';
 	import DeviceTable from './devices/DeviceTable.svelte';
 	import DeviceCard from './devices/DeviceCard.svelte';
 
