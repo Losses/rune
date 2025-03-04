@@ -49,12 +49,6 @@
 </div>
 
 <style>
-	.card {
-		border: 1px solid #eeeeee;
-		margin: 16px 0;
-		padding: 16px 24px;
-	}
-
 	.card-title {
 		display: flex;
 		align-items: center;

@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition';
 
+	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
 	import type { IDevice, IServerConfig } from '$lib/authorization-manager';
 
 	import ServerConfig from './server/ServerConfig.svelte';
 	import DeviceList from './devices/DeviceList.svelte';
+	import DeviceTable from './devices/DeviceTable.svelte';
+	import DeviceCard from './devices/DeviceCard.svelte';
 
 	interface Props {
 		serverConfig: IServerConfig;
@@ -34,22 +37,35 @@
 		</ax-elevation>
 	</section>
 
-	<!-- Device Management Section -->
-	<section transition:slide>
-		<ax-elevation class="card">
-			<div class="card-content">
-				<header class="card-header">
-					<fluent-text block size="600" as="h1" weight="bold">Device Management</fluent-text>
-					<fluent-text block size="300" class="card-header-subtitle"
-						>View and manage all connected devices</fluent-text
-					>
-				</header>
-				<div>
-					<DeviceList {devices} onUpdateStatus={resProps.onUpdateDeviceStatus} />
+	<MediaQuery query="(min-width: 600px)">
+		<section transition:slide>
+			<ax-elevation class="card">
+				<div class="card-content">
+					<header class="card-header">
+						<fluent-text block size="600" as="h1" weight="bold">Device Management</fluent-text>
+						<fluent-text block size="300" class="card-header-subtitle"
+							>View and manage all connected devices</fluent-text
+						>
+					</header>
+					<div>
+						<DeviceTable {devices} onUpdateStatus={resProps.onUpdateDeviceStatus} />
+					</div>
 				</div>
-			</div>
-		</ax-elevation>
-	</section>
+			</ax-elevation>
+		</section>
+	</MediaQuery>
+
+	<MediaQuery query="(max-width: 600px)">
+		{#each devices as device}
+			<section transition:slide>
+				<ax-elevation class="card">
+					<div class="card-content">
+						<DeviceCard {device} onUpdateStatus={resProps.onUpdateDeviceStatus} />
+					</div>
+				</ax-elevation>
+			</section>
+		{/each}
+	</MediaQuery>
 </div>
 
 <style>
