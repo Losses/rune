@@ -14,6 +14,8 @@
 	import '@fluentui/web-components/button.js';
 	import '@fluentui/web-components/option.js';
 	import '@fluentui/web-components/switch.js';
+	import '@fluentui/web-components/dialog.js';
+	import '@fluentui/web-components/dialog-body.js';
 	import '@fluentui/web-components/badge.js';
 	import '@fluentui/web-components/field.js';
 	import '@fluentui/web-components/menu.js';

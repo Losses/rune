@@ -14,21 +14,21 @@
 		{
 			id: '1',
 			name: 'Development Laptop',
-			fingerprint: 'f1:2d:3b:4a:5c:6e',
+			fingerprint: 'ᚿᛕᛄᛷᚠᛋᚹᚶᚿᛕᚻᛥᚺᚷᚲᛋᚶᚿᛕᛄᛷᚠᛋᚹᚶᚿᛕᛄᛷᚠᛅᚻᛥᚺᚷᚲᛋᛋᚹᚶ',
 			status: 'approved',
 			lastSeen: new Date()
 		},
 		{
 			id: '2',
 			name: 'Testing Device',
-			fingerprint: 'a1:b2:c3:d4:e5:f6',
+			fingerprint: 'ᛅᛅᚻᛥᛕᛅᛅᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋ',
 			status: 'pending',
 			lastSeen: new Date()
 		},
 		{
 			id: '3',
 			name: 'Unknown Device',
-			fingerprint: 'x1:y2:z3:w4:v5:u6',
+			fingerprint: 'ᛅᛅᚻᛥᛕᛅᛅᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋ',
 			status: 'blocked',
 			lastSeen: new Date()
 		}

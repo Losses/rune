@@ -15,7 +15,6 @@
 		<thead>
 			<tr>
 				<th><fluent-text weight="bold" class="header-text">Device Name</fluent-text></th>
-				<th><fluent-text weight="bold" class="header-text">Fingerprint</fluent-text></th>
 				<th><fluent-text weight="bold" class="header-text">Status</fluent-text></th>
 				<th><fluent-text weight="bold" class="header-text">Last Seen</fluent-text></th>
 				<th><fluent-text weight="bold" class="header-text"></fluent-text></th>
