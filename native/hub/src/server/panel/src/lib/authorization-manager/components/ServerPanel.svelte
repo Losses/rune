@@ -35,8 +35,8 @@
 			<div class="card-content">
 				<header class="card-header">
 					<fluent-text block size="600" as="h1" weight="bold">Server Configuration</fluent-text>
-					<fluent-text block size="400"
-						><span>Manage your server settings and broadcasting options</span></fluent-text
+					<fluent-text block size="300" class="card-header-subtitle"
+						>Manage your server settings and broadcasting options</fluent-text
 					>
 				</header>
 				<div>
@@ -52,8 +52,8 @@
 			<div class="card-content">
 				<header class="card-header">
 					<fluent-text block size="600" as="h1" weight="bold">Device Management</fluent-text>
-					<fluent-text block size="400"
-						><span>View and manage all connected devices</span></fluent-text
+					<fluent-text block size="300" class="card-header-subtitle"
+						>View and manage all connected devices</fluent-text
 					>
 				</header>
 				<div>
@@ -70,6 +70,12 @@
 		margin: 20px auto;
 	}
 
+	@media screen and (max-width: 600px) {
+		.main {
+			max-width: 400px;
+		}
+	}
+
 	.card {
 		width: 100%;
 		margin: 12px 0;
@@ -78,13 +84,15 @@
 	}
 
 	.card-content {
-		padding: 12px 24px;
+		padding: 20px 24px 18px 24px;
 	}
 
 	.card-header {
 		margin-top: 8px;
-		margin-bottom: 12px;
+		margin-bottom: 16px;
 	}
 
-	
+	.card-header-subtitle {
+		opacity: 0.5;
+	}
 </style>

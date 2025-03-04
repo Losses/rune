@@ -27,12 +27,12 @@
 
 <div>
 	<div>
-		<fluent-text-input id="serverAlias" value={config.alias} onchange={handleAliasChange}
+		<fluent-text-input id="serverAlias" appearance="filled-lighter" value={config.alias} onchange={handleAliasChange}
 			>Server Alias</fluent-text-input
 		>
 	</div>
 
-	<div>
+	<div class="broadcast">
 		<fluent-field label-position="after">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label slot="label">Enable Local Network Broadcasting</label>
@@ -45,3 +45,9 @@
 		</fluent-field>
 	</div>
 </div>
+
+<style>
+	.broadcast {
+		padding-top: 16px;
+	}
+</style>

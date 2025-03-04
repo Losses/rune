@@ -85,53 +85,54 @@
 </MediaQuery>
 
 <MediaQuery query="(max-width: 600px)">
-	<div>
+	<div class="device-list">
 		{#each devices as device}
-			<div>
-				<div>
-					<div class="card-title">
-						<fluent-text as="h3" size="500" weight="bold" class="device-name"
-							>{device.name}</fluent-text
-						>
-						<fluent-badge appearance="filled" color={getBadgeColor(device.status)}>
-							{device.status}
-						</fluent-badge>
-					</div>
-					<div>
-						<div>
-							<div>
-								<fluent-text weight="semibold">Fingerprint:</fluent-text>
-							</div>
-							<div>
-								<fluent-text font="monospace">{device.fingerprint}</fluent-text>
-							</div>
-						</div>
-						<div>
-							<div>
-								<fluent-text weight="semibold">Last Seen:</fluent-text>
-							</div>
-							<div>
-								<fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text>
-							</div>
-						</div>
-					</div>
-					<fluent-dropdown
-						placeholder="Status"
-						class="dropdown"
-						appearance="filled-lighter"
-						onchange={(event: Event) => {
-							if (event.target) {
-								onUpdateStatus(device.id, (event.target as HTMLSelectElement).value);
-							}
-						}}
+			<div class="card">
+				<div class="card-title">
+					<fluent-text as="h3" size="500" weight="bold" class="device-name"
+						>{device.name}</fluent-text
 					>
-						<fluent-listbox>
-							<fluent-option value="approved">Approve</fluent-option>
-							<fluent-option value="pending">Pending</fluent-option>
-							<fluent-option value="blocked">Block</fluent-option>
-						</fluent-listbox>
-					</fluent-dropdown>
+					<fluent-badge class="badge" appearance="filled" color={getBadgeColor(device.status)}>
+						{device.status}
+					</fluent-badge>
 				</div>
+				<div>
+					<div class="field">
+						<div>
+							<fluent-text class="field-subtitle">Fingerprint:</fluent-text>
+						</div>
+						<div>
+							<fluent-text font="monospace">{device.fingerprint}</fluent-text>
+						</div>
+					</div>
+					<div class="field">
+						<div>
+							<fluent-text class="field-subtitle">Last Seen:</fluent-text>
+						</div>
+						<div>
+							<fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text>
+						</div>
+					</div>
+				</div>
+
+				<fluent-menu
+					class="card-action"
+					onchange={(event: Event) => {
+						if (event.target) {
+							onUpdateStatus(device.id, (event.target as HTMLElement).getAttribute('value') ?? '');
+						}
+					}}
+				>
+					<fluent-button aria-label="Toggle Menu" slot="trigger" class="card-action-trigger">
+						Change Permission
+					</fluent-button>
+
+					<fluent-menu-list>
+						<fluent-menu-item value="approved">Approve</fluent-menu-item>
+						<fluent-menu-item value="pending">Pending</fluent-menu-item>
+						<fluent-menu-item value="blocked">Block</fluent-menu-item>
+					</fluent-menu-list>
+				</fluent-menu>
 			</div>
 		{/each}
 	</div>
@@ -166,12 +167,40 @@
 		opacity: 0.5;
 	}
 
+	.device-list {
+		margin-top: 24px;
+	}
+
+	.card {
+		border: 1px solid #eeeeee;
+		margin: 16px 0;
+		padding: 16px 24px;
+	}
+
 	.card-title {
 		display: flex;
 		align-items: center;
+		justify-content: space-between;
 	}
 
 	.card-title .device-name {
 		margin-right: 12px;
+	}
+
+	.card-action {
+		width: 100%;
+	}
+
+	.card-action-trigger {
+		width: 100%;
+		margin-top: 12px;
+	}
+
+	.field {
+		margin: 12px 0;
+	}
+
+	.field-subtitle {
+		opacity: 0.5;
 	}
 </style>
