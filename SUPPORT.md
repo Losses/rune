@@ -56,12 +56,15 @@ Users who compile Rune from source code for personal use.
 ## Common Questions
 
 **Q: Why monetize an open-source project?**  
+
 A: While Rune remains free, sustained development requires resources. This model ensures we prioritize features most valued by users while maintaining accessibility.
 
 **Q: What happens if I compile Rune myself?**
+
 A: You're welcome to compile and modify Rune for your own use under the terms of the MPL License. However, we can't provide official support for self-built versions due to the variability in build environments.
 
 **Q: How are supporter funds used?**
+
 A: Funds from supporters go directly toward:
 * Developer time for implementing new features
 * Infrastructure costs (servers, CI systems, etc.)
