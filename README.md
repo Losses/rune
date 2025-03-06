@@ -55,7 +55,7 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
   These mixes automatically update as users listen to and add new tracks.
 
-# Support Model
+## Support Model
 
 As MPL-licensed open-source software, Rune is free as in speech - you can freely modify and distribute it. However, **unlike free beer**, full community access requires a paid license. The base price starts at $10 globally, though actual costs may vary due to platform policies and regional adjustments.
 
@@ -65,7 +65,7 @@ To ensure sustainable development and continued innovation, we've established a 
 - **Community Members:** Users of official binary packages can submit bug reports
 - **Self-build Users:** Those who compile Rune themselves can access community support channels
 
-For complete details about our support tiers and philosophy, please see our SUPPORT.md document.
+For complete details about our support tiers and philosophy, please see our [support policy document](SUPPORT.md).
 
 <p align="center">
   <a href="https://store.steampowered.com/app/3343500/Rune/"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
