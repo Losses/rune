@@ -5,6 +5,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -13,10 +14,20 @@ use axum::{
     Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
+use base64::{engine::general_purpose::URL_SAFE, Engine as _};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use log::{error, info};
 use prost::Message;
-use rand::distributions::{Alphanumeric, DistString};
-use tokio::{sync::Mutex, task::JoinHandle};
+use rand::{
+    distributions::{Alphanumeric, DistString},
+    thread_rng, RngCore,
+};
+use serde::{Deserialize, Serialize};
+use tokio::{
+    fs::{read_to_string, write},
+    sync::Mutex,
+    task::JoinHandle,
+};
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::PeerIpKeyExtractor, GovernorLayer,
 };
@@ -38,6 +49,28 @@ use crate::{
     Signal,
 };
 
+#[derive(Debug, Serialize, Deserialize)]
+struct JwtClaims {
+    /// Expiration time (UNIX timestamp)
+    exp: usize,
+    /// Issued at time (UNIX timestamp)
+    iat: usize,
+}
+
+impl JwtClaims {
+    fn new(validity: Duration) -> Self {
+        let now = SystemTime::now();
+        let iat = now
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs() as usize;
+
+        let exp = iat + validity.as_secs() as usize;
+
+        Self { exp, iat }
+    }
+}
+
 #[derive(Debug)]
 pub struct ServerManager {
     global_params: Arc<GlobalParams>,
@@ -47,6 +80,7 @@ pub struct ServerManager {
     shutdown_handle: Mutex<Option<Handle>>,
     certificate: String,
     private_key: String,
+    jwt_secret: Vec<u8>,
 }
 
 impl ServerManager {
@@ -60,6 +94,10 @@ impl ServerManager {
                 .await
                 .context("Failed to initialize certificates")?;
 
+        let jwt_secret = get_or_generate_jwt_secret(config_path)
+            .await
+            .context("Failed to initialize JWT secret")?;
+
         Ok(Self {
             global_params,
             server_handle: Mutex::new(None),
@@ -68,6 +106,7 @@ impl ServerManager {
             shutdown_handle: Mutex::new(None),
             certificate,
             private_key,
+            jwt_secret,
         })
     }
 
@@ -189,6 +228,30 @@ impl ServerManager {
     pub async fn get_address(&self) -> Option<SocketAddr> {
         *self.addr.lock().await
     }
+
+    pub fn generate_jwt_token(&self, validity: Option<Duration>) -> Result<String> {
+        let validity = validity.unwrap_or(Duration::from_secs(7 * 24 * 60 * 60));
+        let claims = JwtClaims::new(validity);
+
+        Ok(encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(&self.jwt_secret),
+        )?)
+    }
+
+    pub fn verify_jwt_token(&self, token: &str) -> bool {
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.validate_exp = true;
+        validation.leeway = 0;
+
+        decode::<JwtClaims>(
+            token,
+            &DecodingKey::from_secret(&self.jwt_secret),
+            &validation,
+        )
+        .is_ok()
+    }
 }
 
 pub async fn get_or_generate_certificate_id(config_path: &Path) -> Result<String> {
@@ -246,5 +309,30 @@ pub async fn generate_or_load_certificates<P: AsRef<Path>>(
 
         let fingerprint = cert.public_key_fingerprint;
         Ok((fingerprint, cert.certificate, cert.private_key))
+    }
+}
+
+async fn get_or_generate_jwt_secret<P: AsRef<Path>>(config_path: P) -> Result<Vec<u8>> {
+    let config_path: &Path = config_path.as_ref();
+
+    let secret_path = config_path.join("jwt_secret.key");
+
+    if secret_path.exists() {
+        let base64_secret = read_to_string(&secret_path)
+            .await
+            .context("Failed to read JWT secret file")?;
+        URL_SAFE
+            .decode(base64_secret.trim())
+            .context("Failed to decode JWT secret")
+    } else {
+        let mut secret = vec![0u8; 32];
+        thread_rng().fill_bytes(&mut secret);
+
+        let base64_secret = URL_SAFE.encode(&secret);
+        write(&secret_path, base64_secret)
+            .await
+            .context("Failed to save JWT secret")?;
+
+        Ok(secret)
     }
 }
