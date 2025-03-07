@@ -29,7 +29,7 @@ pub enum UserStatus {
 /// `User` struct holds all necessary information about a user, including their public key,
 /// unique fingerprint, alias, device model, device type, and current permission status.
 /// It is used for internal representation and persistent storage of user data.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     /// Public key of the user, used for identification and potentially authentication.
     pub public_key: String,
@@ -49,7 +49,7 @@ pub struct User {
 ///
 /// `UserSummary` contains a subset of `User` information, intended for listing and display purposes
 /// where detailed information like the public key is not necessary or should be omitted.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSummary {
     /// Human-readable alias or name for the user.
     pub alias: String,

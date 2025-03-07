@@ -1,6 +1,11 @@
+pub mod auth_middleware;
 pub mod check_fingerprint;
 pub mod device_info;
 pub mod file;
+pub mod list;
+pub mod login;
 pub mod ping;
+pub mod refresh;
 pub mod register;
+pub mod status;
 pub mod websocket;

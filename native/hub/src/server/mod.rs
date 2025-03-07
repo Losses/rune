@@ -7,6 +7,7 @@ pub mod utils;
 
 pub use manager::generate_or_load_certificates;
 pub use manager::get_or_generate_certificate_id;
+pub use manager::initialize_root_password;
 pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
@@ -22,7 +23,8 @@ use crate::{
     Session,
 };
 
-pub type HandlerFn = Box<dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
+pub type HandlerFn =
+    Box<dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
 pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

@@ -10,8 +10,9 @@ use std::{
 
 use anyhow::{Context, Result};
 use axum::{
-    routing::{get, post},
-    Router,
+    middleware,
+    routing::{get, post, put},
+    Extension, Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
@@ -39,8 +40,10 @@ use crate::{
     messages::*,
     server::{
         http::{
-            check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
-            file::file_handler, ping::ping_handler, register::register_handler,
+            auth_middleware::auth_middleware, check_fingerprint::check_fingerprint_handler,
+            device_info::device_info_handler, file::file_handler, list::list_users_handler,
+            login::login_handler, ping::ping_handler, refresh::refresh_handler,
+            register::register_handler, status::update_user_status_handler,
             websocket::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
@@ -50,7 +53,7 @@ use crate::{
 };
 
 #[derive(Debug, Serialize, Deserialize)]
-struct JwtClaims {
+pub struct JwtClaims {
     /// Expiration time (UNIX timestamp)
     exp: usize,
     /// Issued at time (UNIX timestamp)
@@ -73,14 +76,14 @@ impl JwtClaims {
 
 #[derive(Debug)]
 pub struct ServerManager {
-    global_params: Arc<GlobalParams>,
+    pub global_params: Arc<GlobalParams>,
     server_handle: Mutex<Option<JoinHandle<()>>>,
     addr: Mutex<Option<SocketAddr>>,
     is_running: std::sync::atomic::AtomicBool,
     shutdown_handle: Mutex<Option<Handle>>,
     certificate: String,
     private_key: String,
-    jwt_secret: Vec<u8>,
+    pub jwt_secret: Vec<u8>,
 }
 
 impl ServerManager {
@@ -110,7 +113,11 @@ impl ServerManager {
         })
     }
 
-    pub async fn start(&self, addr: SocketAddr, discovery_params: DiscoveryParams) -> Result<()>
+    pub async fn start(
+        self: Arc<Self>,
+        addr: SocketAddr,
+        discovery_params: DiscoveryParams,
+    ) -> Result<()>
     where
         Self: Send,
     {
@@ -151,8 +158,25 @@ impl ServerManager {
                 config: governor_conf.into(),
             });
 
+        let auth_routes: Router<Arc<ServerState>> = Router::new()
+            .route("/auth/login", post(login_handler))
+            .layer(Extension(self.clone()));
+
+        let protected_routes: Router<Arc<ServerState>> = Router::<Arc<ServerState>>::new()
+            .route("/auth/refresh", post(refresh_handler))
+            .route("/users", get(list_users_handler))
+            .route(
+                "/users/:fingerprint/status",
+                put(update_user_status_handler),
+            )
+            .layer(middleware::from_fn(auth_middleware))
+            .layer(Extension(self.clone()))
+            .with_state(server_state.clone());
+
         let app = Router::new()
             .merge(register_route)
+            .merge(auth_routes)
+            .merge(protected_routes)
             .route("/ping", get(ping_handler))
             .route("/ws", get(websocket_handler))
             .route("/check-fingerprint", get(check_fingerprint_handler))
@@ -335,4 +359,25 @@ async fn get_or_generate_jwt_secret<P: AsRef<Path>>(config_path: P) -> Result<Ve
 
         Ok(secret)
     }
+}
+
+pub async fn initialize_root_password<P: AsRef<Path>>(
+    config_path: P,
+    password: &str,
+) -> Result<()> {
+    let config_path: &Path = config_path.as_ref();
+
+    let password_path = config_path.join("root_password.hash");
+
+    if password_path.exists() {
+        return Err(anyhow::anyhow!("Root password already initialized"));
+    }
+
+    let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST).context("Failed to hash password")?;
+
+    tokio::fs::write(&password_path, &hash)
+        .await
+        .context("Failed to write password hash")?;
+
+    Ok(())
 }

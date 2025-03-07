@@ -76,6 +76,8 @@ pub async fn register_handler(
 pub enum AppError {
     Permission(PermissionError),
     ParseDevice(discovery::utils::ParseDeviceTypeError),
+    Internal(String),
+    Unauthorized(String),
 }
 
 impl From<PermissionError> for AppError {
@@ -95,6 +97,8 @@ impl IntoResponse for AppError {
         let (status, message) = match self {
             AppError::Permission(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             AppError::ParseDevice(e) => (StatusCode::BAD_REQUEST, e.to_string()),
+            AppError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e),
+            AppError::Unauthorized(e) => (StatusCode::UNAUTHORIZED, e),
         };
         (status, message).into_response()
     }

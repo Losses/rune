@@ -21,6 +21,7 @@ pub async fn handle_server(addr: String, lib_path: String) -> Result<()> {
     let socket_addr: SocketAddr = addr.parse()?;
 
     server_manager
+        .clone()
         .start(socket_addr, DiscoveryParams { device_info })
         .await?;
 
