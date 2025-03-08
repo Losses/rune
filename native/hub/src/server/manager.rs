@@ -159,14 +159,14 @@ impl ServerManager {
             });
 
         let auth_routes: Router<Arc<ServerState>> = Router::new()
-            .route("/auth/login", post(login_handler))
+            .route("/panel/auth/login", post(login_handler))
             .layer(Extension(self.clone()));
 
         let protected_routes: Router<Arc<ServerState>> = Router::<Arc<ServerState>>::new()
-            .route("/auth/refresh", post(refresh_handler))
-            .route("/users", get(list_users_handler))
+            .route("/panel/auth/refresh", post(refresh_handler))
+            .route("/panel/users", get(list_users_handler))
             .route(
-                "/users/:fingerprint/status",
+                "/panel/users/{fingerprint}/status",
                 put(update_user_status_handler),
             )
             .layer(middleware::from_fn(auth_middleware))
