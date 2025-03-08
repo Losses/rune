@@ -14,7 +14,7 @@ pub struct DeviceInfoResponse {
     broadcasting: bool,
 }
 
-pub async fn device_handler(
+pub async fn self_handler(
     State(state): State<Arc<ServerState>>,
 ) -> Result<Json<DeviceInfoResponse>, AppError> {
     let device_info = state.discovery_device_info.read().await;

@@ -77,6 +77,7 @@ pub enum AppError {
     Permission(PermissionError),
     ParseDevice(discovery::utils::ParseDeviceTypeError),
     Internal(String),
+    NotFound(String),
     Unauthorized(String),
 }
 
@@ -103,6 +104,7 @@ impl IntoResponse for AppError {
             AppError::Permission(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
             AppError::ParseDevice(e) => (StatusCode::BAD_REQUEST, e.to_string()),
             AppError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e),
+            AppError::NotFound(e) => (StatusCode::NOT_FOUND, e),
             AppError::Unauthorized(e) => (StatusCode::UNAUTHORIZED, e),
         };
 

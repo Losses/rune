@@ -43,7 +43,7 @@ use crate::{
             check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
             file::file_handler, list::list_users_handler, panel_alias::update_alias_handler,
             panel_auth_middleware::auth_middleware, panel_broadcast::toggle_broadcast_handler,
-            panel_device::device_handler, panel_login::login_handler,
+            panel_self::self_handler, panel_login::login_handler,
             panel_refresh::refresh_handler, panel_status::update_user_status_handler,
             ping::ping_handler, register::register_handler, websocket::websocket_handler,
         },
@@ -165,7 +165,7 @@ impl ServerManager {
             .layer(Extension(self.clone()));
 
         let protected_routes: Router<Arc<ServerState>> = Router::<Arc<ServerState>>::new()
-            .route("/panel/device", get(device_handler))
+            .route("/panel/self", get(self_handler))
             .route("/panel/broadcast", put(toggle_broadcast_handler))
             .route("/panel/alias", put(update_alias_handler))
             .route("/panel/auth/refresh", post(refresh_handler))

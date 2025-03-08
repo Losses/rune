@@ -1,0 +1,36 @@
+use std::sync::Arc;
+
+use axum::{
+    extract::{Path, State},
+    Json,
+};
+
+use ::discovery::server::PermissionError;
+use serde_json::json;
+
+use crate::server::ServerState;
+
+use super::register::AppError;
+
+pub async fn delete_user_handler(
+    Path(fingerprint): Path<String>,
+    State(server_state): State<Arc<ServerState>>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    server_state
+        .permission_manager
+        .write()
+        .await
+        .remove_user(&fingerprint)
+        .await
+        .map_err(|e| match e {
+            PermissionError::UserNotFound => {
+                AppError::NotFound(format!("User {} not found", fingerprint))
+            }
+            _ => AppError::Internal(e.to_string()),
+        })?;
+
+    Ok(Json(json!({
+        "success": true,
+        "message": format!("User {} deleted successfully", fingerprint)
+    })))
+}
