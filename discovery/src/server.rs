@@ -1,6 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use log::error;
 use serde::{Deserialize, Serialize};
@@ -24,10 +25,15 @@ pub enum UserStatus {
     Blocked,
 }
 
+// Helper function to get current time, used as default for add_time during deserialization
+fn get_current_time() -> SystemTime {
+    SystemTime::now()
+}
+
 /// Represents a user with detailed information for permission management.
 ///
 /// `User` struct holds all necessary information about a user, including their public key,
-/// unique fingerprint, alias, device model, device type, and current permission status.
+/// unique fingerprint, alias, device model, device type, current permission status and adding time.
 /// It is used for internal representation and persistent storage of user data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
@@ -43,6 +49,9 @@ pub struct User {
     device_type: DeviceType,
     /// Current status of the user in the permission system (`Approved`, `Pending`, `Blocked`).
     pub status: UserStatus,
+    /// The timestamp of the time when user added.
+    #[serde(default = "get_current_time")]
+    pub add_time: SystemTime,
 }
 
 /// Provides a summary view of a user, omitting sensitive details.
@@ -61,6 +70,8 @@ pub struct UserSummary {
     pub device_type: DeviceType,
     /// Current status of the user.
     pub status: UserStatus,
+    /// User adding time
+    pub add_time: SystemTime,
 }
 
 /// Contains a list of users and their permissions, managed as a HashMap.
@@ -161,6 +172,7 @@ impl PermissionManager {
                 device_model: user.device_model.clone(),
                 device_type: user.device_type,
                 status: user.status.clone(),
+                add_time: user.add_time,
             })
             .collect() // Collect UserSummary into a Vec
     }
@@ -227,6 +239,7 @@ impl PermissionManager {
                         device_model,
                         device_type,
                         status: UserStatus::Pending, // Default status is Pending for new users
+                        add_time: SystemTime::now(), // Set current time when adding user
                     },
                 );
                 Ok((permissions, ())) // Return updated permissions and success result
@@ -355,6 +368,7 @@ impl PermissionManager {
                 device_model: user.device_model.clone(),
                 device_type: user.device_type,
                 status: user.status.clone(),
+                add_time: user.add_time,
             })
             .collect() // Collect UserSummary into a Vec
     }

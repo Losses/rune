@@ -6,7 +6,7 @@
 	import ServerPanel from './server-panel/ServerPanel.svelte';
 	import SpinnerScreen from './spinner-screen/SpinnerScreen.svelte';
 
-	import type { IDevice, IServerConfig } from '.';
+	import type { IDevice, IServerConfig, IUserSummaryResponse } from '.';
 
 	let token = localStore<string>('token', '');
 	let isRefreshing = $state(true);
@@ -16,29 +16,48 @@
 		broadcastEnabled: true
 	});
 
-	let devices: IDevice[] = $state([
-		{
-			id: '1',
-			name: 'Development Laptop',
-			fingerprint: 'ᚿᛕᛄᛷᚠᛋᚹᚶᚿᛕᚻᛥᚺᚷᚲᛋᚶᚿᛕᛄᛷᚠᛋᚹᚶᚿᛕᛄᛷᚠᛅᚻᛥᚺᚷᚲᛋᛋᚹᚶ',
-			status: 'approved',
-			lastSeen: new Date()
-		},
-		{
-			id: '2',
-			name: 'Testing Device',
-			fingerprint: 'ᛅᛅᚻᛥᛕᛅᛅᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋ',
-			status: 'pending',
-			lastSeen: new Date()
-		},
-		{
-			id: '3',
-			name: 'Unknown Device',
-			fingerprint: 'ᛅᛅᚻᛥᛕᛅᛅᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋᛅᛅᚻᛥᚺᚷᚲᛋ',
-			status: 'blocked',
-			lastSeen: new Date()
+	let devices: IDevice[] = $state([]);
+
+	$effect(() => {
+		let interval: number;
+
+		if (token.value) {
+			const fetchDevices = async () => {
+				try {
+					const response = await fetch('/panel/users', {
+						headers: {
+							Authorization: `Bearer ${token.value}`
+						}
+					});
+
+					if (!response.ok) {
+						if (response.status === 401) {
+							token.value = '';
+						}
+						throw new Error('Failed to fetch devices');
+					}
+
+					const users = await response.json();
+					devices = users.map((user: IUserSummaryResponse) => ({
+						id: user.fingerprint,
+						name: user.alias,
+						fingerprint: user.fingerprint,
+						status: user.status,
+						lastSeen: new Date(user.add_time.secs_since_epoch * 1000)
+					}));
+				} catch (error) {
+					console.error('Device polling error:', error);
+				}
+			};
+
+			fetchDevices();
+			interval = setInterval(fetchDevices, 3000);
 		}
-	]);
+
+		return () => {
+			if (interval) clearInterval(interval);
+		};
+	});
 
 	onMount(async () => {
 		if (token.value) {

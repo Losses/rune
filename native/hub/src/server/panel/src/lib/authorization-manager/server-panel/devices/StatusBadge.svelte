@@ -9,11 +9,11 @@
 
 	const getBadgeColor = (status: string) => {
 		switch (status) {
-			case 'approved':
+			case 'Approved':
 				return 'success';
-			case 'pending':
+			case 'Pending':
 				return 'warning';
-			case 'blocked':
+			case 'Blocked':
 				return 'danger';
 			default:
 				return 'brand';
