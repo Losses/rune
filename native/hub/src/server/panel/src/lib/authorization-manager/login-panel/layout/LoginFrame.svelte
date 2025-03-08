@@ -1,6 +1,8 @@
 <script lang="ts">
-	import RuneLogo from '$lib/components/icons/RuneLogo.svelte';
 	import type { Snippet } from 'svelte';
+
+	import RuneLogo from '$lib/components/icons/RuneLogo.svelte';
+	import Background from '$lib/components/ui/Background.svelte';
 
 	interface Props {
 		children: Snippet;
@@ -9,28 +11,16 @@
 	let { children }: Props = $props();
 </script>
 
-<main>
+<Background>
 	<section class="body">
 		<div class="logo">
 			<RuneLogo />
 		</div>
 		{@render children()}
 	</section>
-</main>
+</Background>
 
 <style>
-	main {
-		width: 100vw;
-		height: 100vh;
-		background: url('/background.png');
-		background-size: cover;
-		background-position: bottom left;
-
-		display: flex;
-		justify-content: center;
-		align-items: center;
-	}
-
 	.body {
 		display: flex;
 		width: 340px;
