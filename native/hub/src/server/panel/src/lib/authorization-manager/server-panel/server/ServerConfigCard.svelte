@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Card from '$lib/components/ui/Card.svelte';
 	import type { IServerConfig } from '$lib/authorization-manager';
+
 	import ServerConfig from './ServerConfig.svelte';
 
 	interface Props {

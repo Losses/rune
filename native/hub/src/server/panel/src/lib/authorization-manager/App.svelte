@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
+	import { localStore } from '$lib/utils.svelte';
 
-	import ServerPanel from './components/ServerPanel.svelte';
+	import LoginPanel from './login-panel/LoginPanel.svelte';
+	import ServerPanel from './server-panel/ServerPanel.svelte';
 
 	import type { IDevice, IServerConfig } from '.';
+
+	let token = localStore<string>('token', '');
 
 	let serverConfig: IServerConfig = $state({
 		alias: 'Main Server',
@@ -47,13 +50,15 @@
 	};
 </script>
 
-<div class="bg-background">
-	<main transition:fade>
+<main>
+	{#if token.value == ''}
+		<LoginPanel onSubmit={(x) => console.log(x)} />
+	{:else}
 		<ServerPanel
 			{serverConfig}
 			{devices}
 			onUpdateConfig={onServerConfigUpdate}
 			onUpdateDeviceStatus={onDeviceStatusUpdate}
 		/>
-	</main>
-</div>
+	{/if}
+</main>
