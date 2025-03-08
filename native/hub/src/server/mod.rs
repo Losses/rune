@@ -7,7 +7,7 @@ pub mod utils;
 
 pub use manager::generate_or_load_certificates;
 pub use manager::get_or_generate_certificate_id;
-pub use manager::initialize_root_password;
+pub use manager::update_root_password;
 pub use manager::ServerManager;
 
 use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};

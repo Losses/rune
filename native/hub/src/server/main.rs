@@ -13,7 +13,10 @@ use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 
-use cli::{broadcast::handle_broadcast, permission::handle_permission, server::handle_server};
+use cli::{
+    broadcast::handle_broadcast, chpwd::handle_chpwd, permission::handle_permission,
+    server::handle_server,
+};
 use hub::{
     server::{ServerManager, WebSocketService},
     utils::{
@@ -43,6 +46,8 @@ enum Commands {
         #[arg(required = true, index = 1)]
         lib_path: String,
     },
+    /// Initialize or change root password
+    Chpwd,
     /// Broadcast presence to the local network
     Broadcast,
     /// Manage device permissions
@@ -85,6 +90,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Server { addr, lib_path } => handle_server(addr, lib_path).await?,
+        Commands::Chpwd => handle_chpwd().await?,
         Commands::Broadcast => handle_broadcast().await?,
         Commands::Permission { action } => handle_permission(action).await?,
     }

@@ -361,7 +361,7 @@ async fn get_or_generate_jwt_secret<P: AsRef<Path>>(config_path: P) -> Result<Ve
     }
 }
 
-pub async fn initialize_root_password<P: AsRef<Path>>(
+pub async fn update_root_password<P: AsRef<Path>>(
     config_path: P,
     password: &str,
 ) -> Result<()> {
