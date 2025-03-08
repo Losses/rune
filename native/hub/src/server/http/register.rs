@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use discovery::{
     server::{PermissionError, UserStatus},
@@ -92,6 +92,11 @@ impl From<discovery::utils::ParseDeviceTypeError> for AppError {
     }
 }
 
+#[derive(Serialize)]
+struct ErrorResponse {
+    message: String,
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response<axum::body::Body> {
         let (status, message) = match self {
@@ -100,6 +105,9 @@ impl IntoResponse for AppError {
             AppError::Internal(e) => (StatusCode::INTERNAL_SERVER_ERROR, e),
             AppError::Unauthorized(e) => (StatusCode::UNAUTHORIZED, e),
         };
-        (status, message).into_response()
+
+        let body = Json(ErrorResponse { message });
+
+        (status, body).into_response()
     }
 }

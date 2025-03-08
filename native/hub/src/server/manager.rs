@@ -361,10 +361,7 @@ async fn get_or_generate_jwt_secret<P: AsRef<Path>>(config_path: P) -> Result<Ve
     }
 }
 
-pub async fn update_root_password<P: AsRef<Path>>(
-    config_path: P,
-    password: &str,
-) -> Result<()> {
+pub async fn update_root_password<P: AsRef<Path>>(config_path: P, password: &str) -> Result<()> {
     let config_path: &Path = config_path.as_ref();
 
     let password_path = config_path.join("root_password.hash");
