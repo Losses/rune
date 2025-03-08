@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type { IServerConfig } from '$lib/authorization-manager';
+	import FluentInput from '$lib/components/ui/FluentInput.svelte';
+	import FluentSwitch from '$lib/components/ui/FluentSwitch.svelte';
 
 	interface Props {
 		config: IServerConfig;
@@ -8,39 +10,29 @@
 
 	let { config, onUpdate }: Props = $props();
 
-	const handleAliasChange = (event: Event) => {
-		const input = event.target as HTMLInputElement;
-		onUpdate({ ...config, alias: input.value });
+	const handleAliasChange = (x: string) => {
+		onUpdate({ ...config, alias: x });
 	};
 
 	const handleBroadcastChange = (checked: boolean) => {
 		onUpdate({ ...config, broadcastEnabled: checked });
 	};
-
-	// bind:checked={config.broadcastEnabled}
 </script>
 
 <div>
 	<div>
-		<fluent-text-input
-			id="serverAlias"
-			appearance="filled-lighter"
-			value={config.alias}
-			onchange={handleAliasChange}>Server Alias</fluent-text-input
+		<FluentInput appearance="filled-lighter" value={config.alias} onChange={handleAliasChange}
+			>Server Alias</FluentInput
 		>
 	</div>
 
 	<div class="broadcast">
-		<fluent-field label-position="after">
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label slot="label">Enable Local Network Broadcasting</label>
-			<fluent-switch
-				id="broadcast"
-				onchange={(e: InputEvent) =>
-					handleBroadcastChange((e.currentTarget as HTMLInputElement).checked)}
-				slot="input"
-			></fluent-switch>
-		</fluent-field>
+		<FluentSwitch
+			id="broadcast"
+			checked={config.broadcastEnabled}
+			onChange={handleBroadcastChange}
+			label="Enable Local Network Broadcasting"
+		/>
 	</div>
 </div>
 
