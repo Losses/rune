@@ -21,6 +21,6 @@ fn sanitize_device_info(original: &DeviceInfo) -> SanitizedDeviceInfo {
 pub async fn device_info_handler(
     State(state): State<Arc<ServerState>>,
 ) -> Json<SanitizedDeviceInfo> {
-    let sanitized = sanitize_device_info(&state.discovery_device_info);
+    let sanitized = sanitize_device_info(&state.discovery_device_info.read().await.clone());
     Json(sanitized)
 }

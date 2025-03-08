@@ -26,7 +26,7 @@ use rand::{
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs::{read_to_string, write},
-    sync::Mutex,
+    sync::{Mutex, RwLock},
     task::JoinHandle,
 };
 use tower_governor::{
@@ -40,11 +40,12 @@ use crate::{
     messages::*,
     server::{
         http::{
-            auth_middleware::auth_middleware, check_fingerprint::check_fingerprint_handler,
-            device_info::device_info_handler, file::file_handler, list::list_users_handler,
-            login::login_handler, ping::ping_handler, refresh::refresh_handler,
-            register::register_handler, status::update_user_status_handler,
-            websocket::websocket_handler,
+            check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
+            file::file_handler, list::list_users_handler, panel_alias::update_alias_handler,
+            panel_auth_middleware::auth_middleware, panel_broadcast::toggle_broadcast_handler,
+            panel_device::device_handler, panel_login::login_handler,
+            panel_refresh::refresh_handler, panel_status::update_user_status_handler,
+            ping::ping_handler, register::register_handler, websocket::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
     },
@@ -141,8 +142,9 @@ impl ServerManager {
         let server_state = Arc::new(ServerState {
             app_state: app_state.clone(),
             websocket_service: websocket_service.clone(),
-            discovery_device_info: discovery_params.device_info,
+            discovery_device_info: Arc::new(RwLock::new(discovery_params.device_info)),
             permission_manager: self.global_params.permission_manager.clone(),
+            device_scanner: self.global_params.device_scanner.clone(),
         });
 
         let governor_conf = GovernorConfigBuilder::default()
@@ -163,6 +165,9 @@ impl ServerManager {
             .layer(Extension(self.clone()));
 
         let protected_routes: Router<Arc<ServerState>> = Router::<Arc<ServerState>>::new()
+            .route("/panel/device", get(device_handler))
+            .route("/panel/broadcast", put(toggle_broadcast_handler))
+            .route("/panel/alias", put(update_alias_handler))
             .route("/panel/auth/refresh", post(refresh_handler))
             .route("/panel/users", get(list_users_handler))
             .route(

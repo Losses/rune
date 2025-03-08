@@ -710,4 +710,26 @@ impl DiscoveryService {
             .map(|r| r.is_ok())
             .unwrap_or(false)
     }
+
+    /// Retrieves the current status of the discovery service, indicating if it's announcing.
+    ///
+    /// This method checks the internal state of the `DiscoveryService` to determine whether it is
+    /// currently broadcasting device announcements.
+    ///
+    /// # Returns
+    /// `bool` - A boolean flags indicating the announcement status.
+    pub async fn is_announcing(&self) -> bool {
+        self.announcements_cancel_token.lock().await.is_some()
+    }
+
+    /// Retrieves the current status of the discovery service, indicating if it's listening.
+    ///
+    /// This method checks the internal state of the `DiscoveryService` to determine whether it is
+    /// currently listening for devices in local network.
+    ///
+    /// # Returns
+    /// `bool` - A boolean flags indicating the listening status.
+    pub async fn is_listening(&self) -> bool {
+        self.listening_cancel_token.lock().await.is_some()
+    }
 }

@@ -5,6 +5,7 @@ pub mod http;
 mod manager;
 pub mod utils;
 
+use discovery::protocol::DiscoveryService;
 pub use manager::generate_or_load_certificates;
 pub use manager::get_or_generate_alias;
 pub use manager::update_root_password;
@@ -39,8 +40,9 @@ pub struct AppState {
 pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
-    pub discovery_device_info: DeviceInfo,
+    pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
     pub permission_manager: Arc<RwLock<PermissionManager>>,
+    pub device_scanner: Arc<DiscoveryService>,
 }
 
 pub struct WebSocketService {
