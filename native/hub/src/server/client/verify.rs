@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use futures::StreamExt;
 use hub::server::{
-    api::{fetch_device_info, register_device}, generate_or_load_certificates, get_or_generate_certificate_id, utils::path::get_config_dir
+    api::{fetch_device_info, register_device}, generate_or_load_certificates, get_or_generate_alias, utils::path::get_config_dir
 };
 use log::info;
 
@@ -138,7 +138,7 @@ pub async fn inspect_host(host: &str, config: Arc<ClientConfig>) -> Result<()> {
 
 pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> Result<()> {
     let config_dir = get_config_dir()?;
-    let certificate_id = get_or_generate_certificate_id(&config_dir).await?;
+    let certificate_id = get_or_generate_alias(&config_dir).await?;
     let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
         .await
         .context("Failed to load client certificates")?;
@@ -161,7 +161,7 @@ pub async fn register_current_device(host: &str, config: Arc<ClientConfig>) -> R
 
 pub async fn print_device_information() -> Result<()> {
     let config_dir = get_config_dir()?;
-    let certificate_id = get_or_generate_certificate_id(&config_dir).await?;
+    let certificate_id = get_or_generate_alias(&config_dir).await?;
     let (_, certificate, _) = generate_or_load_certificates(&config_dir, &certificate_id)
         .await
         .context("Failed to load client certificates")?;

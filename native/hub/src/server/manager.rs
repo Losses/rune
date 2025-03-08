@@ -90,7 +90,7 @@ impl ServerManager {
     pub async fn new(global_params: Arc<GlobalParams>) -> Result<Self> {
         let config_path = Path::new(&*global_params.config_path);
 
-        let certificate_id = get_or_generate_certificate_id(config_path).await?;
+        let certificate_id = get_or_generate_alias(config_path).await?;
 
         let (_, certificate, private_key) =
             generate_or_load_certificates(config_path, &certificate_id)
@@ -278,7 +278,7 @@ impl ServerManager {
     }
 }
 
-pub async fn get_or_generate_certificate_id(config_path: &Path) -> Result<String> {
+pub async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
     info!("Generating certificate in: {:?}", config_path);
 
     let certificate_id_path = config_path.join("cid");
@@ -294,6 +294,21 @@ pub async fn get_or_generate_certificate_id(config_path: &Path) -> Result<String
             .context("Failed to save cid file")?;
         Ok(certificate_id)
     }
+}
+
+pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
+    info!(
+        "Updating certificate alias in: {:?} to: {}",
+        config_path, new_alias
+    );
+
+    let certificate_id_path = config_path.join("cid");
+
+    tokio::fs::write(&certificate_id_path, new_alias)
+        .await
+        .context("Failed to write cid file")?;
+
+    Ok(())
 }
 
 fn generate_random_alias() -> String {

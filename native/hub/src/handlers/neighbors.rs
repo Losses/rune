@@ -21,7 +21,7 @@ use ::discovery::utils::{DeviceInfo, DeviceType};
 use ::discovery::DiscoveryParams;
 
 use crate::server::api::register_device;
-use crate::server::{generate_or_load_certificates, get_or_generate_certificate_id, ServerManager};
+use crate::server::{generate_or_load_certificates, get_or_generate_alias, ServerManager};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Session, Signal};
 
@@ -353,7 +353,7 @@ impl Signal for GetSslCertificateFingerprintRequest {
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         let path = Path::new(&**config_path);
-        let certificate_id = get_or_generate_certificate_id(path).await?;
+        let certificate_id = get_or_generate_alias(path).await?;
 
         let (fingerprint, _certificate, _private_key) =
             generate_or_load_certificates(path, &certificate_id)
