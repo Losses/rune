@@ -548,6 +548,11 @@ impl Signal for AddTrustedServerRequest {
             }
         };
 
+        info!(
+            "Adding trusted host {:?} with fingerprint {:?}",
+            certificate.hosts, certificate.fingerprint
+        );
+
         let result = validator
             .write()
             .await
