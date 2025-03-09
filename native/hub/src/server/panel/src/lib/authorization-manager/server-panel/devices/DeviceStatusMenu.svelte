@@ -23,9 +23,9 @@
 		>
 
 		<fluent-menu-list class="action-list">
-			<fluent-menu-item value="approved">Approve</fluent-menu-item>
-			<fluent-menu-item value="pending">Pending</fluent-menu-item>
-			<fluent-menu-item value="blocked">Block</fluent-menu-item>
+			<fluent-menu-item value="Approved">Approve</fluent-menu-item>
+			<fluent-menu-item value="Pending">Pending</fluent-menu-item>
+			<fluent-menu-item value="Blocked">Block</fluent-menu-item>
 		</fluent-menu-list>
 	</fluent-menu>
 {:else}
@@ -42,9 +42,9 @@
 		</fluent-button>
 
 		<fluent-menu-list>
-			<fluent-menu-item value="approved">Approve</fluent-menu-item>
-			<fluent-menu-item value="pending">Pending</fluent-menu-item>
-			<fluent-menu-item value="blocked">Block</fluent-menu-item>
+			<fluent-menu-item value="Approved">Approve</fluent-menu-item>
+			<fluent-menu-item value="Pending">Pending</fluent-menu-item>
+			<fluent-menu-item value="Blocked">Block</fluent-menu-item>
 		</fluent-menu-list>
 	</fluent-menu>
 {/if}
