@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use axum::{
     middleware,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Extension, Router,
 };
 use axum_server::{tls_rustls::RustlsConfig, Handle};
@@ -43,9 +43,10 @@ use crate::{
             check_fingerprint::check_fingerprint_handler, device_info::device_info_handler,
             file::file_handler, list::list_users_handler, panel_alias::update_alias_handler,
             panel_auth_middleware::auth_middleware, panel_broadcast::toggle_broadcast_handler,
-            panel_self::self_handler, panel_login::login_handler,
-            panel_refresh::refresh_handler, panel_status::update_user_status_handler,
-            ping::ping_handler, register::register_handler, websocket::websocket_handler,
+            panel_delete_user::delete_user_handler, panel_login::login_handler,
+            panel_refresh::refresh_handler, panel_self::self_handler,
+            panel_status::update_user_status_handler, ping::ping_handler,
+            register::register_handler, websocket::websocket_handler,
         },
         AppState, ServerState, WebSocketService,
     },
@@ -170,6 +171,7 @@ impl ServerManager {
             .route("/panel/alias", put(update_alias_handler))
             .route("/panel/auth/refresh", post(refresh_handler))
             .route("/panel/users", get(list_users_handler))
+            .route("/panel/users/{fingerprint}", delete(delete_user_handler))
             .route(
                 "/panel/users/{fingerprint}/status",
                 put(update_user_status_handler),
