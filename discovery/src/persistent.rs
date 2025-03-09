@@ -318,7 +318,8 @@ where
         let mut data = self.data.write().await; // Acquire exclusive write lock
         let current_data = (*data).clone(); // Clone current data for the updater function
         let (new_data, result) = updater(current_data).await?; // Call the updater function
-        *data = new_data; // Update managed data with the new data
+        *data = new_data.clone(); // Update managed data with the new data
+        let _ = self.change_tx.send(new_data);
         self.save_internal(&*data).await.map_err(E::from)?; // Save the updated data to file
         Ok(result) // Return the result from the updater function
     }
