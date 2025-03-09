@@ -181,6 +181,19 @@ message RegisterDeviceOnServerResponse {
   string error = 2;
 }
 
+// [DART-SIGNAL]
+message CheckDeviceOnServerRequest {
+  string alias = 1;
+  repeated string hosts = 2;
+}
+
+// [RUST-SIGNAL]
+message CheckDeviceOnServerResponse {
+  bool success = 1;
+  string error = 2;
+  optional ClientStatus status = 3;
+}
+
 // [RUST-SIGNAL]
 message TrustListUpdated {
   repeated TrustedServerCertificate certificates = 1;

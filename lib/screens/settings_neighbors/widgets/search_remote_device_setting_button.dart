@@ -9,9 +9,11 @@ import '../../../utils/dialogs/information/error.dart';
 import '../../../utils/dialogs/information/information.dart';
 import '../../../utils/discovery_url.dart';
 import '../../../widgets/settings/settings_button.dart';
+import '../../../messages/all.dart';
 import '../../../providers/library_path.dart';
 
 import '../utils/show_search_remote_device_dialog.dart';
+import '../utils/show_server_status_dialog.dart';
 
 class SearchRemoteDeviceSettingButton extends StatelessWidget {
   const SearchRemoteDeviceSettingButton({
@@ -74,6 +76,34 @@ class SearchRemoteDeviceSettingButton extends StatelessWidget {
             title: s.unknownError,
             errorMessage: e.toString(),
           );
+
+          return;
+        }
+
+        if (!context.mounted) return;
+        final serverStatus = await showServerStatusDialog(context, device.ips);
+
+        if (serverStatus == null) {
+          return;
+        }
+
+        if (!context.mounted) return;
+        if (!serverStatus.success) {
+          await showErrorDialog(
+            context: context,
+            title: s.unknownError,
+            errorMessage: serverStatus.error,
+          );
+
+          return;
+        } else if (serverStatus.status == ClientStatus.BLOCKED) {
+          await showErrorDialog(
+            context: context,
+            title: s.clientBlockedTitle,
+            errorMessage: s.clientBlockedMessage,
+          );
+
+          return;
         }
 
         if (!context.mounted) return;

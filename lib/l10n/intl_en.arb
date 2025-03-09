@@ -1288,5 +1288,17 @@
   "removeFromPlaylist": "Remove from Playlist",
   "@removeFromPlaylist": {
     "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
+  },
+  "waitForApprove": "Waiting for the server to approve this request...",
+  "@waitForApprove": {
+    "description": "Loading message displayed during server connection verification process."
+  },
+  "clientBlockedTitle": "Connection Blocked",
+  "@clientBlockedTitle": {
+    "description": "Error title indicating the remote device has blocked this client's connection attempts."
+  },
+  "clientBlockedMessage": "The remote device has blocked your client from connecting. You will need permission from the device owner to establish a connection.",
+  "@clientBlockedMessage": {
+    "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
   }
 }

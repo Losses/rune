@@ -314,9 +314,10 @@ pub async fn server_player_loop(url: &str, config_path: &str, alias: &str) -> Re
             .await
             .with_context(|| "Failed to create the cert validator")?,
     );
+    let client_config = cert_validator.clone().into_client_config();
 
     let hosts = decode_rnsrv_url(url).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let host = select_best_host(hosts, cert_validator.clone().into_client_config())
+    let host = select_best_host(hosts, Arc::new(client_config))
         .await
         .with_context(|| "Failed to select the best host")?;
 

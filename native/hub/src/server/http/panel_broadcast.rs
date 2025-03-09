@@ -24,7 +24,7 @@ pub async fn toggle_broadcast_handler(
             .start_announcements(
                 device_info.read().await.clone(),
                 Duration::from_secs(3),
-                Some(Duration::from_secs(300)),
+                None,
             )
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;

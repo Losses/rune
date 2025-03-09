@@ -20,7 +20,7 @@ use ::discovery::url::decode_rnsrv_url;
 use ::discovery::utils::{DeviceInfo, DeviceType};
 use ::discovery::DiscoveryParams;
 
-use crate::server::api::register_device;
+use crate::server::api::{check_fingerprint, register_device};
 use crate::server::{generate_or_load_certificates, get_or_generate_alias, ServerManager};
 use crate::utils::{GlobalParams, ParamsExtractor};
 use crate::{messages::*, Session, Signal};
@@ -425,7 +425,9 @@ impl Signal for ServerAvailabilityTestRequest {
                 }))
             }
         };
-        let host = select_best_host(hosts, validator.clone().into_client_config()).await;
+
+        let client_config = Arc::new(validator.clone().into_client_config());
+        let host = select_best_host(hosts, client_config).await;
 
         Ok(Some(match host {
             Ok(_) => ServerAvailabilityTestResponse {
@@ -558,6 +560,7 @@ impl Signal for AddTrustedServerRequest {
             .await
             .add_trusted_domains(&certificate.hosts, certificate.fingerprint.clone())
             .await;
+
         match result {
             Ok(_) => Ok(Some(AddTrustedServerResponse {
                 success: true,
@@ -630,15 +633,14 @@ impl Signal for RegisterDeviceOnServerRequest {
     ) -> Result<Option<Self::Response>> {
         let (config_path, validator) = config;
         let validator = Arc::new(validator.read().await.clone());
+        let client_config = Arc::new(validator.clone().into_client_config());
         let config_path = config_path.to_string();
 
         let certificate_id = req.alias.clone();
         let (fingerprint, cert, _) =
             generate_or_load_certificates(config_path, &certificate_id).await?;
 
-        let host = match select_best_host(req.hosts.clone(), validator.clone().into_client_config())
-            .await
-        {
+        let host = match select_best_host(req.hosts.clone(), client_config.clone()).await {
             Ok(x) => x,
             Err(e) => {
                 return Ok(Some(RegisterDeviceOnServerResponse {
@@ -650,7 +652,7 @@ impl Signal for RegisterDeviceOnServerRequest {
 
         match register_device(
             &host,
-            Arc::new(validator.into_client_config()),
+            client_config.clone(),
             cert,
             fingerprint,
             req.alias.clone(),
@@ -666,6 +668,68 @@ impl Signal for RegisterDeviceOnServerRequest {
             Err(e) => Ok(Some(RegisterDeviceOnServerResponse {
                 success: false,
                 error: format!("{:#?}", e),
+            })),
+        }
+    }
+}
+
+impl ParamsExtractor for CheckDeviceOnServerRequest {
+    type Params = (Arc<RwLock<CertValidator>>, Arc<String>);
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.cert_validator),
+            Arc::clone(&all_params.config_path),
+        )
+    }
+}
+
+impl Signal for CheckDeviceOnServerRequest {
+    type Params = (Arc<RwLock<CertValidator>>, Arc<String>);
+    type Response = CheckDeviceOnServerResponse;
+
+    async fn handle(
+        &self,
+        (validator, config_path): Self::Params,
+        _session: Option<Session>,
+        req: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let validator = validator.read().await.clone();
+        let client_config = Arc::new(Arc::new(validator).into_client_config());
+
+        let (fingerprint, _, _) =
+            generate_or_load_certificates(Path::new(&*config_path), &req.alias).await?;
+
+        let host = match select_best_host(req.hosts.clone(), client_config.clone()).await {
+            Ok(host) => host,
+            Err(e) => {
+                return Ok(Some(CheckDeviceOnServerResponse {
+                    success: false,
+                    error: format!("{:#?}", e),
+                    status: None,
+                }))
+            }
+        };
+
+        match check_fingerprint(&host, client_config, &fingerprint).await {
+            Ok(response) => {
+                let status = match response.status.as_str() {
+                    "Approved" => ClientStatus::Approved,
+                    "Pending" => ClientStatus::Pending,
+                    "Blocked" => ClientStatus::Blocked,
+                    _ => ClientStatus::Pending,
+                };
+
+                Ok(Some(CheckDeviceOnServerResponse {
+                    success: true,
+                    error: String::new(),
+                    status: Some(status.into()),
+                }))
+            }
+            Err(e) => Ok(Some(CheckDeviceOnServerResponse {
+                success: false,
+                error: format!("{:#}", e),
+                status: Some(ClientStatus::Blocked.into()),
             })),
         }
     }

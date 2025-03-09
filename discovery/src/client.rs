@@ -3,7 +3,6 @@ use std::{
     io::Error as IoError,
     path::Path,
     sync::{Arc, Mutex, RwLock},
-    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Result};
@@ -152,25 +151,11 @@ impl CertValidator {
         let storage_clone = storage.clone();
         let cached_clone = cached_entries.clone();
         tokio::spawn(async move {
-            let mut subscriber = storage_clone.subscribe(); // Subscribe to storage change notifications
-            let mut debouncer = tokio::time::interval(Duration::from_millis(100)); // Debounce interval
-            let mut pending_update = false; // Flag to indicate pending update
+            let mut subscriber = storage_clone.subscribe();
 
-            loop {
-                tokio::select! {
-                    _ = subscriber.recv() => { // Received a storage update notification
-                        pending_update = true; // Set flag to update cache on next tick
-                    }
-                    _ = debouncer.tick() => { // Debounce tick
-                        if pending_update { // If there is a pending update
-                            let data = storage_clone.read().await; // Read latest data from storage
-                            // Fix: Use write() to get a mutable reference to cache and directly assign from storage
-                            if let Ok(mut cache) = cached_clone.write() {
-                                cache.clone_from(&data.entries); // Update cache with entries from storage
-                            }
-                            pending_update = false; // Reset pending update flag
-                        }
-                    }
+            while let Ok(data) = subscriber.recv().await {
+                if let Ok(mut cache) = cached_clone.write() {
+                    *cache = data.entries.clone();
                 }
             }
         });
@@ -230,9 +215,11 @@ impl CertValidator {
                     hosts.dedup(); // Remove duplicate entries
                 }
 
-                Ok((report, ())) // Return updated report and success result
+                Ok::<_, CertValidatorError>((report, ())) // Return updated report and success result
             })
-            .await
+            .await?;
+
+        Ok(())
     }
 
     /// Replaces the list of trusted hosts for a given certificate fingerprint with a new list.
@@ -316,6 +303,10 @@ impl CertValidator {
     /// `Vec<String>` - A vector of all trusted certificate fingerprints.
     pub async fn list_trusted_fingerprints(&self) -> Vec<String> {
         self.storage.read().await.entries.keys().cloned().collect() // Read entries, get keys (fingerprints), clone and collect to Vec
+    }
+
+    pub async fn clone_trusted_entries(&self) -> HashMap<String, Vec<String>> {
+        self.storage.read().await.entries.clone()
     }
 
     /// Finds all certificate fingerprints that trust a specific hostname.
@@ -472,9 +463,9 @@ impl ServerCertVerifier for CertValidator {
         } else {
             warn!(
                 "{}({}) is not trust in the local cert list, falling back to the buildin one",
-                server_name.to_str(), fingerprint
+                server_name.to_str(),
+                fingerprint
             );
-            println!("{:#?}", entries);
             self.inner_verifier.verify_server_cert(
                 // Fallback to WebPKI verifier if not fingerprint-trusted
                 end_entity,
@@ -801,13 +792,10 @@ pub async fn try_connect(host: &str, config: ClientConfig) -> Result<String> {
 /// Returns `anyhow::Error` if:
 /// - All connection attempts fail.
 /// - No hosts are provided in the input vector.
-pub async fn select_best_host(hosts: Vec<String>, config: ClientConfig) -> Result<String> {
+pub async fn select_best_host(hosts: Vec<String>, config: Arc<ClientConfig>) -> Result<String> {
     if hosts.is_empty() {
         return Err(anyhow!("No hosts provided"));
     }
-
-    // Create a shared ClientConfig for all connection attempts
-    let config = Arc::new(config);
 
     // Create a channel for cancellation
     let (tx, rx) = oneshot::channel();

@@ -155,12 +155,6 @@ impl ServerManager {
             .finish()
             .unwrap();
 
-        let register_route = Router::new()
-            .route("/register", post(register_handler))
-            .layer(GovernorLayer {
-                config: governor_conf.into(),
-            });
-
         let auth_routes: Router<Arc<ServerState>> = Router::new()
             .route("/panel/auth/login", post(login_handler))
             .layer(Extension(self.clone()));
@@ -179,6 +173,12 @@ impl ServerManager {
             .layer(middleware::from_fn(auth_middleware))
             .layer(Extension(self.clone()))
             .with_state(server_state.clone());
+
+        let register_route = Router::new()
+            .route("/register", post(register_handler))
+            .layer(GovernorLayer {
+                config: governor_conf.into(),
+            });
 
         let app = Router::new()
             .merge(register_route)
