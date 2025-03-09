@@ -57,12 +57,12 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
 
   Future<void> _handlePollingError(Object error) async {
     _pollingSubscription?.cancel();
+    widget.close(null);
     await showErrorDialog(
       context: context,
       title: S.of(context).unknownError,
       errorMessage: error.toString(),
     );
-    widget.close(null);
   }
 
   void _cancelPolling() {
@@ -78,8 +78,8 @@ class ServerStatusDialogState extends State<ServerStatusDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const ProgressRing(),
-          const SizedBox(height: 16),
+          const Center(child: ProgressRing()),
+          const SizedBox(height: 20),
           Text(
             S.of(context).waitForApprove,
             textAlign: TextAlign.center,
