@@ -5,9 +5,10 @@
 	interface Props {
 		devices: IDevice[];
 		onUpdateStatus: (deviceId: string, status: string) => void;
+		onDeleteDevice: (fingerprint: string) => void;
 	}
 
-	let { devices, onUpdateStatus }: Props = $props();
+	let { devices, onUpdateStatus, onDeleteDevice }: Props = $props();
 </script>
 
 <div>
@@ -22,7 +23,12 @@
 		</thead>
 		<tbody>
 			{#each devices as device, i}
-				<DeviceTableRow {device} {onUpdateStatus} isLast={i + 1 >= devices.length} />
+				<DeviceTableRow
+					{device}
+					{onUpdateStatus}
+					{onDeleteDevice}
+					isLast={i + 1 >= devices.length}
+				/>
 			{/each}
 		</tbody>
 	</table>

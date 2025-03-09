@@ -6,14 +6,16 @@
 	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
 	import FluentButton from '$lib/components/ui/FluentButton.svelte';
 	import FingerprintDialog from './FingerprintDialog.svelte';
+	import RemoveIcon from '$lib/components/icons/RemoveIcon.svelte';
 
 	interface Props {
 		device: IDevice;
 		isLast?: boolean;
 		onUpdateStatus: (deviceId: string, status: string) => void;
+		onDeleteDevice: (fingerprint: string) => void;
 	}
 
-	let { device, onUpdateStatus, isLast }: Props = $props();
+	let { device, onUpdateStatus, onDeleteDevice, isLast }: Props = $props();
 
 	let dialog: FingerprintDialog | null = $state(null);
 </script>
@@ -47,6 +49,15 @@
 	</th>
 	<th>
 		<DeviceStatusMenu deviceId={device.id} {onUpdateStatus} variant="small" />
+		<FluentButton
+			iconOnly={true}
+			ariaLabel="Delete Device"
+			onClick={() => onDeleteDevice(device.fingerprint)}
+		>
+			<span class="delete-icon">
+				<RemoveIcon />
+			</span>
+		</FluentButton>
 	</th>
 </tr>
 
@@ -82,5 +93,10 @@
 
 	.badge {
 		transform: translateY(4px);
+	}
+
+	.delete-icon {
+		display: contents;
+		color: rgba(0, 0, 0, 0.75);
 	}
 </style>

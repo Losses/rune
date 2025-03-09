@@ -6,6 +6,7 @@ use axum::{
 };
 
 use ::discovery::server::PermissionError;
+use log::info;
 use serde_json::json;
 
 use crate::server::ServerState;
@@ -16,6 +17,8 @@ pub async fn delete_user_handler(
     Path(fingerprint): Path<String>,
     State(server_state): State<Arc<ServerState>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    info!("Deleting user {}", fingerprint);
+
     server_state
         .permission_manager
         .write()

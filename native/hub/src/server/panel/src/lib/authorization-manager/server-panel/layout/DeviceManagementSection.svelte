@@ -8,16 +8,17 @@
 	interface Props {
 		devices: IDevice[];
 		onUpdateStatus: (deviceId: string, status: string) => void;
+		onDeleteDevice: (fingerprint: string) => void;
 	}
 
-	let { devices, onUpdateStatus }: Props = $props();
+	let { devices, onUpdateStatus, onDeleteDevice }: Props = $props();
 </script>
 
 <section>
 	<MediaQuery query="(min-width: 600px)">
 		<Card headerText="Device Management" headerSubtitle="View and manage all connected devices">
 			<div>
-				<DeviceTable {devices} {onUpdateStatus} />
+				<DeviceTable {devices} {onUpdateStatus} {onDeleteDevice} />
 			</div>
 		</Card>
 	</MediaQuery>
@@ -25,7 +26,7 @@
 	<MediaQuery query="(max-width: 600px)">
 		{#each devices as device}
 			<Card>
-				<DeviceCard {device} {onUpdateStatus} />
+				<DeviceCard {device} {onUpdateStatus} {onDeleteDevice} />
 			</Card>
 		{/each}
 	</MediaQuery>

@@ -14,9 +14,11 @@
 		devices: IDevice[];
 		onUpdateConfig: (config: IServerConfig) => void;
 		onUpdateDeviceStatus: (deviceId: string, status: string) => void;
+		onDeleteDevice: (fingerprint: string) => void;
 	}
 
-	let { serverConfig, devices, onUpdateConfig, onUpdateDeviceStatus }: Props = $props();
+	let { serverConfig, devices, onUpdateConfig, onUpdateDeviceStatus, onDeleteDevice }: Props =
+		$props();
 
 	let dialog: FingerprintDialog | null = $state(null);
 </script>
@@ -36,7 +38,7 @@
 			</MediaQuery>
 		</div>
 
-		<DeviceManagementSection {devices} onUpdateStatus={onUpdateDeviceStatus} />
+		<DeviceManagementSection {devices} onUpdateStatus={onUpdateDeviceStatus} {onDeleteDevice} />
 
 		<MediaQuery query="(max-width: 600px)">
 			<FingerprintFab onClick={dialog?.show} />

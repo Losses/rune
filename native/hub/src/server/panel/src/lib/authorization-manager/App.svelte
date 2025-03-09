@@ -15,7 +15,7 @@
 	let serverConfig: IServerConfig = $state({
 		alias: '',
 		broadcastEnabled: false,
-		fingerprint: '',
+		fingerprint: ''
 	});
 
 	interface IPanelSelfResponse {
@@ -139,14 +139,34 @@
 		}
 	};
 
-	const onServerConfigUpdate = (config: IServerConfig) => {
+	const onUpdateConfig = (config: IServerConfig) => {
 		serverConfig = config;
 	};
 
-	const onDeviceStatusUpdate = (deviceId: string, newStatus: string) => {
+	const onUpdateDeviceStatus = (deviceId: string, newStatus: string) => {
 		devices = devices.map((device) =>
 			device.id === deviceId ? { ...device, status: newStatus } : device
 		);
+	};
+
+	const onDeleteDevice = async (fingerprint: string) => {
+		if (!confirm('Are you sure you want to delete this device?')) return;
+
+		try {
+			const response = await fetch(`/panel/users/${fingerprint}`, {
+				method: 'DELETE',
+				headers: {
+					Authorization: `Bearer ${get(token)}`
+				}
+			});
+
+			if (!response.ok) throw new Error('Delete failed');
+
+			devices = devices.filter((d) => d.fingerprint !== fingerprint);
+		} catch (error) {
+			console.error('Delete error:', error);
+			alert(error instanceof Error ? error.message : 'Failed to delete device');
+		}
 	};
 </script>
 
@@ -160,8 +180,9 @@
 			<ServerPanel
 				{serverConfig}
 				{devices}
-				onUpdateConfig={onServerConfigUpdate}
-				onUpdateDeviceStatus={onDeviceStatusUpdate}
+				{onUpdateConfig}
+				{onUpdateDeviceStatus}
+				{onDeleteDevice}
 			/>
 		{/if}
 	</main>

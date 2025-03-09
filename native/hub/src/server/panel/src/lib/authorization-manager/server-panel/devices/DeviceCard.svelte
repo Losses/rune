@@ -11,9 +11,10 @@
 	interface Props {
 		device: IDevice;
 		onUpdateStatus: (deviceId: string, status: string) => void;
+		onDeleteDevice: (fingerprint: string) => void;
 	}
 
-	let { device, onUpdateStatus }: Props = $props();
+	let { device, onUpdateStatus, onDeleteDevice }: Props = $props();
 
 	let dialog: FingerprintDialog | null = $state(null);
 </script>
@@ -35,8 +36,11 @@
 	</div>
 
 	<FluentButton fullWidth onClick={dialog?.show}>Inspect Fingerprint</FluentButton>
-
 	<DeviceStatusMenu deviceId={device.id} {onUpdateStatus} variant="large" />
+	<FluentButton fullWidth onClick={() => onDeleteDevice(device.fingerprint)}
+		>Delete Device</FluentButton
+	>
+
 	<FingerprintDialog bind:this={dialog} fingerprint={device.fingerprint} />
 </div>
 
