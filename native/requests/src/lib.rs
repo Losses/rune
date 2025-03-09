@@ -424,6 +424,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             local_only: true,
         },
         RequestResponse {
+            request: "CheckDeviceOnServerRequest".to_string(),
+            response: Some("CheckDeviceOnServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
             request: "ConnectRequest".to_string(),
             response: Some("ConnectResponse".to_string()),
             local_only: true,
