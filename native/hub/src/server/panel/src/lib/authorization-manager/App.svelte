@@ -25,9 +25,11 @@
 
 	let devices: IDevice[] = $state([]);
 
+	const isAuthenticated$ = $derived(isAuthenticated);
+
 	$effect(() => {
 		let interval: number;
-		if (get(isAuthenticated)) {
+		if ($isAuthenticated$) {
 			const fetchDevices = async () => {
 				try {
 					const response = await fetch('/panel/users', {
@@ -65,8 +67,29 @@
 		};
 	});
 
+	async function fetchServerConfig() {
+		try {
+			const res = await fetch('/panel/self', {
+				headers: {
+					Authorization: `Bearer ${get(token)}`
+				}
+			});
+			const config: IPanelSelfResponse = await res.json();
+			serverConfig.alias = config.alias;
+			serverConfig.broadcastEnabled = config.broadcasting;
+		} catch (error) {
+			console.error('Failed to fetch server config:', error);
+		}
+	}
+
+	$effect(() => {
+		if ($isAuthenticated$) {
+			fetchServerConfig();
+		}
+	});
+
 	onMount(async () => {
-		if (get(isAuthenticated)) {
+		if (get(isAuthenticated$)) {
 			try {
 				const response = await fetch('/panel/auth/refresh', {
 					method: 'POST',
@@ -83,14 +106,6 @@
 
 				const { token: newToken } = await response.json();
 				token.setToken(newToken);
-				const res = await fetch('/panel/self', {
-					headers: {
-						Authorization: `Bearer ${get(token)}`
-					}
-				});
-				const config: IPanelSelfResponse = await res.json();
-				serverConfig.alias = config.alias;
-				serverConfig.broadcastEnabled = config.broadcasting;
 			} catch (error) {
 				token.clearToken();
 			}
@@ -118,16 +133,14 @@
 			token.setToken(authToken);
 		} catch (error) {
 			console.error('Login error:', error);
-			alert(error || 'Login failed. Please try again.');
+			alert(error instanceof Error ? error.message : 'Login failed. Please try again.');
 		}
 	};
 
-	/** Handle server config updates */
 	const onServerConfigUpdate = (config: IServerConfig) => {
 		serverConfig = config;
 	};
 
-	/** Handle device status updates */
 	const onDeviceStatusUpdate = (deviceId: string, newStatus: string) => {
 		devices = devices.map((device) =>
 			device.id === deviceId ? { ...device, status: newStatus } : device
@@ -139,7 +152,7 @@
 	<SpinnerScreen />
 {:else if initComplete}
 	<main>
-		{#if !$isAuthenticated}
+		{#if !$isAuthenticated$}
 			<LoginPanel onSubmit={handleLogin} />
 		{:else}
 			<ServerPanel
