@@ -1,10 +1,17 @@
 <script lang="ts">
 	import Card from '$lib/components/ui/Card.svelte';
 	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
+	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+
+	interface Props {
+		onClick?: () => void;
+	}
+
+	let { onClick }: Props = $props();
 </script>
 
 <Card noPadding>
-	<fluent-button appearance="primary" shape="square" class="reveal-fingerprint-button">
+	<FluentButton appearance="primary" shape="square" fullWidth fullHeight {onClick}>
 		<div class="reveal-fingerprint-tag">
 			<FingerprintIcon />
 			<div class="label">
@@ -12,17 +19,12 @@
 				<fluent-text size="200">Device Fingerprint</fluent-text>
 			</div>
 		</div>
-	</fluent-button>
+	</FluentButton>
 </Card>
 
 <style>
-	.reveal-fingerprint-button {
-		width: 100%;
-		height: 100%;
-		padding: 0 28px;
-	}
-
 	.reveal-fingerprint-tag {
+		padding: 0 28px;
 		display: flex;
 		flex-direction: column;
 		justify-content: center;

@@ -9,7 +9,7 @@
 			left?: string;
 			top?: string;
 		};
-		onClick: () => void;
+		onClick?: () => void;
 	}
 
 	let { children, position, onClick }: Props = $props();

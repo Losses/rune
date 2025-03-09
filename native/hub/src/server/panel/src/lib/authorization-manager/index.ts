@@ -11,6 +11,7 @@ export interface IDevice {
 export interface IServerConfig {
 	alias: string;
 	broadcastEnabled: boolean;
+	fingerprint: string;
 }
 
 export default Authorizationmanager;

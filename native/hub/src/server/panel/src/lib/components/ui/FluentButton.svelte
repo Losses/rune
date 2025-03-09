@@ -3,6 +3,7 @@
 
 	interface Props {
 		fullWidth?: boolean;
+		fullHeight?: boolean;
 		ariaLabel?: string;
 		disabled?: boolean;
 		disabledFocusable?: boolean;
@@ -27,6 +28,7 @@
 
 	const {
 		fullWidth,
+		fullHeight,
 		disabled,
 		disabledFocusable,
 		appearance,
@@ -76,7 +78,7 @@
 	{value}
 	aria-label={ariaLabel}
 	onclick={handleClick}
-	class={{ fullWidth }}
+	class={{ fullWidth, fullHeight }}
 	bind:this={button}
 >
 	{#if start}
@@ -91,5 +93,9 @@
 <style>
 	.fullWidth {
 		width: 100%;
+	}
+
+	.fullHeight {
+		height: 100%;
 	}
 </style>

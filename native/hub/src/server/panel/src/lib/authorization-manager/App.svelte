@@ -14,7 +14,8 @@
 	let initComplete = $state(false);
 	let serverConfig: IServerConfig = $state({
 		alias: '',
-		broadcastEnabled: false
+		broadcastEnabled: false,
+		fingerprint: '',
 	});
 
 	interface IPanelSelfResponse {
@@ -77,6 +78,7 @@
 			const config: IPanelSelfResponse = await res.json();
 			serverConfig.alias = config.alias;
 			serverConfig.broadcastEnabled = config.broadcasting;
+			serverConfig.fingerprint = config.fingerprint;
 		} catch (error) {
 			console.error('Failed to fetch server config:', error);
 		}

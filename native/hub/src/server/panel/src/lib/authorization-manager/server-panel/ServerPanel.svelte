@@ -7,6 +7,7 @@
 	import FingerprintCard from './layout/FingerprintCard.svelte';
 	import ServerConfigCard from './server/ServerConfigCard.svelte';
 	import DeviceManagementSection from './layout/DeviceManagementSection.svelte';
+	import FingerprintDialog from './devices/FingerprintDialog.svelte';
 
 	interface Props {
 		serverConfig: IServerConfig;
@@ -16,6 +17,8 @@
 	}
 
 	let { serverConfig, devices, onUpdateConfig, onUpdateDeviceStatus }: Props = $props();
+
+	let dialog: FingerprintDialog | null = $state(null);
 </script>
 
 <div>
@@ -28,7 +31,7 @@
 
 			<MediaQuery query="(min-width: 600px)">
 				<section class="fingerprint-card">
-					<FingerprintCard />
+					<FingerprintCard onClick={dialog?.show} />
 				</section>
 			</MediaQuery>
 		</div>
@@ -36,8 +39,10 @@
 		<DeviceManagementSection {devices} onUpdateStatus={onUpdateDeviceStatus} />
 
 		<MediaQuery query="(max-width: 600px)">
-			<FingerprintFab />
+			<FingerprintFab onClick={dialog?.show} />
 		</MediaQuery>
+
+		<FingerprintDialog bind:this={dialog} fingerprint={serverConfig.fingerprint} />
 	</main>
 </div>
 
