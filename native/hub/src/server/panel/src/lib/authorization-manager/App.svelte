@@ -143,10 +143,29 @@
 		serverConfig = config;
 	};
 
-	const onUpdateDeviceStatus = (deviceId: string, newStatus: string) => {
-		devices = devices.map((device) =>
-			device.id === deviceId ? { ...device, status: newStatus } : device
-		);
+	const onUpdateDeviceStatus = async (fingerprint: string, newStatus: string) => {
+		try {
+			const response = await fetch(`/panel/users/${fingerprint}/status`, {
+				method: 'PUT',
+				headers: {
+					Authorization: `Bearer ${get(token)}`,
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify({ status: newStatus })
+			});
+
+			if (!response.ok) {
+				const error = await response.text();
+				throw new Error(error || 'Failed to update device status');
+			}
+
+			devices = devices.map((device) =>
+				device.id === fingerprint ? { ...device, status: newStatus } : device
+			);
+		} catch (error) {
+			console.error('Status update error:', error);
+			alert(error instanceof Error ? error.message : 'Failed to update status');
+		}
 	};
 
 	const onDeleteDevice = async (fingerprint: string) => {
