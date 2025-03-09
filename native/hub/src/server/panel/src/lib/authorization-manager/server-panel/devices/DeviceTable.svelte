@@ -1,6 +1,8 @@
 <script lang="ts">
-	import DeviceTableRow from './DeviceTableRow.svelte';
 	import type { IDevice } from '$lib/authorization-manager';
+
+	import NoDevices from './NoDevices.svelte';
+	import DeviceTableRow from './DeviceTableRow.svelte';
 
 	interface Props {
 		devices: IDevice[];
@@ -32,6 +34,10 @@
 			{/each}
 		</tbody>
 	</table>
+
+	{#if devices.length == 0}
+		<NoDevices />
+	{/if}
 </div>
 
 <style>

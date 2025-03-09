@@ -2,8 +2,10 @@
 	import MediaQuery from '$lib/components/ui/MediaQuery.svelte';
 	import Card from '$lib/components/ui/Card.svelte';
 	import type { IDevice } from '$lib/authorization-manager';
+
 	import DeviceTable from '../devices/DeviceTable.svelte';
 	import DeviceCard from '../devices/DeviceCard.svelte';
+	import NoDevices from '../devices/NoDevices.svelte';
 
 	interface Props {
 		devices: IDevice[];
@@ -24,6 +26,11 @@
 	</MediaQuery>
 
 	<MediaQuery query="(max-width: 600px)">
+		{#if devices.length == 0}
+			<Card>
+				<NoDevices />
+			</Card>
+		{/if}
 		{#each devices as device}
 			<Card>
 				<DeviceCard {device} {onUpdateStatus} {onDeleteDevice} />
