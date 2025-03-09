@@ -63,7 +63,7 @@ class SearchRemoteDeviceDialogState extends State<SearchRemoteDeviceDialog> {
                 child: DiscoveredDevicesList(
                   onPaired: () => widget.$close(null),
                   onAnswered: (device, correct) =>
-                      {widget.completer.complete((device, correct))},
+                      widget.completer.complete((device, correct)),
                 ),
               ),
             )
