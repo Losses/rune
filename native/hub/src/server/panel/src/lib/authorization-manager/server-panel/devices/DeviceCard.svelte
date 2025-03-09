@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { format } from 'timeago.js';
+
+	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+	import { type IDevice } from '$lib/authorization-manager';
+
 	import StatusBadge from './StatusBadge.svelte';
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';
-	import type { IDevice } from '$lib/authorization-manager';
 	import FingerprintDialog from './FingerprintDialog.svelte';
-	import FluentButton from '$lib/components/ui/FluentButton.svelte';
 
 	interface Props {
 		device: IDevice;
