@@ -2,6 +2,8 @@
 	import type { Snippet } from 'svelte';
 
 	interface Props {
+		fullWidth?: boolean;
+		ariaLabel?: string;
 		disabled?: boolean;
 		disabledFocusable?: boolean;
 		appearance?: 'primary' | 'outline' | 'subtle' | 'transparent';
@@ -24,6 +26,7 @@
 	}
 
 	const {
+		fullWidth,
 		disabled,
 		disabledFocusable,
 		appearance,
@@ -42,7 +45,8 @@
 		children,
 		start,
 		end,
-		onClick
+		onClick,
+		ariaLabel
 	}: Props = $props();
 
 	const handleClick = (e: MouseEvent) => {
@@ -70,7 +74,9 @@
 	{shape}
 	{type}
 	{value}
+	aria-label={ariaLabel}
 	onclick={handleClick}
+	class={{ fullWidth }}
 	bind:this={button}
 >
 	{#if start}
@@ -81,3 +87,9 @@
 		<span slot="end">{@render end()}</span>
 	{/if}
 </fluent-button>
+
+<style>
+	.fullWidth {
+		width: 100%;
+	}
+</style>

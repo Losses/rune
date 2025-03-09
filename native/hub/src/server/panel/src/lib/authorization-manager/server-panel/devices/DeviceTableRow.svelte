@@ -4,7 +4,8 @@
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';
 	import type { IDevice } from '$lib/authorization-manager';
 	import FingerprintIcon from '$lib/components/icons/FingerprintIcon.svelte';
-	import FingerprintFigure from './FingerprintFigure.svelte';
+	import FluentButton from '$lib/components/ui/FluentButton.svelte';
+	import FingerprintDialog from './FingerprintDialog.svelte';
 
 	interface Props {
 		device: IDevice;
@@ -14,34 +15,36 @@
 
 	let { device, onUpdateStatus, isLast }: Props = $props();
 
-	let dialog: HTMLDialogElement;
+	let dialog: FingerprintDialog | null = $state(null);
 </script>
 
 <tr class={isLast ? 'is-last' : ''}>
 	<th>
 		<fluent-text weight="bold">{device.name}</fluent-text>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<fluent-button
-			icon-only
-			size="small"
-			class="fingerprint-button"
-			aria-label="Display Fingerprints"
-			onclick={() => dialog.show()}
-			><span class="fingerprint-icon"><FingerprintIcon /></span></fluent-button
-		>
-		<fluent-dialog id={`dialog-${device.fingerprint}`} bind:this={dialog}>
-			<fluent-dialog-body>
-				<FingerprintFigure fingerprint={device.fingerprint} />
-
-				<div slot="title">Fingerprint</div>
-			</fluent-dialog-body>
-		</fluent-dialog>
+		<div class="fingerprint-button">
+			<FluentButton
+				iconOnly={true}
+				size="small"
+				ariaLabel="Display Fingerprints"
+				onClick={dialog?.show}
+			>
+				<span class="fingerprint-icon">
+					<FingerprintIcon />
+				</span>
+			</FluentButton>
+		</div>
+		<FingerprintDialog bind:this={dialog} fingerprint={device.fingerprint} />
 	</th>
 	<th>
-		<div class="badge"><StatusBadge status={device.status} /></div>
+		<div class="badge">
+			<StatusBadge status={device.status} />
+		</div>
 	</th>
-	<th><fluent-text>{format(device.lastSeen, 'en_US')}</fluent-text></th>
+	<th>
+		<fluent-text>
+			{format(device.lastSeen, 'en_US')}
+		</fluent-text>
+	</th>
 	<th>
 		<DeviceStatusMenu deviceId={device.id} {onUpdateStatus} variant="small" />
 	</th>
@@ -69,6 +72,7 @@
 
 	.fingerprint-button {
 		margin-left: 8px;
+		display: inline-block;
 	}
 
 	.fingerprint-icon {

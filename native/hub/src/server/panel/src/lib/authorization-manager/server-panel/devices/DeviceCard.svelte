@@ -3,7 +3,8 @@
 	import StatusBadge from './StatusBadge.svelte';
 	import DeviceStatusMenu from './DeviceStatusMenu.svelte';
 	import type { IDevice } from '$lib/authorization-manager';
-	import FingerprintFigure from './FingerprintFigure.svelte';
+	import FingerprintDialog from './FingerprintDialog.svelte';
+	import FluentButton from '$lib/components/ui/FluentButton.svelte';
 
 	interface Props {
 		device: IDevice;
@@ -12,7 +13,7 @@
 
 	let { device, onUpdateStatus }: Props = $props();
 
-	let dialog: HTMLDialogElement;
+	let dialog: FingerprintDialog | null = $state(null);
 </script>
 
 <div class="card">
@@ -31,21 +32,10 @@
 		</div>
 	</div>
 
-	<fluent-dialog id={`dialog-${device.fingerprint}`} bind:this={dialog}>
-		<fluent-dialog-body>
-			<FingerprintFigure fingerprint={device.fingerprint} />
-
-			<div slot="title">Fingerprint</div>
-		</fluent-dialog-body>
-	</fluent-dialog>
-
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<fluent-button class="fingerprint-button" onclick={() => dialog.show()}>
-		Inspect Fingerprint
-	</fluent-button>
+	<FluentButton fullWidth onClick={dialog?.show}>Inspect Fingerprint</FluentButton>
 
 	<DeviceStatusMenu deviceId={device.id} {onUpdateStatus} variant="large" />
+	<FingerprintDialog bind:this={dialog} fingerprint={device.fingerprint} />
 </div>
 
 <style>
@@ -69,9 +59,5 @@
 
 	.field-subtitle {
 		opacity: 0.5;
-	}
-
-	.fingerprint-button {
-		width: 100%;
 	}
 </style>
