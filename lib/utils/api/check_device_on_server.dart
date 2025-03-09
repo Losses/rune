@@ -3,7 +3,8 @@ import '../../constants/configurations.dart';
 
 import '../settings_manager.dart';
 
-checkDeviceOnServer(List<String> hosts) async {
+Future<CheckDeviceOnServerResponse> checkDeviceOnServer(
+    List<String> hosts) async {
   final settingsManager = SettingsManager();
 
   final registerRequest = CheckDeviceOnServerRequest(
@@ -15,5 +16,5 @@ checkDeviceOnServer(List<String> hosts) async {
   final rustSignal = await CheckDeviceOnServerResponse.rustSignalStream.first;
   final response = rustSignal.message;
 
-  return response.success;
+  return response;
 }
