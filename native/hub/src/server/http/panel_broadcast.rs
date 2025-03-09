@@ -31,5 +31,6 @@ pub async fn toggle_broadcast_handler(
     } else {
         state.device_scanner.stop_announcements().await;
     }
+
     Ok(StatusCode::NO_CONTENT)
 }

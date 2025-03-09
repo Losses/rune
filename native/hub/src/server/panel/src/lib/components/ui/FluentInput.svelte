@@ -3,14 +3,15 @@
 
 	interface Props {
 		value: string;
-		onChange: (x: string) => void;
 		id?: string;
 		appearance?: 'filled-lighter' | 'outline';
 		type?: 'email' | 'password' | 'tel' | 'text' | 'url';
+		onChange: (x: string) => void;
 		children: Snippet;
+		end?: Snippet;
 	}
 
-	const { id, appearance, value, type, children, onChange }: Props = $props();
+	const { id, appearance, value, type, children, end, onChange }: Props = $props();
 
 	$effect(() => {
 		input.value = value;
@@ -25,4 +26,5 @@
 
 <fluent-text-input {id} {appearance} {value} {type} oninput={handleInput} bind:this={input}>
 	{@render children()}
+	<span slot="end">{@render end?.()}</span>
 </fluent-text-input>

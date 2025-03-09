@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { localStore } from '$lib/utils.svelte';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
+
+	import { isAuthenticated, token } from '$lib/stores/token.svelte';
 
 	import LoginPanel from './login-panel/LoginPanel.svelte';
 	import ServerPanel from './server-panel/ServerPanel.svelte';
@@ -8,31 +10,35 @@
 
 	import type { IDevice, IServerConfig, IUserSummaryResponse } from '.';
 
-	let token = localStore<string>('token', '');
 	let isRefreshing = $state(true);
 	let initComplete = $state(false);
 	let serverConfig: IServerConfig = $state({
-		alias: 'Main Server',
-		broadcastEnabled: true
+		alias: '',
+		broadcastEnabled: false
 	});
+
+	interface IPanelSelfResponse {
+		fingerprint: string;
+		alias: string;
+		broadcasting: boolean;
+	}
 
 	let devices: IDevice[] = $state([]);
 
 	$effect(() => {
 		let interval: number;
-
-		if (token.value) {
+		if (get(isAuthenticated)) {
 			const fetchDevices = async () => {
 				try {
 					const response = await fetch('/panel/users', {
 						headers: {
-							Authorization: `Bearer ${token.value}`
+							Authorization: `Bearer ${get(token)}`
 						}
 					});
 
 					if (!response.ok) {
 						if (response.status === 401) {
-							token.value = '';
+							token.clearToken();
 						}
 						throw new Error('Failed to fetch devices');
 					}
@@ -60,12 +66,12 @@
 	});
 
 	onMount(async () => {
-		if (token.value) {
+		if (get(isAuthenticated)) {
 			try {
 				const response = await fetch('/panel/auth/refresh', {
 					method: 'POST',
 					headers: {
-						Authorization: `Bearer ${token.value}`,
+						Authorization: `Bearer ${get(token)}`,
 						'Content-Type': 'application/json'
 					}
 				});
@@ -76,9 +82,17 @@
 				}
 
 				const { token: newToken } = await response.json();
-				token.value = newToken;
+				token.setToken(newToken);
+				const res = await fetch('/panel/self', {
+					headers: {
+						Authorization: `Bearer ${get(token)}`
+					}
+				});
+				const config: IPanelSelfResponse = await res.json();
+				serverConfig.alias = config.alias;
+				serverConfig.broadcastEnabled = config.broadcasting;
 			} catch (error) {
-				token.value = '';
+				token.clearToken();
 			}
 		}
 		isRefreshing = false;
@@ -101,7 +115,7 @@
 			}
 
 			const { token: authToken } = await response.json();
-			token.value = authToken;
+			token.setToken(authToken);
 		} catch (error) {
 			console.error('Login error:', error);
 			alert(error || 'Login failed. Please try again.');
@@ -125,7 +139,7 @@
 	<SpinnerScreen />
 {:else if initComplete}
 	<main>
-		{#if !token.value}
+		{#if !$isAuthenticated}
 			<LoginPanel onSubmit={handleLogin} />
 		{:else}
 			<ServerPanel
