@@ -42,6 +42,8 @@ class RuneRouterFrameImplementation extends StatefulWidget {
 
 class _RuneRouterFrameImplementationState
     extends State<RuneRouterFrameImplementation> {
+  final _playbackControllerKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +81,15 @@ class _RuneRouterFrameImplementationState
     final path = Provider.of<RouterPathProvider>(context).path;
     final isSpecialLayout = isCoverArtWallLayout(path);
 
+    // Create the PlaybackController with a key once
+    final playbackController = KeyedSubtree(
+      key: _playbackControllerKey,
+      child: const FocusTraversalOrder(
+        order: NumericFocusOrder(3),
+        child: PlaybackController(),
+      ),
+    );
+
     return DropTarget(
       onDragDone: (detail) {
         safeOperatePlaybackWithMixQuery(
@@ -113,10 +124,13 @@ class _RuneRouterFrameImplementationState
                       : Alignment.bottomCenter,
                   children: [
                     if (isSpecialLayout && !showDisk) mainContent,
+                    // Always keep the PlaybackController in the widget tree
+                    // but make it visible only when needed
                     if (!showDisk)
-                      const FocusTraversalOrder(
-                        order: NumericFocusOrder(3),
-                        child: PlaybackController(),
+                      Visibility(
+                        visible: true, // Always in the tree
+                        maintainState: true, // Keep the state
+                        child: playbackController,
                       ),
                     FocusTraversalOrder(
                       order: const NumericFocusOrder(1),
