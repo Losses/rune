@@ -714,9 +714,9 @@ impl Signal for CheckDeviceOnServerRequest {
         match check_fingerprint(&host, client_config, &fingerprint).await {
             Ok(response) => {
                 let status = match response.status.as_str() {
-                    "Approved" => ClientStatus::Approved,
-                    "Pending" => ClientStatus::Pending,
-                    "Blocked" => ClientStatus::Blocked,
+                    "APPROVED" => ClientStatus::Approved,
+                    "PENDING" => ClientStatus::Pending,
+                    "BLOCKED" => ClientStatus::Blocked,
                     _ => ClientStatus::Pending,
                 };
 

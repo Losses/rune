@@ -6,10 +6,10 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use log::info;
+use log::debug;
 use serde::{Deserialize, Serialize};
 
-use discovery::server::UserStatus;
+use ::discovery::server::UserStatus;
 
 use crate::server::ServerState;
 
@@ -33,7 +33,6 @@ pub async fn check_fingerprint_handler(
     Query(query): Query<CheckFingerprintQuery>,
 ) -> impl IntoResponse {
     let permission_manager = state.permission_manager.read().await;
-    info!("Checking fingerprint: {}", &query.fingerprint);
     let user = permission_manager
         .verify_by_fingerprint(&query.fingerprint)
         .await;
@@ -57,6 +56,8 @@ pub async fn check_fingerprint_handler(
                     "Device is trusted".to_string(),
                 ),
             };
+
+            debug!("Checking fingerprint: {}({})", &query.fingerprint, status);
 
             let response = CheckFingerprintResponse {
                 is_trusted,
