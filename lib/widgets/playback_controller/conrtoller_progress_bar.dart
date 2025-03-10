@@ -8,6 +8,8 @@ import '../../widgets/playback_controller/like_button.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+import 'cover_wall_button.dart';
+import 'track_title.dart';
 
 class ControllerProgressBar extends StatelessWidget {
   const ControllerProgressBar({
@@ -47,10 +49,9 @@ class ControllerProgressBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: Text(
-                        status?.title ?? "",
-                        overflow: TextOverflow.ellipsis,
-                        style: typography.caption,
+                      child: TrackTitle(
+                        title: status?.title ?? "",
+                        onPressed: showCoverArtWall,
                       ),
                     ),
                     Padding(
