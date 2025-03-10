@@ -3,7 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/router/router_aware_flyout_controller.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 import 'queue.dart';
 
@@ -57,11 +57,11 @@ class _QueueButtonState extends State<QueueButton> {
   Widget build(BuildContext context) {
     return FlyoutTarget(
       controller: _contextController.controller,
-      child: RuneIconButton(
+      child: RuneClickable(
         onPressed: () {
           openContextMenu(context);
         },
-        icon: Icon(
+        child: Icon(
           Symbols.list_alt,
           shadows: widget.shadows,
         ),

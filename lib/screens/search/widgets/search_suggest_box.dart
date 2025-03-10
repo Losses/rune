@@ -5,7 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/settings_manager.dart';
 import '../../../widgets/no_shortcuts.dart';
-import '../../../widgets/rune_icon_button.dart';
+import '../../../widgets/rune_clickable.dart';
 import '../../../messages/search.pb.dart';
 import '../../../providers/responsive_providers.dart';
 
@@ -90,9 +90,9 @@ class SearchSuggestBoxState extends State<SearchSuggestBox> {
     final theme = FluentTheme.of(context);
 
     final icon = IgnorePointer(
-      child: RuneIconButton(
+      child: RuneClickable(
         onPressed: () {},
-        icon: const Icon(
+        child: const Icon(
           Symbols.search,
           size: 16,
         ),

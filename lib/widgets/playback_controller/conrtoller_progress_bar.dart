@@ -8,6 +8,7 @@ import '../../widgets/playback_controller/like_button.dart';
 import '../../messages/playback.pb.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
+
 import 'cover_wall_button.dart';
 import 'track_title.dart';
 
@@ -51,6 +52,7 @@ class ControllerProgressBar extends StatelessWidget {
                     Expanded(
                       child: TrackTitle(
                         title: status?.title ?? "",
+                        style: typography.caption,
                         onPressed: showCoverArtWall,
                       ),
                     ),

@@ -43,6 +43,11 @@ class RuneRouterFrameImplementation extends StatefulWidget {
 class _RuneRouterFrameImplementationState
     extends State<RuneRouterFrameImplementation> {
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     if ($router.path == '/') {
       return widget.child;

@@ -12,7 +12,7 @@ import '../../providers/status.dart';
 import '../../providers/router_path.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 class ControllerButtons extends StatefulWidget {
   const ControllerButtons({super.key});
@@ -102,8 +102,8 @@ class _ControllerButtonsState extends State<ControllerButtons> {
           FlyoutTarget(
             controller: _menuController.controller,
             child: AxReveal0(
-              child: RuneIconButton(
-                icon: const Icon(Symbols.more_vert),
+              child: RuneClickable(
+                child: const Icon(Symbols.more_vert),
                 onPressed: () async {
                   await _fetchFlyoutItems(Localizations.localeOf(context));
 

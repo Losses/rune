@@ -4,7 +4,7 @@ import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/router/navigation.dart';
-import '../../widgets/rune_icon_button.dart';
+import '../../widgets/rune_clickable.dart';
 import '../../widgets/router/rune_stack.dart';
 import '../../providers/responsive_providers.dart';
 
@@ -37,8 +37,8 @@ class SettingsLaboratory extends StatelessWidget {
     return Positioned(
       top: 16 + viewPadding.top,
       left: 16 + viewPadding.left,
-      child: RuneIconButton(
-        icon: Icon(Symbols.arrow_back, size: 24),
+      child: RuneClickable(
+        child: Icon(Symbols.arrow_back, size: 24),
         onPressed: () => $pop(),
       ),
     );

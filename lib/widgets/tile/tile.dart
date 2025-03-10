@@ -48,7 +48,7 @@ class TileState extends State<Tile> {
     });
   }
 
-  void _handleDelayedPress() {
+  void _handleDelayedPress(PointerUpEvent _) {
     if (widget.onPressed == null) return;
 
     // Cancel any existing timer
@@ -84,8 +84,8 @@ class TileState extends State<Tile> {
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
-    return GestureDetector(
-      onTap: _handleDelayedPress,
+    return Listener(
+      onPointerUp: _handleDelayedPress,
       child: FocusableActionDetector(
         focusNode: _focusNode,
         onShowFocusHighlight: _handleFocusHighlight,

@@ -4,6 +4,7 @@ class TrackTitle extends StatefulWidget {
   const TrackTitle({
     super.key,
     required this.title,
+    required this.style,
     required this.onPressed,
     this.focusNode,
     this.autofocus = false,
@@ -11,6 +12,7 @@ class TrackTitle extends StatefulWidget {
   });
 
   final String title;
+  final TextStyle? style;
   final VoidCallback? onPressed;
   final FocusNode? focusNode;
   final bool autofocus;
@@ -39,7 +41,6 @@ class _TrackTitleState extends State<TrackTitle> {
   @override
   Widget build(BuildContext context) {
     final theme = FluentTheme.of(context);
-    final typography = theme.typography;
 
     final textColorBase =
         _isFocused ? theme.accentColor : theme.resources.textFillColorPrimary;
@@ -77,7 +78,7 @@ class _TrackTitleState extends State<TrackTitle> {
         child: Text(
           widget.title,
           overflow: TextOverflow.ellipsis,
-          style: typography.caption
+          style: widget.style
               ?.merge(TextStyle(color: textColor, shadows: textShadow)),
         ),
       ),

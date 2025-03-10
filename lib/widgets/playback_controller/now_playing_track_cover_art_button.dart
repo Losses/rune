@@ -6,7 +6,11 @@ import '../../widgets/tile/cover_art.dart';
 import '../../widgets/playback_controller/cover_wall_button.dart';
 import '../../providers/status.dart';
 
-class NowPlayingTrackCoverArtButton extends StatelessWidget {
+import '../ax_pressure.dart';
+import '../tile/tile.dart';
+import '../ax_reveal/ax_reveal.dart';
+
+class NowPlayingTrackCoverArtButton extends StatefulWidget {
   const NowPlayingTrackCoverArtButton({
     super.key,
     required this.size,
@@ -15,29 +19,36 @@ class NowPlayingTrackCoverArtButton extends StatelessWidget {
   final double? size;
 
   @override
+  State<NowPlayingTrackCoverArtButton> createState() =>
+      _NowPlayingTrackCoverArtButtonState();
+}
+
+class _NowPlayingTrackCoverArtButtonState
+    extends State<NowPlayingTrackCoverArtButton> {
+  @override
   Widget build(BuildContext context) {
     final statusProvider = Provider.of<PlaybackStatusProvider>(context);
     final status = statusProvider.playbackStatus;
 
-    return Button(
-      style: const ButtonStyle(
-        padding: WidgetStatePropertyAll(
-          EdgeInsets.all(0),
-        ),
-      ),
-      onPressed: () {
-        showCoverArtWall();
-      },
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: CoverArt(
-          path: status.coverArtPath,
-          hint: (
-            status.album,
-            status.artist,
-            'Total Time ${formatTime(status.duration)}'
+    return AxPressure(
+      child: AxReveal0(
+        child: SizedBox(
+          width: widget.size,
+          height: widget.size,
+          child: Tile(
+            onPressed: () {
+              showCoverArtWall();
+            },
+            child: CoverArt(
+              path: status.coverArtPath,
+              hint: (
+                status.album,
+                status.artist,
+                'Total Time ${formatTime(status.duration)}'
+              ),
+              size: widget.size,
+            ),
           ),
-          size: size,
         ),
       ),
     );

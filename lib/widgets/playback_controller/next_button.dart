@@ -3,7 +3,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/api/play_next.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 class NextButton extends StatelessWidget {
   final bool disabled;
@@ -17,9 +17,9 @@ class NextButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RuneIconButton(
+    return RuneClickable(
       onPressed: disabled ? null : playNext,
-      icon: Icon(
+      child: Icon(
         Symbols.skip_next,
         shadows: shadows,
       ),

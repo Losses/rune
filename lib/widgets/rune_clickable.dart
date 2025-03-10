@@ -1,9 +1,9 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
-class RuneIconButton extends StatefulWidget {
-  const RuneIconButton({
+class RuneClickable extends StatefulWidget {
+  const RuneClickable({
     super.key,
-    required this.icon,
+    required this.child,
     required this.onPressed,
     this.focusNode,
     this.autofocus = false,
@@ -13,7 +13,7 @@ class RuneIconButton extends StatefulWidget {
     this.isTiny = false,
   });
 
-  final Widget icon;
+  final Widget child;
   final VoidCallback? onPressed;
   final FocusNode? focusNode;
   final bool autofocus;
@@ -23,10 +23,10 @@ class RuneIconButton extends StatefulWidget {
   final bool isTiny;
 
   @override
-  State<RuneIconButton> createState() => _RuneIconButtonState();
+  State<RuneClickable> createState() => _RuneClickableState();
 }
 
-class _RuneIconButtonState extends State<RuneIconButton> {
+class _RuneClickableState extends State<RuneClickable> {
   bool _isHovered = false;
   bool _isFocused = false;
 
@@ -107,7 +107,7 @@ class _RuneIconButtonState extends State<RuneIconButton> {
               size: widget.iconSize,
               color: iconColor,
             ),
-            child: widget.icon,
+            child: widget.child,
           ),
         ),
       ),

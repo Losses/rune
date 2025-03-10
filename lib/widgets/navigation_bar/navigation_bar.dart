@@ -14,7 +14,7 @@ import '../../providers/router_path.dart';
 import '../../providers/responsive_providers.dart';
 
 import '../ax_reveal/ax_reveal.dart';
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 import 'parent_link.dart';
 import 'slibing_link.dart';
@@ -209,8 +209,8 @@ class NavigationBarState extends State<NavigationBar> {
                 top: 16 + viewPadding.top,
                 right: 16 + viewPadding.right,
                 child: AxReveal0(
-                  child: RuneIconButton(
-                    icon: Icon(
+                  child: RuneClickable(
+                    child: Icon(
                       isSearch ? Symbols.close : Symbols.search,
                       size: 24,
                     ),

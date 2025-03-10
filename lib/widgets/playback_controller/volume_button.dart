@@ -6,7 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../providers/volume.dart';
 
 import '../../utils/router/router_aware_flyout_controller.dart';
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 class VolumeButton extends StatefulWidget {
   const VolumeButton({
@@ -42,8 +42,8 @@ class VolumeButtonState extends State<VolumeButton> {
       },
       child: FlyoutTarget(
         controller: _flyoutController.controller,
-        child: RuneIconButton(
-          icon: Icon(
+        child: RuneClickable(
+          child: Icon(
             volumeProvider.volume > 0.3
                 ? Symbols.volume_up
                 : volumeProvider.volume > 0

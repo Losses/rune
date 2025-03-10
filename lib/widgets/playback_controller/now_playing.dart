@@ -6,6 +6,8 @@ import '../../providers/status.dart';
 import '../../providers/responsive_providers.dart';
 
 import 'conrtoller_progress_bar.dart';
+import 'cover_wall_button.dart';
+import 'track_title.dart';
 
 class NowPlaying extends StatelessWidget {
   const NowPlaying({super.key});
@@ -47,9 +49,10 @@ class NowPlaying extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  status.title,
-                                  overflow: TextOverflow.ellipsis,
+                                TrackTitle(
+                                  title: status.title,
+                                  style: typography.body,
+                                  onPressed: showCoverArtWall,
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
