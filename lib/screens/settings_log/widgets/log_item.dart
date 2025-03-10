@@ -59,7 +59,7 @@ class LogItemState extends State<LogItem> {
         x,
         context,
         contextAttachKey,
-        contextController.controller,
+        contextController,
         widget.index,
         widget.onTap,
         widget.onRemove,

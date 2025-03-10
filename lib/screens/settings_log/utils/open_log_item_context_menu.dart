@@ -2,12 +2,13 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../utils/router/router_aware_flyout_controller.dart';
 
 void openLogItemContextMenu(
   Offset localPosition,
   BuildContext context,
   GlobalKey contextAttachKey,
-  FlyoutController contextController,
+  RouterAwareFlyoutController contextController,
   int index,
   void Function(int) onViewDetail,
   void Function(int) onDelete,

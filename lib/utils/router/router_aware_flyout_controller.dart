@@ -5,7 +5,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 
 import 'history.dart';
 import 'navigation.dart';
-import 'modal_route_entry.dart';
+import 'context_menu_route_entry.dart';
 
 /// A wrapper around [FlyoutController] that integrates with the application's
 /// routing system to properly handle back navigation when flyouts are open.
@@ -40,7 +40,7 @@ class RouterAwareFlyoutController {
     GestureRecognizer? barrierRecognizer,
   }) async {
     // We need to register the modal entry before showing the flyout
-    final modalEntry = ModalRouteEntry(
+    final modalEntry = ContextMenuRouteEntry(
       name: 'flyout',
       arguments: null,
       canPop: null,
@@ -55,7 +55,7 @@ class RouterAwareFlyoutController {
     );
 
     // Register this flyout with the navigation history system
-    $history.pushModal(modalEntry);
+    $history.pushContextMenu(modalEntry);
 
     try {
       // Show the actual flyout
@@ -80,7 +80,7 @@ class RouterAwareFlyoutController {
       );
 
       // Clean up the navigation history entry when the flyout is closed
-      if ($history.isCurrentModal) {
+      if ($history.isCurrentContextMenu) {
         $history.pop();
       }
 
@@ -88,7 +88,7 @@ class RouterAwareFlyoutController {
       return result;
     } catch (e) {
       // If there's an error, make sure we clean up the navigation history
-      if ($history.isCurrentModal) {
+      if ($history.isCurrentContextMenu) {
         $history.pop();
       }
       rethrow;
@@ -110,7 +110,7 @@ class RouterAwareFlyoutController {
       }
 
       // Clean up any remaining modal entries for this flyout
-      if ($history.isCurrentModal) {
+      if ($history.isCurrentContextMenu) {
         $history.pop();
       }
     }

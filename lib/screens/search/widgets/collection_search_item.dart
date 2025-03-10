@@ -42,7 +42,7 @@ class CollectionSearchItemState extends SearchCardState<CollectionSearchItem> {
       position,
       context,
       contextAttachKey,
-      contextController.controller,
+      contextController,
       widget.collectionType,
       getItemId(),
       widget.item.name,

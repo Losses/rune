@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
+import 'context_menu_route_entry.dart';
 import 'route_entry.dart';
 import 'base_route_entry.dart';
 import 'modal_route_entry.dart';
@@ -18,6 +19,10 @@ class NavigationHistory {
   }
 
   void pushModal(ModalRouteEntry entry) {
+    history.add(entry);
+  }
+
+  void pushContextMenu(ContextMenuRouteEntry entry) {
     history.add(entry);
   }
 
@@ -47,4 +52,5 @@ class NavigationHistory {
 
   BaseRouteEntry? get current => history.isNotEmpty ? history.last : null;
   bool get isCurrentModal => current is ModalRouteEntry;
+  bool get isCurrentContextMenu => current is ContextMenuRouteEntry;
 }

@@ -79,7 +79,7 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
           position,
           context,
           _contextAttachKey,
-          _contextController.controller,
+          _contextController,
           widget.position,
           widget.item.id,
           playlistId,

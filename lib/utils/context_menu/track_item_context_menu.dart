@@ -13,18 +13,19 @@ import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
 
-import '../api/remove_item_from_playlist.dart';
+import '../rune_log.dart';
 import '../execute_middle_click_action.dart';
+import '../api/remove_item_from_playlist.dart';
 import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
+import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
-import '../rune_log.dart';
 
 void openTrackItemContextMenu(
   Offset localPosition,
   BuildContext context,
   GlobalKey contextAttachKey,
-  FlyoutController contextController,
+  RouterAwareFlyoutController contextController,
   int? positionIndex,
   int fileId,
   int? playlistId,
