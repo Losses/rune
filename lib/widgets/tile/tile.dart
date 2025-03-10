@@ -11,8 +11,10 @@ class Tile extends StatefulWidget {
     required this.child,
     this.radius = 4,
     this.borderWidth,
+    this.tolerateMode = false,
   });
 
+  final bool tolerateMode;
   final VoidCallback? onPressed;
   final Widget child;
   final double radius;
@@ -48,7 +50,7 @@ class TileState extends State<Tile> {
     });
   }
 
-  void _handleDelayedPress(PointerUpEvent _) {
+  void _handleDelayedPress() {
     if (widget.onPressed == null) return;
 
     // Cancel any existing timer
@@ -84,33 +86,42 @@ class TileState extends State<Tile> {
       borderColor = theme.resources.controlStrokeColorSecondary;
     }
 
-    return Listener(
-      onPointerUp: _handleDelayedPress,
-      child: FocusableActionDetector(
-        focusNode: _focusNode,
-        onShowFocusHighlight: _handleFocusHighlight,
-        onShowHoverHighlight: _handleHoverHighlight,
-        actions: {
-          ActivateIntent: ActivateLinkAction(context, widget.onPressed),
-        },
-        child: AnimatedContainer(
-          duration: theme.fastAnimationDuration,
-          width: double.infinity,
-          height: double.infinity,
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: borderColor,
-              width: borderWidth,
-            ),
-            borderRadius: BorderRadius.circular(widget.radius),
-            boxShadow: _isFocused ? boxShadow : null,
+    final child = FocusableActionDetector(
+      focusNode: _focusNode,
+      onShowFocusHighlight: _handleFocusHighlight,
+      onShowHoverHighlight: _handleHoverHighlight,
+      actions: {
+        ActivateIntent: ActivateLinkAction(context, widget.onPressed),
+      },
+      child: AnimatedContainer(
+        duration: theme.fastAnimationDuration,
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          border: Border.all(
+            color: borderColor,
+            width: borderWidth,
           ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(widget.radius - 1),
-            child: widget.child,
-          ),
+          borderRadius: BorderRadius.circular(widget.radius),
+          boxShadow: _isFocused ? boxShadow : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(widget.radius - 1),
+          child: widget.child,
         ),
       ),
+    );
+
+    if (widget.tolerateMode) {
+      return Listener(
+        onPointerUp: (_) => _handleDelayedPress(),
+        child: child,
+      );
+    }
+
+    return GestureDetector(
+      onTap: _handleDelayedPress,
+      child: child,
     );
   }
 }

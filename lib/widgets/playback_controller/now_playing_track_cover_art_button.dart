@@ -36,9 +36,8 @@ class _NowPlayingTrackCoverArtButtonState
           width: widget.size,
           height: widget.size,
           child: Tile(
-            onPressed: () {
-              showCoverArtWall();
-            },
+            onPressed: showCoverArtWall,
+            tolerateMode: true,
             child: CoverArt(
               path: status.coverArtPath,
               hint: (
