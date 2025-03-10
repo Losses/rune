@@ -4,11 +4,12 @@ import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
 import '../../utils/l10n.dart';
 import '../../utils/rune_log.dart';
+import '../../utils/settings_page_padding.dart';
 import '../../utils/api/clear_logs.dart';
 import '../../utils/api/remove_log.dart';
 import '../../utils/api/list_logs.dart';
 import '../../utils/router/navigation.dart';
-import '../../utils/settings_page_padding.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/remove_dialog_on_band.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/no_items.dart';
@@ -32,8 +33,8 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   int _cursor = 0;
   final int _pageSize = 20;
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void initState() {
@@ -44,7 +45,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   @override
   dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   Future<void> _fetchLogs() async {
@@ -185,7 +186,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
   void _openListContextMenu(
     Offset localPosition,
   ) async {
-    final targetContext = contextAttachKey.currentContext;
+    final targetContext = _contextAttachKey.currentContext;
 
     if (targetContext == null) return;
     final box = targetContext.findRenderObject() as RenderBox;
@@ -196,7 +197,7 @@ class SettingsLogPageState extends State<SettingsLogPage> {
 
     if (!context.mounted) return;
 
-    contextController.showFlyout(
+    _contextController.showFlyout(
       position: position,
       builder: (context) => MenuFlyout(
         items: [
@@ -220,8 +221,8 @@ class SettingsLogPageState extends State<SettingsLogPage> {
     return PageContentFrame(
       child: UnavailablePageOnBand(
         child: ContextMenuWrapper(
-          contextAttachKey: contextAttachKey,
-          contextController: contextController,
+          contextAttachKey: _contextAttachKey,
+          contextController: _contextController,
           onContextMenu: _openListContextMenu,
           onMiddleClick: (_) {},
           child: SettingsPagePadding(

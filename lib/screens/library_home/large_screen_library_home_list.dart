@@ -7,6 +7,7 @@ import 'package:material_symbols_icons/material_symbols_icons.dart';
 import '../../utils/l10n.dart';
 import '../../utils/api/complex_query.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../config/animation.dart';
 import '../../widgets/collection_item.dart';
 import '../../widgets/context_menu_wrapper.dart';
@@ -68,7 +69,7 @@ class LibraryHomeListState extends State<LargeScreenLibraryHomeListView> {
     contextController.dispose();
   }
 
-  final contextController = FlyoutController();
+  final contextController = RouterAwareFlyoutController();
   final contextAttachKey = GlobalKey();
 
   void openStartScreenContextMenu(

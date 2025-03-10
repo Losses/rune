@@ -1,10 +1,11 @@
+import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
-import 'package:provider/provider.dart';
 
-import '../../../providers/broadcast.dart';
 import '../../../utils/l10n.dart';
+import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/settings/settings_box_base.dart';
+import '../../../providers/broadcast.dart';
 
 class EnableBroadcastSetting extends StatefulWidget {
   const EnableBroadcastSetting({
@@ -16,7 +17,7 @@ class EnableBroadcastSetting extends StatefulWidget {
 }
 
 class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
-  final _menuController = FlyoutController();
+  final _menuController = RouterAwareFlyoutController();
 
   Widget buildExpanderContent(BuildContext context) {
     final broadcast = Provider.of<BroadcastProvider>(context, listen: false);
@@ -42,7 +43,7 @@ class _EnableBroadcastSettingState extends State<EnableBroadcastSetting> {
     final s = S.of(context);
 
     return FlyoutTarget(
-      controller: _menuController,
+      controller: _menuController.controller,
       child: Button(
         onPressed: broadcast.isServerRunning
             ? () => broadcast.isBroadcasting

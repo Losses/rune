@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../utils/fetch_flyout_items.dart';
 import '../../utils/is_cover_art_wall_layout.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/unavailable_menu_entry.dart';
 import '../../widgets/ax_reveal/ax_reveal.dart';
 import '../../widgets/playback_controller/constants/controller_items.dart';
@@ -50,12 +51,12 @@ class _ControllerButtonsState extends State<ControllerButtons> {
     });
   }
 
-  final menuController = FlyoutController();
+  final _menuController = RouterAwareFlyoutController();
 
   @override
   void dispose() {
     super.dispose();
-    menuController.dispose();
+    _menuController.dispose();
   }
 
   @override
@@ -99,14 +100,14 @@ class _ControllerButtonsState extends State<ControllerButtons> {
           ),
         if (hiddenEntries.isNotEmpty)
           FlyoutTarget(
-            controller: menuController,
+            controller: _menuController.controller,
             child: AxReveal0(
               child: RuneIconButton(
                 icon: const Icon(Symbols.more_vert),
                 onPressed: () async {
                   await _fetchFlyoutItems(Localizations.localeOf(context));
 
-                  menuController.showFlyout(
+                  _menuController.showFlyout(
                     builder: (context) {
                       return Container(
                         constraints: const BoxConstraints(maxWidth: 200),

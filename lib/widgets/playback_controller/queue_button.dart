@@ -1,6 +1,8 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/router/router_aware_flyout_controller.dart';
+
 import '../rune_icon_button.dart';
 
 import 'queue.dart';
@@ -18,16 +20,16 @@ class QueueButton extends StatefulWidget {
 }
 
 class _QueueButtonState extends State<QueueButton> {
-  final contextController = FlyoutController();
+  final _contextController = RouterAwareFlyoutController();
 
   @override
   dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   openContextMenu(BuildContext context) {
-    contextController.showFlyout(
+    _contextController.showFlyout(
       autoModeConfiguration: FlyoutAutoConfiguration(
         preferredMode: FlyoutPlacementMode.topCenter,
       ),
@@ -54,7 +56,7 @@ class _QueueButtonState extends State<QueueButton> {
   @override
   Widget build(BuildContext context) {
     return FlyoutTarget(
-      controller: contextController,
+      controller: _contextController.controller,
       child: RuneIconButton(
         onPressed: () {
           openContextMenu(context);

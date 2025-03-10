@@ -8,6 +8,7 @@ import '../../utils/execute_middle_click_action.dart';
 import '../../utils/get_playlist_id_from_query_list.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../messages/all.dart';
@@ -45,14 +46,13 @@ class LargeScreenTrackListItem extends StatefulWidget {
 }
 
 class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
-  final contextController = FlyoutController();
-
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   @override
@@ -64,8 +64,8 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
         trackNumber == null ? trackNumber : trackNumber ~/ 1000;
 
     return ContextMenuWrapper(
-      contextAttachKey: contextAttachKey,
-      contextController: contextController,
+      contextAttachKey: _contextAttachKey,
+      contextController: _contextController,
       onMiddleClick: (_) {
         executeMiddleClickAction(
           context,
@@ -78,8 +78,8 @@ class _LargeScreenTrackListItemState extends State<LargeScreenTrackListItem> {
         openTrackItemContextMenu(
           position,
           context,
-          contextAttachKey,
-          contextController,
+          _contextAttachKey,
+          _contextController.controller,
           widget.position,
           widget.item.id,
           playlistId,

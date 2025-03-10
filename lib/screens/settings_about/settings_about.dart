@@ -10,6 +10,7 @@ import '../../utils/settings_manager.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/api/system_info.dart';
 import '../../utils/router/navigation.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/register/show_register_dialog.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/no_shortcuts.dart';
@@ -84,8 +85,8 @@ class _LogoSection extends StatefulWidget {
 }
 
 class _LogoSectionState extends State<_LogoSection> {
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   Widget build(BuildContext context) {
@@ -97,8 +98,8 @@ class _LogoSectionState extends State<_LogoSection> {
               isMini ? CrossAxisAlignment.start : CrossAxisAlignment.center,
           children: [
             ContextMenuWrapper(
-              contextAttachKey: contextAttachKey,
-              contextController: contextController,
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
               onContextMenu: (offset) async {
                 final triggeredMysterious =
                     await SettingsManager().getValue<bool>(SettingsHomePage.mysteriousKey);
@@ -106,7 +107,7 @@ class _LogoSectionState extends State<_LogoSection> {
                 if (triggeredMysterious == true) return;
                 if (!context.mounted) return;
 
-                final targetContext = contextAttachKey.currentContext;
+                final targetContext = _contextAttachKey.currentContext;
 
                 if (targetContext == null) return;
                 final box = targetContext.findRenderObject() as RenderBox;
@@ -117,7 +118,7 @@ class _LogoSectionState extends State<_LogoSection> {
                   ancestor: Navigator.of(context).context.findRenderObject(),
                 );
 
-                contextController.showFlyout(
+                _contextController.showFlyout(
                   position: position,
                   builder: (context) {
                     return MenuFlyout(

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
+import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/ax_pressure.dart';
 import '../../../widgets/hover_opacity.dart';
 import '../../../widgets/ax_reveal/ax_reveal.dart';
@@ -15,9 +16,8 @@ abstract class SearchCard extends StatefulWidget {
 }
 
 abstract class SearchCardState<T extends SearchCard> extends State<T> {
-  final FlyoutController contextController = FlyoutController();
-
-  final GlobalKey contextAttachKey = GlobalKey();
+  final contextController = RouterAwareFlyoutController();
+  final contextAttachKey = GlobalKey();
 
   int getItemId();
 

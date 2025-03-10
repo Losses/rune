@@ -1,13 +1,14 @@
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../utils/platform.dart';
+import '../utils/router/router_aware_flyout_controller.dart';
 
 class ContextMenuWrapper extends StatelessWidget {
   final Widget child;
   final Function(Offset) onContextMenu;
   final Function(Offset) onMiddleClick;
   final GlobalKey contextAttachKey;
-  final FlyoutController contextController;
+  final RouterAwareFlyoutController contextController;
 
   const ContextMenuWrapper({
     super.key,
@@ -28,7 +29,7 @@ class ContextMenuWrapper extends StatelessWidget {
           isDesktop ? null : (details) => onContextMenu(details.localPosition),
       child: FlyoutTarget(
         key: contextAttachKey,
-        controller: contextController,
+        controller: contextController.controller,
         child: child,
       ),
     );

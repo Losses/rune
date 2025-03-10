@@ -5,6 +5,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../providers/volume.dart';
 
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../rune_icon_button.dart';
 
 class VolumeButton extends StatefulWidget {
@@ -29,7 +30,7 @@ void onScroll(VolumeProvider volumeProvider, PointerSignalEvent pointerSignal) {
 }
 
 class VolumeButtonState extends State<VolumeButton> {
-  final FlyoutController _flyoutController = FlyoutController();
+  final _flyoutController = RouterAwareFlyoutController();
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +41,7 @@ class VolumeButtonState extends State<VolumeButton> {
         onScroll(volumeProvider, pointerSignal);
       },
       child: FlyoutTarget(
-        controller: _flyoutController,
+        controller: _flyoutController.controller,
         child: RuneIconButton(
           icon: Icon(
             volumeProvider.volume > 0.3

@@ -6,6 +6,7 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
 import '../../../utils/api/seek_absolute.dart';
+import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../messages/all.dart';
 
@@ -34,7 +35,7 @@ class LyricLine extends StatefulWidget {
 
 class _LyricLineState extends State<LyricLine>
     with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+  late AnimationController _animationController;
   late Animation<double> _blurAnimation;
   late Animation<double> _opacityAnimation;
   double _targetBlur = 0.0;
@@ -42,31 +43,31 @@ class _LyricLineState extends State<LyricLine>
   bool _isHovered = false;
   bool _contextMenuIsOpen = false;
 
-  final _contextController = FlyoutController();
+  final _contextController = RouterAwareFlyoutController();
   final _contextAttachKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    _animationController = AnimationController(
       duration: const Duration(milliseconds: 500),
       vsync: this,
     );
     _blurAnimation = Tween<double>(begin: 0.0, end: 0.0).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
     _opacityAnimation = Tween<double>(begin: 1.0, end: 1.0).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
     _updateAnimations();
 
-    _contextController.addListener(_handleContextControllerUpdate);
+    _contextController.controller.addListener(_handleContextControllerUpdate);
   }
 
   @override
@@ -93,7 +94,7 @@ class _LyricLineState extends State<LyricLine>
       end: _targetBlur,
     ).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
@@ -103,12 +104,12 @@ class _LyricLineState extends State<LyricLine>
       end: _targetOpacity,
     ).animate(
       CurvedAnimation(
-        parent: _controller,
+        parent: _animationController,
         curve: Curves.easeInOut,
       ),
     );
 
-    _controller.forward(from: 0.0);
+    _animationController.forward(from: 0.0);
   }
 
   double _calculateTargetBlur() {
@@ -161,8 +162,9 @@ class _LyricLineState extends State<LyricLine>
 
   @override
   void dispose() {
-    _controller.dispose();
-    _contextController.removeListener(_handleContextControllerUpdate);
+    _animationController.dispose();
+    _contextController.controller
+        .removeListener(_handleContextControllerUpdate);
     _contextController.dispose();
     super.dispose();
   }

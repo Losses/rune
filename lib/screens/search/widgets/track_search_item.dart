@@ -66,7 +66,7 @@ class TrackSearchItemState extends SearchCardState<TrackSearchItem> {
       position,
       context,
       contextAttachKey,
-      contextController,
+      contextController.controller,
       null,
       widget.item.id,
       null,

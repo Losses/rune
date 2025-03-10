@@ -10,6 +10,7 @@ import '../../utils/ax_shadow.dart';
 import '../../utils/format_time.dart';
 import '../../utils/api/play_next.dart';
 import '../../utils/api/play_previous.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/tile/cover_art.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
@@ -42,7 +43,7 @@ class CoverArtDisk extends StatefulWidget {
 class CoverArtDiskState extends State<CoverArtDisk>
     with SingleTickerProviderStateMixin {
   final FocusNode _focusNode = FocusNode(debugLabel: 'Cover Art Disk');
-  final _contextController = FlyoutController();
+  final _contextController = RouterAwareFlyoutController();
   final _contextAttachKey = GlobalKey();
 
   late final Ticker _ticker;
@@ -361,7 +362,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
           onPointerUp: _handlePointerUp,
           child: FlyoutTarget(
             key: _contextAttachKey,
-            controller: _contextController,
+            controller: _contextController.controller,
             child: FocusableActionDetector(
               focusNode: _focusNode,
               onShowFocusHighlight: _handleFocusHighlight,

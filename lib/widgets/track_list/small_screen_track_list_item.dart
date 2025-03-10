@@ -9,6 +9,7 @@ import '../../utils/execute_middle_click_action.dart';
 import '../../utils/get_playlist_id_from_query_list.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../widgets/context_menu_wrapper.dart';
 import '../../widgets/track_list/utils/internal_media_file.dart';
 import '../../widgets/navigation_bar/utils/activate_link_action.dart';
@@ -45,8 +46,8 @@ class SmallScreenTrackListItem extends StatefulWidget {
 }
 
 class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   bool _isHovered = false;
   bool _isFocused = false;
@@ -82,7 +83,7 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
   @override
   void dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   @override
@@ -91,8 +92,8 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
     final typography = theme.typography;
 
     return ContextMenuWrapper(
-      contextAttachKey: contextAttachKey,
-      contextController: contextController,
+      contextAttachKey: _contextAttachKey,
+      contextController: _contextController,
       onMiddleClick: (_) {
         executeMiddleClickAction(
           context,
@@ -105,8 +106,8 @@ class _SmallScreenTrackListItemState extends State<SmallScreenTrackListItem> {
         openTrackItemContextMenu(
           position,
           context,
-          contextAttachKey,
-          contextController,
+          _contextAttachKey,
+          _contextController.controller,
           widget.position,
           widget.item.id,
           playlistId,

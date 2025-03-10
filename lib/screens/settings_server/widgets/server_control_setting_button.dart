@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../../utils/l10n.dart';
+import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/settings/settings_box_base.dart';
 import '../../../providers/broadcast.dart';
 
@@ -14,7 +15,7 @@ class ServerControlSetting extends StatefulWidget {
 }
 
 class _ServerControlSettingState extends State<ServerControlSetting> {
-  final _menuController = FlyoutController();
+  final _menuController = RouterAwareFlyoutController();
 
   Widget buildExpanderContent(BuildContext context) {
     final broadcast = context.watch<BroadcastProvider>();
@@ -46,7 +47,7 @@ class _ServerControlSettingState extends State<ServerControlSetting> {
     final s = S.of(context);
 
     return FlyoutTarget(
-      controller: _menuController,
+      controller: _menuController.controller,
       child: Button(
         onPressed: () => broadcast.isServerRunning
             ? broadcast.stopServer()

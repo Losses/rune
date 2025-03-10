@@ -8,6 +8,7 @@ import '../../utils/queries_has_recommendation.dart';
 import '../../utils/execute_middle_click_action.dart';
 import '../../utils/get_playlist_id_from_query_list.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/ax_pressure.dart';
@@ -123,14 +124,13 @@ class BandViewTrackItem extends StatefulWidget {
 }
 
 class _BandViewTrackItemState extends State<BandViewTrackItem> {
-  final contextController = FlyoutController();
-
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   @override
@@ -148,8 +148,8 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
           ),
           child: AxPressure(
             child: ContextMenuWrapper(
-              contextAttachKey: contextAttachKey,
-              contextController: contextController,
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
               onMiddleClick: (_) {
                 executeMiddleClickAction(
                   context,
@@ -162,8 +162,8 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                 openTrackItemContextMenu(
                   position,
                   context,
-                  contextAttachKey,
-                  contextController,
+                  _contextAttachKey,
+                  _contextController.controller,
                   widget.position,
                   widget.item.id,
                   playlistId,

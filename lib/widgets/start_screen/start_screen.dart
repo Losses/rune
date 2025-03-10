@@ -6,10 +6,11 @@ import 'package:file_selector/file_selector.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 import 'package:very_good_infinite_list/very_good_infinite_list.dart';
 
-import '../../utils/dialogs/playlist/import_m3u8_playlist.dart';
 import '../../utils/l10n.dart';
-import '../../utils/dialogs/mix/mix_studio.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/show_group_list_dialog.dart';
+import '../../utils/dialogs/mix/mix_studio.dart';
+import '../../utils/dialogs/playlist/import_m3u8_playlist.dart';
 import '../../utils/dialogs/playlist/create_edit_playlist.dart';
 import '../../config/animation.dart';
 import '../../widgets/no_items.dart';
@@ -61,17 +62,17 @@ class StartScreenImplementation extends StatefulWidget {
 
 class StartScreenImplementationState extends State<StartScreenImplementation>
     with SingleTickerProviderStateMixin {
-  final layoutManager = StartScreenLayoutManager();
-  late final scrollController = SmoothScrollController(vsync: this);
+  final _layoutManager = StartScreenLayoutManager();
+  late final _scrollController = SmoothScrollController(vsync: this);
 
-  final contextController = FlyoutController();
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void dispose() {
-    scrollController.dispose();
-    layoutManager.dispose();
-    contextController.dispose();
+    _scrollController.dispose();
+    _layoutManager.dispose();
+    _contextController.dispose();
     super.dispose();
   }
 
@@ -114,7 +115,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
         }
 
         // Step 6: Scroll to the calculated position.
-        scrollController.scrollTo(
+        _scrollController.scrollTo(
           scrollPosition,
         );
         return;
@@ -134,7 +135,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     Timer(
       Duration(milliseconds: gridAnimationDelay),
-      () => layoutManager.playAnimations(),
+      () => _layoutManager.playAnimations(),
     );
   }
 
@@ -142,7 +143,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     Offset localPosition,
   ) async {
     if (!context.mounted) return;
-    final targetContext = contextAttachKey.currentContext;
+    final targetContext = _contextAttachKey.currentContext;
 
     if (targetContext == null) return;
     final box = targetContext.findRenderObject() as RenderBox;
@@ -153,7 +154,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
 
     final data = Provider.of<CollectionDataProvider>(context, listen: false);
 
-    contextController.showFlyout(
+    _contextController.showFlyout(
       position: position,
       builder: (_) {
         return MenuFlyout(
@@ -162,11 +163,11 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
               leading: const Icon(Symbols.refresh),
               text: Text(S.of(context).refresh),
               onPressed: () async {
-                layoutManager.resetAnimations();
+                _layoutManager.resetAnimations();
                 await data.reloadData();
                 Timer(
                   Duration(milliseconds: gridAnimationDelay),
-                  () => layoutManager.playAnimations(),
+                  () => _layoutManager.playAnimations(),
                 );
               },
             ),
@@ -231,7 +232,7 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
     final isUserGenerated = userGenerated(data.collectionType);
 
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
-      value: layoutManager,
+      value: _layoutManager,
       child: FutureBuilder<List<Group<InternalCollection>>>(
         future: data.summary,
         builder: (context, snapshot) {
@@ -241,14 +242,14 @@ class StartScreenImplementationState extends State<StartScreenImplementation>
             return Center(child: Text('Error: ${snapshot.error}'));
           } else {
             return ContextMenuWrapper(
-              contextAttachKey: contextAttachKey,
-              contextController: contextController,
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
               onContextMenu: (offset) {
                 openStartScreenContextMenu(offset);
               },
               onMiddleClick: (_) {},
               child: SmoothHorizontalScroll(
-                controller: scrollController,
+                controller: _scrollController,
                 builder: (context, smoothScrollController) {
                   return InfiniteList(
                     itemCount: data.items.length,
