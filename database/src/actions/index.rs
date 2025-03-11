@@ -298,7 +298,6 @@ async fn process_genres(
 ) -> Result<()> {
     // Split and deduplicate genre names from the metadata summary.
     let genre_names: Vec<String> = {
-        error!("G:{:#?}", summary.genre);
         let names = metadata::genre::split_genres(&summary.genre);
         names
             .into_iter()
