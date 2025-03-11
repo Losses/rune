@@ -34,6 +34,8 @@ class _QueryTracksPageState extends State<QueryTracksPage> {
     final FluentThemeData theme = FluentTheme.of(context);
     final viewPadding = MediaQuery.of(context).viewPadding;
 
+    print(widget.queries);
+
     return ChangeNotifierProvider<StartScreenLayoutManager>.value(
       value: _layoutManager,
       child: DeviceTypeBuilder(

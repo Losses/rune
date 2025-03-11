@@ -14,6 +14,7 @@ class MixEditorController extends ChangeNotifier {
   final TextEditingController groupController = TextEditingController();
   final ChipInputController<int> artistsController = ChipInputController<int>();
   final ChipInputController<int> albumsController = ChipInputController<int>();
+  final ChipInputController<int> genresController = ChipInputController<int>();
   final ChipInputController<int> playlistsController =
       ChipInputController<int>();
   final ChipInputController<int> tracksController = ChipInputController<int>();
@@ -38,6 +39,7 @@ class MixEditorController extends ChangeNotifier {
     groupController.addListener(_notifyListeners);
     artistsController.addListener(_notifyListeners);
     albumsController.addListener(_notifyListeners);
+    genresController.addListener(_notifyListeners);
     playlistsController.addListener(_notifyListeners);
     tracksController.addListener(_notifyListeners);
     randomTrackController.addListener(_notifyListeners);
@@ -60,6 +62,7 @@ class MixEditorController extends ChangeNotifier {
     groupController.removeListener(_notifyListeners);
     artistsController.removeListener(_notifyListeners);
     albumsController.removeListener(_notifyListeners);
+    genresController.removeListener(_notifyListeners);
     playlistsController.removeListener(_notifyListeners);
     tracksController.removeListener(_notifyListeners);
     randomTrackController.removeListener(_notifyListeners);
@@ -103,6 +106,11 @@ class MixEditorController extends ChangeNotifier {
           .where((value) => value.$1 != null)
           .cast<(int, String)>()
           .toList(),
+      genres: genresController.selectedItems
+          .map((item) => (item.value, item.label))
+          .where((value) => value.$1 != null)
+          .cast<(int, String)>()
+          .toList(),
       playlists: playlistsController.selectedItems
           .map((item) => (item.value, item.label))
           .where((value) => value.$1 != null)
@@ -138,6 +146,12 @@ class MixEditorController extends ChangeNotifier {
     for (var album in data.albums) {
       albumsController
           .addItem(AutoSuggestBoxItem<int>(value: album.$1, label: album.$2));
+    }
+
+    genresController.clearItems();
+    for (var genre in data.genres) {
+      genresController
+          .addItem(AutoSuggestBoxItem<int>(value: genre.$1, label: genre.$2));
     }
 
     playlistsController.clearItems();

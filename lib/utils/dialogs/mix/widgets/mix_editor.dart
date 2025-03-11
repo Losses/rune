@@ -104,6 +104,20 @@ class _MixEditorState extends State<MixEditor> {
                 ),
               ),
               SearchChipInputSection(
+                controller: _controller.genresController,
+                title: S.of(context).genres,
+                getInitResult: () => getInitResult(CollectionType.Genre),
+                searchForItems: (query) => _searchItems(
+                  query,
+                  'genres',
+                  (x) async {
+                    return (await fetchCollectionByIds(CollectionType.Genre, x))
+                        .map((x) => (x.id, x.name))
+                        .toList();
+                  },
+                ),
+              ),
+              SearchChipInputSection(
                 controller: _controller.playlistsController,
                 title: S.of(context).playlists,
                 getInitResult: () => getInitResult(CollectionType.Playlist),

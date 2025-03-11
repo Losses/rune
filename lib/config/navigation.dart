@@ -63,6 +63,20 @@ final List<NavigationItem> navigationItems = [
             ],
           ),
           NavigationItem(
+            (context) => S.of(context).genres,
+            '/genres',
+            shortcuts: [
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyG)
+            ],
+            children: [
+              NavigationItem(
+                (context) => S.of(context).genreQuery,
+                '/genres/detail',
+                hidden: true,
+              ),
+            ],
+          ),
+          NavigationItem(
             (context) => S.of(context).playlists,
             '/playlists',
             shortcuts: [

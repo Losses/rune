@@ -8,6 +8,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
   ((context) => S.of(context).search, '/search', Symbols.search, true),
   ((context) => S.of(context).artists, '/artists', Symbols.face, false),
   ((context) => S.of(context).albums, '/albums', Symbols.album, false),
+  ((context) => S.of(context).genres, '/genres', Symbols.genres, false),
   (
     (context) => S.of(context).playlists,
     '/playlists',
@@ -24,6 +25,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
   ((context) => S.of(context).search, '/search', Symbols.search, true),
   ((context) => S.of(context).artists, '/artists', Symbols.face, false),
   ((context) => S.of(context).albums, '/albums', Symbols.album, false),
+  ((context) => S.of(context).genres, '/genres', Symbols.genres, false),
   (
     (context) => S.of(context).playlists,
     '/playlists',

@@ -30,6 +30,7 @@ final Map<CollectionType, String> typeToOperator = {
   CollectionType.Artist: "lib::artist",
   CollectionType.Playlist: "lib::playlist",
   CollectionType.Track: "lib::track",
+  CollectionType.Genre: "lib::genre",
 };
 
 final Map<
