@@ -1300,5 +1300,11 @@
   "clientBlockedMessage": "The remote device has blocked your client from connecting. You will need permission from the device owner to establish a connection.",
   "@clientBlockedMessage": {
     "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
-  }
+  },
+  "genres": "Genres",
+  "@genres": {
+    "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
+  },
+  "genreQuery": "Genre Query",
+  "@genreQuery": {}
 }
