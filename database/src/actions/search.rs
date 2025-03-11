@@ -28,6 +28,7 @@ impl From<CollectionQueryType> for i64 {
             CollectionQueryType::Directory => 3,
             CollectionQueryType::Playlist => 4,
             CollectionQueryType::Mix => 5,
+            CollectionQueryType::Genre => 6,
         }
     }
 }
@@ -43,6 +44,7 @@ impl TryFrom<i64> for CollectionQueryType {
             3 => Ok(CollectionQueryType::Directory),
             4 => Ok(CollectionQueryType::Playlist),
             5 => Ok(CollectionQueryType::Mix),
+            6 => Ok(CollectionQueryType::Genre),
             _ => Err("Invalid value for CollectionType"),
         }
     }

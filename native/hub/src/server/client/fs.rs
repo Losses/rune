@@ -221,6 +221,7 @@ impl VirtualFS {
                             "Playlists" => CollectionType::Playlist,
                             "Mixes" => CollectionType::Mix,
                             "Tracks" => CollectionType::Track,
+                            "Genres" => CollectionType::Genre,
                             _ => return Err(anyhow!("Invalid collection type")),
                         }
                     };
@@ -550,6 +551,7 @@ impl AsStr for CollectionType {
             CollectionType::Playlist => "Playlist",
             CollectionType::Mix => "Mix",
             CollectionType::Track => "Track",
+            CollectionType::Genre => "Genre",
         }
     }
 }

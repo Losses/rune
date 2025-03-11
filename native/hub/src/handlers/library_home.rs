@@ -15,7 +15,7 @@ use database::actions::metadata::{get_metadata_summary_by_files, MetadataSummary
 use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
-use database::entities::{albums, artists, media_files, mixes, playlists};
+use database::entities::{albums, artists, genres, media_files, mixes, playlists};
 
 use crate::{
     messages::*,
@@ -168,6 +168,10 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
             CollectionQueryListMode::from_str(parameter)?,
         ))),
         "albums" => Ok(Box::new(CollectionComplexQuery::<albums::Model>::new(
+            25,
+            CollectionQueryListMode::from_str(parameter)?,
+        ))),
+        "genres" => Ok(Box::new(CollectionComplexQuery::<genres::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),

@@ -10,14 +10,16 @@ use tokio_util::sync::CancellationToken;
 use crate::actions::collection::CollectionQueryType;
 use crate::actions::search::{add_term, remove_term};
 use crate::actions::utils::generate_group_name;
-use crate::entities::{albums, artists, media_file_albums, media_file_artists, media_files};
+use crate::entities::{
+    albums, artists, genres, media_file_albums, media_file_artists, media_file_genres, media_files,
+};
 
 use super::metadata::{get_metadata_summary_by_file_ids, MetadataSummary};
 
-/// Indexes media files by processing their metadata and updating database records for artists and albums.
+/// Indexes media files by processing their metadata and updating database records for artists, albums, and genres.
 ///
 /// This function processes a list of media file IDs, retrieves metadata summaries for each file,
-/// and then iterates through each summary to update artist and album information in the database.
+/// and then iterates through each summary to update artist, album, and genre information in the database.
 /// Each file is processed within its own database transaction to ensure atomicity.
 /// It also supports cancellation via a `CancellationToken`.
 ///
@@ -71,16 +73,18 @@ pub async fn index_media_files(
         let artist_result = process_artists(&txn, &summary, cancel_token).await;
         // Process album for the current media file.
         let album_result = process_album(&txn, &summary).await;
+        // Process genres for the current media file.
+        let genre_result = process_genres(&txn, &summary, cancel_token).await;
 
-        // Commit transaction if both artist and album processing are successful, otherwise rollback.
-        match (artist_result, album_result) {
-            (Ok(_), Ok(_)) => {
+        // Commit transaction if all processing is successful, otherwise rollback.
+        match (artist_result, album_result, genre_result) {
+            (Ok(_), Ok(_), Ok(_)) => {
                 if let Err(e) = txn.commit().await {
                     error!("Commit failed for file {}: {}", summary.id, e);
                 }
             }
             _ => {
-                let _ = txn.rollback().await; // Rollback transaction if artist or album processing failed.
+                let _ = txn.rollback().await; // Rollback transaction if any processing failed.
                 error!("Processing failed for file {}, rolled back", summary.id);
             }
         }
@@ -272,6 +276,126 @@ async fn process_album(txn: &DatabaseTransaction, summary: &MetadataSummary) -> 
     Ok(())
 }
 
+/// Processes genre information from metadata summary, updating genre records and associations.
+///
+/// This function parses genre names from the metadata summary, identifies existing genres,
+/// inserts new genres if necessary, and updates the relationships between media files and genres
+/// in the database. It also handles search term indexing for new genres.
+///
+/// # Arguments
+///
+/// * `txn`: A reference to the database transaction.
+/// * `summary`: A reference to the metadata summary of the media file.
+/// * `cancel_token`: An optional cancellation token to stop the operation prematurely.
+///
+/// # Returns
+///
+/// Returns `Ok(())` if genre processing is successful, or an `Err(Error)` if any error occurs.
+async fn process_genres(
+    txn: &DatabaseTransaction,
+    summary: &MetadataSummary,
+    cancel_token: Option<&CancellationToken>,
+) -> Result<()> {
+    // Split and deduplicate genre names from the metadata summary.
+    let genre_names: Vec<String> = {
+        error!("G:{:#?}", summary.genre);
+        let names = metadata::genre::split_genres(&summary.genre);
+        names
+            .into_iter()
+            .collect::<HashSet<_>>() // Deduplicate genre names using HashSet.
+            .into_iter()
+            .collect() // Convert HashSet back to Vec for ordered processing.
+    };
+
+    // If no genre names are found, return early.
+    if genre_names.is_empty() {
+        return Ok(());
+    }
+
+    // Check for cancellation token.
+    if let Some(token) = cancel_token {
+        if token.is_cancelled() {
+            return Err(Error::msg("Operation cancelled"));
+        }
+    }
+
+    // Fetch existing genres from the database that match the genre names from metadata.
+    let existing_genres = genres::Entity::find()
+        .filter(genres::Column::Name.is_in(&genre_names))
+        .all(txn)
+        .await?;
+
+    // Create a HashMap for efficient lookup of existing genres by name.
+    let existing_map: HashMap<_, _> = existing_genres
+        .into_iter()
+        .map(|g| (g.name, g.id)) // Map genre name to genre ID for quick lookup.
+        .collect();
+
+    // Identify new genre names that do not exist in the database yet.
+    let new_genre_names: Vec<_> = genre_names
+        .iter()
+        .filter(|name| !existing_map.contains_key(*name)) // Filter out names that are already in existing_map.
+        .cloned()
+        .collect();
+
+    // Batch insert new genres into the database with conflict handling (do nothing if genre name already exists).
+    if !new_genre_names.is_empty() {
+        let insert_operation =
+            genres::Entity::insert_many(new_genre_names.into_iter().map(|name| {
+                genres::ActiveModel {
+                    name: Set(name.clone()),                // Set genre name.
+                    group: Set(generate_group_name(&name)), // Generate group name for genre.
+                    ..Default::default()
+                }
+            }))
+            .on_conflict(
+                OnConflict::column(genres::Column::Name) // Define conflict handling on the 'name' column.
+                    .do_nothing() // If conflict occurs, do nothing (skip insertion).
+                    .to_owned(),
+            );
+
+        // Execute the insert operation without expecting any return value.
+        insert_operation.exec_without_returning(txn).await?;
+    }
+
+    // Retrieve the final set of genres from the database, including newly inserted ones.
+    let final_genres = genres::Entity::find()
+        .filter(genres::Column::Name.is_in(&genre_names))
+        .all(txn)
+        .await?;
+
+    // Collect genre IDs and add search terms for newly inserted genres.
+    let mut genre_ids = Vec::new();
+    for genre in final_genres {
+        // Add search term only for genres that were newly inserted in this process.
+        if !existing_map.contains_key(&genre.name) {
+            add_term(txn, CollectionQueryType::Genre, genre.id, &genre.name).await?;
+        }
+        genre_ids.push(genre.id);
+    }
+
+    // Clean up existing genre associations for the media file before creating new ones.
+    media_file_genres::Entity::delete_many()
+        .filter(media_file_genres::Column::MediaFileId.eq(summary.id)) // Delete associations for the current media file.
+        .exec(txn)
+        .await?;
+
+    // Insert new genre associations for the media file.
+    if !genre_ids.is_empty() {
+        media_file_genres::Entity::insert_many(genre_ids.into_iter().map(|genre_id| {
+            media_file_genres::ActiveModel {
+                media_file_id: Set(summary.id), // Set media file ID.
+                genre_id: Set(genre_id),        // Set genre ID.
+                ..Default::default()
+            }
+        }))
+        .exec(txn)
+        .await?;
+    }
+
+    Ok(())
+}
+
 /// Indexes the entire audio library in batches, processing media files in parallel.
 ///
 /// This function fetches media files in batches from the database and processes them
@@ -389,9 +513,9 @@ async fn process_batch(
     Ok(())
 }
 
-/// Cleans up orphaned artist and album records from the database.
+/// Cleans up orphaned artist, album, and genre records from the database.
 ///
-/// This function identifies artists and albums that are no longer associated with any media files
+/// This function identifies artists, albums, and genres that are no longer associated with any media files
 /// and removes them from the database. It also removes associated search terms for these orphaned records.
 ///
 /// # Arguments
@@ -402,7 +526,7 @@ async fn process_batch(
 ///
 /// Returns `Ok(())` if cleanup is successful, or an `Err(Error)` if any error occurs.
 pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
-    info!("Starting cleanup of orphaned artists and albums");
+    info!("Starting cleanup of orphaned artists, albums, and genres");
 
     // Start a transaction to ensure atomicity of the cleanup process.
     let txn = db.begin().await?;
@@ -423,7 +547,15 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
         .all(&txn)
         .await?;
 
-    // 3. Find orphaned artists (artists not in the linked_artist_ids list).
+    // 3. Query all genre IDs that are linked to media files through media_file_genres table.
+    let linked_genre_ids: Vec<i32> = media_file_genres::Entity::find()
+        .select_only()
+        .column(media_file_genres::Column::GenreId) // Select only the genre_id column.
+        .into_tuple() // Convert the result into a tuple of genre IDs.
+        .all(&txn)
+        .await?;
+
+    // 4. Find orphaned artists (artists not in the linked_artist_ids list).
     let orphaned_artists = if linked_artist_ids.is_empty() {
         // If no artists are linked, all artists are considered orphaned.
         artists::Entity::find().all(&txn).await?
@@ -434,7 +566,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
             .await?
     };
 
-    // 4. Find orphaned albums (albums not in the linked_album_ids list).
+    // 5. Find orphaned albums (albums not in the linked_album_ids list).
     let orphaned_albums = if linked_album_ids.is_empty() {
         // If no albums are linked, all albums are considered orphaned.
         albums::Entity::find().all(&txn).await?
@@ -445,17 +577,29 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
             .await?
     };
 
+    // 6. Find orphaned genres (genres not in the linked_genre_ids list).
+    let orphaned_genres = if linked_genre_ids.is_empty() {
+        // If no genres are linked, all genres are considered orphaned.
+        genres::Entity::find().all(&txn).await?
+    } else {
+        genres::Entity::find()
+            .filter(genres::Column::Id.is_not_in(linked_genre_ids)) // Filter out genres with IDs in linked_genre_ids.
+            .all(&txn)
+            .await?
+    };
+
     info!(
-        "Found {} orphaned artists and {} orphaned albums",
+        "Found {} orphaned artists, {} orphaned albums, and {} orphaned genres",
         orphaned_artists.len(),
-        orphaned_albums.len()
+        orphaned_albums.len(),
+        orphaned_genres.len()
     );
 
-    // 5. Delete orphaned artists.
+    // 7. Delete orphaned artists.
     if !orphaned_artists.is_empty() {
         let artist_ids: Vec<i32> = orphaned_artists.iter().map(|a| a.id).collect(); // Collect IDs of orphaned artists.
 
-        // 5.1 Remove search terms associated with orphaned artists.
+        // 7.1 Remove search terms associated with orphaned artists.
         for artist_id in &artist_ids {
             if let Err(e) = remove_term(&txn, CollectionQueryType::Artist, *artist_id).await {
                 error!(
@@ -465,7 +609,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
             }
         }
 
-        // 5.2 Delete orphaned artist records from the database.
+        // 7.2 Delete orphaned artist records from the database.
         let delete_result = artists::Entity::delete_many()
             .filter(artists::Column::Id.is_in(artist_ids)) // Filter artists to delete by their IDs.
             .exec(&txn)
@@ -474,11 +618,11 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
         info!("Deleted {} orphaned artists", delete_result.rows_affected);
     }
 
-    // 6. Delete orphaned albums.
+    // 8. Delete orphaned albums.
     if !orphaned_albums.is_empty() {
         let album_ids: Vec<i32> = orphaned_albums.iter().map(|a| a.id).collect(); // Collect IDs of orphaned albums.
 
-        // 6.1 Remove search terms associated with orphaned albums.
+        // 8.1 Remove search terms associated with orphaned albums.
         for album_id in &album_ids {
             if let Err(e) = remove_term(&txn, CollectionQueryType::Album, *album_id).await {
                 error!(
@@ -488,13 +632,36 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
             }
         }
 
-        // 6.2 Delete orphaned album records from the database.
+        // 8.2 Delete orphaned album records from the database.
         let delete_result = albums::Entity::delete_many()
             .filter(albums::Column::Id.is_in(album_ids)) // Filter albums to delete by their IDs.
             .exec(&txn)
             .await?;
 
         info!("Deleted {} orphaned albums", delete_result.rows_affected);
+    }
+
+    // 9. Delete orphaned genres.
+    if !orphaned_genres.is_empty() {
+        let genre_ids: Vec<i32> = orphaned_genres.iter().map(|g| g.id).collect(); // Collect IDs of orphaned genres.
+
+        // 9.1 Remove search terms associated with orphaned genres.
+        for genre_id in &genre_ids {
+            if let Err(e) = remove_term(&txn, CollectionQueryType::Genre, *genre_id).await {
+                error!(
+                    "Failed to remove search terms for genre {}: {}",
+                    genre_id, e
+                );
+            }
+        }
+
+        // 9.2 Delete orphaned genre records from the database.
+        let delete_result = genres::Entity::delete_many()
+            .filter(genres::Column::Id.is_in(genre_ids)) // Filter genres to delete by their IDs.
+            .exec(&txn)
+            .await?;
+
+        info!("Deleted {} orphaned genres", delete_result.rows_affected);
     }
 
     // Commit the transaction to apply all changes.
@@ -507,7 +674,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
 /// Performs library maintenance tasks, such as cleaning up orphaned records.
 ///
 /// This function serves as an entry point for library maintenance operations.
-/// Currently, it only includes cleaning up orphaned artist and album records.
+/// Currently, it only includes cleaning up orphaned artist, album, and genre records.
 /// It supports cancellation via a `CancellationToken`.
 ///
 /// # Arguments

@@ -48,6 +48,7 @@ pub fn build_collection_query(
         CollectionType::Artist => "lib::artist",
         CollectionType::Playlist => "lib::playlist",
         CollectionType::Track => "lib::track",
+        CollectionType::Genre => "lib::genre",
         _ => return Err(anyhow!("Invalid collection type")),
     };
     Ok(vec![(operator.to_string(), id.to_string())])
@@ -60,6 +61,7 @@ pub fn path_to_collection_type(path: &Path) -> Option<CollectionType> {
         "Playlists" => Some(CollectionType::Playlist),
         "Mixes" => Some(CollectionType::Mix),
         "Tracks" => Some(CollectionType::Track),
+        "Genres" => Some(CollectionType::Genre),
         _ => None,
     }
 }

@@ -27,6 +27,7 @@ pub enum CollectionQueryType {
     Album,
     Mix,
     Playlist,
+    Genre,
 }
 
 impl From<CollectionQueryType> for i32 {
@@ -38,6 +39,7 @@ impl From<CollectionQueryType> for i32 {
             CollectionQueryType::Mix => 3,
             CollectionQueryType::Track => 4,
             CollectionQueryType::Directory => 5,
+            CollectionQueryType::Genre => 5,
         }
     }
 }
@@ -63,6 +65,7 @@ impl fmt::Display for CollectionQueryType {
         let s = match self {
             CollectionQueryType::Track => "track",
             CollectionQueryType::Artist => "artist",
+            CollectionQueryType::Genre => "genre",
             CollectionQueryType::Directory => "directory",
             CollectionQueryType::Album => "album",
             CollectionQueryType::Playlist => "playlist",

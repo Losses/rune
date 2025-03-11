@@ -6,11 +6,10 @@ use futures::future::join_all;
 
 use database::actions::collection::{CollectionQuery, CollectionQueryListMode, UnifiedCollection};
 use database::connection::{MainDbConnection, RecommendationDbConnection};
-use database::entities::{albums, artists, mix_queries, mixes, playlists};
-
-use crate::{messages::*, Session, Signal};
+use database::entities::{albums, artists, genres, mix_queries, mixes, playlists};
 
 use crate::utils::{inject_cover_art_map, GlobalParams, ParamsExtractor, RunningMode};
+use crate::{messages::*, Session, Signal};
 
 #[derive(Default)]
 pub struct CollectionActionParams {
@@ -284,6 +283,7 @@ impl Signal for FetchCollectionGroupSummaryRequest {
             1 => handle_fetch_group_summary::<artists::Model>(&main_db).await,
             2 => handle_fetch_group_summary::<playlists::Model>(&main_db).await,
             3 => handle_fetch_group_summary::<mixes::Model>(&main_db).await,
+            5 => handle_fetch_group_summary::<genres::Model>(&main_db).await,
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }
@@ -371,6 +371,16 @@ impl Signal for FetchCollectionGroupsRequest {
                 )
                 .await
             }
+            5 => {
+                handle_fetch_groups::<genres::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
             _ => Err(anyhow::anyhow!("Invalid collection type")),
         }
     }
@@ -449,6 +459,16 @@ impl Signal for FetchCollectionByIdsRequest {
             }
             3 => {
                 handle_fetch_by_id::<mixes::Model>(
+                    &main_db,
+                    &recommend_db,
+                    &running_mode,
+                    &remote_host,
+                    params,
+                )
+                .await
+            }
+            5 => {
+                handle_fetch_by_id::<genres::Model>(
                     &main_db,
                     &recommend_db,
                     &running_mode,

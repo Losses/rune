@@ -20,6 +20,7 @@ use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
+use crate::entities::media_file_genres;
 use crate::entities::{
     media_analysis, media_file_albums, media_file_artists, media_file_playlists, media_file_stats,
     media_files, mix_queries, mixes,
@@ -377,6 +378,7 @@ enum QueryOperator {
     LibAll(bool),
     LibArtist(i32),
     LibAlbum(i32),
+    LibGenre(i32),
     LibPlaylist(i32),
     LibTrack(i32),
     LibRandom(i32),
@@ -512,6 +514,9 @@ fn parse_query(query: &(String, String)) -> QueryOperator {
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::album" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibAlbum)
+            .unwrap_or(QueryOperator::Unknown(operator.clone())),
+        "lib::genre" => parse_parameter::<i32>(parameter, operator)
+            .map(QueryOperator::LibGenre)
             .unwrap_or(QueryOperator::Unknown(operator.clone())),
         "lib::playlist" => parse_parameter::<i32>(parameter, operator)
             .map(QueryOperator::LibPlaylist)
@@ -663,6 +668,7 @@ pub async fn query_mix_media_files(
 
     let mut artist_ids: Vec<i32> = vec![];
     let mut album_ids: Vec<i32> = vec![];
+    let mut genre_ids: Vec<i32> = vec![];
     let mut playlist_ids: Vec<i32> = vec![];
     let mut track_ids: Vec<i32> = vec![];
     let mut random_count: Vec<i32> = vec![];
@@ -687,6 +693,7 @@ pub async fn query_mix_media_files(
             QueryOperator::LibAll(is_all) => all = is_all,
             QueryOperator::LibArtist(id) => artist_ids.push(id),
             QueryOperator::LibAlbum(id) => album_ids.push(id),
+            QueryOperator::LibGenre(id) => genre_ids.push(id),
             QueryOperator::LibPlaylist(id) => playlist_ids.push(id),
             QueryOperator::LibTrack(id) => track_ids.push(id),
             QueryOperator::LibRandom(count) => random_count.push(count),
@@ -722,6 +729,7 @@ pub async fn query_mix_media_files(
     let only_one_playlist = artist_ids.is_empty()
         && album_ids.is_empty()
         && track_ids.is_empty()
+        && genre_ids.is_empty()
         && random_count.is_empty()
         && directories_deep.is_empty()
         && directories_shallow.is_empty()
@@ -755,6 +763,15 @@ pub async fn query_mix_media_files(
         media_file_albums::Entity,
         media_file_albums::Column::AlbumId,
         media_file_albums::Column::MediaFileId
+    );
+
+    // Filter by genres_ids if provided
+    add_subquery_filter!(
+        or_condition,
+        genre_ids,
+        media_file_genres::Entity,
+        media_file_genres::Column::GenreId,
+        media_file_genres::Column::MediaFileId
     );
 
     // Filter by playlist_ids if provided

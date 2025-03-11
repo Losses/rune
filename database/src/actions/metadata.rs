@@ -91,7 +91,6 @@ pub async fn sync_file_descriptions(
                 {
                     Ok(file) => file,
                     Err(e) => {
-                        error!("{:#?}", e);
                         insert_log(
                             &txn,
                             LogLevel::Error,
@@ -900,6 +899,7 @@ pub struct MetadataSummary {
     pub file_name: String,
     pub artist: String,
     pub album: String,
+    pub genre: String,
     pub title: String,
     pub track_number: i32,
     pub duration: f64,
@@ -920,6 +920,7 @@ pub async fn get_metadata_summary_by_files(
             media_metadata::Column::MetaKey.is_in([
                 "artist",
                 "album",
+                "genre",
                 "track_title",
                 "disc_number",
                 "track_number",
@@ -965,6 +966,11 @@ pub async fn get_metadata_summary_by_files(
             file_name: file.file_name.clone(),
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
+            genre: metadata
+                .get("genre")
+                .cloned()
+                .unwrap_or_default()
+                .to_uppercase(),
             title: metadata
                 .get("track_title")
                 .cloned()
