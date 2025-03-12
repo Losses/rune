@@ -75,8 +75,7 @@ sha2 = "0.10.8"
 toml = "0.8.20"
 directories = "6.0.0"
 humantime = "2.1.0"
-rustls = { version = "0.23.23" }
-aws-lc-rs = { version = "1", features = ["bindgen"] }
+rustls = { version = "0.23.23", features = ["ring"], default-features = false }
 serde_json = "1.0.138"
 hyper = "1.6.0"
 http-body-util = "0.1.2"
@@ -88,12 +87,6 @@ rpassword = "7.3.1"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }
-vergen-git2 = { version = "1.0.1", features = [
-    "build",
-    "cargo",
-    "rustc",
-    "si",
-] }
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }

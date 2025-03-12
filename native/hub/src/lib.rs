@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use log::{error, info};
-use rustls::crypto::aws_lc_rs::default_provider;
+use rustls::crypto::ring::default_provider;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt;
 use tracing_subscriber::EnvFilter;

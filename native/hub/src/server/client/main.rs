@@ -14,7 +14,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use log::{error, info};
 use regex::Regex;
-use rustls::crypto::aws_lc_rs::default_provider;
+use rustls::crypto::ring::default_provider;
 use tokio::{
     signal::ctrl_c,
     sync::{Mutex, RwLock},

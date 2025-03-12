@@ -8,7 +8,7 @@ use std::{
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use log::info;
-use rustls::crypto::aws_lc_rs::default_provider;
+use rustls::crypto::ring::default_provider;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;

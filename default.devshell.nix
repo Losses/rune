@@ -6,6 +6,8 @@ let
   ndkRoot = "${androidSdk}/share/android-sdk/ndk/${ndkVersion}";
   toolchainPath = "${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64";
   sysrootPath = "${toolchainPath}/sysroot";
+  toolchainBinPath = "${toolchainPath}/bin";
+  cmakeToolchainFile = "${ndkRoot}/build/cmake/android.toolchain.cmake";
 in
 pkgs.mkShell {
   name = "Rune Development Shell";
@@ -54,26 +56,32 @@ pkgs.mkShell {
     libnotify.dev
   ];
 
-env = {
-  JAVA_HOME = "${pinnedJDK}";
-  ANDROID_HOME = "${androidSdk}/share/android-sdk";
-  RUST_BACKTRACE = 1;
-  ANDROID_NDK_PATH = "${ndkRoot}";
-  BINDGEN_EXTRA_CLANG_ARGS = "-I${sysrootPath}/usr/include \
-                              -I${sysrootPath}/usr/include/c++/v1 \
-                              -I${sysrootPath}/usr/include/arm-linux-androideabi \
-                              -I${toolchainPath}/lib/clang/18/include";
+  env = {
+    JAVA_HOME = "${pinnedJDK}";
+    ANDROID_HOME = "${androidSdk}/share/android-sdk";
+    RUST_BACKTRACE = 1;
+    ANDROID_NDK_PATH = "${ndkRoot}";
+    ANDROID_NDK_ROOT = "${ndkRoot}";
+    CFLAGS = "-I${sysrootPath}/usr/include";
+    CXXFLAGS = "-I${sysrootPath}/usr/include/c++/v1";
+    BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=${sysrootPath}";
+    RUSTFLAGS = "-Clink-arg=--sysroot=${sysrootPath}";
+    CMAKE_TOOLCHAIN_FILE = cmakeToolchainFile;
   };
 
   shellHook = ''
     echo "!! ANDROID_NDK_PATH: $ANDROID_NDK_PATH"
+    echo "!! ANDROID_NDK_ROOT: $ANDROID_NDK_ROOT"
+    echo "!! CMAKE_TOOLCHAIN_FILE: $CMAKE_TOOLCHAIN_FILE"
+    echo "!! BINDGEN_EXTRA_CLANG_ARGS: $BINDGEN_EXTRA_CLANG_ARGS"
     flutter config --jdk-dir "${pinnedJDK}"
     alias ls=exa
     alias find=fd
     alias rinf='flutter pub run rinf'
     export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdk}/share/android-sdk/build-tools/34.0.0/aapt2"
-    export PATH=${androidSdk}/share/android-sdk/platform-tools:${androidSdk}/share/android-sdk/tools:${androidSdk}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
+    export PATH=${toolchainBinPath}:${androidSdk}/share/android-sdk/platform-tools:${androidSdk}/share/android-sdk/tools:${androidSdk}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
     export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
+    export PKG_CONFIG_SYSROOT_DIR="${sysrootPath}"
   '';
 }
