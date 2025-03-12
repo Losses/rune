@@ -78,5 +78,6 @@ pkgs.mkShell {
     alias find=fd
     alias rinf='flutter pub run rinf'
     export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
+    export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
   '';
 }
