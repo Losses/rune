@@ -75,7 +75,8 @@ sha2 = "0.10.8"
 toml = "0.8.20"
 directories = "6.0.0"
 humantime = "2.1.0"
-rustls = { version = "0.23.23", features = ["aws_lc_rs"] }
+rustls = { version = "0.23.23" }
+aws-lc-rs = { version = "1", features = ["bindgen"] }
 serde_json = "1.0.138"
 hyper = "1.6.0"
 http-body-util = "0.1.2"

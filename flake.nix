@@ -51,6 +51,7 @@
             build-tools-30-0-3
             build-tools-33-0-2
             build-tools-34-0-0
+            build-tools-35-0-0
             platform-tools
             emulator
             platforms-android-28
@@ -60,6 +61,7 @@
             platforms-android-32
             platforms-android-33
             platforms-android-34
+            platforms-android-35
             ndk-27-1-12297006
           ]
         );

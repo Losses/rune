@@ -55,6 +55,8 @@ pkgs.mkShell {
     ANDROID_HOME = "${androidSdk}/share/android-sdk";
     RUST_BACKTRACE = 1;
     ANDROID_NDK_PATH = "${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006";
+    BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include";
+    AWS_LC_SYS_INCLUDES = "${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include";
   };
 
   shellHook = ''
@@ -65,5 +67,6 @@ pkgs.mkShell {
     export LD_LIBRARY_PATH=$(nix-build '<nixpkgs>' -A wayland)/lib:${pkgs.fontconfig.lib}/lib:${pkgs.libxkbcommon}/lib:${pkgs.xorg.libX11}/lib:${pkgs.libGL}/lib:$LD_LIBRARY_PATH
     export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=${androidSdk}/share/android-sdk/build-tools/34.0.0/aapt2"
     export PATH=${androidSdk}/share/android-sdk/platform-tools:${androidSdk}/share/android-sdk/tools:${androidSdk}/share/android-sdk/tools/bin:$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
+    export LIBCLANG_PATH="${pkgs.libclang.lib}/lib"
   '';
 }
