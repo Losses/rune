@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::env;
 #[cfg(target_os = "macos")]
 use swift_rs::SwiftLinker;
-use vergen_git2::{BuildBuilder, Emitter, Git2Builder, RustcBuilder};
+use vergen::{BuildBuilder, Emitter, RustcBuilder};
 
 fn main() -> Result<()> {
     let target_os = env::var("CARGO_CFG_TARGET_OS");
@@ -11,13 +11,11 @@ fn main() -> Result<()> {
         println!("cargo:rustc-link-lib=c++_shared");
     }
 
-    let git2 = Git2Builder::all_git()?;
     let build = BuildBuilder::all_build()?;
     let rustc = RustcBuilder::all_rustc()?;
 
     Emitter::default()
         .add_instructions(&build)?
-        .add_instructions(&git2)?
         .add_instructions(&rustc)?
         .emit()?;
 
