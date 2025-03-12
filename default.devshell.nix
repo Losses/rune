@@ -2,6 +2,10 @@
 
 let
   pinnedJDK = pkgs.jdk17;
+  ndkVersion = "27.1.12297006";
+  ndkRoot = "${androidSdk}/share/android-sdk/ndk/${ndkVersion}";
+  toolchainPath = "${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64";
+  sysrootPath = "${toolchainPath}/sysroot";
 in
 pkgs.mkShell {
   name = "Rune Development Shell";
@@ -22,7 +26,7 @@ pkgs.mkShell {
     android-studio
     androidSdk
     pinnedJDK
-    clang
+    llvmPackages_18.clangUseLLVM
     cmake
     protobuf_26
     pcre2
@@ -50,16 +54,19 @@ pkgs.mkShell {
     libnotify.dev
   ];
 
-  env = {
-    JAVA_HOME = "${pinnedJDK}";
-    ANDROID_HOME = "${androidSdk}/share/android-sdk";
-    RUST_BACKTRACE = 1;
-    ANDROID_NDK_PATH = "${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006";
-    BINDGEN_EXTRA_CLANG_ARGS = "--sysroot=${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot -I${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include";
-    AWS_LC_SYS_INCLUDES = "${androidSdk}/share/android-sdk/ndk/ndk-27-1-12297006/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/include";
+env = {
+  JAVA_HOME = "${pinnedJDK}";
+  ANDROID_HOME = "${androidSdk}/share/android-sdk";
+  RUST_BACKTRACE = 1;
+  ANDROID_NDK_PATH = "${ndkRoot}";
+  BINDGEN_EXTRA_CLANG_ARGS = "-I${sysrootPath}/usr/include \
+                              -I${sysrootPath}/usr/include/c++/v1 \
+                              -I${sysrootPath}/usr/include/arm-linux-androideabi \
+                              -I${toolchainPath}/lib/clang/18/include";
   };
 
   shellHook = ''
+    echo "!! ANDROID_NDK_PATH: $ANDROID_NDK_PATH"
     flutter config --jdk-dir "${pinnedJDK}"
     alias ls=exa
     alias find=fd
