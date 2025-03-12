@@ -57,6 +57,24 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.3" date="2025-03-12">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Return operation does not close Context Menu.</li>
+          <li>Clicking the Cover Art next to the playback progress bar does not open the Cover Art Wall.</li>
+          <li>Event listeners are not destroyed after the FFT visualization component is destroyed.</li>
+          <li>The background color tinting feature of the Cover Art Wall is not working properly.</li>
+          <li>Android version cannot be compiled normally.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Added classification by Genres functionality.</li>
+          <li>Clicking the song name above the playback progress bar can open the Cover Art Wall.</li>
+          <li>Added server authentication status detection process for device pairing.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.2" date="2025-02-27">
       <description>
         <p>Bugs</p>
