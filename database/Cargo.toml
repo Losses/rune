@@ -21,6 +21,7 @@ migration = { path = "../migration" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
 playback = { path = "../playback" }
+tag-editor = { path = "../tag-editor" }
 futures = "0.3.30"
 tokio = { version = "1.40.0", features = ["fs"] }
 arroy = "0.5.0"

@@ -4,7 +4,7 @@ use std::time::Duration;
 use anyhow::Context;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
-use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
+pub use rusty_chromaprint::{Configuration, FingerprintCompressor, Fingerprinter};
 use symphonia::core::audio::{AudioBufferRef, SampleBuffer};
 use symphonia::core::codecs::{Decoder, DecoderOptions, CODEC_TYPE_NULL};
 use symphonia::core::errors::Error;

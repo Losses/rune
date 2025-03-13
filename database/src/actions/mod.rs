@@ -5,6 +5,7 @@ pub mod collection;
 pub mod cover_art;
 pub mod directory;
 pub mod file;
+pub mod fingerprint;
 pub mod genres;
 pub mod index;
 pub mod library;

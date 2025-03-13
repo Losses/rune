@@ -1556,6 +1556,7 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "seq-macro",
+ "tag-editor",
  "tempfile",
  "thiserror 2.0.11",
  "tokio",
@@ -5402,7 +5403,8 @@ checksum = "eded382c5f5f786b989652c49544c4877d9f015cc22e145a5ea8ea66c2921cd2"
 [[package]]
 name = "rusty-chromaprint"
 version = "0.3.0"
-source = "git+https://github.com/Losses/rusty-chromaprint?rev=db4d9af2dd66f8c7f38f04725fb1780e64b4686f#db4d9af2dd66f8c7f38f04725fb1780e64b4686f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59e4234523e38d9c12201955f8216e1a60313e64c5077f4e1cf49b0db77bd7e8"
 dependencies = [
  "rubato",
  "rustfft",
@@ -6585,7 +6587,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tag_editor"
+name = "tag-editor"
 version = "0.1.0"
 dependencies = [
  "analysis",

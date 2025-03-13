@@ -10,6 +10,7 @@ pub mod media_analysis;
 pub mod media_cover_art;
 pub mod media_file_albums;
 pub mod media_file_artists;
+pub mod media_file_fingerprint;
 pub mod media_file_genres;
 pub mod media_file_playlists;
 pub mod media_file_stats;

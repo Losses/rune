@@ -8,6 +8,7 @@ pub use super::media_analysis::Entity as MediaAnalysis;
 pub use super::media_cover_art::Entity as MediaCoverArt;
 pub use super::media_file_albums::Entity as MediaFileAlbums;
 pub use super::media_file_artists::Entity as MediaFileArtists;
+pub use super::media_file_fingerprint::Entity as MediaFileFingerprint;
 pub use super::media_file_genres::Entity as MediaFileGenres;
 pub use super::media_file_playlists::Entity as MediaFilePlaylists;
 pub use super::media_file_stats::Entity as MediaFileStats;
