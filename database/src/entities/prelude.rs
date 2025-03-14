@@ -11,6 +11,7 @@ pub use super::media_file_artists::Entity as MediaFileArtists;
 pub use super::media_file_fingerprint::Entity as MediaFileFingerprint;
 pub use super::media_file_genres::Entity as MediaFileGenres;
 pub use super::media_file_playlists::Entity as MediaFilePlaylists;
+pub use super::media_file_similarity::Entity as MediaFileSimilarity;
 pub use super::media_file_stats::Entity as MediaFileStats;
 pub use super::media_files::Entity as MediaFiles;
 pub use super::media_metadata::Entity as MediaMetadata;

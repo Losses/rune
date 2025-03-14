@@ -13,6 +13,7 @@ pub mod media_file_artists;
 pub mod media_file_fingerprint;
 pub mod media_file_genres;
 pub mod media_file_playlists;
+pub mod media_file_similarity;
 pub mod media_file_stats;
 pub mod media_files;
 pub mod media_metadata;
