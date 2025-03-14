@@ -1306,5 +1306,9 @@
     "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
   },
   "genreQuery": "Genre Query",
-  "@genreQuery": {}
+  "@genreQuery": {},
+  "deduplicate": "Deduplicate",
+  "@deduplicate": {
+    "description": "Button label for removing duplicate tracks from a music library or playlist. Refers to the function of identifying and removing duplicate songs. Alternative phrasings could include 'Remove Duplicates' or 'Clean Duplicates' depending on what's most natural in the target language."
+  }
 }
