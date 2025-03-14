@@ -160,7 +160,13 @@ async fn process_page_combinations(
     current_page: &[media_files::Model],
     config: &Configuration,
     cancel_token: Option<Arc<CancellationToken>>,
-) -> Result<(), anyhow::Error> {
+) -> Result<()> {
+    if let Some(token) = &cancel_token {
+        if token.is_cancelled() {
+            return Ok(());
+        }
+    }
+
     let (tx, rx) = async_channel::bounded(1000);
     let semaphore = Arc::new(Semaphore::new(batch_size));
 
