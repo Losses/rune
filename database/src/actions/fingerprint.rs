@@ -1,20 +1,20 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use log::info;
+use log::{debug, info};
 use sea_orm::{
-    ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, QuerySelect,
+    ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
 };
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use tag_editor::music_brainz::fingerprint::{
-    calc_fingerprint, match_fingerprints, Configuration, Segment,
-};
+use tag_editor::music_brainz::fingerprint::{calc_fingerprint, match_fingerprints};
+pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 
 use crate::entities::prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles};
 use crate::entities::{media_file_fingerprint, media_file_similarity, media_files};
@@ -393,4 +393,187 @@ pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
     }
 
     Ok(u32s)
+}
+
+pub async fn mark_duplicate_files(
+    db: &DatabaseConnection,
+    similarity_threshold: f32,
+) -> Result<usize> {
+    info!(
+        "Starting duplicate detection with similarity threshold: {}",
+        similarity_threshold
+    );
+
+    // Step 1: Get all file similarity pairs above the threshold
+    let similarities = MediaFileSimilarity::find()
+        .filter(media_file_similarity::Column::Similarity.gte(similarity_threshold))
+        .all(db)
+        .await
+        .context("Failed to retrieve file similarities")?;
+
+    if similarities.is_empty() {
+        info!(
+            "No similar files found above threshold {}",
+            similarity_threshold
+        );
+        return Ok(0);
+    }
+
+    info!(
+        "Found {} similar file pairs above threshold",
+        similarities.len()
+    );
+
+    // Step 2: Group files into clusters of similar content
+    let file_groups = group_similar_files(&similarities);
+    info!("Created {} groups of similar files", file_groups.len());
+
+    // Step 3: For each group, keep the highest sample rate file and mark others as duplicates
+    let marked_count = mark_duplicates(db, file_groups).await?;
+    info!("Marked {} files as duplicates", marked_count);
+
+    Ok(marked_count)
+}
+
+fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec<i32>> {
+    let mut adjacency_list: HashMap<i32, Vec<i32>> = HashMap::new();
+
+    // Build an adjacency list for our similarity graph
+    for similarity in similarities {
+        adjacency_list
+            .entry(similarity.file_id1)
+            .or_default()
+            .push(similarity.file_id2);
+        adjacency_list
+            .entry(similarity.file_id2)
+            .or_default()
+            .push(similarity.file_id1);
+    }
+
+    // Use a set to track visited nodes during our search
+    let mut visited = HashSet::new();
+    let mut groups = Vec::new();
+
+    // Perform a depth-first search to find connected components (groups)
+    for &file_id in adjacency_list.keys() {
+        if visited.contains(&file_id) {
+            continue;
+        }
+
+        let mut group = Vec::new();
+        let mut stack = vec![file_id];
+        visited.insert(file_id);
+
+        while let Some(current_id) = stack.pop() {
+            group.push(current_id);
+
+            if let Some(neighbors) = adjacency_list.get(&current_id) {
+                for &neighbor in neighbors {
+                    if !visited.contains(&neighbor) {
+                        visited.insert(neighbor);
+                        stack.push(neighbor);
+                    }
+                }
+            }
+        }
+
+        if group.len() > 1 {
+            groups.push(group);
+        }
+    }
+
+    groups
+}
+
+async fn mark_duplicates(db: &DatabaseConnection, file_groups: Vec<Vec<i32>>) -> Result<usize> {
+    let mut total_marked = 0;
+
+    for group in file_groups {
+        if group.len() <= 1 {
+            continue;
+        }
+
+        // Get file details for all files in this group
+        let files = MediaFiles::find()
+            .filter(media_files::Column::Id.is_in(group.clone()))
+            .all(db)
+            .await
+            .context("Failed to retrieve file details")?;
+
+        // Find the file with highest sample rate
+        let keep_file = files
+            .iter()
+            .max_by_key(|file| file.sample_rate)
+            .context("Failed to find highest sample rate file")?;
+
+        debug!(
+            "Keeping file {} with sample rate {}",
+            keep_file.id, keep_file.sample_rate
+        );
+
+        // Mark all other files in the group as duplicates
+        for file in files.iter().filter(|f| f.id != keep_file.id) {
+            let fingerprint = MediaFileFingerprint::find()
+                .filter(media_file_fingerprint::Column::MediaFileId.eq(file.id))
+                .one(db)
+                .await
+                .context("Failed to retrieve fingerprint")?;
+
+            if let Some(fp) = fingerprint {
+                let mut fp_active: media_file_fingerprint::ActiveModel = fp.into();
+                fp_active.is_duplicated = ActiveValue::Set(1); // Mark as duplicated
+                fp_active
+                    .update(db)
+                    .await
+                    .context(format!("Failed to mark file {} as duplicate", file.id))?;
+
+                total_marked += 1;
+                debug!(
+                    "Marked file {} as duplicate (sample rate {})",
+                    file.id, file.sample_rate
+                );
+            }
+        }
+    }
+
+    Ok(total_marked)
+}
+
+// Function to get all duplicated files
+pub async fn get_duplicate_files(db: &DatabaseConnection) -> Result<Vec<media_files::Model>> {
+    let files = MediaFiles::find()
+        .join(
+            JoinType::InnerJoin,
+            media_file_fingerprint::Relation::MediaFiles.def(),
+        )
+        .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
+        .all(db)
+        .await
+        .context("Failed to retrieve duplicate files")?;
+
+    Ok(files)
+}
+
+// Function to reset duplicate marks
+pub async fn reset_duplicate_marks(db: &DatabaseConnection) -> Result<usize> {
+    let fingerprints = MediaFileFingerprint::find()
+        .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
+        .all(db)
+        .await
+        .context("Failed to retrieve marked fingerprints")?;
+
+    let mut updated_count = 0;
+
+    for fp in fingerprints {
+        let mut fp_active: media_file_fingerprint::ActiveModel = fp.into();
+        fp_active.is_duplicated = ActiveValue::Set(0); // Reset duplicate mark
+        fp_active
+            .update(db)
+            .await
+            .context("Failed to reset duplicate mark")?;
+        updated_count += 1;
+    }
+
+    info!("Reset duplicate marks for {} files", updated_count);
+    Ok(updated_count)
 }
