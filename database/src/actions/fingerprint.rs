@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -118,13 +119,18 @@ pub async fn get_fingerprint_count(main_db: &DatabaseConnection) -> Result<u64> 
         .await?)
 }
 
-pub async fn compare_all_pairs(
+pub async fn compare_all_pairs<F>(
     db: &DatabaseConnection,
     batch_size: usize,
+    progress_callback: F,
     config: &Configuration,
     cancel_token: Option<Arc<CancellationToken>>,
     page_size: u64,
-) -> Result<()> {
+) -> Result<()>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    let progress_callback = Arc::new(progress_callback);
     let mut last_id = 0;
 
     loop {
@@ -145,8 +151,15 @@ pub async fn compare_all_pairs(
             break;
         }
 
-        process_page_combinations(db, batch_size, &files_page, config, cancel_token.clone())
-            .await?;
+        process_page_combinations(
+            db,
+            batch_size,
+            &files_page,
+            config,
+            cancel_token.clone(),
+            Arc::clone(&progress_callback),
+        )
+        .await?;
 
         last_id = files_page.last().map(|f| f.id).unwrap_or(last_id);
     }
@@ -154,27 +167,53 @@ pub async fn compare_all_pairs(
     Ok(())
 }
 
-async fn process_page_combinations(
+async fn process_page_combinations<F>(
     db: &DatabaseConnection,
     batch_size: usize,
     current_page: &[media_files::Model],
     config: &Configuration,
     cancel_token: Option<Arc<CancellationToken>>,
-) -> Result<()> {
+    progress_callback: Arc<F>,
+) -> Result<()>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
     if let Some(token) = &cancel_token {
         if token.is_cancelled() {
             return Ok(());
         }
     }
 
+    let mut total_tasks = 0;
+    let mut history_files_per_file = Vec::with_capacity(current_page.len());
+    for (i, file1) in current_page.iter().enumerate() {
+        if let Some(token) = &cancel_token {
+            if token.is_cancelled() {
+                return Ok(());
+            }
+        }
+
+        let current_combinations = current_page.len() - i - 1;
+        let history_files = load_history_files(db, file1.id).await?;
+        let history_combinations = history_files.len();
+        total_tasks += current_combinations + history_combinations;
+        history_files_per_file.push(history_files);
+    }
+
+    if total_tasks == 0 {
+        return Ok(());
+    }
+
+    progress_callback(0, total_tasks);
+
     let (tx, rx) = async_channel::bounded(1000);
     let semaphore = Arc::new(Semaphore::new(batch_size));
+    let progress_counter = Arc::new(AtomicUsize::new(0));
 
     let producer = tokio::spawn({
         let current_page = current_page.to_vec();
-        let db = db.clone();
-
         let cancel_token = cancel_token.clone();
+        let history_files_per_file = history_files_per_file.clone();
         async move {
             for (i, file1) in current_page.iter().enumerate() {
                 if let Some(token) = &cancel_token {
@@ -192,14 +231,14 @@ async fn process_page_combinations(
                     tx.send((file1.id, file2.id)).await?;
                 }
 
-                let history_files = load_history_files(&db, file1.id).await?;
+                let history_files = &history_files_per_file[i];
                 for file2_id in history_files {
                     if let Some(token) = &cancel_token {
                         if token.is_cancelled() {
                             return Ok(());
                         }
                     }
-                    tx.send((file1.id, file2_id)).await?;
+                    tx.send((file1.id, *file2_id)).await?;
                 }
             }
             Ok::<(), anyhow::Error>(())
@@ -210,6 +249,8 @@ async fn process_page_combinations(
         let db = db.clone();
         let config = config.clone();
         let cancel_token = cancel_token.clone();
+        let progress_callback = Arc::clone(&progress_callback);
+        let progress_counter = Arc::clone(&progress_counter);
         async move {
             while let Ok((id1, id2)) = rx.recv().await {
                 if let Some(token) = &cancel_token {
@@ -234,6 +275,9 @@ async fn process_page_combinations(
                 })
                 .exec(&db)
                 .await?;
+
+                let current = progress_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                progress_callback(current, total_tasks);
             }
             Ok::<(), anyhow::Error>(())
         }
