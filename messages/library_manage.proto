@@ -61,9 +61,30 @@ message AnalyzeAudioLibraryResponse {
     int32 total = 2;
 }
 
+
+// [DART-SIGNAL]
+message DeduplicateAudioLibraryRequest {
+    string path = 1;
+    float similarityThreshold = 2;
+    float workloadFactor = 3;
+}
+
+// [RUST-SIGNAL]
+message DeduplicateAudioLibraryProgress {
+    string path = 1;
+    int32 progress = 2;
+    int32 total = 3;
+}
+
+// [RUST-SIGNAL]
+message DeduplicateAudioLibraryResponse {
+    string path = 1;
+}
+
 enum CancelTaskType {
   AnalyzeAudioLibrary = 0;
   ScanAudioLibrary = 1;
+  DeduplicateAudioLibrary = 2;
 }
 
 // [DART-SIGNAL]

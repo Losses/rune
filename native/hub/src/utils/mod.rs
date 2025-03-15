@@ -70,6 +70,7 @@ pub async fn initialize_databases(
 pub struct TaskTokens {
     pub scan_token: Option<CancellationToken>,
     pub analyze_token: Option<CancellationToken>,
+    pub deduplicate_token: Option<CancellationToken>,
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -8,6 +8,10 @@ broadcastable!(ScanAudioLibraryProgress, ScanAudioLibraryResponse);
 broadcastable!(SetMediaLibraryPathResponse);
 broadcastable!(AnalyzeAudioLibraryProgress, AnalyzeAudioLibraryResponse);
 broadcastable!(
+    DeduplicateAudioLibraryProgress,
+    DeduplicateAudioLibraryResponse
+);
+broadcastable!(
     PlaybackStatus,
     ScrobbleServiceStatusUpdated,
     CrashResponse,

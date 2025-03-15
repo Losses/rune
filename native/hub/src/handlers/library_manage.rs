@@ -2,6 +2,10 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use database::actions::fingerprint::compare_all_pairs;
+use database::actions::fingerprint::compute_file_fingerprints;
+use database::actions::fingerprint::mark_duplicate_files;
+use database::actions::fingerprint::Configuration;
 use log::{debug, info, warn};
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
@@ -272,6 +276,131 @@ impl Signal for AnalyzeAudioLibraryRequest {
                 if let Err(e) = result {
                     eprintln!("Error: {:?}", e);
                 }
+            })
+        });
+
+        Ok(Some(()))
+    }
+}
+
+impl ParamsExtractor for DeduplicateAudioLibraryRequest {
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
+    );
+
+    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.task_tokens),
+            Arc::clone(&all_params.broadcaster),
+        )
+    }
+}
+
+impl Signal for DeduplicateAudioLibraryRequest {
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<Mutex<TaskTokens>>,
+        Arc<dyn Broadcaster>,
+    );
+    type Response = ();
+
+    async fn handle(
+        &self,
+        (main_db, task_tokens, broadcaster): Self::Params,
+        _session: Option<Session>,
+        dart_signal: &Self,
+    ) -> Result<Option<Self::Response>> {
+        let mut tokens = task_tokens.lock().await;
+        if let Some(token) = tokens.deduplicate_token.take() {
+            token.cancel();
+        }
+
+        let new_token = CancellationToken::new();
+        tokens.deduplicate_token = Some(new_token.clone());
+        drop(tokens);
+
+        let request = dart_signal.clone();
+        let request_path = Arc::new(request.path.clone());
+        let batch_size = determine_batch_size(request.workload_factor);
+        let config = Configuration::default();
+        let similarity_threshold = request.similarity_threshold;
+
+        let request_path_clone = request_path.clone();
+        task::spawn_blocking(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+
+            let request_path_clone = request_path_clone.clone();
+            rt.block_on(async {
+                // Stage 1: Compute fingerprints (0% - 33%)
+                let broadcaster_clone = Arc::clone(&broadcaster);
+                let progress_path = request_path_clone.to_string();
+
+                let request_path_clone = request_path_clone.to_string();
+                compute_file_fingerprints(
+                    &main_db,
+                    Path::new(&request_path_clone),
+                    batch_size,
+                    move |cur, total| {
+                        let progress = cur as f32 / total as f32 * 0.33;
+
+                        broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
+                            path: progress_path.clone(),
+                            progress: (progress * 100.0) as i32,
+                            total: 100,
+                        })
+                    },
+                    Some(new_token.clone()),
+                )
+                .await?;
+
+                // Stage 2: Compare all pairs (33% - 66%)
+                let broadcaster_clone = Arc::clone(&broadcaster);
+                let progress_path = request_path_clone.to_string();
+
+                compare_all_pairs(
+                    &main_db,
+                    batch_size,
+                    move |cur, total| {
+                        let progress = 0.33 + cur as f32 / total as f32 * 0.33;
+
+                        broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
+                            path: progress_path.clone(),
+                            progress: (progress * 100.0) as i32,
+                            total: 100,
+                        });
+                    },
+                    &config,
+                    Some(Arc::new(new_token.clone())),
+                    1000,
+                )
+                .await?;
+
+                // Stage 3: Mark duplicates (66% - 100%)
+                if !new_token.is_cancelled() {
+                    let broadcaster_clone = Arc::clone(&broadcaster);
+                    let progress_path = request_path_clone.to_string();
+
+                    mark_duplicate_files(&main_db, similarity_threshold, move |cur, total| {
+                        let progress = 0.66 + cur as f32 / total as f32 * 0.34;
+
+                        broadcaster_clone.broadcast(&DeduplicateAudioLibraryProgress {
+                            path: progress_path.clone(),
+                            progress: (progress * 100.0) as i32,
+                            total: 100,
+                        });
+                    })
+                    .await?;
+                }
+
+                let request_path_clone = request_path_clone.to_string();
+                broadcaster.broadcast(&DeduplicateAudioLibraryResponse {
+                    path: request_path_clone,
+                });
+
+                Ok::<(), anyhow::Error>(())
             })
         });
 

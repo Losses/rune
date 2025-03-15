@@ -273,6 +273,7 @@ impl WebSocketDartBridge {
                     task_tokens: Arc::new(Mutex::new(TaskTokens {
                         scan_token: None,
                         analyze_token: None,
+                        deduplicate_token: None,
                     })),
                     player: Arc::new(Mutex::new(MockPlayer {})),
                     sfx_player,
