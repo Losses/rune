@@ -395,16 +395,24 @@ pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {
     Ok(u32s)
 }
 
-pub async fn mark_duplicate_files(
+pub async fn mark_duplicate_files<F>(
     db: &DatabaseConnection,
     similarity_threshold: f32,
-) -> Result<usize> {
+    progress_callback: F,
+) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
+    let progress_callback = Arc::new(progress_callback);
+
     info!(
         "Starting duplicate detection with similarity threshold: {}",
         similarity_threshold
     );
 
     // Step 1: Get all file similarity pairs above the threshold
+    progress_callback(0, 3); // 3 main stages: getting data, grouping, marking
+
     let similarities = MediaFileSimilarity::find()
         .filter(media_file_similarity::Column::Similarity.gte(similarity_threshold))
         .all(db)
@@ -416,6 +424,7 @@ pub async fn mark_duplicate_files(
             "No similar files found above threshold {}",
             similarity_threshold
         );
+        progress_callback(3, 3); // Complete all stages
         return Ok(0);
     }
 
@@ -423,14 +432,27 @@ pub async fn mark_duplicate_files(
         "Found {} similar file pairs above threshold",
         similarities.len()
     );
+    progress_callback(1, 3); // Completed first stage
 
     // Step 2: Group files into clusters of similar content
     let file_groups = group_similar_files(&similarities);
     info!("Created {} groups of similar files", file_groups.len());
+    progress_callback(2, 3); // Completed second stage
 
     // Step 3: For each group, keep the highest sample rate file and mark others as duplicates
-    let marked_count = mark_duplicates(db, file_groups).await?;
+    let total_groups = file_groups.len();
+    let progress_callback_for_marking = {
+        let progress_callback = Arc::clone(&progress_callback);
+        move |current: usize, _: usize| {
+            // Map group progress to overall progress (from 2 to 3)
+            let overall_progress = 2.0 + (current as f32 / total_groups as f32);
+            progress_callback(overall_progress.floor() as usize, 3);
+        }
+    };
+
+    let marked_count = mark_duplicates(db, file_groups, progress_callback_for_marking).await?;
     info!("Marked {} files as duplicates", marked_count);
+    progress_callback(3, 3); // Completed all stages
 
     Ok(marked_count)
 }
@@ -485,11 +507,20 @@ fn group_similar_files(similarities: &[media_file_similarity::Model]) -> Vec<Vec
     groups
 }
 
-async fn mark_duplicates(db: &DatabaseConnection, file_groups: Vec<Vec<i32>>) -> Result<usize> {
+async fn mark_duplicates<F>(
+    db: &DatabaseConnection,
+    file_groups: Vec<Vec<i32>>,
+    progress_callback: F,
+) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
     let mut total_marked = 0;
+    let total_groups = file_groups.len();
 
-    for group in file_groups {
+    for (group_index, group) in file_groups.into_iter().enumerate() {
         if group.len() <= 1 {
+            progress_callback(group_index + 1, total_groups);
             continue;
         }
 
@@ -534,6 +565,8 @@ async fn mark_duplicates(db: &DatabaseConnection, file_groups: Vec<Vec<i32>>) ->
                 );
             }
         }
+
+        progress_callback(group_index + 1, total_groups);
     }
 
     Ok(total_marked)
@@ -555,16 +588,25 @@ pub async fn get_duplicate_files(db: &DatabaseConnection) -> Result<Vec<media_fi
 }
 
 // Function to reset duplicate marks
-pub async fn reset_duplicate_marks(db: &DatabaseConnection) -> Result<usize> {
+pub async fn reset_duplicate_marks<F>(
+    db: &DatabaseConnection,
+    progress_callback: F,
+) -> Result<usize>
+where
+    F: Fn(usize, usize) + Send + Sync + 'static,
+{
     let fingerprints = MediaFileFingerprint::find()
         .filter(media_file_fingerprint::Column::IsDuplicated.eq(1))
         .all(db)
         .await
         .context("Failed to retrieve marked fingerprints")?;
 
+    let total_fingerprints = fingerprints.len();
+    progress_callback(0, total_fingerprints);
+
     let mut updated_count = 0;
 
-    for fp in fingerprints {
+    for (index, fp) in fingerprints.into_iter().enumerate() {
         let mut fp_active: media_file_fingerprint::ActiveModel = fp.into();
         fp_active.is_duplicated = ActiveValue::Set(0); // Reset duplicate mark
         fp_active
@@ -572,6 +614,8 @@ pub async fn reset_duplicate_marks(db: &DatabaseConnection) -> Result<usize> {
             .await
             .context("Failed to reset duplicate mark")?;
         updated_count += 1;
+
+        progress_callback(index + 1, total_fingerprints);
     }
 
     info!("Reset duplicate marks for {} files", updated_count);
