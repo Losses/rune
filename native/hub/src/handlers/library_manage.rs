@@ -356,6 +356,8 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 )
                 .await?;
 
+                info!(" Compute fingerprints completed.");
+
                 // Stage 2: Compare all pairs (33% - 66%)
                 let broadcaster_clone = Arc::clone(&broadcaster);
                 let progress_path = request_path_clone.to_string();
@@ -377,6 +379,8 @@ impl Signal for DeduplicateAudioLibraryRequest {
                     1000,
                 )
                 .await?;
+
+                warn!(" Comparing fingerprints completed.");
 
                 // Stage 3: Mark duplicates (66% - 100%)
                 if !new_token.is_cancelled() {

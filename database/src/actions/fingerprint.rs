@@ -95,6 +95,8 @@ fn compute_single_fingerprint(
 ) -> Result<(Vec<u32>, Duration)> {
     let file_path = lib_path.join(&file.directory).join(&file.file_name);
 
+    info!("Computing fingerprint for: {}", file.file_name);
+
     if let Some(token) = &cancel_token {
         if token.is_cancelled() {
             return Err(anyhow::anyhow!("Operation cancelled"));
@@ -135,7 +137,11 @@ where
     let progress_callback = Arc::new(progress_callback);
     let mut last_id = 0;
 
+    info!("Start comparing all tracks");
+
     loop {
+        info!("Comparing fingerprints after: {}", last_id);
+
         if let Some(token) = &cancel_token {
             if token.is_cancelled() {
                 return Ok(());
@@ -150,6 +156,7 @@ where
             .await?;
 
         if files_page.is_empty() {
+            info!("No more files to compare.");
             break;
         }
 
@@ -185,6 +192,8 @@ where
             return Ok(());
         }
     }
+
+    info!("Processing page with {} files", current_page.len());
 
     let mut total_tasks = 0;
     let mut history_files_per_file = Vec::with_capacity(current_page.len());
@@ -307,52 +316,18 @@ async fn load_fingerprint(db: DatabaseConnection, id: i32) -> Result<Vec<u32>> {
 }
 
 async fn load_history_files(db: &DatabaseConnection, current_id: i32) -> Result<Vec<i32>> {
-    const PAGE_SIZE: u64 = 1000;
-    let mut page = 0;
-    let mut history_ids = Vec::new();
-    use sea_orm::{JoinType, RelationTrait};
+    info!("Loading history files: {}", current_id);
 
-    let mut results = media_files::Entity::find()
+    let history_ids = media_files::Entity::find()
         .select_only()
         .column(media_files::Column::Id)
-        // Create a join manually using the definition from the docs
-        .join(
-            JoinType::InnerJoin,
-            // Define the relationship between MediaFiles and MediaFileFingerprint
-            media_file_fingerprint::Relation::MediaFiles.def(),
-        )
         .filter(media_files::Column::Id.lt(current_id))
         .order_by_asc(media_files::Column::Id)
-        .limit(PAGE_SIZE)
-        .offset(page * PAGE_SIZE)
         .into_tuple::<i32>()
         .all(db)
         .await?;
 
-    while !results.is_empty() {
-        history_ids.extend(results);
-
-        if (page + 1) * PAGE_SIZE >= 10_000 {
-            break;
-        }
-
-        page += 1;
-
-        results = media_files::Entity::find()
-            .select_only()
-            .column(media_files::Column::Id)
-            .join(
-                JoinType::InnerJoin,
-                media_file_fingerprint::Relation::MediaFiles.def(),
-            )
-            .filter(media_files::Column::Id.lt(current_id))
-            .order_by_asc(media_files::Column::Id)
-            .limit(PAGE_SIZE)
-            .offset(page * PAGE_SIZE)
-            .into_tuple::<i32>()
-            .all(db)
-            .await?;
-    }
+    info!("Got {} history files", history_ids.len());
 
     Ok(history_ids)
 }
