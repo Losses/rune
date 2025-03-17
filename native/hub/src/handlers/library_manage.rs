@@ -6,24 +6,24 @@ use log::{debug, info, warn};
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
 
-use database::actions::analysis::analysis_audio_library;
-use database::actions::cover_art::scan_cover_arts;
-use database::actions::fingerprint::compare_all_pairs;
-use database::actions::fingerprint::compute_file_fingerprints;
-use database::actions::fingerprint::mark_duplicate_files;
-use database::actions::fingerprint::Configuration;
-use database::actions::metadata::scan_audio_library;
-use database::actions::recommendation::sync_recommendation;
-use database::connection::MainDbConnection;
-use database::connection::RecommendationDbConnection;
+use database::{
+    actions::{
+        analysis::analysis_audio_library,
+        cover_art::scan_cover_arts,
+        fingerprint::{
+            compare_all_pairs, compute_file_fingerprints, mark_duplicate_files, Configuration,
+        },
+        metadata::scan_audio_library,
+        recommendation::sync_recommendation,
+    },
+    connection::{MainDbConnection, RecommendationDbConnection},
+};
 
-use crate::utils::determine_batch_size;
-use crate::utils::Broadcaster;
-use crate::utils::GlobalParams;
-use crate::utils::ParamsExtractor;
-use crate::Session;
-use crate::TaskTokens;
-use crate::{messages::*, Signal};
+use crate::{
+    messages::*,
+    utils::{determine_batch_size, Broadcaster, GlobalParams, ParamsExtractor},
+    Session, Signal, TaskTokens,
+};
 
 impl ParamsExtractor for CloseLibraryRequest {
     type Params = (Arc<String>, Arc<CancellationToken>, Arc<Mutex<TaskTokens>>);
