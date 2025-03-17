@@ -187,6 +187,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   const ScanLibraryButton(),
                                   const SizedBox(width: 12),
                                   const AnalyzeLibraryButton(),
+                                  const SizedBox(width: 12),
+                                  const DeduplicateLibraryButton(),
                                 ]
                               ],
                             ),
