@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Context, Result, anyhow};
 use log::{debug, info};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
@@ -99,7 +99,7 @@ fn compute_single_fingerprint(
 
     if let Some(token) = &cancel_token {
         if token.is_cancelled() {
-            return Err(anyhow::anyhow!("Operation cancelled"));
+            return Err(anyhow!("Operation cancelled"));
         }
     }
 

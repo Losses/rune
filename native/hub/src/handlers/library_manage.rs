@@ -380,7 +380,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 )
                 .await?;
 
-                warn!(" Comparing fingerprints completed.");
+                info!("Comparing fingerprints completed.");
 
                 // Stage 3: Mark duplicates (66% - 100%)
                 if !new_token.is_cancelled() {
