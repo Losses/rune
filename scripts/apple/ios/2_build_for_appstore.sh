@@ -16,4 +16,9 @@ rinf message
 cd ios
 pod update
 cd ..
-flutter build ipa --build-number $RUNE_APPSTORE_BUILD_NUMBER --build-name $RUNE_APPSTORE_BUILD_VERSION --release
+
+flutter build ipa \
+  --build-number $RUNE_APPSTORE_BUILD_NUMBER \
+  --build-name $RUNE_APPSTORE_BUILD_VERSION \
+  --export-options-plist ios/ExportOptions-AppStore.plist \
+  --release
