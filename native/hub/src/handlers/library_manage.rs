@@ -2,16 +2,16 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use database::actions::fingerprint::compare_all_pairs;
-use database::actions::fingerprint::compute_file_fingerprints;
-use database::actions::fingerprint::mark_duplicate_files;
-use database::actions::fingerprint::Configuration;
 use log::{debug, info, warn};
 use tokio::{sync::Mutex, task};
 use tokio_util::sync::CancellationToken;
 
 use database::actions::analysis::analysis_audio_library;
 use database::actions::cover_art::scan_cover_arts;
+use database::actions::fingerprint::compare_all_pairs;
+use database::actions::fingerprint::compute_file_fingerprints;
+use database::actions::fingerprint::mark_duplicate_files;
+use database::actions::fingerprint::Configuration;
 use database::actions::metadata::scan_audio_library;
 use database::actions::recommendation::sync_recommendation;
 use database::connection::MainDbConnection;
