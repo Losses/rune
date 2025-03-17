@@ -17,18 +17,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     Symbols.group,
     false
   ),
-  (
-    (context) => S.of(context).server,
-    '/settings/server',
-    Symbols.p2p,
-    false
-  ),
-  (
-    (context) => S.of(context).analysis,
-    '/settings/analysis',
-    Symbols.grain,
-    false
-  ),
+  ((context) => S.of(context).server, '/settings/server', Symbols.p2p, false),
   (
     (context) => S.of(context).playback,
     '/settings/playback',
@@ -59,6 +48,7 @@ final List<(String Function(BuildContext), String, IconData, bool)>
     Symbols.home,
     false
   ),
+  ((context) => S.of(context).system, '/settings/system', Symbols.radio, false),
   (
     (context) => S.of(context).log,
     '/settings/log',

@@ -137,10 +137,6 @@ final List<NavigationItem> navigationItems = [
             '/settings/server',
           ),
           NavigationItem(
-            (context) => S.of(context).analysis,
-            '/settings/analysis',
-          ),
-          NavigationItem(
             (context) => S.of(context).playback,
             '/settings/playback',
           ),
@@ -159,6 +155,10 @@ final List<NavigationItem> navigationItems = [
           NavigationItem(
             (context) => S.of(context).home,
             '/settings/library_home',
+          ),
+          NavigationItem(
+            (context) => S.of(context).system,
+            '/settings/system',
           ),
           NavigationItem(
             (context) => S.of(context).log,
