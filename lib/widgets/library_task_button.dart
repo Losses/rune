@@ -39,7 +39,7 @@ class LibraryTaskButton extends StatelessWidget {
   final Future<void> Function(LibraryManagerProvider, String) onPressedStart;
   final Future<void> Function(LibraryManagerProvider, String)? onContextMenu;
   final void Function(LibraryManagerProvider, String) onPressedCancel;
-  final bool Function(bool, bool) isTaskWorking;
+  final bool Function(bool, bool, bool) isTaskWorking;
   final double? progress;
 
   const LibraryTaskButton({
@@ -67,13 +67,18 @@ class LibraryTaskButton extends StatelessWidget {
 
     final scanProgress = libraryManager.getScanTaskProgress(itemPath);
     final analyzeProgress = libraryManager.getAnalyzeTaskProgress(itemPath);
+    final deduplicateProgress =
+        libraryManager.getDeduplicateTaskProgress(itemPath);
 
     final scanWorking = scanProgress?.status == TaskStatus.working;
     final analyzeWorking = analyzeProgress?.status == TaskStatus.working;
+    final deduplicateWorking =
+        deduplicateProgress?.status == TaskStatus.working;
 
-    final isWorking = scanWorking || analyzeWorking;
+    final isWorking = scanWorking || analyzeWorking || deduplicateWorking;
 
-    return isWorking && isTaskWorking(scanWorking, analyzeWorking)
+    return isWorking &&
+            isTaskWorking(scanWorking, analyzeWorking, deduplicateWorking)
         ? ProgressButton(
             title: progressTitle,
             onPressed: () => onPressedCancel(libraryManager, itemPath),
@@ -151,7 +156,8 @@ class ScanLibraryButton extends StatelessWidget {
           onFinished!();
         }
       },
-      isTaskWorking: (scanWorking, analyzeWorking) => scanWorking,
+      isTaskWorking: (scanWorking, analyzeWorking, deduplicateWorking) =>
+          scanWorking,
     );
   }
 }
@@ -203,7 +209,63 @@ class AnalyzeLibraryButton extends StatelessWidget {
           onFinished!();
         }
       },
-      isTaskWorking: (scanWorking, analyzeWorking) => analyzeWorking,
+      isTaskWorking: (scanWorking, analyzeWorking, deduplicateWorking) =>
+          analyzeWorking,
+      progress: progress,
+    );
+  }
+}
+
+class DeduplicateLibraryButton extends StatelessWidget {
+  final String? title;
+  final void Function()? onFinished;
+
+  const DeduplicateLibraryButton({
+    super.key,
+    this.title,
+    this.onFinished,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final libraryPath = Provider.of<LibraryPathProvider>(context, listen: true);
+    final itemPath = libraryPath.currentPath;
+
+    if (itemPath == null) return Container();
+
+    final libraryManager =
+        Provider.of<LibraryManagerProvider>(context, listen: true);
+
+    final deduplicateProgress =
+        libraryManager.getDeduplicateTaskProgress(itemPath);
+
+    final progress = deduplicateProgress == null
+        ? null
+        : deduplicateProgress.progress / deduplicateProgress.total;
+
+    return LibraryTaskButton(
+      title: title ?? S.of(context).deduplicate,
+      progressTitle: S.of(context).deduplicating,
+      onPressedCancel: (libraryManager, itemPath) async {
+        final confirm = await showCancelDialog(context);
+
+        if (confirm == true) {
+          libraryManager.cancelTask(
+            itemPath,
+            CancelTaskType.DeduplicateAudioLibrary,
+          );
+        }
+      },
+      onPressedStart: (libraryManager, itemPath) async {
+        libraryManager.deduplicateLibrary(itemPath);
+        await libraryManager.waitForDeduplicateToComplete(itemPath);
+
+        if (onFinished != null) {
+          onFinished!();
+        }
+      },
+      isTaskWorking: (scanWorking, analyzeWorking, deduplicateWorking) =>
+          deduplicateWorking,
       progress: progress,
     );
   }
