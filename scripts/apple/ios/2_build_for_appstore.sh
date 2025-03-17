@@ -3,7 +3,7 @@
 set -e
 
 cd "$(dirname "$0")"
-cd ..
+cd ../../..
 
 # Adjust build settings to use correct bundle ID, provisioning profile, entitlements, and signing identity.
 cp ios/Runner.xcodeproj/project.pbxproj ios/Runner.xcodeproj/project.pbxproj.backup

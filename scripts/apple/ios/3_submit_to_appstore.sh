@@ -3,7 +3,7 @@
 set -e
 
 cd "$(dirname "$0")"
-cd ..
+cd ../../..
 
 API_PRIVATE_KEYS_DIR=$RUNNER_TEMP \
 xcrun altool \

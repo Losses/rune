@@ -3,7 +3,7 @@
 set -e
 
 cd "$(dirname "$0")"
-cd ..
+cd ../../..
 
 brew install flutter rustup protobuf CocoaPods
 
