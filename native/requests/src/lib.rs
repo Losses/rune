@@ -36,6 +36,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             local_only: false,
         },
+        RequestResponse {
+            request: "DeduplicateAudioLibraryRequest".to_string(),
+            response: None,
+            local_only: false,
+        },
         // Playback
         RequestResponse {
             request: "VolumeRequest".to_string(),
