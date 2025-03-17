@@ -19,7 +19,7 @@ cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
 flutter pub global activate protoc_plugin
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 
-echo: "=== Installed toolchain: ==="
+echo "=== Installed toolchain: ==="
 which cargo
 cargo --version
 which rustc
