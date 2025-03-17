@@ -4,6 +4,7 @@ import '../../utils/settings_page_padding.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 
+import 'widgets/deduplicate_threshold_setting.dart';
 import 'widgets/performance_level_setting.dart';
 import 'widgets/closing_window_behavior_setting.dart';
 
@@ -28,6 +29,7 @@ class _SettingsAnalysisState extends State<SettingsAnalysis> {
                 // ComputingDeviceSetting(),
                 PerformanceLevelSetting(),
                 ClosingWindowBehaviorSetting(),
+                DeduplicateThresholdSetting(),
               ],
             ),
           ),

@@ -135,3 +135,11 @@ const kCloseNotificationShownKey = 'close_notification_shown';
 /// either minimize the application to the system tray or completely close the
 /// window and terminate the application.
 const kClosingWindowBehaviorKey = 'closing_window_behavior';
+
+/// This key is used to configure the threshold value for audio similarity analysis.
+/// It determines the minimum similarity score required for two audio tracks to be
+/// considered related or matching. A higher threshold results in stricter matching
+/// criteria, reducing false positives but potentially missing similar tracks, while
+/// a lower threshold increases detection sensitivity at the cost of potential false
+/// matches.
+const kDeduplicateThresholdKey = 'deduplicate_threshold';
