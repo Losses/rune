@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context, Result};
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use base64::Engine;
 pub use rusty_chromaprint::{
@@ -20,11 +20,10 @@ struct AudioReader {
     decoder: Box<dyn Decoder>,
     track_id: u32,
     sample_rate: u32,
-    channel_count: usize,
 }
 
 impl AudioReader {
-    fn new(path: &impl AsRef<Path>) -> anyhow::Result<Self> {
+    fn new(path: &impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let src = std::fs::File::open(path).context("failed to open file")?;
         let mss = MediaSourceStream::new(Box::new(src), Default::default());
@@ -61,18 +60,12 @@ impl AudioReader {
             .codec_params
             .sample_rate
             .context("missing sample rate")?;
-        let channel_count = track
-            .codec_params
-            .channels
-            .context("missing audio channels")?
-            .count();
 
         Ok(Self {
             format,
             decoder,
             track_id,
             sample_rate,
-            channel_count,
         })
     }
 
@@ -96,21 +89,38 @@ impl AudioReader {
 pub fn calc_fingerprint(
     path: impl AsRef<Path>,
     config: &Configuration,
-) -> anyhow::Result<(Vec<u32>, Duration)> {
+) -> Result<(Vec<u32>, Duration)> {
     let mut reader = AudioReader::new(&path).context("initializing audio reader")?;
-
     let mut printer = Fingerprinter::new(config);
 
-    let channel_count: u32 = reader
-        .channel_count
-        .try_into()
-        .context("converting channel count")?;
+    let mut total_frames = 0;
+
+    let sample_rate = reader.sample_rate;
+
+    let first_audio_buf = match reader.next_buffer() {
+        Ok(buffer) => buffer,
+        Err(Error::DecodeError(err)) => return Err(Error::DecodeError(err).into()),
+        Err(_) => return Err(anyhow!("No audio data found or reader error")),
+    };
+
+    let num_channels: usize = first_audio_buf.spec().channels.count();
+
     printer
-        .start(reader.sample_rate, channel_count)
+        .start(sample_rate, num_channels as u32)
         .context("initializing fingerprinter")?;
 
-    let mut sample_buf = None;
-    let mut total_frames = 0;
+    let spec = *first_audio_buf.spec();
+    let duration = first_audio_buf.capacity() as u64;
+    let mut sample_buf = Some(SampleBuffer::<i16>::new(duration, spec));
+
+    if let Some(buf) = &mut sample_buf {
+        let frame_size = first_audio_buf.frames();
+        total_frames += frame_size;
+
+        buf.copy_interleaved_ref(first_audio_buf);
+        let frame_data = buf.samples();
+        printer.consume(&frame_data[..frame_size * num_channels]);
+    }
 
     loop {
         let audio_buf = match reader.next_buffer() {
@@ -119,19 +129,13 @@ pub fn calc_fingerprint(
             Err(_) => break,
         };
 
-        if sample_buf.is_none() {
-            let spec = *audio_buf.spec();
-            let duration = audio_buf.capacity() as u64;
-            sample_buf = Some(SampleBuffer::<i16>::new(duration, spec));
-        }
-
         if let Some(buf) = &mut sample_buf {
             let frame_size = audio_buf.frames();
             total_frames += frame_size;
 
             buf.copy_interleaved_ref(audio_buf);
             let frame_data = buf.samples();
-            printer.consume(&frame_data[..frame_size * reader.channel_count]);
+            printer.consume(&frame_data[..frame_size * num_channels]);
         }
     }
 

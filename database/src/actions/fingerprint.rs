@@ -81,7 +81,7 @@ where
                         Err(e) => error!("Failed to insert fingerprint: {}", e),
                     }
                 }
-                Err(e) => error!("Failed to compute fingerprint: {}", e),
+                Err(e) => error!("Failed to compute fingerprint: {:#?}", e),
             }
         }
     )
@@ -101,8 +101,10 @@ fn compute_single_fingerprint(
         }
     }
 
-    calc_fingerprint(&file_path, config)
-        .with_context(|| format!("Failed to compute fingerprint for: {}", file_path.display()))
+    let result = calc_fingerprint(&file_path, config)
+        .with_context(|| format!("compute fingerprint for: {}", file_path.display()))?;
+
+    Ok(result)
 }
 
 pub async fn has_fingerprint(main_db: &DatabaseConnection, file_id: i32) -> Result<bool> {
