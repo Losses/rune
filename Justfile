@@ -38,3 +38,8 @@ macos-build:
   ./scripts/macos_2_build.sh
 
 macos-build-all: macos-install macos-build
+
+ios-ci-all-appstore:
+  ./scripts/apple/ios/1_ci_setup_deps.sh
+  ./scripts/apple/ios/2_build_for_appstore.sh
+  ./scripts/apple/ios/3_submit_to_appstore.sh
