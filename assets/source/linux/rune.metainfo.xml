@@ -57,6 +57,19 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.4" date="2025-03-19">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Light mode not working on iOS issue by @XMLHexagram.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Add CI scripts for iOS App Store build by @laosb.</li>
+          <li>Adding track de-duplication.</li>
+        </ul>
+      </description>
+    </release>
     <release version="2.0.0-alpha.3" date="2025-03-12">
       <description>
         <p>Bugs</p>
