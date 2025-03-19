@@ -14,7 +14,7 @@ use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use tag_editor::music_brainz::fingerprint::{
-    calc_fingerprint, calculate_similarity_score, match_fingerprints,
+    calc_fingerprint, calculate_similarity_score, get_track_duration_in_secs, match_fingerprints,
 };
 pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 
@@ -278,7 +278,12 @@ where
                 let fp2 = load_fingerprint(db.clone(), id2).await?;
 
                 let segments = match_fingerprints(&fp1, &fp2, &config)?;
-                let similarity = calculate_similarity_score(&segments, &config);
+                let similarity = calculate_similarity_score(
+                    &segments,
+                    get_track_duration_in_secs(&fp1, &config)
+                        .max(get_track_duration_in_secs(&fp2, &config)),
+                    &config,
+                );
 
                 MediaFileSimilarity::insert(media_file_similarity::ActiveModel {
                     file_id1: ActiveValue::Set(id1),

@@ -6,6 +6,7 @@ use rusty_chromaprint::match_fingerprints;
 
 use tag_editor::music_brainz::fingerprint::calc_fingerprint;
 use tag_editor::music_brainz::fingerprint::calculate_similarity_score;
+use tag_editor::music_brainz::fingerprint::get_track_duration_in_secs;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Audio fingerprint comparison tool", long_about = None)]
@@ -68,8 +69,12 @@ fn main() -> anyhow::Result<()> {
     println!("{}", "-".repeat(80));
 
     // Calculate and display final similarity score
-    let similarity = calculate_similarity_score(&segments, &config);
-    println!("\n[RESULT] Overall similarity score: {:.3}", similarity);
+    let similarity = calculate_similarity_score(
+        &segments,
+        get_track_duration_in_secs(&fp1, &config).max(get_track_duration_in_secs(&fp2, &config)),
+        &config,
+    );
+    println!("\nOverall similarity score: {:.3}", similarity);
 
     Ok(())
 }

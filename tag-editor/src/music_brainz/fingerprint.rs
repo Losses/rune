@@ -177,18 +177,22 @@ pub fn encode_fingerprint(
     }
 }
 
-pub fn calculate_similarity_score(segments: &[Segment], config: &Configuration) -> f32 {
+pub fn calculate_similarity_score(segments: &[Segment], duration_secs: f32, config: &Configuration) -> f32 {
     let mut total = 0.0;
-    let mut duration_sum = 0.0;
     for seg in segments {
         let duration = seg.duration(config);
         let score = 1.0 - (seg.score as f32 / 32.0);
         total += score * duration;
-        duration_sum += duration;
     }
-    if duration_sum > 0.0 {
-        total / duration_sum
+    if duration_secs > 0.0 {
+        total / duration_secs
     } else {
         0.0
     }
+}
+
+pub fn get_track_duration_in_secs(fingerprint: &[u32], config: &Configuration) -> f32 {
+    let item_duration = config.item_duration_in_seconds();
+    let num_items = fingerprint.len();
+    item_duration * num_items as f32
 }
