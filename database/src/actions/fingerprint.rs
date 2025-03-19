@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result, anyhow};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{debug, info};
 use sea_orm::{
     ActiveModelTrait, ActiveValue, ColumnTrait, DatabaseConnection, EntityTrait, JoinType,
@@ -13,7 +13,9 @@ use sea_orm::{
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use tag_editor::music_brainz::fingerprint::{calc_fingerprint, match_fingerprints};
+use tag_editor::music_brainz::fingerprint::{
+    calc_fingerprint, calculate_similarity_score, match_fingerprints,
+};
 pub use tag_editor::music_brainz::fingerprint::{Configuration, Segment};
 
 use crate::entities::prelude::{MediaFileFingerprint, MediaFileSimilarity, MediaFiles};
@@ -330,22 +332,6 @@ async fn load_history_files(db: &DatabaseConnection, current_id: i32) -> Result<
     info!("Got {} history files", history_ids.len());
 
     Ok(history_ids)
-}
-
-fn calculate_similarity_score(segments: &[Segment], config: &Configuration) -> f32 {
-    let mut total = 0.0;
-    let mut duration_sum = 0.0;
-    for seg in segments {
-        let duration = seg.duration(config);
-        let score = 1.0 - (seg.score as f32 / 32.0);
-        total += score * duration;
-        duration_sum += duration;
-    }
-    if duration_sum > 0.0 {
-        total / duration_sum
-    } else {
-        0.0
-    }
 }
 
 pub fn bytes_to_u32s(bytes: Vec<u8>) -> Result<Vec<u32>> {

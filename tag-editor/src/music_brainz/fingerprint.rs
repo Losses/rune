@@ -176,3 +176,19 @@ pub fn encode_fingerprint(
         BASE64_URL_SAFE_NO_PAD.encode(&compressed_fingerprint)
     }
 }
+
+pub fn calculate_similarity_score(segments: &[Segment], config: &Configuration) -> f32 {
+    let mut total = 0.0;
+    let mut duration_sum = 0.0;
+    for seg in segments {
+        let duration = seg.duration(config);
+        let score = 1.0 - (seg.score as f32 / 32.0);
+        total += score * duration;
+        duration_sum += duration;
+    }
+    if duration_sum > 0.0 {
+        total / duration_sum
+    } else {
+        0.0
+    }
+}
