@@ -44,10 +44,8 @@ fn main() -> anyhow::Result<()> {
     );
 
     // Find matching segments
-    println!("\nComparing fingerprints...");
     let segments =
         match_fingerprints(&fp1, &fp2, &config).context("Fingerprint comparison failed")?;
-    println!("[SUCCESS] Found {} matching segments", segments.len());
 
     // Print results in a formatted way
     println!("\nMATCHING SEGMENTS:");
