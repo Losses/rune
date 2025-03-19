@@ -57,7 +57,7 @@ class AppTheme extends ChangeNotifier {
 
   final PaneDisplayMode displayMode = PaneDisplayMode.top;
 
-  WindowEffect windowEffect = (Platform.isLinux || Platform.isAndroid)
+  WindowEffect windowEffect = (Platform.isLinux || Platform.isAndroid || Platform.isIOS)
       ? WindowEffect.solid
       : WindowEffect.mica;
 
