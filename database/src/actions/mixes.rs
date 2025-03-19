@@ -20,6 +20,7 @@ use crate::actions::analysis::get_percentile_analysis_result;
 use crate::actions::cover_art::get_magic_cover_art_id;
 use crate::actions::playback_queue::list_playback_queue;
 use crate::connection::{MainDbConnection, RecommendationDbConnection};
+use crate::entities::media_file_fingerprint;
 use crate::entities::media_file_genres;
 use crate::entities::{
     media_analysis, media_file_albums, media_file_artists, media_file_playlists, media_file_stats,
@@ -742,7 +743,16 @@ pub async fn query_mix_media_files(
     };
 
     // Base query for media_files
-    let mut query = media_files::Entity::find();
+    let mut query = media_files::Entity::find()
+        .join(
+            JoinType::LeftJoin,
+            media_file_fingerprint::Relation::MediaFiles.def().rev(),
+        )
+        .filter(
+            Condition::any()
+                .add(media_file_fingerprint::Column::IsDuplicated.is_null())
+                .add(media_file_fingerprint::Column::IsDuplicated.ne(1)),
+        );
 
     // Create an OR condition to hold all the subconditions
     let mut or_condition = Condition::any();
