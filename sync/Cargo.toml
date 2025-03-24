@@ -1,0 +1,12 @@
+[package]
+name = "sync"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "sync"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2.0.12"
