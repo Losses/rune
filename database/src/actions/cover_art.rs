@@ -27,7 +27,7 @@ use super::utils::DatabaseExecutor;
 
 pub async fn get_magic_cover_art(
     main_db: &DatabaseConnection,
-) -> std::result::Result<std::option::Option<media_cover_art::Model>, sea_orm::DbErr> {
+) -> Result<Option<media_cover_art::Model>, sea_orm::DbErr> {
     media_cover_art::Entity::find()
         .filter(media_cover_art::Column::FileHash.eq(String::new()))
         .one(main_db)
