@@ -56,13 +56,89 @@ pub struct ChunkingOptions {
     pub node_id: Uuid,
 }
 
-impl Default for ChunkingOptions {
-    fn default() -> Self {
+/// Scenario: Frequently updated data (e.g., collaborative documents, user status, shared lists)
+/// primarily accessed/synced by mobile devices or clients on potentially unreliable/low-bandwidth
+/// networks.
+///
+/// Goal: Prioritize small chunks for recent data to minimize sync payload for frequent, small
+/// changes. Keep maximum chunk size manageable for constrained devices/networks.
+///
+/// Rationale: Low min_size and alpha ensure high granularity for recent and moderately recent
+/// changes. Low max_size prevents large downloads/processing burdens on less capable clients or
+/// poor networks.
+pub fn high_frequency_mobile_preset(node_id: Uuid) -> ChunkingOptions {
+    ChunkingOptions {
+        min_size: 50,    // Very small chunks for the latest data
+        max_size: 2_000, // Relatively small max size for older data
+        alpha: 0.25,     // Slow growth rate, keeps chunks smaller for longer
+        node_id,
+    }
+}
+
+/// Scenario: Primarily append-only data (e.g., logs, event streams, analytics) managed on backend
+/// systems or synced between servers with good network connectivity. Old data rarely or never
+/// changes.
+///
+/// Goal: Efficiently handle large volumes of historical data by grouping it into large chunks, while
+/// still having reasonable chunks for recent additions. Minimize the total number of chunks for
+/// history.
+///
+/// Rationale: Higher min_size suits batch appends. High alpha rapidly increases chunk size for older,
+/// stable data. High max_size reduces the overall chunk count for deep history, optimizing
+/// storage/transfer between capable systems.
+pub fn append_optimized_backend_preset(node_id: Uuid) -> ChunkingOptions {
+    ChunkingOptions {
+        min_size: 250,    // Moderate size for recent batches of appends
+        max_size: 20_000, // Allow very large chunks for stable historical data
+        alpha: 0.7,       // Fast growth rate, quickly merges old data
+        node_id,
+    }
+}
+
+/// Scenario: General-purpose application data (e.g., project management items, settings,
+/// reference data) synced with web or desktop clients on typical broadband networks. Data might see
+/// occasional updates even when older.
+///
+/// Goal: A balanced approach offering good granularity for recent changes without creating excessive
+/// numbers of chunks or overly large ones for history.
+///
+/// Rationale: A middle-ground configuration. min_size=100 is common. max_size=10000 aligns with the
+/// original suggestion. alpha=0.45 provides a noticeable increase for older data but doesn't jump
+/// to the max size immediately.
+pub fn balanced_web_desktop_preset(node_id: Uuid) -> ChunkingOptions {
+    ChunkingOptions {
+        min_size: 100,    // Standard small size for recent items
+        max_size: 10_000, // Standard max size limit
+        alpha: 0.45,      // Moderate growth rate
+        node_id,
+    }
+}
+
+/// Scenario: Focused on optimizing the first time a client syncs a large existing dataset, potentially
+/// on a good network. Less concerned about subsequent incremental syncs (though still functional).
+///
+/// Goal: Reduce the number of round trips/requests needed for the initial bulk download by using larger
+/// chunks more quickly.
+///
+/// Rationale: Larger min_size and relatively high alpha/max_size reduce the total chunk count,
+/// potentially speeding up a full dataset download where bandwidth isn't the primary bottleneck. Might
+/// be less optimal for frequent small updates later.
+pub fn initial_sync_optimized(node_id: Uuid) -> ChunkingOptions {
+    ChunkingOptions {
+        min_size: 500,    // Start with larger chunks
+        max_size: 15_000, // Allow large historical chunks
+        alpha: 0.6,       // Grow fairly quickly
+        node_id,
+    }
+}
+
+impl ChunkingOptions {
+    pub fn default(node_id: Uuid) -> Self {
         ChunkingOptions {
-            min_size: 100,        // Example default minimum size
-            max_size: 10000,      // Default max size as suggested
-            alpha: 0.4,           // A balanced default alpha
-            node_id: Uuid::nil(), // Default to nil, should be set meaningfully
+            min_size: 100,    // Small enough for reasonable recent granularity
+            max_size: 10_000, // A widely accepted upper limit, prevents excessive size
+            alpha: 0.4,       // Moderate growth, balances recency vs history
+            node_id,
         }
     }
 }
