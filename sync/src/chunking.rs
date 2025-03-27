@@ -13,8 +13,6 @@ use uuid::Uuid;
 
 // Use the refined HLC module functions/traits
 use crate::hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC};
-// Make sure hlc module is accessible, e.g., pub mod hlc; in lib.rs or main.rs
-// Or if it's in the same crate: use crate::hlc::*;
 
 const MILLISECONDS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -59,8 +57,6 @@ pub struct ChunkingOptions {
     pub node_id: Uuid,
 }
 
-// --- Presets remain the same ---
-// ... (copy high_frequency_mobile_preset, append_optimized_backend_preset, etc.) ...
 /// Scenario: Frequently updated data (e.g., collaborative documents, user status, shared lists)
 /// primarily accessed/synced by mobile devices or clients on potentially unreliable/low-bandwidth
 /// networks.
