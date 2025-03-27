@@ -167,11 +167,11 @@ use uuid::Uuid;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct HLC {
     /// Physical timestamp component, in milliseconds since the Unix epoch.
-    timestamp: u64,
+    pub timestamp: u64,
     /// Logical counter component, incremented for events within the same millisecond.
-    version: u32,
+    pub version: u32,
     /// Unique identifier for the node that generated this HLC.
-    node_id: Uuid,
+    pub node_id: Uuid,
 }
 
 impl std::fmt::Display for HLC {
