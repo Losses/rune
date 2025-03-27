@@ -43,7 +43,9 @@ use std::{
 use anyhow::{bail, Context, Result};
 use blake3::Hasher;
 use chrono::{LocalResult, TimeZone, Utc};
-use sea_orm::{entity::prelude::*, Condition, DatabaseConnection, PaginatorTrait, QueryOrder};
+use sea_orm::{
+    entity::prelude::*, Condition, DatabaseConnection, PaginatorTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 
 /// Converts a Unix timestamp (in seconds since epoch) to an RFC3339 formatted string.
@@ -399,6 +401,26 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
             ))
     }
 }
+
+pub trait HLCQuery: Sized + QueryOrder {
+    fn order_by_hlc_asc<E>(self) -> Self
+    where
+        E: EntityTrait + HLCModel,
+    {
+        self.order_by_asc(E::updated_at_time_column())
+            .order_by_asc(E::updated_at_version_column())
+    }
+
+    fn order_by_hlc_desc<E>(self) -> Self
+    where
+        E: EntityTrait + HLCModel,
+    {
+        self.order_by_desc(E::updated_at_time_column())
+            .order_by_desc(E::updated_at_version_column())
+    }
+}
+
+impl<T: QueryOrder + Sized> HLCQuery for T {}
 
 /// Calculates the BLAKE3 hash of the data for an HLCRecord.
 ///

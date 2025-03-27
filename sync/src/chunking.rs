@@ -7,11 +7,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{bail, Context, Result};
 use blake3::Hasher;
 use log::{debug, info, warn};
-use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCRecord, HLC};
+use crate::hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC};
 
 const MILLISECONDS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -230,8 +230,7 @@ where
 
     // Find the latest HLC in the dataset to calculate age relative to the "present"
     let latest_record = E::find()
-        .order_by_desc(E::updated_at_time_column())
-        .order_by_desc(E::updated_at_version_column())
+        .order_by_hlc_desc::<E>()
         .one(db)
         .await
         .context("Failed to query latest record HLC")?;
@@ -287,8 +286,7 @@ where
         // Let's implement the query directly here.
         let records: Vec<E::Model> = E::find()
             .filter(E::gt(&current_hlc)?) // Find records strictly *after* current HLC
-            .order_by_asc(E::updated_at_time_column())
-            .order_by_asc(E::updated_at_version_column())
+            .order_by_hlc_asc::<E>()
             .limit(window_size) // Limit the number of records fetched
             .all(db)
             .await
@@ -425,8 +423,7 @@ where
 
     let records: Vec<E::Model> = E::find()
         .filter(E::between(&parent_chunk.start_hlc, &parent_chunk.end_hlc)?)
-        .order_by_asc(E::updated_at_time_column())
-        .order_by_asc(E::updated_at_version_column())
+        .order_by_hlc_asc::<E>()
         // .limit(parent_chunk.count + 1) // Fetch slightly more to detect inconsistencies? Or trust count.
         .all(db)
         .await
