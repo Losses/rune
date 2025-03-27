@@ -47,119 +47,74 @@ use sea_orm::{
     entity::prelude::*, Condition, DatabaseConnection, PaginatorTrait, QueryFilter, QueryOrder,
 };
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-/// Converts a Unix timestamp (in seconds since epoch) to an RFC3339 formatted string.
-///
-/// This function takes a u64 representing the number of non-leap seconds since
-/// January 1, 1970 0:00:00 UTC (Unix timestamp) and converts it into an RFC3339
-/// formatted string representing the corresponding UTC datetime.
-///
-/// It handles potential errors such as out-of-range timestamps and returns a `Result`
-/// to indicate success or failure.
-///
-/// # Arguments
-///
-/// * `timestamp` - A u64 representing the Unix timestamp (seconds since epoch).
-///
-/// # Returns
-///
-/// * `Result<String, Box<dyn std::error::Error>>` -
-///     - `Ok(String)`:  If the conversion is successful, returns a `String` containing
-///       the RFC3339 formatted datetime string in UTC.
-///     - `Err(Box<dyn std::error::Error>)`: If an error occurs during the conversion,
-///       returns an `Err` containing a boxed error trait object describing the error.
-///       The possible errors include:
-///         - Timestamp out of range: If the provided timestamp is outside the valid range
-///           that `chrono` can handle, a "Timestamp out of range" error will be returned.
-///
-/// # Examples
-///
-/// ```
-/// use timestamp_to_rfc3339::timestamp_to_rfc3339; // Assuming your crate is named timestamp_to_rfc3339
-///
-/// fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let timestamp: u64 = 1678886400; // Example timestamp (March 15, 2023 00:00:00 UTC)
-///     let rfc3339_string = timestamp_to_rfc3339(timestamp)?;
-///     println!("RFC3339 String: {}", rfc3339_string); // Output: RFC3339 String: 2023-03-15T00:00:00.000Z
-///
-///     let invalid_timestamp: u64 = u64::MAX; // A very large timestamp, likely out of range
-///     let result = timestamp_to_rfc3339(invalid_timestamp);
-///     if let Err(error) = result {
-///         eprintln!("Error: {}", error); // Output: Error: Timestamp is out of range
-///     }
-///
-///     Ok(())
-/// }
-/// ```
-///
-/// # Errors
-///
-/// This function can return an error if the provided timestamp is out of the representable range
-/// for `chrono::DateTime`.  The error kind will be described in the `Err` variant of the `Result`.
-pub fn timestamp_to_rfc3339(timestamp: u64) -> Result<String> {
-    let secs = timestamp as i64; // Convert u64 to i64 for chrono::timestamp_opt
+/// Converts a Unix timestamp (in milliseconds since epoch) to an RFC3339 formatted string for DB.
+/// SeaORM often uses chrono::DateTime<Utc> which maps well to RFC3339.
+/// NOTE: HLC uses milliseconds, but DB timestamp columns might store seconds or need specific formats.
+/// This function assumes the DB expects RFC3339 UTC. Adjust if your DB type differs.
+pub fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
+    // Convert milliseconds to seconds and nanoseconds
+    let secs = (millis / 1000) as i64;
+    let nanos = ((millis % 1000) * 1_000_000) as u32;
 
-    match Utc.timestamp_opt(secs, 0) {
+    match Utc.timestamp_opt(secs, nanos) {
         LocalResult::Single(datetime) => {
-            // Format the DateTime object to RFC3339 string.
-            // We use ".000Z" to ensure milliseconds are included and the 'Z' for UTC timezone.
-            let rfc3339_string = datetime.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+            // Format to RFC3339 with milliseconds precision
+            let rfc3339_string = datetime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
             Ok(rfc3339_string)
         }
         LocalResult::None => {
-            bail!("Timestamp is out of range") // Return an error if timestamp is invalid
+            bail!("HLC Milliseconds timestamp is out of range: {}", millis)
         }
         LocalResult::Ambiguous(..) => {
-            // Ambiguous should not happen for UTC timestamps, but we handle it for completeness.
-            bail!("Timestamp is ambiguous (should not happen for UTC)")
+            // Ambiguous should not happen for UTC timestamps
+            bail!(
+                "HLC Milliseconds timestamp is ambiguous (should not happen for UTC): {}",
+                millis
+            )
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+mod timestamp_tests {
+    // Renamed inner mod tests to avoid conflict
     use super::*;
 
     #[test]
-    fn test_valid_timestamp() -> Result<(), Box<dyn std::error::Error>> {
-        let timestamp: u64 = 1678886400; // March 15, 2023 00:00:00 UTC
-        let rfc3339_string = timestamp_to_rfc3339(timestamp)?;
-        assert_eq!(rfc3339_string, "2023-03-15T00:00:00.000Z");
+    fn test_hlc_millis_to_rfc3339_valid() -> Result<()> {
+        let millis: u64 = 1678886400123; // March 15, 2023 00:00:00.123 UTC
+        let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
+        // chrono format includes '+00:00' instead of 'Z' sometimes, both are valid RFC3339 UTC.
+        assert!(
+            rfc3339_string == "2023-03-15T00:00:00.123Z"
+                || rfc3339_string == "2023-03-15T00:00:00.123+00:00"
+        );
         Ok(())
     }
 
     #[test]
-    fn test_example_timestamp_from_doc() -> Result<(), Box<dyn std::error::Error>> {
-        let timestamp: u64 = 1431648000; // May 15, 2015 00:00:00 UTC from the example
-        let rfc3339_string = timestamp_to_rfc3339(timestamp)?;
-        assert_eq!(rfc3339_string, "2015-05-15T00:00:00.000Z");
+    fn test_hlc_millis_to_rfc3339_zero() -> Result<()> {
+        let millis: u64 = 0; // Epoch
+        let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
+        assert!(
+            rfc3339_string == "1970-01-01T00:00:00.000Z"
+                || rfc3339_string == "1970-01-01T00:00:00.000+00:00"
+        );
         Ok(())
     }
 
     #[test]
-    fn test_out_of_range_timestamp_max() {
-        let invalid_timestamp: u64 = u64::MAX;
-        let result = timestamp_to_rfc3339(invalid_timestamp);
+    fn test_hlc_millis_out_of_range() {
+        // chrono's range is roughly +/- 262,000 years from 1970.
+        // u64::MAX milliseconds is far beyond that.
+        let invalid_millis: u64 = u64::MAX;
+        let result = hlc_timestamp_millis_to_rfc3339(invalid_millis);
         assert!(result.is_err());
-        if let Err(error) = result {
-            assert_eq!(error.to_string(), "Timestamp is out of range");
-        }
-    }
-
-    #[test]
-    fn test_out_of_range_timestamp_zero_minus_one() {
-        let invalid_timestamp: u64 = 0; // Minimum possible u64, but let's try something conceptually before epoch
-        let secs: i64 = invalid_timestamp as i64 - 1; // Make it negative
-        let invalid_timestamp_neg = secs as u64; // Convert back to u64 (wraps around) - this is a very large u64 representing a negative i64.
-        let result = timestamp_to_rfc3339(invalid_timestamp_neg); // Pass the large u64
-        assert!(result.is_err());
-        if let Err(error) = result {
-            assert_eq!(error.to_string(), "Timestamp is out of range");
-        }
+        eprintln!("Out of range error: {:?}", result.err().unwrap()); // Print error for info
     }
 }
-
-use uuid::Uuid;
 
 /// Represents a Hybrid Logical Clock (HLC).
 ///
@@ -238,6 +193,14 @@ impl HLC {
             }
         };
 
+        // Basic overflow check for counter (though u32::MAX is large)
+        if counter == 0 && last_hlc.version == u32::MAX && timestamp == last_hlc.timestamp {
+            // Extremely unlikely: wrapped u32 within the same millisecond.
+            // Options: panic, log error, or potentially bump timestamp artificially (less ideal).
+            // For now, let's panic as it indicates a potentially serious issue or misuse.
+            panic!("HLC counter overflow detected within a single millisecond. Timestamp: {}, Node: {}", timestamp, context.node_id);
+        }
+
         let new_hlc = HLC {
             timestamp,
             version: counter,
@@ -253,18 +216,24 @@ impl FromStr for HLC {
 
     /// Parses an HLC from a string representation.
     ///
-    /// The string format is expected to be "timestamp-counter-node\_id".
+    /// The string format is expected to be "timestamp-counterHex-node_id".
     fn from_str(hlc_str: &str) -> Result<Self> {
         let parts: Vec<&str> = hlc_str.splitn(3, '-').collect();
         if parts.len() != 3 {
-            bail!("Invalid HLC string format");
+            bail!(
+                "Invalid HLC string format: expected 'timestamp-counterHex-node_id', got '{}'",
+                hlc_str
+            );
         }
 
         let timestamp = parts[0]
             .parse::<u64>()
-            .context("Invalid timestamp format in HLC")?;
-        let counter = u32::from_str_radix(parts[1], 16).context("Invalid counter format in HLC")?;
-        let node_id = Uuid::parse_str(parts[2]).context("Invalid node ID format in HLC")?;
+            .with_context(|| format!("Invalid timestamp format in HLC: '{}'", parts[0]))?;
+        // Ensure counter part has expected hex length if needed, though from_str_radix handles it.
+        let counter = u32::from_str_radix(parts[1], 16)
+            .with_context(|| format!("Invalid hex counter format in HLC: '{}'", parts[1]))?;
+        let node_id = Uuid::parse_str(parts[2])
+            .with_context(|| format!("Invalid node ID format in HLC: '{}'", parts[2]))?;
 
         Ok(HLC {
             timestamp,
@@ -274,135 +243,132 @@ impl FromStr for HLC {
     }
 }
 
-/// A trait for SeaORM entities that need HLC timestamps and hashing.
+/// A trait for SeaORM *Models* that need HLC timestamps and hashing.
 ///
-/// Entities implementing this trait can be tracked for changes over time
+/// Models implementing this trait can be tracked for changes over time
 /// using Hybrid Logical Clocks and their data can be hashed for integrity checks.
-pub trait HLCRecord: EntityTrait + Sized + Send + Sync + 'static {
-    /// Returns the HLC timestamp when the record was created.
-    ///
-    /// Should return `None` if the timestamp is not set.
+/// Note: Implemented on the `Model` struct, not the `Entity`.
+pub trait HLCRecord: Clone + Serialize + Send + Sync + 'static {
+    /// Returns the HLC timestamp when the record was created (if available).
+    /// Implementors should fetch this from the model's fields.
     fn created_at_hlc(&self) -> Option<HLC>;
 
     /// Returns the HLC timestamp when the record was last updated.
-    ///
-    /// Should return `None` if the timestamp is not set.
+    /// Implementors should fetch this from the model's fields.
+    /// This is crucial for ordering and chunking.
     fn updated_at_hlc(&self) -> Option<HLC>;
 
-    /// Returns the unique identifier of the record. Typically the primary key.
-    fn unique_id(&self) -> i32;
+    /// Returns a unique identifier for the record, suitable for logging or comparison.
+    /// Often the primary key, but needs conversion to a common type like String or i64 if PK varies.
+    fn unique_id(&self) -> String; // Changed to String for more flexibility
 
     /// Returns the data of the record as a JSON value for hashing.
     ///
     /// This should include all fields that are relevant for determining
-    /// if the record has changed.
+    /// if the record has changed. Exclude fields like `updated_at_hlc` itself
+    /// if the hash should only represent the *content*.
     fn data_for_hashing(&self) -> serde_json::Value;
 
     /// Returns a summary representation of the record data as a JSON value.
-    ///
-    /// This can be used for lightweight listings or change detection without
-    /// needing the full record data. Defaults to `data_for_hashing()` if not specifically implemented.
+    /// Defaults to `data_for_hashing()`.
     fn to_summary(&self) -> serde_json::Value {
-        self.data_for_hashing() // Default to full data if summary is not specifically implemented
+        self.data_for_hashing()
     }
 
     /// Returns the full data of the record as a JSON value.
-    ///
-    /// Defaults to `data_for_hashing()` if not specifically implemented.
-    /// Provides access to the complete record data.
+    /// Defaults to `data_for_hashing()`.
     fn full_data(&self) -> serde_json::Value {
-        self.data_for_hashing() // Default to data for hashing if full data is not specifically different
+        self.data_for_hashing()
     }
-
-    /// Gets the primary key column of the entity.
-    fn get_primary_key() -> String;
-
-    /// Gets the column for 'created_at_hlc'.
-    fn get_created_at_hlc() -> HLC;
-
-    /// Gets the column for 'updated_at_hlc'.
-    fn get_updated_at_hlc() -> HLC;
 }
 
+/// Trait for SeaORM Entities to provide HLC column information for querying.
 pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
+    /// Returns the SeaORM column definition for the HLC timestamp component.
+    /// Assumes this column stores a value comparable via RFC3339 strings (like DATETIME or TIMESTAMP).
     fn updated_at_time_column() -> Self::Column;
+
+    /// Returns the SeaORM column definition for the HLC version/counter component.
+    /// Assumes this column stores an integer type (like INTEGER or BIGINT).
     fn updated_at_version_column() -> Self::Column;
 
+    /// Creates a SeaORM condition for records strictly greater than the given HLC.
     fn gt(hlc: &HLC) -> Result<Condition> {
-        let timestamp = timestamp_to_rfc3339(hlc.timestamp)?;
+        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+            .with_context(|| format!("Failed to format GT timestamp for HLC {}", hlc))?;
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().gt(&timestamp))
+            .add(Self::updated_at_time_column().gt(timestamp_str.clone()))
             .add(
                 Self::updated_at_time_column()
-                    .eq(&timestamp)
-                    .and(Self::updated_at_version_column().gt(hlc.version)),
+                    .eq(timestamp_str)
+                    .and(Self::updated_at_version_column().gt(hlc.version as i32)), // Cast u32 to i32 if column is INTEGER
             ))
     }
 
+    /// Creates a SeaORM condition for records less than the given HLC.
     fn lt(hlc: &HLC) -> Result<Condition> {
-        let timestamp = timestamp_to_rfc3339(hlc.timestamp)?;
+        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+            .with_context(|| format!("Failed to format LT timestamp for HLC {}", hlc))?;
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().lt(&timestamp))
+            .add(Self::updated_at_time_column().lt(timestamp_str.clone()))
             .add(
                 Self::updated_at_time_column()
-                    .eq(&timestamp)
-                    .and(Self::updated_at_version_column().lt(hlc.version)),
+                    .eq(timestamp_str)
+                    .and(Self::updated_at_version_column().lt(hlc.version as i32)),
             ))
     }
 
+    /// Creates a SeaORM condition for records greater than or equal to the given HLC.
     fn gte(hlc: &HLC) -> Result<Condition> {
-        let timestamp = timestamp_to_rfc3339(hlc.timestamp)?;
+        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+            .with_context(|| format!("Failed to format GTE timestamp for HLC {}", hlc))?;
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().gt(&timestamp))
+            .add(Self::updated_at_time_column().gt(timestamp_str.clone()))
             .add(
                 Self::updated_at_time_column()
-                    .eq(&timestamp)
-                    .and(Self::updated_at_version_column().gte(hlc.version)),
+                    .eq(timestamp_str)
+                    .and(Self::updated_at_version_column().gte(hlc.version as i32)),
             ))
     }
 
+    /// Creates a SeaORM condition for records less than or equal to the given HLC.
     fn lte(hlc: &HLC) -> Result<Condition> {
-        let timestamp = timestamp_to_rfc3339(hlc.timestamp)?;
+        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+            .with_context(|| format!("Failed to format LTE timestamp for HLC {}", hlc))?;
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().lt(&timestamp))
+            .add(Self::updated_at_time_column().lt(timestamp_str.clone()))
             .add(
                 Self::updated_at_time_column()
-                    .eq(&timestamp)
-                    .and(Self::updated_at_version_column().lte(hlc.version)),
+                    .eq(timestamp_str)
+                    .and(Self::updated_at_version_column().lte(hlc.version as i32)),
             ))
     }
 
+    /// Creates a SeaORM condition for records within the given HLC range (inclusive).
     fn between(start_hlc: &HLC, end_hlc: &HLC) -> Result<Condition> {
-        let start_timestamp = timestamp_to_rfc3339(start_hlc.timestamp)?;
-        let end_timestamp = timestamp_to_rfc3339(end_hlc.timestamp)?;
+        // Ensure start <= end for logical consistency, though DB might handle it.
+        if start_hlc > end_hlc {
+            bail!(
+                "Start HLC {} must be less than or equal to End HLC {} for between condition",
+                start_hlc,
+                end_hlc
+            );
+        }
 
+        // Use GTE for start and LTE for end
         Ok(Condition::all()
-            .add(
-                Condition::any()
-                    .add(Self::updated_at_time_column().gt(&start_timestamp))
-                    .add(
-                        Self::updated_at_time_column()
-                            .eq(&start_timestamp)
-                            .and(Self::updated_at_version_column().gte(start_hlc.version)),
-                    ),
-            )
-            .add(
-                Condition::any()
-                    .add(Self::updated_at_time_column().lt(&end_timestamp))
-                    .add(
-                        Self::updated_at_time_column()
-                            .eq(&end_timestamp)
-                            .and(Self::updated_at_version_column().lte(end_hlc.version)),
-                    ),
-            ))
+            .add(Self::gte(start_hlc)?)
+            .add(Self::lte(end_hlc)?))
     }
 }
 
+/// Extension trait for SeaORM queries to add HLC-based ordering.
 pub trait HLCQuery: Sized + QueryOrder {
+    /// Orders the query results by HLC timestamp and version in ascending order.
     fn order_by_hlc_asc<E>(self) -> Self
     where
         E: EntityTrait + HLCModel,
@@ -411,6 +377,7 @@ pub trait HLCQuery: Sized + QueryOrder {
             .order_by_asc(E::updated_at_version_column())
     }
 
+    /// Orders the query results by HLC timestamp and version in descending order.
     fn order_by_hlc_desc<E>(self) -> Self
     where
         E: EntityTrait + HLCModel,
@@ -420,144 +387,105 @@ pub trait HLCQuery: Sized + QueryOrder {
     }
 }
 
+// Auto-implement HLCQuery for any type that implements QueryOrder.
 impl<T: QueryOrder + Sized> HLCQuery for T {}
 
-/// Calculates the BLAKE3 hash of the data for an HLCRecord.
+/// Calculates the BLAKE3 hash of the data for an HLCRecord Model.
 ///
-/// Serializes the data returned by `data_for_hashing()` into JSON format
-/// and then calculates the BLAKE3 hash of the JSON string.
-pub fn calculate_hash<R: HLCRecord>(record: &R) -> Result<String> {
+/// Serializes the data returned by `data_for_hashing()` into *canonical* JSON format
+/// (sorted keys) and then calculates the BLAKE3 hash of the JSON string.
+/// Using canonical JSON ensures the hash is consistent regardless of field order during serialization.
+pub fn calculate_hash<R>(record: &R) -> Result<String>
+where
+    R: HLCRecord,
+{
     let data = record.data_for_hashing();
-    let json_string = serde_json::to_string(&data).context("Failed to serialize data to JSON")?;
+    // Use serde_json::to_vec for canonical representation
+    let json_bytes =
+        serde_json::to_vec(&data).context("Failed to serialize data to canonical JSON bytes")?;
 
     let mut hasher = Hasher::new();
-    hasher.update(json_string.as_bytes());
+    hasher.update(&json_bytes);
     let hash_bytes = hasher.finalize();
     Ok(hash_bytes.to_hex().to_string())
 }
 
 /// Fetches data created or updated before or at a given HLC, paginated.
-///
-/// Retrieves records from the database that have an 'updated_at_hlc' value
-/// less than or equal to the specified HLC. Results are paginated.
-///
-/// # Type Parameters
-///
-/// *   `R`: Must implement the `HLCRecord` trait and be convertible to `ActiveModelTrait`.
-///
-/// # Arguments
-///
-/// *   `db`: A database connection.
-/// *   `hlc`: The HLC timestamp to compare against (inclusive).
-/// *   `page`: The page number to retrieve (starting from 0).
-/// *   `page_size`: The number of items per page.
-/// *   `include_full_data`: A boolean indicating whether to include full data in the response (currently not used in query).
-///
-/// # Returns
-///
-/// A `Result` containing a vector of `HLCRecord` items or an error.
-pub async fn get_data_before_hlc<R>(
+pub async fn get_data_before_hlc<E>(
     db: &DatabaseConnection,
     hlc: &HLC,
     page: u64,
     page_size: u64,
-) -> Result<Vec<R::Model>>
+) -> Result<Vec<E::Model>>
 where
-    R: HLCModel + EntityTrait + Sync,
-    <R as EntityTrait>::Model: Sync,
+    E: HLCModel + EntityTrait + Sync,
+    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    <E as EntityTrait>::Model: Sync,
 {
-    let column = R::updated_at_time_column();
-
-    let paginator = R::find()
-        .filter(R::lte(hlc)?)
-        .order_by_asc(column)
+    let paginator = E::find()
+        .filter(E::lte(hlc)?)
+        .order_by_hlc_desc::<E>() // Often want newest-first within the 'before' range
         .paginate(db, page_size);
 
-    let results = paginator.fetch_page(page).await?;
-
-    Ok(results)
+    paginator
+        .fetch_page(page)
+        .await
+        .context("Failed to fetch page for get_data_before_hlc")
 }
 
 /// Fetches data created or updated after a given HLC, paginated.
-///
-/// Retrieves records from the database that have an 'updated_at_hlc' value
-/// greater than the specified HLC. Results are paginated.
-///
-/// # Type Parameters
-///
-/// *   `R`: Must implement the `HLCRecord` trait and be convertible to `ActiveModelTrait`.
-///
-/// # Arguments
-///
-/// *   `db`: A database connection.
-/// *   `hlc`: The HLC timestamp to compare against (exclusive).
-/// *   `page`: The page number to retrieve (starting from 0).
-/// *   `page_size`: The number of items per page.
-/// *   `include_full_data`: A boolean indicating whether to include full data in the response (currently not used in query).
-///
-/// # Returns
-///
-/// A `Result` containing a vector of `HLCRecord` items or an error.
-pub async fn get_data_after_hlc<R>(
+pub async fn get_data_after_hlc<E>(
     db: &DatabaseConnection,
     hlc: &HLC,
     page: u64,
     page_size: u64,
-) -> Result<Vec<R::Model>>
+) -> Result<Vec<E::Model>>
 where
-    R: HLCModel + EntityTrait + Sync,
-    <R as EntityTrait>::Model: Sync,
+    E: HLCModel + EntityTrait + Sync,
+    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    <E as EntityTrait>::Model: Sync,
 {
-    let column = R::updated_at_time_column();
-
-    let paginator = R::find()
-        .filter(R::gt(hlc)?)
-        .order_by_asc(column)
+    let paginator = E::find()
+        .filter(E::gt(hlc)?)
+        .order_by_hlc_asc::<E>() // Usually want oldest-first for 'after' range (sync order)
         .paginate(db, page_size);
 
-    let results = paginator.fetch_page(page).await?;
-
-    Ok(results)
+    paginator
+        .fetch_page(page)
+        .await
+        .context("Failed to fetch page for get_data_after_hlc")
 }
 
-/// Fetches data created or updated within a specified HLC range.
-///
-/// Retrieves records from the database that have an 'updated_at_hlc' value
-/// within the range defined by `start_hlc` and `end_hlc` (inclusive).
-///
-/// # Type Parameters
-///
-/// *   `R`: Must implement the `HLCRecord` trait and be convertible to `ActiveModelTrait`.
-///
-/// # Arguments
-///
-/// *   `db`: A database connection.
-/// *   `start_hlc`: The starting HLC timestamp of the range (inclusive).
-/// *   `end_hlc`: The ending HLC timestamp of the range (inclusive).
-/// *   `include_full_data`: A boolean indicating whether to include full data in the response (currently not used in query).
-///
-/// # Returns
-///
-/// A `Result` containing a vector of `HLCRecord` items or an error.
-pub async fn get_data_in_hlc_range<R>(
+/// Fetches data created or updated within a specified HLC range (inclusive), paginated.
+pub async fn get_data_in_hlc_range<E>(
     db: &DatabaseConnection,
     start_hlc: &HLC,
     end_hlc: &HLC,
     page: u64,
     page_size: u64,
-) -> Result<Vec<R::Model>>
+) -> Result<Vec<E::Model>>
 where
-    R: HLCModel + EntityTrait + Sync,
-    <R as EntityTrait>::Model: Sync,
+    E: HLCModel + EntityTrait + Sync,
+    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    <E as EntityTrait>::Model: Sync,
 {
-    let column = R::updated_at_time_column();
-
-    let paginator = R::find()
-        .filter(R::between(start_hlc, end_hlc)?)
-        .order_by_asc(column)
+    let paginator = E::find()
+        .filter(E::between(start_hlc, end_hlc)?)
+        .order_by_hlc_asc::<E>() // Usually want oldest-first within a range
         .paginate(db, page_size);
 
-    let results = paginator.fetch_page(page).await?;
+    paginator
+        .fetch_page(page)
+        .await
+        .context("Failed to fetch page for get_data_in_hlc_range")
+}
 
-    Ok(results)
+// Example Usage Helper (if needed, outside of tests)
+#[allow(dead_code)]
+pub fn create_hlc(ts: u64, v: u32, node_id_str: &str) -> HLC {
+    HLC {
+        timestamp: ts,
+        version: v,
+        node_id: Uuid::parse_str(node_id_str).unwrap(),
+    }
 }

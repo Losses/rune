@@ -11,7 +11,10 @@ use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, QuerySelect};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+// Use the refined HLC module functions/traits
 use crate::hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC};
+// Make sure hlc module is accessible, e.g., pub mod hlc; in lib.rs or main.rs
+// Or if it's in the same crate: use crate::hlc::*;
 
 const MILLISECONDS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 
@@ -45,17 +48,19 @@ pub struct SubDataChunk {
 /// Configuration options for the chunk generation algorithm.
 #[derive(Debug, Clone)]
 pub struct ChunkingOptions {
-    /// Minimum number of records in a chunk.
+    /// Minimum number of records in a chunk. Must be > 0.
     pub min_size: u64,
-    /// Maximum number of records in a chunk.
+    /// Maximum number of records in a chunk. Must be >= min_size.
     pub max_size: u64,
     /// Exponential decay factor (α). Higher values mean chunk sizes increase faster for older data.
-    /// Recommended: 0.3 for frequently changing data, 0.6 for stable data.
+    /// Recommended: 0.3 for frequently changing data, 0.6 for stable data. Range [0, inf).
     pub alpha: f64,
     /// The Node ID used for HLC comparison if needed (e.g., comparing with HLC::new).
     pub node_id: Uuid,
 }
 
+// --- Presets remain the same ---
+// ... (copy high_frequency_mobile_preset, append_optimized_backend_preset, etc.) ...
 /// Scenario: Frequently updated data (e.g., collaborative documents, user status, shared lists)
 /// primarily accessed/synced by mobile devices or clients on potentially unreliable/low-bandwidth
 /// networks.
@@ -133,6 +138,7 @@ pub fn initial_sync_optimized(node_id: Uuid) -> ChunkingOptions {
 }
 
 impl ChunkingOptions {
+    /// Creates default chunking options.
     pub fn default(node_id: Uuid) -> Self {
         ChunkingOptions {
             min_size: 100,    // Small enough for reasonable recent granularity
@@ -141,17 +147,27 @@ impl ChunkingOptions {
             node_id,
         }
     }
+
+    /// Validates the chunking options.
+    pub fn validate(&self) -> Result<()> {
+        if self.min_size == 0 {
+            bail!("min_size must be greater than 0");
+        }
+        if self.max_size < self.min_size {
+            bail!("max_size must be greater than or equal to min_size");
+        }
+        if self.alpha < 0.0 {
+            bail!("alpha must be non-negative");
+        }
+        Ok(())
+    }
 }
 
-/// Calculates the combined BLAKE3 hash for a slice of records.
+/// Calculates the combined BLAKE3 hash for a slice of HLCRecord models.
 ///
-/// This function iterates through the provided records, calculates the individual
-/// hash for each record using `calculate_record_hash`, and then computes a
-/// final BLAKE3 hash over the concatenation of these individual hex hash strings.
-/// This serves as the `chunk_hash`.
-///
-/// Note: This is a simplified approach. A true Merkle tree would involve
-/// pairing and hashing recursively, which is more complex but offers proofs of inclusion.
+/// Hashes the canonical JSON representation of each record's `data_for_hashing`
+/// and then computes a final BLAKE3 hash over the concatenation of these
+/// individual hex hash strings.
 ///
 /// # Arguments
 ///
@@ -159,27 +175,31 @@ impl ChunkingOptions {
 ///
 /// # Returns
 ///
-/// A `Result` containing the hex-encoded BLAKE3 hash string for the chunk,
-/// or an error if hashing fails for any record.
-pub fn calculate_chunk_hash<E>(records: &[E::Model]) -> Result<String>
+/// A `Result` containing the hex-encoded BLAKE3 hash string for the chunk.
+pub fn calculate_chunk_hash<Model>(records: &[Model]) -> Result<String>
 where
-    E: HLCRecord + EntityTrait,
-    E::Model: HLCRecord + Send + Sync + Serialize, // Ensure Model implements HLCRecord and Serialize
+    Model: HLCRecord + Serialize + Send + Sync, // Model implements HLCRecord
 {
     if records.is_empty() {
         // Define a hash for an empty chunk (e.g., hash of an empty string)
-        let mut hasher = Hasher::new();
-        hasher.update(b"");
+        // Consistent definition is important.
+        let hasher = Hasher::new();
+        // hasher.update(b""); // Hash of empty string
+        // Or hash of a specific marker? Let's stick with empty string for simplicity.
         return Ok(hasher.finalize().to_hex().to_string());
+        // Alternative: Blake3 hash of empty input is af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262
+        // return Ok("af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262".to_string());
     }
 
     let mut chunk_hasher = Hasher::new();
     for record_model in records {
-        // Calculate individual record hash
-        // We need HLCRecord trait implemented for Model or accessible via Entity
-        // Assuming Model implements HLCRecord:
-        let record_hash_hex = calculate_record_hash(record_model)
-            .with_context(|| "Failed to calculate hash for record".to_string())?; // Adjust based on how unique_id is accessed if needed
+        // Calculate individual record hash using the function from the hlc module
+        let record_hash_hex = calculate_record_hash(record_model).with_context(|| {
+            format!(
+                "Failed to calculate hash for record ID {}", // Use unique_id for better context
+                record_model.unique_id()
+            )
+        })?;
 
         // Update chunk hasher with the hex string bytes of the record hash
         chunk_hasher.update(record_hash_hex.as_bytes());
@@ -195,30 +215,30 @@ where
 ///
 /// # Type Parameters
 ///
-/// * `E`: The SeaORM `EntityTrait` representing the table to chunk. Must also implement `HLCModel`.
-///        Its associated `Model` must implement `HLCRecord`.
+/// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
+///        `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
 /// * `db`: A database connection.
 /// * `options`: `ChunkingOptions` specifying min/max sizes and alpha.
 /// * `start_hlc_exclusive`: Optional HLC. If provided, chunking starts *after* this HLC.
-///                          If `None`, starts from the beginning.
 ///
 /// # Returns
 ///
-/// A `Result` containing a vector of `DataChunk` metadata, ordered by HLC,
-/// or an error if database access or hashing fails.
+/// A `Result` containing a vector of `DataChunk` metadata, ordered by HLC.
 pub async fn generate_data_chunks<E>(
     db: &DatabaseConnection,
     options: &ChunkingOptions,
     start_hlc_exclusive: Option<HLC>,
 ) -> Result<Vec<DataChunk>>
 where
-    E: HLCModel + EntityTrait + Sync + HLCRecord,
-    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord, Clone, Serialize
+    E: HLCModel + EntityTrait + Sync, // E needs HLCModel for queries
+    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord
     <E as EntityTrait>::Model: Sync,
 {
+    options.validate()?; // Validate options first
+
     info!(
         "Starting chunk generation for entity {:?} with options: {:?}",
         std::any::type_name::<E>(),
@@ -226,22 +246,25 @@ where
     );
 
     let mut chunks = Vec::new();
-    let mut current_hlc = start_hlc_exclusive.unwrap_or_else(|| HLC::new(options.node_id)); // Start from beginning or specified point
+    // Start from HLC(0,0,node) or the specified start point
+    let mut current_hlc = start_hlc_exclusive.unwrap_or_else(|| HLC::new(options.node_id));
 
     // Find the latest HLC in the dataset to calculate age relative to the "present"
-    let latest_record = E::find()
+    let latest_record_opt: Option<E::Model> = E::find()
         .order_by_hlc_desc::<E>()
         .one(db)
         .await
         .context("Failed to query latest record HLC")?;
 
-    let latest_hlc_timestamp = match latest_record {
+    let latest_hlc_timestamp = match latest_record_opt {
         Some(record) => record
             .updated_at_hlc()
             .map(|h| h.timestamp)
             .unwrap_or_else(|| {
+                // This case should ideally not happen if HLCs are mandatory on update
                 warn!(
-                    "Latest record has no HLC timestamp, using current time for age calculation."
+                    "Latest record {} has no HLC timestamp, using current time for age calculation.",
+                    record.unique_id()
                 );
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -257,37 +280,68 @@ where
         }
     };
 
+    // Ensure latest_hlc_timestamp is non-zero if data exists, otherwise age calculation might be weird.
+    // If the latest timestamp is 0 (e.g., initial HLC), use current time? Or is 0 okay?
+    // Let's assume 0 is okay, age will be large.
+    // If latest_hlc_timestamp is 0 and current_hlc.timestamp is also 0, age is 0.
+    let effective_latest_timestamp = if latest_hlc_timestamp == 0 {
+        warn!("Latest HLC timestamp is 0, age calculation might result in larger initial chunks.");
+        latest_hlc_timestamp // Proceed with 0
+    } else {
+        latest_hlc_timestamp
+    };
+
     debug!(
         "Latest HLC timestamp for age calculation: {}",
-        latest_hlc_timestamp
+        effective_latest_timestamp
     );
 
+    let mut safety_count = 0;
+    const MAX_ITERATIONS: u32 = 1_000_000; // Safety break
+
     loop {
-        // Calculate age factor based on the start of the potential *next* chunk
-        let age_millis = latest_hlc_timestamp.saturating_sub(current_hlc.timestamp);
+        safety_count += 1;
+        if safety_count > MAX_ITERATIONS {
+            warn!(
+                "Chunk generation exceeded {} iterations, breaking loop. Check logic or data.",
+                MAX_ITERATIONS
+            );
+            // Consider returning an error instead?
+            // return Err(anyhow::anyhow!("Chunk generation exceeded maximum iterations ({})", MAX_ITERATIONS));
+            break;
+        }
+
+        // Calculate age factor based on the start HLC of the potential *next* chunk
+        // Age is difference between latest update anywhere and the start of this chunk.
+        let age_millis = effective_latest_timestamp.saturating_sub(current_hlc.timestamp);
         let age_days = age_millis as f64 / MILLISECONDS_PER_DAY as f64;
+
+        // Ensure age_factor doesn't become negative if clock sync caused latest_ts < current_ts
+        let non_negative_age_days = age_days.max(0.0);
+
         // Using ceil as per formula: `ceil(age_factor)`
         // We interpret `age_factor` directly as age in days here.
-        let age_factor_ceil = age_days.ceil();
+        let age_factor_ceil = non_negative_age_days.ceil();
 
         // Calculate dynamic window size using exponential decay formula
+        // size = min_size * (1 + alpha) ^ ceil(age_days)
         let desired_size = options.min_size as f64 * (1.0 + options.alpha).powf(age_factor_ceil);
-        let window_size = (desired_size.round() as u64)
-            .max(options.min_size)
-            .min(options.max_size);
+
+        // Clamp the size between min_size and max_size
+        let window_size = (desired_size.round() as u64) // Round to nearest integer
+            .max(options.min_size) // Ensure at least min_size
+            .min(options.max_size); // Ensure no more than max_size
 
         debug!(
-            "Current HLC: {}, Age (days): {:.2}, AgeFactorCeil: {}, DesiredSize: {:.2}, WindowSize: {}",
-            current_hlc, age_days, age_factor_ceil, desired_size, window_size
+            "Current HLC: {}, Age (days): {:.2} (raw {:.2}), AgeFactorCeil: {}, DesiredSize: {:.2}, WindowSize: {}",
+            current_hlc, non_negative_age_days, age_days, age_factor_ceil, desired_size, window_size
         );
 
-        // Fetch the next batch of records up to window_size
-        // We need a function like get_data_after_hlc but with a limit.
-        // Let's implement the query directly here.
+        // Fetch the next batch of records strictly *after* current_hlc, up to window_size
         let records: Vec<E::Model> = E::find()
-            .filter(E::gt(&current_hlc)?) // Find records strictly *after* current HLC
-            .order_by_hlc_asc::<E>()
-            .limit(window_size) // Limit the number of records fetched
+            .filter(E::gt(&current_hlc)?) // Use HLCModel::gt for correct comparison
+            .order_by_hlc_asc::<E>() // Order consistently
+            .limit(window_size) // Limit results
             .all(db)
             .await
             .with_context(|| {
@@ -302,36 +356,47 @@ where
                 "No more records found after HLC {}. Chunk generation complete.",
                 current_hlc
             );
-            break; // No more records
+            break; // No more records to process
         }
 
-        let first_record = records.first().unwrap(); // Safe because records is not empty
-        let last_record = records.last().unwrap(); // Safe because records is not empty
+        // Records vector is guaranteed non-empty here
+        let first_record = records.first().unwrap();
+        let last_record = records.last().unwrap();
 
+        // Extract HLCs from the records themselves
         let chunk_start_hlc = first_record
             .updated_at_hlc()
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Record {:?} is missing 'updated_at_hlc'",
+                    "Record {} is missing 'updated_at_hlc' (start of chunk)",
                     first_record.unique_id()
                 )
             })?
-            .clone(); // Assuming unique_id() is available on Model via HLCRecord trait
+            .clone();
 
         let chunk_end_hlc = last_record
             .updated_at_hlc()
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Record {:?} is missing 'updated_at_hlc'",
+                    "Record {} is missing 'updated_at_hlc' (end of chunk)",
                     last_record.unique_id()
                 )
             })?
             .clone();
 
+        // Ensure HLC ordering within the fetched batch (should be guaranteed by query order)
+        if chunk_start_hlc > chunk_end_hlc {
+            // This indicates a potential issue with query ordering or HLC data corruption
+            warn!("Inconsistent HLC order within fetched batch: Start {} > End {}. Record IDs: {} to {}",
+                 chunk_start_hlc, chunk_end_hlc, first_record.unique_id(), last_record.unique_id());
+            // Depending on requirements, maybe bail or log and continue? Bailing is safer.
+            bail!("Detected inconsistent HLC order within fetched batch for chunking.");
+        }
+
         let chunk_count = records.len() as u64;
 
-        // Calculate hash for the chunk
-        let chunk_hash = calculate_chunk_hash::<E>(&records).with_context(|| {
+        // Calculate hash for the chunk using the models fetched
+        let chunk_hash = calculate_chunk_hash::<E::Model>(&records).with_context(|| {
             format!(
                 "Failed to calculate hash for chunk [{}-{}], count {}",
                 chunk_start_hlc, chunk_end_hlc, chunk_count
@@ -348,17 +413,8 @@ where
         debug!("Generated chunk: {:?}", data_chunk);
         chunks.push(data_chunk);
 
-        // Update current_hlc to the end of the chunk we just created for the next iteration
+        // Update current_hlc to the HLC of the *last* record processed in this chunk
         current_hlc = chunk_end_hlc;
-
-        // Safety break in case of unexpected loop conditions (optional)
-        if chunks.len() > 1_000_000 {
-            // Arbitrary large number
-            warn!(
-                "Chunk generation exceeded 1,000,000 chunks, breaking loop. Check logic or data."
-            );
-            break;
-        }
     }
 
     info!(
@@ -377,149 +433,154 @@ where
 ///
 /// # Type Parameters
 ///
-/// * `E`: The SeaORM `EntityTrait` representing the table. Must also implement `HLCModel`.
-///        Its associated `Model` must implement `HLCRecord`.
+/// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
+///        `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
 /// * `db`: A database connection.
 /// * `parent_chunk`: The `DataChunk` metadata defining the range to break down.
-/// * `sub_chunk_size`: The desired number of records for each sub-chunk.
+/// * `sub_chunk_size`: The desired number of records for each sub-chunk. Must be > 0.
 ///
 /// # Returns
 ///
-/// A `Result` containing a vector of `SubChunkInfo` structs, each describing a
-/// sub-chunk derived from the `parent_chunk`. Returns an error if:
-///   - Database fetching fails.
-///   - The actual data found in the range does not match the `parent_chunk`'s count or hash.
-///   - Hashing fails.
+/// A `Result` containing a vector of `SubDataChunk` structs, or an error if verification fails.
 pub async fn break_data_chunk<E>(
     db: &DatabaseConnection,
     parent_chunk: &DataChunk,
     sub_chunk_size: u64,
 ) -> Result<Vec<SubDataChunk>>
 where
-    E: HLCModel + EntityTrait + Sync + HLCRecord,
-    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord, Clone, Serialize
+    E: HLCModel + EntityTrait + Sync, // E needs HLCModel
+    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord
     <E as EntityTrait>::Model: Sync,
 {
     info!(
-        "Breaking down chunk [{}-{}] (Count: {}, Hash: {}) into sub-chunks of size {}",
+        "Breaking down chunk [{}-{}] (Count: {}, Hash: {:.8}) into sub-chunks of size {}",
         parent_chunk.start_hlc,
         parent_chunk.end_hlc,
         parent_chunk.count,
-        parent_chunk.chunk_hash,
+        parent_chunk.chunk_hash, // Log only prefix for brevity
         sub_chunk_size
     );
 
     if sub_chunk_size == 0 {
         bail!("Sub-chunk size cannot be zero");
     }
+    // Ensure parent chunk definition itself is ordered correctly
+    if parent_chunk.start_hlc > parent_chunk.end_hlc && parent_chunk.count > 0 {
+        warn!(
+            "Parent chunk has start_hlc > end_hlc but count > 0: [{}-{}] count {}",
+            parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.count
+        );
+        // Bail? Or proceed assuming the range might be valid despite display order? Let's bail.
+        bail!("Invalid parent chunk definition: start_hlc > end_hlc with non-zero count.");
+    }
 
-    // Fetch *all* records within the parent chunk's HLC range
-    // Need to handle pagination if the parent chunk is very large, or use `all()` if feasible.
-    // For simplicity, assuming `all()` is acceptable for a single chunk breakdown.
-    // If parent_chunk.count is very large, this could OOM. Consider iterative fetching if needed.
-
+    // --- Fetch Records for Verification ---
+    // Fetch *all* records within the parent chunk's HLC range (inclusive)
+    // Use HLCModel::between for the correct range query.
+    // Order consistently to match potential hash calculation order.
+    // NOTE: This loads the entire parent chunk into memory. For extremely large parent chunks,
+    // an iterative approach might be needed, but that complicates hash verification.
     let records: Vec<E::Model> = E::find()
         .filter(E::between(&parent_chunk.start_hlc, &parent_chunk.end_hlc)?)
         .order_by_hlc_asc::<E>()
-        // .limit(parent_chunk.count + 1) // Fetch slightly more to detect inconsistencies? Or trust count.
+        // .limit(parent_chunk.count + 1) // Fetch one extra to detect *more* records than expected?
+        // Let's stick to fetching based on HLC range only for now. Count/Hash verification handles mismatches.
         .all(db)
         .await
         .with_context(|| {
             format!(
-                "Failed to fetch records for parent chunk [{}-{}]",
+                "Failed to fetch records for parent chunk verification [{}-{}]",
                 parent_chunk.start_hlc, parent_chunk.end_hlc
             )
         })?;
 
-    debug!("Fetched {} records for parent chunk.", records.len());
+    debug!(
+        "Fetched {} records for parent chunk verification.",
+        records.len()
+    );
 
     // --- Verification Step ---
     // 1. Verify Count
     if records.len() as u64 != parent_chunk.count {
         warn!(
-            "Count mismatch for chunk [{}-{}]: Expected {}, Found {}. Data may have changed.",
+            "Count mismatch for chunk [{}-{}]: Expected {}, Found {}. Data may have changed since chunk definition.",
             parent_chunk.start_hlc,
             parent_chunk.end_hlc,
             parent_chunk.count,
             records.len()
         );
-        // Depending on requirements, you might want to error out or proceed with found data.
-        // Erroring out is safer for consistency checks.
         bail!(
             "Data inconsistency detected: Record count mismatch for chunk [{}-{}] (Expected {}, Found {}).",
             parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.count, records.len()
         );
     }
 
-    // Handle the case where the parent chunk was legitimately empty
-    if records.is_empty() {
-        // Check if parent chunk also reported empty
-        if parent_chunk.count == 0 {
-            // Calculate expected hash for empty chunk
-            let expected_empty_hash = calculate_chunk_hash::<E>(&records)?;
-            if parent_chunk.chunk_hash == expected_empty_hash {
-                info!(
-                    "Parent chunk [{}-{}] was empty and verified. No sub-chunks to generate.",
+    // 2. Verify Hash (only if count matches and is non-zero)
+    if parent_chunk.count > 0 {
+        // Records vec is non-empty here because count > 0 and count matches len()
+        let calculated_parent_hash =
+            calculate_chunk_hash::<E::Model>(&records).with_context(|| {
+                format!(
+                    "Failed to recalculate hash for parent chunk [{}-{}] verification",
                     parent_chunk.start_hlc, parent_chunk.end_hlc
-                );
-                return Ok(Vec::new()); // Correctly verified empty chunk
-            } else {
-                bail!(
-                     "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
-                     expected_empty_hash, parent_chunk.chunk_hash
-                 );
-            }
-        } else {
-            // This case should have been caught by the count check above, but for robustness:
+                )
+            })?;
+
+        if calculated_parent_hash != parent_chunk.chunk_hash {
+            warn!(
+                "Hash mismatch for chunk [{}-{}]: Expected {}, Calculated {}. Data may have changed.",
+                parent_chunk.start_hlc,
+                parent_chunk.end_hlc,
+                parent_chunk.chunk_hash,
+                calculated_parent_hash
+            );
             bail!(
-                "Data inconsistency detected: Parent chunk expected {} records, but found 0.",
-                parent_chunk.count
+                "Data inconsistency detected: Hash mismatch for chunk [{}-{}] (Expected '{}', Calculated '{}').",
+                parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.chunk_hash, calculated_parent_hash
             );
         }
+    } else {
+        // Parent chunk count is 0, verify hash against the expected empty hash.
+        let expected_empty_hash = calculate_chunk_hash::<E::Model>(&records)?; // records is empty here
+        if parent_chunk.chunk_hash != expected_empty_hash {
+            bail!(
+                 "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
+                 expected_empty_hash, parent_chunk.chunk_hash
+             );
+        }
+        // If hash matches for empty chunk, verification passed.
+        debug!("Parent chunk was empty and verified successfully.");
+        return Ok(Vec::new()); // No sub-chunks for an empty parent.
     }
 
-    // 2. Verify Hash (only if records were found)
-    let calculated_parent_hash = calculate_chunk_hash::<E>(&records).with_context(|| {
-        format!(
-            "Failed to recalculate hash for parent chunk [{}-{}] verification",
-            parent_chunk.start_hlc, parent_chunk.end_hlc
-        )
-    })?;
-
-    if calculated_parent_hash != parent_chunk.chunk_hash {
-        warn!(
-            "Hash mismatch for chunk [{}-{}]: Expected {}, Calculated {}. Data may have changed.",
-            parent_chunk.start_hlc,
-            parent_chunk.end_hlc,
-            parent_chunk.chunk_hash,
-            calculated_parent_hash
-        );
-        bail!(
-            "Data inconsistency detected: Hash mismatch for chunk [{}-{}] (Expected '{}', Calculated '{}').",
-            parent_chunk.start_hlc, parent_chunk.end_hlc, parent_chunk.chunk_hash, calculated_parent_hash
-        );
-    }
-
-    debug!("Parent chunk data verified successfully.");
+    debug!(
+        "Parent chunk data verified successfully (Count: {}, Hash: {:.8}).",
+        parent_chunk.count, parent_chunk.chunk_hash
+    );
 
     // --- Sub-chunk Creation ---
     let mut sub_chunks_info = Vec::new();
-    for sub_chunk_records in records.chunks(sub_chunk_size as usize) {
-        if sub_chunk_records.is_empty() {
-            continue; // Should not happen with `records.chunks` unless input was empty
+    // Use standard library's `chunks` method on the verified `records` vector
+    for sub_chunk_records_slice in records.chunks(sub_chunk_size as usize) {
+        // sub_chunk_records_slice is &[E::Model]
+
+        // Should not be empty unless original records was empty (handled above)
+        if sub_chunk_records_slice.is_empty() {
+            continue;
         }
 
-        let sub_first_record = sub_chunk_records.first().unwrap();
-        let sub_last_record = sub_chunk_records.last().unwrap();
+        let sub_first_record = sub_chunk_records_slice.first().unwrap();
+        let sub_last_record = sub_chunk_records_slice.last().unwrap();
 
+        // Extract HLCs from the actual records in the sub-chunk
         let sub_start_hlc = sub_first_record
             .updated_at_hlc()
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Sub-chunk record {:?} missing 'updated_at_hlc'",
+                    "Sub-chunk record {} missing 'updated_at_hlc'",
                     sub_first_record.unique_id()
                 )
             })?
@@ -528,19 +589,21 @@ where
             .updated_at_hlc()
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Sub-chunk record {:?} missing 'updated_at_hlc'",
+                    "Sub-chunk record {} missing 'updated_at_hlc'",
                     sub_last_record.unique_id()
                 )
             })?
             .clone();
-        let sub_count = sub_chunk_records.len() as u64;
+        let sub_count = sub_chunk_records_slice.len() as u64;
 
-        let sub_chunk_hash = calculate_chunk_hash::<E>(sub_chunk_records).with_context(|| {
-            format!(
-                "Failed to calculate hash for sub-chunk [{}-{}]",
-                sub_start_hlc, sub_end_hlc
-            )
-        })?;
+        // Calculate hash for this specific sub-chunk
+        let sub_chunk_hash = calculate_chunk_hash::<E::Model>(sub_chunk_records_slice)
+            .with_context(|| {
+                format!(
+                    "Failed to calculate hash for sub-chunk [{}-{}]",
+                    sub_start_hlc, sub_end_hlc
+                )
+            })?;
 
         let sub_data_chunk = DataChunk {
             start_hlc: sub_start_hlc,
@@ -566,104 +629,668 @@ where
     Ok(sub_chunks_info)
 }
 
-// --- Helper: Adjust HLCRecord Trait and calculate_hash (Conceptual) ---
-// It's assumed that your HLCRecord trait methods (`updated_at_hlc`, `unique_id`, `data_for_hashing`)
-// are implemented on the `Model` struct associated with your `Entity`.
-// If `HLCRecord` is implemented on the `Entity` struct itself, you might need adjustments like:
-/*
-pub trait HLCRecord: EntityTrait + Sized + Send + Sync + 'static
-where
-    <Self as EntityTrait>::Model: Serialize + Send + Sync,
-{
-    // Static methods accessing Model data need the model passed in
-    fn model_updated_at_hlc(model: &Self::Model) -> Option<HLC>;
-    fn model_unique_id(model: &Self::Model) -> i32; // Or appropriate PK type
-    fn model_data_for_hashing(model: &Self::Model) -> serde_json::Value;
-
-    // Static methods defining columns remain the same
-    fn get_primary_key_column() -> Self::Column; // Example name
-    fn get_updated_at_hlc_time_column() -> Self::Column;
-    fn get_updated_at_hlc_version_column() -> Self::Column;
-
-     // Default implementations can use the static methods
-    fn to_summary(model: &Self::Model) -> serde_json::Value {
-        Self::model_data_for_hashing(model)
-    }
-    fn full_data(model: &Self::Model) -> serde_json::Value {
-        Self::model_data_for_hashing(model)
-    }
-}
-
-// calculate_record_hash would then use the static methods:
-pub fn calculate_record_hash<E: HLCRecord>(model: &E::Model) -> Result<String> {
-    let data = E::model_data_for_hashing(model); // Call static method
-    let json_string = serde_json::to_string(&data).context("Failed to serialize data to JSON")?;
-    let mut hasher = Hasher::new();
-    hasher.update(json_string.as_bytes());
-    Ok(hasher.finalize().to_hex().to_string())
-}
-
-// calculate_chunk_hash remains largely the same but calls the revised calculate_record_hash
-pub fn calculate_chunk_hash<E>(records: &[E::Model]) -> Result<String>
-where
-    E: HLCRecord + EntityTrait,
-    E::Model: Send + Sync + Serialize,
-{
-    // ... loop ...
-        let record_hash_hex = calculate_record_hash::<E>(record_model) // Pass Entity type E
-             .with_context(|| format!("Failed to calculate hash for record"))?;
-    // ...
-}
-*/
-// For this implementation, we assume the simpler case where HLCRecord is directly implemented
-// or accessible on E::Model. Ensure your `calculate_record_hash` function signature and
-// usage match your specific `HLCRecord` trait definition.
-
 #[cfg(test)]
 mod tests {
-    // Mocking SeaORM and database interactions is complex.
-    // These tests would ideally involve setting up an in-memory DB (like SQLite)
-    // and populating it with test data.
+    use chrono::{DateTime, TimeZone, Utc};
+    use sea_orm::{
+        ActiveModelBehavior, ActiveModelTrait, ConnectionTrait, Database, DbBackend, DbConn, DbErr,
+        DerivePrimaryKey, DeriveRelation, EnumIter, PrimaryKeyTrait, Schema, Set,
+    };
 
-    // Placeholder for conceptual tests:
+    use super::*;
 
-    // #[tokio::test]
-    // async fn test_generate_simple_chunks() {
-    //     // 1. Setup mock DB connection
-    //     // 2. Define MockEntity and implement HLCModel, HLCRecord
-    //     // 3. Insert mock data with varying HLC timestamps
-    //     // 4. Define ChunkingOptions
-    //     // 5. Call generate_data_chunks
-    //     // 6. Assert the number and properties of generated chunks
-    // }
+    use crate::hlc::HLC;
 
-    // #[tokio::test]
-    // async fn test_break_chunk() {
-    //     // 1. Setup mock DB connection
-    //     // 2. Define MockEntity and implement HLCModel, HLCRecord
-    //     // 3. Insert mock data within a specific HLC range
-    //     // 4. Manually create a DataChunk representing this range (calculate expected hash)
-    //     // 5. Define sub_chunk_size
-    //     // 6. Call break_data_chunk with the created DataChunk
-    //     // 7. Assert the number and properties of generated SubChunkInfo
-    //     // 8. Assert parent info in SubChunkInfo matches the input DataChunk
-    // }
+    // --- Test-Specific Mock Entity Definition (Using TEXT for Timestamp) ---
+    // This module defines the Entity, Model, and ActiveModel specifically for tests,
+    // ensuring the timestamp is stored as an RFC3339 string (TEXT column).
+    mod test_model_def {
+        use super::*; // Inherit imports from parent test module
+        use crate::hlc::{HLCModel, HLCRecord, HLC};
+        use sea_orm::DeriveEntityModel;
+        // Ensure traits are in scope
+        use serde::{Deserialize, Serialize};
+        use serde_json::json;
+        use uuid::Uuid;
 
-    // #[tokio::test]
-    // async fn test_break_chunk_verification_fail_count() {
-    //     // 1. Setup mock DB
-    //     // 2. Insert N records
-    //     // 3. Create DataChunk metadata expecting N+1 records
-    //     // 4. Call break_data_chunk
-    //     // 5. Assert that it returns an error indicating count mismatch
-    // }
+        #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+        #[sea_orm(table_name = "mock_tasks")]
+        pub struct Model {
+            #[sea_orm(primary_key)]
+            pub id: i32,
+            pub content: String,
+            #[sea_orm(column_type = "Text")] // Store timestamp as TEXT (RFC3339 string)
+            pub updated_at_hlc_ts: String,
+            pub updated_at_hlc_v: i32, // SeaORM prefers i32 for u32 typically
+            pub updated_at_hlc_nid: Uuid,
+        }
 
-    // #[tokio::test]
-    // async fn test_break_chunk_verification_fail_hash() {
-    //     // 1. Setup mock DB
-    //     // 2. Insert N records
-    //     // 3. Create DataChunk metadata with correct count but wrong hash
-    //     // 4. Call break_data_chunk
-    //     // 5. Assert that it returns an error indicating hash mismatch
-    // }
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {} // No relations needed for these tests
+        impl ActiveModelBehavior for ActiveModel {} // Standard SeaORM requirement
+
+        // --- Implement HLCRecord for the Test Model ---
+        // This implementation handles the conversion between the RFC3339 string
+        // stored in the DB and the HLC struct (with u64 ms timestamp) used internally.
+        impl HLCRecord for Model {
+            fn created_at_hlc(&self) -> Option<HLC> {
+                None // Not used in these tests
+            }
+
+            fn updated_at_hlc(&self) -> Option<HLC> {
+                // Parse the RFC3339 string back to u64 milliseconds since UNIX_EPOCH
+                match DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
+                    Ok(dt) => Some(HLC {
+                        timestamp: dt.timestamp_millis() as u64, // Convert to u64 millis
+                        version: self.updated_at_hlc_v as u32,   // Convert back to u32
+                        node_id: self.updated_at_hlc_nid,
+                    }),
+                    Err(e) => {
+                        // Log error or handle appropriately if parsing fails
+                        eprintln!(
+                            "Error parsing HLC timestamp string '{}': {}",
+                            self.updated_at_hlc_ts, e
+                        );
+                        None // Return None if parsing fails
+                    }
+                }
+            }
+
+            fn unique_id(&self) -> String {
+                self.id.to_string()
+            }
+
+            fn data_for_hashing(&self) -> serde_json::Value {
+                // Define which fields contribute to the record's content hash
+                // Exclude HLC fields themselves if hash represents content state only.
+                json!({ "id": self.id, "content": self.content })
+            }
+        }
+
+        // --- Implement HLCModel for the Test Entity ---
+        // Maps HLC components to database columns for HLC-based queries.
+        impl HLCModel for Entity {
+            fn updated_at_time_column() -> Self::Column {
+                Column::UpdatedAtHlcTs // The TEXT column holding the timestamp string
+            }
+            fn updated_at_version_column() -> Self::Column {
+                Column::UpdatedAtHlcV // The version column
+            }
+            // node_id column not currently required by HLCModel trait for queries
+        }
+    }
+
+    // --- Use the test-specific model definitions ---
+    // Bring the types from the dedicated test module into the main test scope.
+    use test_model_def::{ActiveModel, Entity, Model};
+
+    // --- Test Database Setup ---
+    async fn setup_db() -> Result<DbConn, DbErr> {
+        // Connect to an in-memory SQLite database for isolated tests
+        let db = Database::connect("sqlite::memory:").await?;
+        let schema = Schema::new(DbBackend::Sqlite);
+
+        // Create the table using the test-specific Entity definition
+        // This ensures the `updated_at_hlc_ts` column has the correct TEXT type.
+        let create_table_stmt = schema.create_table_from_entity(Entity); // Use test_model_def::Entity
+        db.execute(db.get_database_backend().build(&create_table_stmt))
+            .await?;
+
+        Ok(db)
+    }
+
+    // --- Timestamp Conversion Helper ---
+    // Converts u64 milliseconds since epoch to RFC3339 string.
+    // Required by `insert_task`. Assumed to exist in `crate::hlc` in the main code.
+    fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
+        // Create a NaiveDateTime from seconds and nanoseconds
+        let seconds = (millis / 1000) as i64;
+        let nanos = (millis % 1000 * 1_000_000) as u32; // Millis to Nanos
+                                                        // Use Utc.timestamp_opt to handle potential out-of-range values gracefully
+        match Utc.timestamp_opt(seconds, nanos) {
+            chrono::LocalResult::Single(dt) => {
+                // Format with full nanosecond precision and UTC offset ('Z' or +00:00)
+                // chrono's default `to_rfc3339_opts` with SecondsFormat::Nanos includes enough precision.
+                // The `FixedOffset` timezone ensures the '+00:00' suffix for consistency.
+                Ok(dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
+            }
+            chrono::LocalResult::None => {
+                bail!(
+                    "Invalid timestamp milliseconds ({}): resulted in no valid DateTime",
+                    millis
+                )
+            }
+            chrono::LocalResult::Ambiguous(_, _) => {
+                // This shouldn't happen with UTC timestamps
+                bail!(
+                    "Invalid timestamp milliseconds ({}): resulted in ambiguous DateTime",
+                    millis
+                )
+            }
+        }
+    }
+
+    // --- Test Data Insertion Helper ---
+    // Inserts a task into the database, converting the HLC timestamp to RFC3339 string.
+    async fn insert_task(db: &DbConn, id: i32, content: &str, hlc: &HLC) -> Result<Model, DbErr> {
+        // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
+        let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+            // Convert the anyhow::Error from the helper to DbErr for compatibility
+            .map_err(|e| DbErr::Custom(format!("Failed to format HLC timestamp: {}", e)))?;
+
+        // Create an ActiveModel with the data, including the formatted timestamp string
+        let active_model = ActiveModel {
+            id: Set(id),
+            content: Set(content.to_string()),
+            updated_at_hlc_ts: Set(hlc_ts_str), // Set the String value
+            updated_at_hlc_v: Set(hlc.version as i32), // Convert u32 to i32
+            updated_at_hlc_nid: Set(hlc.node_id),
+        };
+        // Insert into the database and return the resulting Model
+        active_model.insert(db).await
+    }
+
+    // --- HLC Creation Helper ---
+    // Convenience function for creating HLC instances in tests.
+    fn hlc(ts_millis: u64, version: u32, node_str: &str) -> HLC {
+        HLC {
+            timestamp: ts_millis,
+            version,
+            node_id: Uuid::parse_str(node_str).expect("Invalid UUID string in test"),
+        }
+    }
+
+    // Constant for Node ID used in tests
+    const NODE1: &str = "11111111-1111-1111-1111-111111111111";
+
+    // --- Unit Tests ---
+
+    #[tokio::test]
+    async fn test_calculate_chunk_hash_empty() -> Result<()> {
+        let records: Vec<Model> = vec![]; // Use the test Model
+        let hash = calculate_chunk_hash(&records)?;
+        // Verify against the known Blake3 hash of an empty input
+        assert_eq!(
+            hash,
+            "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_chunk_hash_single() -> Result<()> {
+        let h = hlc(100, 0, NODE1);
+        // Manually construct a Model instance for hashing calculation verification
+        // Note: We don't need to insert this into DB for this specific test.
+        let record = Model {
+            id: 1,
+            content: "test".to_string(),
+            // We need a valid RFC3339 string here if HLCRecord impl requires it,
+            // but calculate_record_hash uses data_for_hashing which *doesn't* include timestamps.
+            // So, the actual timestamp string value doesn't affect the hash calculation itself.
+            // However, for completeness and realism, let's format it.
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h.timestamp)?,
+            updated_at_hlc_v: h.version as i32,
+            updated_at_hlc_nid: h.node_id,
+        };
+        let records = vec![record]; // Use the test Model
+
+        // Calculate the expected hash: hash(hex(hash(record1)))
+        let record_hash = calculate_record_hash(&records[0])?;
+        let mut expected_chunk_hasher = Hasher::new();
+        expected_chunk_hasher.update(record_hash.as_bytes());
+        let expected_hash = expected_chunk_hasher.finalize().to_hex().to_string();
+
+        // Calculate the actual chunk hash using the function under test
+        let hash = calculate_chunk_hash(&records)?;
+        assert_eq!(hash, expected_hash);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_calculate_chunk_hash_multiple() -> Result<()> {
+        let h1 = hlc(100, 0, NODE1);
+        let r1 = Model {
+            // Use the test Model
+            id: 1,
+            content: "A".to_string(),
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp)?,
+            updated_at_hlc_v: h1.version as i32,
+            updated_at_hlc_nid: h1.node_id,
+        };
+        let h2 = hlc(100, 1, NODE1); // Same timestamp, different version
+        let r2 = Model {
+            // Use the test Model
+            id: 2,
+            content: "B".to_string(),
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h2.timestamp)?, // Format even if same ms
+            updated_at_hlc_v: h2.version as i32,
+            updated_at_hlc_nid: h2.node_id,
+        };
+
+        let records = vec![r1.clone(), r2.clone()];
+
+        // Calculate expected hash: hash(hex(hash(r1)) + hex(hash(r2)))
+        let hash1 = calculate_record_hash(&r1)?;
+        let hash2 = calculate_record_hash(&r2)?;
+        let mut expected_chunk_hasher = Hasher::new();
+        expected_chunk_hasher.update(hash1.as_bytes());
+        expected_chunk_hasher.update(hash2.as_bytes());
+        let expected_hash = expected_chunk_hasher.finalize().to_hex().to_string();
+
+        let hash = calculate_chunk_hash(&records)?;
+        assert_eq!(hash, expected_hash);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_generate_data_chunks_empty_db() -> Result<()> {
+        let db = setup_db().await?;
+        let options = ChunkingOptions::default(Uuid::parse_str(NODE1).unwrap());
+        // Use the test Entity
+        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+        assert!(chunks.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_generate_data_chunks_simple() -> Result<()> {
+        let db = setup_db().await?;
+        let node_id = Uuid::parse_str(NODE1).unwrap();
+        let base_ts = 1700000000000; // Some base time in ms
+
+        // Insert records using the helper (handles RFC3339 conversion)
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        insert_task(&db, 1, "Task 1", &h1).await?;
+        let h2 = hlc(base_ts + 200, 0, NODE1);
+        insert_task(&db, 2, "Task 2", &h2).await?;
+        let h3 = hlc(base_ts + 300, 0, NODE1);
+        insert_task(&db, 3, "Task 3", &h3).await?;
+        let h4 = hlc(base_ts + 400, 0, NODE1);
+        insert_task(&db, 4, "Task 4", &h4).await?;
+        let h5 = hlc(base_ts + 500, 0, NODE1);
+        insert_task(&db, 5, "Task 5", &h5).await?;
+
+        let options = ChunkingOptions {
+            min_size: 2,
+            max_size: 3,
+            alpha: 0.0, // Keep size constant for simplicity
+            node_id,
+        };
+
+        // Use the test Entity
+        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+
+        // Expected: Chunk1 (r1, r2), Chunk2 (r3, r4), Chunk3 (r5)
+        // The logic remains the same as the internal representation (HLC struct) is used
+        // for comparisons and calculations, correctly parsed from the RFC3339 string.
+        assert_eq!(chunks.len(), 3);
+
+        assert_eq!(chunks[0].start_hlc, h1);
+        assert_eq!(chunks[0].end_hlc, h2);
+        assert_eq!(chunks[0].count, 2);
+        assert!(!chunks[0].chunk_hash.is_empty()); // Check hash exists
+
+        assert_eq!(chunks[1].start_hlc, h3);
+        assert_eq!(chunks[1].end_hlc, h4);
+        assert_eq!(chunks[1].count, 2);
+        assert!(!chunks[1].chunk_hash.is_empty());
+
+        assert_eq!(chunks[2].start_hlc, h5);
+        assert_eq!(chunks[2].end_hlc, h5);
+        assert_eq!(chunks[2].count, 1);
+        assert!(!chunks[2].chunk_hash.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_generate_data_chunks_with_alpha() -> Result<()> {
+        let db = setup_db().await?;
+        let node_id = Uuid::parse_str(NODE1).unwrap();
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let days_ago_30 = current_time.saturating_sub(30 * MILLISECONDS_PER_DAY);
+        let days_ago_10 = current_time.saturating_sub(10 * MILLISECONDS_PER_DAY);
+        let days_ago_1 = current_time.saturating_sub(MILLISECONDS_PER_DAY);
+
+        // Ensure timestamps are distinct and positive
+        let ts1 = days_ago_30;
+        let ts2 = ts1 + 1000;
+        let ts3 = days_ago_10;
+        let ts4 = ts3 + 1000;
+        let ts5 = days_ago_1;
+        let ts6 = ts5 + 1000;
+        let ts7 = current_time.saturating_sub(1000); // Most recent
+
+        let h1 = hlc(ts1, 0, NODE1);
+        insert_task(&db, 1, "Old 1", &h1).await?;
+        let h2 = hlc(ts2, 0, NODE1);
+        insert_task(&db, 2, "Old 2", &h2).await?;
+        let h3 = hlc(ts3, 0, NODE1);
+        insert_task(&db, 3, "Med 1", &h3).await?;
+        let h4 = hlc(ts4, 0, NODE1);
+        insert_task(&db, 4, "Med 2", &h4).await?;
+        let h5 = hlc(ts5, 0, NODE1);
+        insert_task(&db, 5, "New 1", &h5).await?;
+        let h6 = hlc(ts6, 0, NODE1);
+        insert_task(&db, 6, "New 2", &h6).await?;
+        let h7 = hlc(ts7, 0, NODE1);
+        insert_task(&db, 7, "Latest", &h7).await?; // Latest
+
+        let options = ChunkingOptions {
+            min_size: 1,
+            max_size: 10,
+            alpha: 0.1, // Slight increase with age
+            node_id,
+        };
+
+        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+
+        // Trace: Latest = h7 (ts7)
+        // Loop 1: current=0. age=(ts7 - 0)/days = large. ceil(age)=large.
+        //         desired=1*(1.1)^large > 10. window=max(1,min(10, round(desired)))=10.
+        //         Fetch(after 0, limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
+        // Loop 2: current=h7. Fetch(after h7, limit 10) -> []. Break.
+        // Expected: One chunk containing all 7 records.
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].start_hlc, h1);
+        assert_eq!(chunks[0].end_hlc, h7);
+        assert_eq!(chunks[0].count, 7);
+
+        // Try with min_size=3
+        let options2 = ChunkingOptions {
+            min_size: 3,
+            max_size: 10,
+            alpha: 0.1,
+            node_id,
+        };
+        let chunks2 = generate_data_chunks::<Entity>(&db, &options2, None).await?;
+        // Trace:
+        // Loop 1: current=0. age=large. desired=3*(1.1)^large > 10. window=10.
+        //         Fetch(limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
+        // Loop 2: current=h7. Fetch(limit 10) -> []. Break.
+        assert_eq!(
+            chunks2.len(),
+            1,
+            "With min_size=3, still expected 1 chunk due to large age"
+        );
+        assert_eq!(chunks2[0].count, 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_data_chunk_success() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Insert 5 records
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        let _r1 = insert_task(&db, 1, "T1", &h1).await?;
+        let h2 = hlc(base_ts + 200, 0, NODE1);
+        let _r2 = insert_task(&db, 2, "T2", &h2).await?;
+        let h3 = hlc(base_ts + 300, 0, NODE1);
+        let _r3 = insert_task(&db, 3, "T3", &h3).await?;
+        let h4 = hlc(base_ts + 400, 0, NODE1);
+        let _r4 = insert_task(&db, 4, "T4", &h4).await?;
+        let h5 = hlc(base_ts + 500, 0, NODE1);
+        let _r5 = insert_task(&db, 5, "T5", &h5).await?;
+        // Fetch them back to pass to calculate_chunk_hash in the correct order and state
+        // (though constructing them manually would also work if `data_for_hashing` is simple)
+        let all_records = Entity::find().order_by_hlc_asc::<Entity>().all(&db).await?; // Fetch using Test Entity
+        assert_eq!(all_records.len(), 5);
+
+        // Create the parent chunk definition using the fetched records for hash calculation
+        let parent_chunk = DataChunk {
+            start_hlc: h1.clone(),
+            end_hlc: h5.clone(),
+            count: 5,
+            chunk_hash: calculate_chunk_hash(&all_records)?, // Hash based on fetched records
+        };
+
+        let sub_chunk_size = 2;
+        // Use the test Entity
+        let sub_chunks = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await?;
+
+        assert_eq!(sub_chunks.len(), 3); // Expect 2, 2, 1
+
+        // Verify SubChunk 1
+        assert_eq!(sub_chunks[0].chunk.start_hlc, h1);
+        assert_eq!(sub_chunks[0].chunk.end_hlc, h2);
+        assert_eq!(sub_chunks[0].chunk.count, 2);
+        assert_eq!(
+            sub_chunks[0].chunk.chunk_hash,
+            calculate_chunk_hash(&all_records[0..2])? // Hash the slice
+        );
+        assert_eq!(sub_chunks[0].parent_start_hlc, parent_chunk.start_hlc);
+        assert_eq!(sub_chunks[0].parent_end_hlc, parent_chunk.end_hlc);
+        assert_eq!(sub_chunks[0].parent_chunk_hash, parent_chunk.chunk_hash);
+
+        // Verify SubChunk 2
+        assert_eq!(sub_chunks[1].chunk.start_hlc, h3);
+        assert_eq!(sub_chunks[1].chunk.end_hlc, h4);
+        assert_eq!(sub_chunks[1].chunk.count, 2);
+        assert_eq!(
+            sub_chunks[1].chunk.chunk_hash,
+            calculate_chunk_hash(&all_records[2..4])?
+        );
+        assert_eq!(sub_chunks[1].parent_start_hlc, parent_chunk.start_hlc);
+        assert_eq!(sub_chunks[1].parent_end_hlc, parent_chunk.end_hlc);
+        assert_eq!(sub_chunks[1].parent_chunk_hash, parent_chunk.chunk_hash);
+
+        // Verify SubChunk 3
+        assert_eq!(sub_chunks[2].chunk.start_hlc, h5);
+        assert_eq!(sub_chunks[2].chunk.end_hlc, h5);
+        assert_eq!(sub_chunks[2].chunk.count, 1);
+        assert_eq!(
+            sub_chunks[2].chunk.chunk_hash,
+            calculate_chunk_hash(&all_records[4..5])?
+        );
+        assert_eq!(sub_chunks[2].parent_start_hlc, parent_chunk.start_hlc);
+        assert_eq!(sub_chunks[2].parent_end_hlc, parent_chunk.end_hlc);
+        assert_eq!(sub_chunks[2].parent_chunk_hash, parent_chunk.chunk_hash);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_data_chunk_empty_parent() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Insert data outside the range of the empty chunk (optional, but good sanity check)
+        let h_outside = hlc(base_ts + 1000, 0, NODE1);
+        insert_task(&db, 99, "Outside", &h_outside).await?;
+
+        // Define an empty parent chunk
+        let empty_start = hlc(base_ts + 100, 0, NODE1);
+        let empty_end = hlc(base_ts + 500, 0, NODE1);
+        let empty_records: Vec<Model> = vec![]; // Use test Model
+        let parent_chunk = DataChunk {
+            start_hlc: empty_start.clone(),
+            end_hlc: empty_end.clone(),
+            count: 0,
+            chunk_hash: calculate_chunk_hash(&empty_records)?, // Hash of empty
+        };
+
+        let sub_chunk_size = 10;
+        // Use the test Entity
+        let sub_chunks = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await?;
+
+        // Expect successful verification of empty chunk and no sub-chunks generated
+        assert!(sub_chunks.is_empty());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_verification_fail_count() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Insert 3 records
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        insert_task(&db, 1, "T1", &h1).await?;
+        let h2 = hlc(base_ts + 200, 0, NODE1);
+        insert_task(&db, 2, "T2", &h2).await?;
+        let h3 = hlc(base_ts + 300, 0, NODE1);
+        insert_task(&db, 3, "T3", &h3).await?;
+
+        // Create parent chunk definition expecting 4 records (incorrect)
+        let parent_chunk = DataChunk {
+            start_hlc: h1.clone(),
+            end_hlc: h3.clone(), // Range covers the 3 inserted records
+            count: 4,            // Mismatched count
+            chunk_hash: "dummy_hash".to_string(), // Hash doesn't matter yet
+        };
+
+        let sub_chunk_size = 2;
+        // Use the test Entity
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // Assert that the operation failed
+        assert!(result.is_err());
+        // Assert that the error message indicates a count mismatch
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Record count mismatch"));
+        assert!(err_msg.contains("Expected 4, Found 3"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_verification_fail_hash() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Insert 2 records
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        let _r1 = insert_task(&db, 1, "T1", &h1).await?;
+        let h2 = hlc(base_ts + 200, 0, NODE1);
+        let _r2 = insert_task(&db, 2, "T2", &h2).await?;
+
+        // Fetch the actual records to calculate the correct hash
+        let actual_records = Entity::find()
+            .filter(Entity::between(&h1, &h2)?) // Use Test Entity
+            .order_by_hlc_asc::<Entity>() // Use Test Entity
+            .all(&db)
+            .await?;
+        let correct_hash = calculate_chunk_hash(&actual_records)?;
+
+        // Create parent chunk definition with correct count but incorrect hash
+        let parent_chunk = DataChunk {
+            start_hlc: h1.clone(),
+            end_hlc: h2.clone(),
+            count: 2,
+            chunk_hash: "incorrect_hash_string_12345".to_string(), // Wrong hash
+        };
+
+        let sub_chunk_size = 1;
+        // Use the test Entity
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // Assert that the operation failed
+        assert!(result.is_err());
+        // Assert that the error message indicates a hash mismatch
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Hash mismatch"));
+        assert!(err_msg.contains(&format!("Expected '{}'", parent_chunk.chunk_hash)));
+        assert!(err_msg.contains(&format!("Calculated '{}'", correct_hash)));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_verification_fail_empty_hash() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Define an empty parent chunk range
+        let empty_start = hlc(base_ts + 100, 0, NODE1);
+        let empty_end = hlc(base_ts + 500, 0, NODE1);
+        // Calculate the correct hash for an empty chunk
+        let correct_empty_hash = calculate_chunk_hash::<Model>(&[])?; // Use test Model
+
+        // Create a parent chunk definition reporting 0 count but with an incorrect hash
+        let parent_chunk = DataChunk {
+            start_hlc: empty_start.clone(),
+            end_hlc: empty_end.clone(),
+            count: 0,
+            chunk_hash: "non_empty_hash_or_just_plain_wrong".to_string(), // Incorrect hash
+        };
+
+        let sub_chunk_size = 10;
+        // Use the test Entity
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // Assert that the operation failed
+        assert!(result.is_err());
+        // Assert that the error message indicates a hash mismatch for an empty chunk
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Parent chunk reported 0 count, but hash mismatch"));
+        assert!(err_msg.contains(&format!("Expected empty hash '{}'", correct_empty_hash)));
+        assert!(err_msg.contains(&format!("Found '{}'", parent_chunk.chunk_hash)));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_generate_chunks_start_hlc_exclusive() -> Result<()> {
+        let db = setup_db().await?;
+        let node_id = Uuid::parse_str(NODE1).unwrap();
+        let base_ts = 1700000000000;
+
+        // Insert 5 records
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        insert_task(&db, 1, "T1", &h1).await?;
+        let h2 = hlc(base_ts + 200, 0, NODE1);
+        insert_task(&db, 2, "T2", &h2).await?;
+        let h3 = hlc(base_ts + 300, 0, NODE1);
+        insert_task(&db, 3, "T3", &h3).await?;
+        let h4 = hlc(base_ts + 400, 0, NODE1);
+        insert_task(&db, 4, "T4", &h4).await?;
+        let h5 = hlc(base_ts + 500, 0, NODE1);
+        insert_task(&db, 5, "T5", &h5).await?;
+
+        let options = ChunkingOptions {
+            min_size: 1, // Small min size
+            max_size: 5,
+            alpha: 0.0, // No decay for simplicity
+            node_id,
+        };
+
+        // Define the starting point *after* h2
+        let start_after = h2.clone();
+
+        // Generate chunks using the test Entity and the exclusive start HLC
+        let chunks = generate_data_chunks::<Entity>(&db, &options, Some(start_after)).await?;
+
+        // Trace: min=1, max=5, alpha=0. Latest=h5. Start current=h2.
+        // Loop 1: current=h2. age=small. desired=1*(1)^n=1. window=max(1,min(5,1))=1.
+        //         Fetch(after h2, limit 1) -> r3. Chunk [h3-h3], count 1. next=h3.
+        // Loop 2: current=h3. age=smaller. desired=1. window=1.
+        //         Fetch(after h3, limit 1) -> r4. Chunk [h4-h4], count 1. next=h4.
+        // Loop 3: current=h4. age=smallest. desired=1. window=1.
+        //         Fetch(after h4, limit 1) -> r5. Chunk [h5-h5], count 1. next=h5.
+        // Loop 4: current=h5. Fetch(after h5, limit 1) -> []. Break.
+        // Expected: 3 chunks, containing r3, r4, and r5 respectively.
+        assert_eq!(chunks.len(), 3);
+
+        assert_eq!(chunks[0].start_hlc, h3);
+        assert_eq!(chunks[0].end_hlc, h3);
+        assert_eq!(chunks[0].count, 1);
+
+        assert_eq!(chunks[1].start_hlc, h4);
+        assert_eq!(chunks[1].end_hlc, h4);
+        assert_eq!(chunks[1].count, 1);
+
+        assert_eq!(chunks[2].start_hlc, h5);
+        assert_eq!(chunks[2].end_hlc, h5);
+        assert_eq!(chunks[2].count, 1);
+
+        Ok(())
+    }
 }
