@@ -31,7 +31,7 @@ pub struct DataChunk {
 
 /// Represents a sub-chunk created by breaking down a parent chunk.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SubChunkInfo {
+pub struct SubDataChunk {
     /// The actual data chunk metadata for this sub-chunk.
     pub chunk: DataChunk,
     /// The HLC timestamp of the first record in the parent chunk.
@@ -323,7 +323,7 @@ pub async fn break_data_chunk<E>(
     db: &DatabaseConnection,
     parent_chunk: &DataChunk,
     sub_chunk_size: u64,
-) -> Result<Vec<SubChunkInfo>>
+) -> Result<Vec<SubDataChunk>>
 where
     E: HLCModel + EntityTrait + Sync + HLCRecord,
     E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord, Clone, Serialize
@@ -476,7 +476,7 @@ where
             chunk_hash: sub_chunk_hash,
         };
 
-        sub_chunks_info.push(SubChunkInfo {
+        sub_chunks_info.push(SubDataChunk {
             chunk: sub_data_chunk,
             parent_start_hlc: parent_chunk.start_hlc.clone(),
             parent_end_hlc: parent_chunk.end_hlc.clone(),
