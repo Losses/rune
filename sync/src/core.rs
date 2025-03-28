@@ -266,14 +266,10 @@
 //! also implement the `RemoteDataSource` trait to handle the communication with your specific
 //! remote peer.
 
-use crate::chunking::{
-    break_data_chunk,
-    generate_data_chunks,
-    ChunkingOptions,
-    DataChunk,
-    // SubDataChunk is used internally in break_data_chunk but not directly exposed here
-};
-use crate::hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC}; // Assuming hlc.rs is in the same crate
+use std::collections::{HashMap, VecDeque};
+use std::fmt::Debug;
+use std::hash::Hash;
+
 use anyhow::{anyhow, Context, Result};
 use log::{debug, error, info, warn};
 use sea_orm::entity::prelude::*;
@@ -282,18 +278,15 @@ use sea_orm::{
     QueryFilter, TransactionTrait, Value,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
-use std::fmt::Debug;
-use std::hash::Hash;
 use uuid::Uuid;
 
-// --- Constants ---
+use crate::chunking::{break_data_chunk, generate_data_chunks, ChunkingOptions, DataChunk};
+use crate::hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC};
+
 /// If a chunk pair has differing hashes, but the maximum record count
 /// in either chunk is below or equal to this threshold, fetch individual records directly
 /// instead of breaking the chunk down further.
 const COMPARISON_THRESHOLD: u64 = 50;
-
-// --- Enums and Structs ---
 
 /// Defines the direction of synchronization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -482,8 +475,6 @@ enum ReconciliationItem {
     FetchRange(ComparisonRange),
 }
 
-// --- Main Synchronization Logic ---
-
 /// Performs synchronization for a single table between the local node and the remote source.
 ///
 /// This is the main entry point for synchronizing a specific table based on its last sync state.
@@ -553,11 +544,11 @@ where
     let local_chunks_fut = generate_data_chunks::<E>(
         context.db,
         &context.chunking_options,
-        Some(sync_start_hlc.clone()), // Pass Option<&HLC>
+        Some(sync_start_hlc.clone()),
     );
     let remote_chunks_fut = context
         .remote_source
-        .get_remote_chunks::<E>(table_name, Some(&sync_start_hlc)); // Pass Option<&HLC>
+        .get_remote_chunks::<E>(table_name, Some(&sync_start_hlc));
 
     // Execute futures concurrently
     let (local_chunks_res, remote_chunks_res) = tokio::join!(local_chunks_fut, remote_chunks_fut);
