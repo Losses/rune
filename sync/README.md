@@ -65,8 +65,8 @@ To efficiently compare large datasets, data is divided into chunks using an adap
 
 The synchronization process involves several steps:
 
-- **1. Pre-Sync Preparation**: Before exchanging data, nodes must exchange HLC information and perform clock calibration to establish a consistent time baseline.
-- **2. Data Comparison & Conflict Resolution**:
+- **Pre-Sync Preparation**: Before exchanging data, nodes must exchange HLC information and perform clock calibration to establish a consistent time baseline.
+- **Data Comparison & Conflict Resolution**:
   - **Conflict Types & Strategies**:
     - **Create-Create**: Both nodes created the same record (same `entity_key`). Keep the record with the higher `modified_hlc`. If HLCs are identical, keep the one from the node with the lexicographically smaller `Node ID`.
     - **Update-Update**: Both nodes updated the same record. Keep the version with the higher `modified_hlc`.
@@ -74,7 +74,7 @@ The synchronization process involves several steps:
       - If Delete HLC ≥ Update HLC: Perform the delete.
       - If Delete HLC < Update HLC: Keep the update.
     - **Metadata Conflict**: (Potentially related to sync state or other metadata). Prioritize based on criteria like version vector coverage (if used), latest modification time, or node priority (if defined). _Note: The spec mentions this but details might depend on specific metadata being tracked._
-- **3. Historical Data Synchronization**:
+- **Historical Data Synchronization**:
   - Compare chunk hashes.
   - If chunk hashes differ, recursively split the chunk (or compare records directly if small enough).
   - Compare individual records based primarily on their `modified_hlc` for total ordering. The spec mentions comparing `updated_at` if "version numbers" are identical, which might serve as a fallback under specific (potentially rare) HLC collision scenarios.

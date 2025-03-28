@@ -292,6 +292,9 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     /// Assumes this column stores an integer type (like INTEGER or BIGINT).
     fn updated_at_version_column() -> Self::Column;
 
+    /// Returns the SeaORM column definition for the unique identifier.
+    fn unique_id_column() -> Self::Column;
+
     /// Creates a SeaORM condition for records strictly greater than the given HLC.
     fn gt(hlc: &HLC) -> Result<Condition> {
         let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)

@@ -712,6 +712,9 @@ mod tests {
             fn updated_at_version_column() -> Self::Column {
                 Column::UpdatedAtHlcV // The version column
             }
+            fn unique_id_column() -> Self::Column {
+                Column::Id
+            }
             // node_id column not currently required by HLCModel trait for queries
         }
     }

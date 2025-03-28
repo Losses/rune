@@ -39,9 +39,10 @@
 //! # Example (Illustrative - Requires Network Implementation)
 //!
 //! ```rust,no_run
-//! use cristian_algorithm::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset};
 //! use std::time::{Instant, Duration};
 //! use std::thread;
+//! 
+//! use clock::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset};
 //!
 //! // ---  Placeholder: Replace with your actual network implementation  ---
 //! struct MyNetworkExchanger;
