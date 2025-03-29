@@ -276,19 +276,25 @@ pub fn check_offset<T: TimestampExchanger>(
 fn sample_offset<T: TimestampExchanger>(
     timestamp_exchanger: &T,
 ) -> Result<ClockOffset, CristianError> {
-    let t1_instant = Instant::now(); // t1 naming is clearer now
+    let t1_instant = Instant::now();
     let server_timestamp_result = timestamp_exchanger.exchange_timestamp();
-    let t2_instant = Instant::now(); // t2 naming is clearer now
+    let t2_instant = Instant::now();
 
     match server_timestamp_result {
-        Ok(ts) => { // ts is Server Timestamp (relative to process start in the mock)
-            let rtt = t2_instant.duration_since(t1_instant).as_nanos() as Timestamp;
-            // Get Client Timestamp value at t2 (relative to the same process start)
-            let t2_value = t2_instant.duration_since(*PROCESS_START).as_nanos() as Timestamp;
+        Ok(server_timestamp) => {
+            let t1 = t1_instant.duration_since(*PROCESS_START).as_nanos() as Timestamp;
+            let t2 = t2_instant.duration_since(*PROCESS_START).as_nanos() as Timestamp;
+            let rtt = t2 - t1;
 
-            // Use the formula: Offset = (Ts + RTT/2) - T2
-            // Use wrapping arithmetic for safety against potential underflow/overflow with large timestamps/offsets
-            let offset = (ts.wrapping_add(rtt / 2)).wrapping_sub(t2_value);
+            // Server time adjusted for one-way delay: server_timestamp + (rtt/2)
+            // This assumes symmetric network delay
+            let estimated_server_time = server_timestamp.wrapping_add(rtt / 2);
+
+            // The offset is: server_time - client_time
+            // Using the midpoint of t1 and t2 for client_time: t1 + (t2-t1)/2 = (t1+t2)/2
+            let client_midpoint = t1 + (t2 - t1) / 2;
+            let offset = estimated_server_time.wrapping_sub(client_midpoint);
+
             Ok(offset)
         }
         Err(e) => Err(e),
@@ -355,9 +361,10 @@ mod tests {
         fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
             let call_count = self.exchange_call_count.get();
             self.exchange_call_count.set(call_count + 1);
-    
+
             if let Some(fail_nth) = self.fail_exchange_nth_call.get() {
-                if call_count + 1 >= fail_nth {  // Changed == to >=
+                if call_count + 1 >= fail_nth {
+                    // Changed == to >=
                     return Err(CristianError::ExchangeError(
                         "Simulated exchange failure".to_string(),
                     ));
