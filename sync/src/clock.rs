@@ -355,9 +355,9 @@ mod tests {
         fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
             let call_count = self.exchange_call_count.get();
             self.exchange_call_count.set(call_count + 1);
-
+    
             if let Some(fail_nth) = self.fail_exchange_nth_call.get() {
-                if call_count + 1 == fail_nth {
+                if call_count + 1 >= fail_nth {  // Changed == to >=
                     return Err(CristianError::ExchangeError(
                         "Simulated exchange failure".to_string(),
                     ));
