@@ -248,7 +248,7 @@ impl FromStr for HLC {
 /// Models implementing this trait can be tracked for changes over time
 /// using Hybrid Logical Clocks and their data can be hashed for integrity checks.
 /// Note: Implemented on the `Model` struct, not the `Entity`.
-pub trait HLCRecord: Clone + Serialize + Send + Sync + 'static {
+pub trait HLCRecord: Clone + Send + Sync + 'static {
     /// Returns the HLC timestamp when the record was created (if available).
     /// Implementors should fetch this from the model's fields.
     fn created_at_hlc(&self) -> Option<HLC>;

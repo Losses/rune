@@ -41,23 +41,23 @@
 //! ```rust,no_run
 //! use std::time::{Instant, Duration};
 //! use std::thread;
-//! 
+//!
 //! use clock::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset};
 //!
-//! // ---  Placeholder: Replace with your actual network implementation  ---
+//! //  Placeholder: Replace with your actual network implementation
 //! struct MyNetworkExchanger;
 //!
 //! impl TimestampExchanger for MyNetworkExchanger {
 //!     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
-//!         // ---  Implement network communication here to get timestamp from server ---
+//!         //  Implement network communication here to get timestamp from server
 //!         // Example: (This is just a placeholder - network code is needed)
 //!         thread::sleep(Duration::from_millis(20)); // Simulate network delay
 //!         let server_timestamp: Timestamp = Instant::now().elapsed().as_nanos() as Timestamp + 5000; // Simulate server time
-//!         // --- Replace above with actual network request/response to get server timestamp ---
+//!         // Replace above with actual network request/response to get server timestamp
 //!         Ok(server_timestamp)
 //!     }
 //! }
-//! // --- End Placeholder ---
+//! // End Placeholder
 //!
 //! fn main() -> Result<(), CristianError> {
 //!     let config = CristianConfig::default(); // Use default config (5 samples)

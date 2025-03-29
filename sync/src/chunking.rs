@@ -174,7 +174,7 @@ impl ChunkingOptions {
 /// A `Result` containing the hex-encoded BLAKE3 hash string for the chunk.
 pub fn calculate_chunk_hash<Model>(records: &[Model]) -> Result<String>
 where
-    Model: HLCRecord + Serialize + Send + Sync, // Model implements HLCRecord
+    Model: HLCRecord + Send + Sync, // Model implements HLCRecord
 {
     if records.is_empty() {
         // Define a hash for an empty chunk (e.g., hash of an empty string)
@@ -212,7 +212,7 @@ where
 /// # Type Parameters
 ///
 /// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
-///        `E` itself must implement `HLCModel`.
+///       `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
@@ -230,7 +230,7 @@ pub async fn generate_data_chunks<E>(
 ) -> Result<Vec<DataChunk>>
 where
     E: HLCModel + EntityTrait + Sync, // E needs HLCModel for queries
-    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + Clone + Send + Sync, // Model needs HLCRecord
     <E as EntityTrait>::Model: Sync,
 {
     options.validate()?; // Validate options first
@@ -430,7 +430,7 @@ where
 /// # Type Parameters
 ///
 /// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
-///        `E` itself must implement `HLCModel`.
+///       `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
@@ -448,7 +448,7 @@ pub async fn break_data_chunk<E>(
 ) -> Result<Vec<SubDataChunk>>
 where
     E: HLCModel + EntityTrait + Sync, // E needs HLCModel
-    E::Model: HLCRecord + Clone + Serialize + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + Clone + Send + Sync, // Model needs HLCRecord
     <E as EntityTrait>::Model: Sync,
 {
     info!(
@@ -473,7 +473,7 @@ where
         bail!("Invalid parent chunk definition: start_hlc > end_hlc with non-zero count.");
     }
 
-    // --- Fetch Records for Verification ---
+    // Fetch Records for Verification
     // Fetch *all* records within the parent chunk's HLC range (inclusive)
     // Use HLCModel::between for the correct range query.
     // Order consistently to match potential hash calculation order.
@@ -498,7 +498,7 @@ where
         records.len()
     );
 
-    // --- Verification Step ---
+    // Verification Step
     // 1. Verify Count
     if records.len() as u64 != parent_chunk.count {
         warn!(
@@ -557,7 +557,7 @@ where
         parent_chunk.count, parent_chunk.chunk_hash
     );
 
-    // --- Sub-chunk Creation ---
+    // Sub-chunk Creation
     let mut sub_chunks_info = Vec::new();
     // Use standard library's `chunks` method on the verified `records` vector
     for sub_chunk_records_slice in records.chunks(sub_chunk_size as usize) {
@@ -637,15 +637,13 @@ mod tests {
 
     use crate::hlc::HLC;
 
-    // --- Test-Specific Mock Entity Definition (Using TEXT for Timestamp) ---
+    // Test-Specific Mock Entity Definition (Using TEXT for Timestamp)
     // This module defines the Entity, Model, and ActiveModel specifically for tests,
     // ensuring the timestamp is stored as an RFC3339 string (TEXT column).
     mod test_model_def {
         use super::*; // Inherit imports from parent test module
         use crate::hlc::{HLCModel, HLCRecord, HLC};
         use sea_orm::DeriveEntityModel;
-        // Ensure traits are in scope
-        use serde::{Deserialize, Serialize};
         use serde_json::json;
         use uuid::Uuid;
 
@@ -665,7 +663,7 @@ mod tests {
         pub enum Relation {} // No relations needed for these tests
         impl ActiveModelBehavior for ActiveModel {} // Standard SeaORM requirement
 
-        // --- Implement HLCRecord for the Test Model ---
+        // Implement HLCRecord for the Test Model
         // This implementation handles the conversion between the RFC3339 string
         // stored in the DB and the HLC struct (with u64 ms timestamp) used internally.
         impl HLCRecord for Model {
@@ -703,7 +701,7 @@ mod tests {
             }
         }
 
-        // --- Implement HLCModel for the Test Entity ---
+        // Implement HLCModel for the Test Entity
         // Maps HLC components to database columns for HLC-based queries.
         impl HLCModel for Entity {
             fn updated_at_time_column() -> Self::Column {
@@ -719,11 +717,11 @@ mod tests {
         }
     }
 
-    // --- Use the test-specific model definitions ---
+    // Use the test-specific model definitions
     // Bring the types from the dedicated test module into the main test scope.
     use test_model_def::{ActiveModel, Entity, Model};
 
-    // --- Test Database Setup ---
+    // Test Database Setup
     async fn setup_db() -> Result<DbConn, DbErr> {
         // Connect to an in-memory SQLite database for isolated tests
         let db = Database::connect("sqlite::memory:").await?;
@@ -738,7 +736,7 @@ mod tests {
         Ok(db)
     }
 
-    // --- Timestamp Conversion Helper ---
+    // Timestamp Conversion Helper
     // Converts u64 milliseconds since epoch to RFC3339 string.
     // Required by `insert_task`. Assumed to exist in `crate::hlc` in the main code.
     fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
@@ -769,7 +767,7 @@ mod tests {
         }
     }
 
-    // --- Test Data Insertion Helper ---
+    // Test Data Insertion Helper
     // Inserts a task into the database, converting the HLC timestamp to RFC3339 string.
     async fn insert_task(db: &DbConn, id: i32, content: &str, hlc: &HLC) -> Result<Model, DbErr> {
         // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
@@ -789,7 +787,7 @@ mod tests {
         active_model.insert(db).await
     }
 
-    // --- HLC Creation Helper ---
+    // HLC Creation Helper
     // Convenience function for creating HLC instances in tests.
     fn hlc(ts_millis: u64, version: u32, node_str: &str) -> HLC {
         HLC {
@@ -802,7 +800,7 @@ mod tests {
     // Constant for Node ID used in tests
     const NODE1: &str = "11111111-1111-1111-1111-111111111111";
 
-    // --- Unit Tests ---
+    // Unit Tests
 
     #[tokio::test]
     async fn test_calculate_chunk_hash_empty() -> Result<()> {
@@ -990,8 +988,8 @@ mod tests {
 
         // Trace: Latest = h7 (ts7)
         // Loop 1: current=0. age=(ts7 - 0)/days = large. ceil(age)=large.
-        //         desired=1*(1.1)^large > 10. window=max(1,min(10, round(desired)))=10.
-        //         Fetch(after 0, limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
+        //        desired=1*(1.1)^large > 10. window=max(1,min(10, round(desired)))=10.
+        //        Fetch(after 0, limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
         // Loop 2: current=h7. Fetch(after h7, limit 10) -> []. Break.
         // Expected: One chunk containing all 7 records.
         assert_eq!(chunks.len(), 1);
@@ -1009,7 +1007,7 @@ mod tests {
         let chunks2 = generate_data_chunks::<Entity>(&db, &options2, None).await?;
         // Trace:
         // Loop 1: current=0. age=large. desired=3*(1.1)^large > 10. window=10.
-        //         Fetch(limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
+        //        Fetch(limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
         // Loop 2: current=h7. Fetch(limit 10) -> []. Break.
         assert_eq!(
             chunks2.len(),
@@ -1269,11 +1267,11 @@ mod tests {
 
         // Trace: min=1, max=5, alpha=0. Latest=h5. Start current=h2.
         // Loop 1: current=h2. age=small. desired=1*(1)^n=1. window=max(1,min(5,1))=1.
-        //         Fetch(after h2, limit 1) -> r3. Chunk [h3-h3], count 1. next=h3.
+        //        Fetch(after h2, limit 1) -> r3. Chunk [h3-h3], count 1. next=h3.
         // Loop 2: current=h3. age=smaller. desired=1. window=1.
-        //         Fetch(after h3, limit 1) -> r4. Chunk [h4-h4], count 1. next=h4.
+        //        Fetch(after h3, limit 1) -> r4. Chunk [h4-h4], count 1. next=h4.
         // Loop 3: current=h4. age=smallest. desired=1. window=1.
-        //         Fetch(after h4, limit 1) -> r5. Chunk [h5-h5], count 1. next=h5.
+        //        Fetch(after h4, limit 1) -> r5. Chunk [h5-h5], count 1. next=h5.
         // Loop 4: current=h5. Fetch(after h5, limit 1) -> []. Break.
         // Expected: 3 chunks, containing r3, r4, and r5 respectively.
         assert_eq!(chunks.len(), 3);

@@ -100,7 +100,7 @@
 //! #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 //! pub enum Relation {}
 //!
-//! // --- 1. HLCRecord Implementation (for Model) ---
+//! // 1. HLCRecord Implementation (for Model)
 //! /// Purpose: Provides access to HLC timestamps, a unique ID (string), and
 //! ///          data representation for hashing and serialization required by the sync logic.
 //! impl HLCRecord for Model {
@@ -150,10 +150,10 @@
 //!     // otherwise they default to data_for_hashing().
 //! }
 //!
-//! // --- Boilerplate SeaORM ActiveModelBehavior ---
+//! // Boilerplate SeaORM ActiveModelBehavior
 //! impl ActiveModelBehavior for ActiveModel {}
 //!
-//! // --- 2. HLCModel Implementation (for Entity) ---
+//! // 2. HLCModel Implementation (for Entity)
 //! /// Purpose: Provides SeaORM Column definitions for HLC-related fields,
 //! ///          allowing the sync logic to build database queries dynamically.
 //! impl HLCModel for Entity {
@@ -183,7 +183,7 @@
 //!     // removing the `hlc_timestamp_millis_to_rfc3339` conversion. ***
 //! }
 //!
-//! // --- 3. PrimaryKeyFromStr Implementation (for Entity::PrimaryKey) ---
+//! // 3. PrimaryKeyFromStr Implementation (for Entity::PrimaryKey)
 //! /// Purpose: Converts the string representation of the primary key (from `HLCRecord::unique_id`)
 //! ///          back into the actual SeaORM primary key type (`ValueType`) required for database
 //! ///          operations like update and delete.
@@ -200,7 +200,7 @@
 //!     }
 //! }
 //!
-//! // --- 4. IntoActiveModel Implementation (for Model) ---
+//! // 4. IntoActiveModel Implementation (for Model)
 //! /// Purpose: Converts a `Model` instance (e.g., read from DB or received from remote)
 //! ///          into an `ActiveModel` suitable for SeaORM insert or update operations.
 //! impl IntoActiveModel<ActiveModel> for Model {
@@ -538,7 +538,7 @@ where
         .await
         .context("Failed to get remote node ID")?;
 
-    // --- 1. Fetch Initial Chunks ---
+    // 1. Fetch Initial Chunks
     // Fetch local and remote chunk metadata for data modified *after* the last sync HLC.
     let sync_start_hlc = metadata.last_sync_hlc.clone();
     let local_chunks_fut = generate_data_chunks::<E>(
@@ -570,7 +570,7 @@ where
         sync_start_hlc
     );
 
-    // --- 2. Reconcile Chunk Differences Recursively/Iteratively ---
+    // 2. Reconcile Chunk Differences Recursively/Iteratively
     // Initialize lists to store records that need detailed comparison
     let mut local_records_to_compare: Vec<E::Model> = Vec::new();
     let mut remote_records_to_compare: Vec<E::Model> = Vec::new();
@@ -762,7 +762,7 @@ where
         remote_records_to_compare.len()
     );
 
-    // --- 3. Merge and Compare Individual Records ---
+    // 3. Merge and Compare Individual Records
     // Use a HashMap keyed by `unique_id` to efficiently merge local and remote records
     // and track their state (LocalOnly, RemoteOnly, Both).
     let mut comparison_map: HashMap<String, RecordSyncState<E::Model>> = HashMap::new();
@@ -812,7 +812,7 @@ where
         }
     }
 
-    // --- 4. Conflict Resolution and Operation Generation ---
+    // 4. Conflict Resolution and Operation Generation
     // Iterate through the merged record states and determine the appropriate SyncOperation
     // based on the state, HLC comparison, Node ID tie-breaking, and SyncDirection.
     let mut local_ops: Vec<SyncOperation<E::Model>> = Vec::new();
@@ -969,7 +969,7 @@ where
         } // End match state
     } // End loop through comparison_map
 
-    // --- 5. Apply Changes Transactionally ---
+    // 5. Apply Changes Transactionally
     // Determine the final HLC for this sync run (the highest HLC encountered)
     let final_sync_hlc = max_hlc_encountered.clone(); // Use the tracked maximum HLC
 
@@ -1031,7 +1031,7 @@ where
         }
     };
 
-    // --- 6. Finalize and Update Metadata ---
+    // 6. Finalize and Update Metadata
     // Check the result of the remote changes application (or the placeholder Ok if skipped)
     match remote_apply_result {
         Ok(achieved_remote_hlc) => {
@@ -1072,7 +1072,7 @@ where
     }
 }
 
-// --- Helper Functions ---
+// Helper Functions
 
 /// Applies a list of local `SyncOperation`s within a single database transaction.
 async fn apply_local_changes<E>(
@@ -1372,7 +1372,7 @@ fn update_max_hlc(current_max: &mut HLC, potentially_new: &HLC) {
     }
 }
 
-// --- Trait for Primary Key Parsing ---
+// Trait for Primary Key Parsing
 
 /// Trait required for SeaORM Entities' PrimaryKey types.
 /// Enables parsing the string unique ID from `HLCRecord::unique_id()` back
