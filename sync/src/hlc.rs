@@ -84,7 +84,7 @@ mod timestamp_tests {
 
     #[test]
     fn test_hlc_millis_to_rfc3339_valid() -> Result<()> {
-        let millis: u64 = 1678886400123; // March 15, 2023 00:00:00.123 UTC
+        let millis: u64 = 1678838400123; // March 15, 2023 00:00:00.123 UTC
         let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
         // chrono format includes '+00:00' instead of 'Z' sometimes, both are valid RFC3339 UTC.
         assert!(
