@@ -309,7 +309,7 @@ fn calculate_median_offset(offsets: &[ClockOffset]) -> Result<ClockOffset, Crist
     let mut sorted_offsets = offsets.to_vec();
     sorted_offsets.sort_unstable(); // For performance, order doesn't matter
 
-    let mid = sorted_offsets.len() / 2;
+    let mid = (sorted_offsets.len() - 1) / 2;
     Ok(sorted_offsets[mid]) // For even length, lower median is returned. Can adjust if needed.
 }
 
