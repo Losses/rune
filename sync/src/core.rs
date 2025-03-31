@@ -72,16 +72,18 @@
 //! Here's how to implement the required traits for an example entity `my_table`:
 //!
 //! ```rust
+//! # use std::str::FromStr;
+//! 
 //! # // Mock structures to make the example compile standalone
 //! # use sea_orm::{entity::prelude::*, ConnectionTrait, DbErr, DeleteResult, ExecResult, InsertResult, UpdateResult, ActiveModelBehavior, ActiveValue, Set, Unchanged, QueryFilter, Condition, IntoActiveModel};
 //! # use serde::{Serialize, Deserialize};
 //! # use uuid::Uuid;
-//! # use crate::hlc::{HLC, HLCRecord, HLCModel};
-//! # use crate::core::{PrimaryKeyFromStr}; // Reference the trait from the same file/module
 //! # use anyhow::{Result, Context, anyhow};
-//! # use std::str::FromStr;
+//! # 
+//! # use sync::hlc::{HLC, HLCRecord, HLCModel};
+//! # use sync::core::{PrimaryKeyFromStr};
 //!
-//! #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+//! #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
 //! #[sea_orm(table_name = "my_table")]
 //! pub struct Model {
 //!     #[sea_orm(primary_key)]
@@ -200,36 +202,6 @@
 //!     }
 //! }
 //!
-//! // 4. IntoActiveModel Implementation (for Model)
-//! /// Purpose: Converts a `Model` instance (e.g., read from DB or received from remote)
-//! ///          into an `ActiveModel` suitable for SeaORM insert or update operations.
-//! impl IntoActiveModel<ActiveModel> for Model {
-//!     fn into_active_model(self) -> ActiveModel {
-//!         ActiveModel {
-//!             // For updates, the primary key should typically be Unchanged
-//!             // or Set if you know it's correct. For inserts, it's often Default or NotSet.
-//!             // If using `update_many().set(active_model)`, PK is usually ignored here
-//!             // and filtering happens via `.filter()`.
-//!             // If using `insert()`, PK should be NotSet/Default if auto-incrementing.
-//!             // Let's assume it's for an update where PK is used for filtering later:
-//!             id: Unchanged(self.id),
-//!             // Wrap fields to be updated/inserted in Set()
-//!             data: Set(self.data),
-//!             other_field: Set(self.other_field),
-//!             // Include HLC fields if they need to be set/updated
-//!             created_at_hlc_ts: Set(self.created_at_hlc_ts),
-//!             created_at_hlc_ct: Set(self.created_at_hlc_ct),
-//!             created_at_hlc_id: Set(self.created_at_hlc_id),
-//!             updated_at_hlc_ts: Set(self.updated_at_hlc_ts),
-//!             updated_at_hlc_ct: Set(self.updated_at_hlc_ct),
-//!             updated_at_hlc_id: Set(self.updated_at_hlc_id),
-//!             // Use `..Default::default()` if ActiveModel has more fields than Model,
-//!             // though explicit is often better. It's important here because 'id' might
-//!             // be Unchanged or Set, not covering all fields.
-//!             // ..Default::default() // Or be explicit if all fields are covered
-//!         }
-//!     }
-//! }
 //!
 //! // Example Usage (Conceptual - Requires RemoteDataSource impl etc.)
 //! /*
