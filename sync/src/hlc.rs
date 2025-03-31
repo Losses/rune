@@ -61,7 +61,7 @@ pub fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
     match Utc.timestamp_opt(secs, nanos) {
         LocalResult::Single(datetime) => {
             // Format to RFC3339 with milliseconds precision
-            let rfc3339_string = datetime.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+            let rfc3339_string = datetime.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
             Ok(rfc3339_string)
         }
         LocalResult::None => {
@@ -88,8 +88,8 @@ mod timestamp_tests {
         let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
         // chrono format includes '+00:00' instead of 'Z' sometimes, both are valid RFC3339 UTC.
         assert!(
-            rfc3339_string == "2023-03-15T00:00:00.123Z"
-                || rfc3339_string == "2023-03-15T00:00:00.123+00:00"
+            rfc3339_string == "2023-03-15T00:00:00.123000000Z"
+                || rfc3339_string == "2023-03-15T00:00:00.123000000+00:00"
         );
         Ok(())
     }
@@ -99,8 +99,8 @@ mod timestamp_tests {
         let millis: u64 = 0; // Epoch
         let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
         assert!(
-            rfc3339_string == "1970-01-01T00:00:00.000Z"
-                || rfc3339_string == "1970-01-01T00:00:00.000+00:00"
+            rfc3339_string == "1970-01-01T00:00:00.000000000Z"
+                || rfc3339_string == "1970-01-01T00:00:00.000000000+00:00"
         );
         Ok(())
     }
