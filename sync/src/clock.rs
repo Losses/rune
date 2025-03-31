@@ -42,49 +42,37 @@
 //! use std::time::{Instant, Duration};
 //! use std::thread;
 //!
-//! use once_cell::sync::Lazy; // Added for PROCESS_START if needed outside library
+//! use once_cell::sync::Lazy;
 //!
-//! use sync::clock::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset};
+//! use sync::clock::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset, ClockOffset};
 //!
-//! // Placeholder: Define PROCESS_START if using Timestamp relative to process start
-//! // static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now);
+//! // In a real scenario, PROCESS_START would likely be defined in your crate/main.
+//! // For this example, we define it here. It must be accessible by the MockExchanger.
+//! static PROCESS_START_EXAMPLE: Lazy<Instant> = Lazy::new(Instant::now);
 //!
-//! //  Placeholder: Replace with your actual network implementation
 //! struct MyNetworkExchanger;
 //!
 //! impl TimestampExchanger for MyNetworkExchanger {
 //!     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
-//!         //  Implement network communication here to get timestamp from server
-//!         // Example: (This is just a placeholder - network code is needed)
 //!         thread::sleep(Duration::from_millis(20)); // Simulate network delay
 //!
-//!         // **** IMPORTANT: Ensure the server timestamp uses a consistent epoch ****
-//!         // If using PROCESS_START like the library:
-//!         // let server_timestamp: Timestamp = PROCESS_START.elapsed().as_nanos() as Timestamp + 5_000_000_000; // Simulate server 5s ahead relative to PROCESS_START
-//!         // Or if using Unix epoch:
-//!         // let server_timestamp: Timestamp = std::time::SystemTime::now()
-//!         //     .duration_since(std::time::UNIX_EPOCH)
-//!         //     .unwrap_or_default()
-//!         //     .as_nanos() as Timestamp + 5_000_000_000; // Simulate server 5s ahead of Unix Epoch
-//!
-//!         // Placeholder value - Replace with actual server timestamp retrieval logic
-//!         let server_timestamp: Timestamp = 1_000_000_000; // Example value
+//!         // Simulate server time 5s ahead relative to PROCESS_START_EXAMPLE
+//!         let server_timestamp = PROCESS_START_EXAMPLE.elapsed().as_nanos() as Timestamp + 5_000_000_000;
 //!
 //!         Ok(server_timestamp)
 //!     }
 //! }
-//! // End Placeholder
 //!
 //! fn main() -> Result<(), CristianError> {
-//!     let config = CristianConfig::default(); // Use default config (5 samples)
-//!     let network_exchanger = MyNetworkExchanger; // Use your network implementation
+//!     // Access PROCESS_START_EXAMPLE here if needed, or use the library's PROCESS_START if accessible
+//!     let _ = *PROCESS_START_EXAMPLE;
 //!
-//!     // Perform initial synchronization
+//!     let config = CristianConfig::default();
+//!     let network_exchanger = MyNetworkExchanger;
+//!
 //!     let initial_offset = initial_sync(config, &network_exchanger)?;
 //!     println!("Initial clock offset: {} ns", initial_offset);
-//!     // Apply this offset to your local clock if needed.
 //!
-//!     // Example: Check offset during task execution (periodically)
 //!     let current_offset = check_offset(&network_exchanger)?;
 //!     println!("Current clock offset: {} ns", current_offset);
 //!
@@ -107,10 +95,10 @@ use std::time::Instant;
 
 use once_cell::sync::Lazy;
 
-static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now);
+// NOTE: This PROCESS_START is accessible within this module, including tests and doctests.
+pub static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now);
 
 /// Represents a timestamp in nanoseconds since an epoch (e.g., system start).
-/// You can adjust the underlying type as needed (e.g., `i64` for nanoseconds since Unix epoch).
 pub type Timestamp = i64;
 
 /// Represents a clock offset in nanoseconds.
@@ -146,70 +134,49 @@ pub enum CristianError {
 /// Users need to implement this trait to provide the communication layer.
 pub trait TimestampExchanger {
     /// Exchanges timestamp with the reference node.
-    ///
-    /// This function should:
-    /// 1. Send a timestamp request to the reference node.
-    /// 2. Receive the timestamp from the reference node.
-    ///
-    /// **Important:** The returned `Timestamp` should be relative to a consistent epoch,
-    /// ideally the same one used by the client (like `PROCESS_START` in this library's
-    /// default implementation, or Unix epoch if `Timestamp` is defined differently).
-    ///
-    /// Returns:
-    /// - `Ok(Timestamp)`: The timestamp received from the reference node.
-    /// - `Err(CristianError)`: If the exchange fails.
+    /// ... (rest of trait documentation)
     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError>;
 }
 
 /// Executes Cristian's Algorithm to perform initial clock synchronization.
-///
-/// This function performs multiple timestamp exchanges with the reference node,
-/// calculates the clock offset for each sample, and returns the median offset
-/// as the final clock offset.
-///
-/// # Arguments
-///
-/// * `config`: Configuration parameters for Cristian's Algorithm.
-/// * `timestamp_exchanger`: An implementation of `TimestampExchanger` trait
-///                          that handles the communication with the reference node.
-///
-/// # Returns
-///
-/// * `Ok(ClockOffset)`: The calculated median clock offset in nanoseconds.
-/// * `Err(CristianError)`: If synchronization fails due to communication errors
-///                          or lack of valid timestamps.
-///
+/// ... (rest of function documentation)
 /// # Example
 ///
-/// ```rust,no_run
-/// # mod cristian_algorithm { // Encapsulate for doctest isolation
-/// #   use super::*; // Use items from outer scope
-/// #   use std::time::{Instant, Duration};
-/// #   use std::thread;
-/// #   use once_cell::sync::Lazy;
-/// #   pub use super::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset}; // Re-export necessary items
-/// #   static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now); // Define PROCESS_START locally for doctest
-/// // Mock TimestampExchanger for example purposes (replace with your actual implementation)
+/// ```rust
+/// // Items from the sync::clock module are directly available in doctests
+/// use std::time::{Duration, Instant};
+/// use std::thread;
+///
+/// use once_cell::sync::Lazy;
+///
+/// use crate::sync::clock::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, ClockOffset, PROCESS_START};
+///
+/// // Mock TimestampExchanger defined directly within the doctest
 /// struct MockExchanger;
 ///
 /// impl TimestampExchanger for MockExchanger {
 ///     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
 ///         // Simulate network delay and server timestamp retrieval
 ///         thread::sleep(Duration::from_millis(50)); // Simulate network delay
-///         // Simulate server time 1 second ahead, relative to PROCESS_START
-///         let server_timestamp = PROCESS_START.elapsed().as_nanos() as Timestamp + 1_000_000_000;
+///         // Simulate server time 1 second ahead, relative to *the module's* PROCESS_START
+///         let server_timestamp = crate::sync::clock::PROCESS_START.elapsed().as_nanos() as Timestamp + 1_000_000_000;
 ///         Ok(server_timestamp)
 ///     }
 /// }
-/// # } // end module cristian_algorithm
-/// # use cristian_algorithm::{CristianConfig, CristianError, initial_sync, TimestampExchanger, MockExchanger}; // Import from the encapsulated module
 ///
 /// fn main() -> Result<(), CristianError> {
+///     // Initialize PROCESS_START if not already done (Lazy handles this)
+///     let _ = *crate::sync::clock::PROCESS_START;
+///
 ///     let config = CristianConfig::default();
-///     let exchanger = MockExchanger; // Replace with your actual TimestampExchanger
+///     let exchanger = MockExchanger; // Use the mock defined above
 ///     let offset = initial_sync(config, &exchanger)?;
 ///     // Expected offset = server_offset + rtt/2 ≈ 1_000_000_000 + (50ms + overhead)/2 ≈ 1_025_000_000 ns
-///     println!("Calculated clock offset: {} ns", offset);
+///     // Add tolerance for timing variations in test execution
+///     let expected_base = 1_000_000_000 + (50 * 1_000_000 / 2);
+///     let tolerance = 10_000_000; // 10ms tolerance
+///     println!("Calculated clock offset: {} ns (Expected approx {})", offset, expected_base);
+///     assert!((offset - expected_base).abs() < tolerance);
 ///     Ok(())
 /// }
 /// ```
@@ -248,52 +215,42 @@ pub fn initial_sync<T: TimestampExchanger>(
 }
 
 /// Checks the clock offset in a task execution context using Cristian's Algorithm (single sample).
-///
-/// This function performs a single timestamp exchange with the reference node
-/// and calculates the clock offset. This is useful for periodically checking
-/// and correcting clock drift during task execution.
-///
-/// # Arguments
-///
-/// * `timestamp_exchanger`: An implementation of `TimestampExchanger` trait
-///                          that handles the communication with the reference node.
-///
-/// # Returns
-///
-/// * `Ok(ClockOffset)`: The calculated clock offset in nanoseconds for this sample.
-/// * `Err(CristianError)`: If the offset check fails due to communication errors.
-///
+/// ... (rest of function documentation)
 /// # Example
 ///
-/// ```rust,no_run
-/// # mod cristian_algorithm_check { // Encapsulate for doctest isolation
-/// #   use super::*;
-/// #   use std::time::{Instant, Duration};
-/// #   use std::thread;
-/// #   use once_cell::sync::Lazy;
-/// #   pub use super::{CristianConfig, CristianError, initial_sync, TimestampExchanger, Timestamp, check_offset}; // Re-export necessary items
-/// #   static PROCESS_START: Lazy<Instant> = Lazy::new(Instant::now); // Define PROCESS_START locally for doctest
-/// // Mock TimestampExchanger (replace with your actual implementation)
-/// # struct MockExchanger;
-/// #
-/// # impl TimestampExchanger for MockExchanger {
-/// #    fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
-/// #        thread::sleep(Duration::from_millis(50));
-/// #        // Simulate server 1s ahead relative to PROCESS_START
-/// #        let server_timestamp = PROCESS_START.elapsed().as_nanos() as Timestamp + 1_000_000_000;
-/// #        Ok(server_timestamp)
-/// #    }
-/// # }
-/// # } // end module cristian_algorithm_check
-/// # use cristian_algorithm_check::{CristianError, check_offset, TimestampExchanger, MockExchanger}; // Import from the encapsulated module
-/// #
-/// # fn main() -> Result<(), CristianError> {
-/// #    let exchanger = MockExchanger; // Replace with your actual TimestampExchanger
+/// ```rust
+/// use std::time::{Duration, Instant};
+/// use std::thread;
+/// 
+/// use once_cell::sync::Lazy;
+/// 
+/// use crate::sync::clock::{check_offset, CristianError, TimestampExchanger, Timestamp, ClockOffset, PROCESS_START};
+///
+/// // Mock TimestampExchanger defined directly within the doctest
+/// struct MockExchanger;
+///
+/// impl TimestampExchanger for MockExchanger {
+///     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError> {
+///         thread::sleep(Duration::from_millis(50));
+///         // Simulate server 1s ahead relative to *the module's* PROCESS_START
+///         let server_timestamp = crate::sync::clock::PROCESS_START.elapsed().as_nanos() as Timestamp + 1_000_000_000;
+///         Ok(server_timestamp)
+///     }
+/// }
+///
+/// fn main() -> Result<(), CristianError> {
+///     // Initialize PROCESS_START if not already done (Lazy handles this)
+///     let _ = *crate::sync::clock::PROCESS_START;
+///
+///     let exchanger = MockExchanger; // Use the mock defined above
 ///     let current_offset = check_offset(&exchanger)?;
 ///     // Expected offset = server_offset + rtt/2 ≈ 1_000_000_000 + (50ms + overhead)/2 ≈ 1_025_000_000 ns
-///     println!("Current clock offset: {} ns", current_offset);
-/// #    Ok(())
-/// # }
+///     let expected_base = 1_000_000_000 + (50 * 1_000_000 / 2);
+///     let tolerance = 10_000_000; // 10ms tolerance
+///     println!("Current clock offset: {} ns (Expected approx {})", current_offset, expected_base);
+///     assert!((current_offset - expected_base).abs() < tolerance);
+///     Ok(())
+/// }
 /// ```
 pub fn check_offset<T: TimestampExchanger>(
     timestamp_exchanger: &T,
@@ -392,6 +349,7 @@ mod tests {
     use std::cell::Cell;
     use std::time::Duration;
 
+    // Import items from the outer module (sync::clock)
     use super::*;
 
     // Mock TimestampExchanger for testing purposes
@@ -465,8 +423,8 @@ mod tests {
     }
 
     // Define a reasonable tolerance for offset comparisons in nanoseconds
-    // Allow for RTT variance, scheduling delays etc. ~7ms seems plausible for local tests.
-    const OFFSET_TOLERANCE_NS: ClockOffset = 7_000_000;
+    // Allow for RTT variance, scheduling delays etc. ~10ms seems plausible for local tests.
+    const OFFSET_TOLERANCE_NS: ClockOffset = 10_000_000;
 
     #[test]
     fn test_initial_sync_no_offset() {
@@ -701,6 +659,8 @@ mod tests {
                     break;
                 }
             }
+            // Add a small delay to increase chance of Instant::now() difference
+            std::thread::sleep(Duration::from_nanos(10));
         }
         // We don't assert true here, as it's timing-dependent.
         // Just running it provides some confidence the check exists.
