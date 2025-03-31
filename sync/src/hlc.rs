@@ -209,6 +209,29 @@ impl HLC {
         *last_hlc = new_hlc.clone();
         new_hlc
     }
+
+    /// Increments the HLC logically by one step (version or timestamp).
+    ///
+    /// If the version counter is less than `u32::MAX`, it's incremented.
+    /// If the version counter reaches `u32::MAX`, the timestamp is incremented
+    /// by one millisecond, and the version resets to 0. This maintains the HLC ordering.
+    ///
+    /// **Note:** This method provides deterministic logical incrementing, primarily
+    /// intended for testing or specific simulation scenarios where controlling the
+    /// exact sequence of HLCs is needed, independent of the system clock used by `generate()`.
+    /// For generating standard monotonic HLCs tied to physical time progression,
+    /// use `HLC::generate()`. Avoid using this in production code where standard HLC
+    /// generation based on physical time is required.
+    pub fn increment(&mut self) {
+        if self.version < u32::MAX {
+            self.version += 1;
+        } else {
+            // Overflow: Increment timestamp and reset version
+            // We assume timestamp itself won't realistically overflow u64.
+            self.timestamp += 1;
+            self.version = 0;
+        }
+    }
 }
 
 impl FromStr for HLC {
@@ -483,12 +506,86 @@ where
         .context("Failed to fetch page for get_data_in_hlc_range")
 }
 
-// Example Usage Helper (if needed, outside of tests)
-#[allow(dead_code)]
 pub fn create_hlc(ts: u64, v: u32, node_id_str: &str) -> HLC {
     HLC {
         timestamp: ts,
         version: v,
         node_id: Uuid::parse_str(node_id_str).unwrap(),
+    }
+}
+
+#[cfg(test)]
+mod hlc_increment_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    #[test]
+    fn test_hlc_increment_normal() {
+        let node_id = Uuid::new_v4();
+        let mut hlc = HLC {
+            timestamp: 1000,
+            version: 5,
+            node_id,
+        };
+        hlc.increment();
+        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.version, 6);
+        assert_eq!(hlc.node_id, node_id);
+    }
+
+    #[test]
+    fn test_hlc_increment_version_max() {
+        let node_id = Uuid::new_v4();
+        let mut hlc = HLC {
+            timestamp: 1000,
+            version: u32::MAX - 1,
+            node_id,
+        };
+        hlc.increment();
+        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.version, u32::MAX);
+        assert_eq!(hlc.node_id, node_id);
+    }
+
+    #[test]
+    fn test_hlc_increment_overflow() {
+        let node_id = Uuid::new_v4();
+        let mut hlc = HLC {
+            timestamp: 1000,
+            version: u32::MAX,
+            node_id,
+        };
+        hlc.increment();
+        assert_eq!(
+            hlc.timestamp, 1001,
+            "Timestamp should increment on version overflow"
+        );
+        assert_eq!(hlc.version, 0, "Version should reset to 0 on overflow");
+        assert_eq!(hlc.node_id, node_id);
+    }
+
+    #[test]
+    fn test_hlc_increment_multiple_overflows() {
+        let node_id = Uuid::new_v4();
+        let mut hlc = HLC {
+            timestamp: 1000,
+            version: u32::MAX - 1,
+            node_id,
+        };
+
+        // Increment to MAX
+        hlc.increment();
+        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.version, u32::MAX);
+
+        // Increment causing overflow
+        hlc.increment();
+        assert_eq!(hlc.timestamp, 1001);
+        assert_eq!(hlc.version, 0);
+
+        // Normal increment after overflow
+        hlc.increment();
+        assert_eq!(hlc.timestamp, 1001);
+        assert_eq!(hlc.version, 1);
     }
 }
