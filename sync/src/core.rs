@@ -2835,7 +2835,7 @@ mod tests {
         let start_hlc = hlc(BASE_TS, 0, LOCAL_NODE_STR);
         let hlc1 = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
         let hlc2 = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR);
-        let hlc3 = hlc(BASE_TS + 300, 0, REMOTE_NODE_STR); // Remote HLC starts later
+        let hlc3 = hlc(BASE_TS + 300, 0, REMOTE_NODE_STR);
         let hlc4 = hlc(BASE_TS + 400, 0, REMOTE_NODE_STR);
 
         // Local: Record L1@hlc1, L2@hlc2 -> Chunk [hlc1-hlc2]
@@ -2873,7 +2873,7 @@ mod tests {
 
         // Setup chunks
         let options = ChunkingOptions {
-            min_size: 1,
+            min_size: 2,
             max_size: 10,
             alpha: 0.0,
             node_id: local_node_id,
