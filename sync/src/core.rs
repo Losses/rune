@@ -243,7 +243,11 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use anyhow::{anyhow, Context, Result};
+#[cfg(not(test))]
 use log::{debug, error, info, warn};
+#[cfg(test)]
+use std::{println as info, println as warn, println as error, println as debug};
+
 use sea_orm::entity::prelude::*;
 use sea_orm::{
     ActiveModelBehavior, DatabaseConnection, EntityTrait, IntoActiveModel, Iterable,
@@ -1097,31 +1101,58 @@ where
                     .with_context(|| format!("Failed to insert local record ID {}", id_str))?;
             }
             SyncOperation::UpdateLocal(model) => {
-                let id_str = model.unique_id(); // Get ID string before moving model
+                let id_str = model.unique_id();
                 debug!("Local TXN: Updating record ID {}", id_str);
 
-                // Convert Model to ActiveModel.
-                let mut active_model: E::ActiveModel = model.into_active_model(); // Make it mutable
+                // 1. Convert the incoming model to ActiveModel.
+                //    This ActiveModel might contain an incorrect primary key value
+                //    inherited from the `model` (e.g., if it came from remote).
+                let mut am_from_model: E::ActiveModel = model.into_active_model().reset_all();
 
-                // The PrimaryKeyTrait provides an iter() method returning an iterator over the primary key columns.
-                for key in E::PrimaryKey::iter() {
-                    // Use reset() to change the ActiveValue to NotSet or Unchanged
-                    // Depending on the specific SeaORM version and desired behavior,
-                    // Unset might be more explicit if available, but reset usually works.
-                    active_model.reset(key.into_column());
+                // 2. Reset the primary key field(s) in the ActiveModel.
+                //    This sets the PK fields to `NotSet`, ensuring that the `set`
+                //    operation below does not attempt to modify the primary key itself.
+                //    The filter condition will target the correct row.
+                //    Requires E::PrimaryKey: Into<E::Column> bound.
+                for pk_col in E::PrimaryKey::iter() {
+                    am_from_model.reset(pk_col.into_column());
                 }
 
-                // Use update_many with filter for safety, applying changes from active_model
-                let res = E::update_many()
-                    .set(active_model) // Apply changes defined in active_model (PK should be reset now)
-                    // Filter using the unique_id column and the string ID directly
-                    .filter(E::unique_id_column().eq(id_str.clone()))
+                // 3. Perform the update using `update_many` (even for a single row).
+                //    Filter by the logical unique ID (`sync_id` in tests).
+                //    The `set` method applies only the fields that are `Set`
+                //    in `am_from_model` (which now excludes the PKs).
+                let update_result = E::update_many()
+                    .set(am_from_model) // Apply the changes (PK field is NotSet)
+                    .filter(E::unique_id_column().eq(id_str.clone())) // Use ColumnTrait::eq
                     .exec(&txn)
-                    .await;
+                    .await
+                    .with_context(|| {
+                        format!("Failed to update local record with unique ID {}", id_str)
+                    })?;
 
-                // Check affected rows? SeaORM update result doesn't directly expose this easily.
-                // We assume the update worked if no error occurred.
-                res.with_context(|| format!("Failed to update local record {}", id_str))?;
+                // 4. Check if any row was actually updated.
+                if update_result.rows_affected == 0 {
+                    // This implies the record with the given unique_id didn't exist locally.
+                    // This could happen if a remote delete won a conflict resolution
+                    // against a local update, but the delete hasn't been processed yet,
+                    // or indicates some other inconsistency.
+                    warn!(
+                        "Local TXN: Update operation for unique ID {} affected 0 rows. Record might not exist locally or was already deleted.",
+                        id_str
+                    );
+                } else if update_result.rows_affected > 1 {
+                    // This should ideally not happen if unique_id_column has a unique constraint.
+                    warn!(
+                        "Local TXN: Update operation for unique ID {} affected {} rows. Expected 1.",
+                        id_str, update_result.rows_affected
+                    );
+                } else {
+                    debug!(
+                        "Local TXN: Successfully updated 1 row for unique ID {}",
+                        id_str
+                    );
+                }
             }
             SyncOperation::DeleteLocal(id_str) => {
                 debug!("Local TXN: Deleting record ID {}", id_str);
@@ -2354,7 +2385,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_apply_local_changes_commit() -> Result<()> {
-        // ... (existing test code)
         let db = setup_db().await?;
         let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
         let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
@@ -2417,6 +2447,8 @@ mod tests {
         // Verify DB state after commit
         let final_data = Entity::find().order_by_asc(Column::SyncId).all(&db).await?; // Order by sync_id for consistent results
         assert_eq!(final_data.len(), 2); // sync_i and sync_u remain
+
+        println!("FINAL DATA: {:#?}", final_data);
 
         assert_eq!(final_data[0].sync_id, "sync_i");
         assert_eq!(final_data[0].name, "Inserted");
@@ -2713,7 +2745,7 @@ mod tests {
         assert_eq!(local_chunks[0].count, record_count);
         assert!(local_chunks[0].count > COMPARISON_THRESHOLD);
 
-        // ---> Verify chunk alignment and hash difference <---
+        // Verify chunk alignment and hash difference
         assert_eq!(
             local_chunks[0].start_hlc,
             chunk_hlc_start, // Compare local start to the actual first record HLC
