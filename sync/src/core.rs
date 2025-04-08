@@ -849,22 +849,22 @@ where
                 let comparison = local_hlc.cmp(&remote_hlc);
                 let (local_wins, remote_wins) = match comparison {
                     std::cmp::Ordering::Greater => {
-                        debug!(" -> Local HLC is greater.");
+                        debug!(":: Local HLC is greater.");
                         (true, false) // Local wins
                     }
                     std::cmp::Ordering::Less => {
-                        debug!(" -> Remote HLC is greater.");
+                        debug!(":: Remote HLC is greater.");
                         (false, true) // Remote wins
                     }
                     std::cmp::Ordering::Equal => {
                         // HLCs are identical, use Node ID as tie-breaker (lexicographically smaller wins)
                         debug!(
-                            " -> HLCs are equal. Tie-breaking using Node IDs (Local: {}, Remote: {}).",
+                            ":: HLCs are equal. Tie-breaking using Node IDs (Local: {}, Remote: {}).",
                             context.local_node_id, remote_node_id
                         );
                         match context.local_node_id.cmp(&remote_node_id) {
                             std::cmp::Ordering::Less => {
-                                debug!(" -> Local Node ID wins tie-breaker.");
+                                debug!(":: Local Node ID wins tie-breaker.");
                                 (true, false)
                             }
                             std::cmp::Ordering::Equal => {
@@ -877,7 +877,7 @@ where
                                 (false, false) // No winner, effectively NoOp
                             }
                             std::cmp::Ordering::Greater => {
-                                debug!(" -> Remote Node ID wins tie-breaker.");
+                                debug!(":: Remote Node ID wins tie-breaker.");
                                 (false, true)
                             }
                         }
@@ -894,7 +894,7 @@ where
                         if local_hlc > remote_hlc
                             || (local_hlc == remote_hlc && context.local_node_id < remote_node_id)
                         {
-                            debug!(" -> Action: UpdateRemote with local winner.");
+                            debug!(":: Action: UpdateRemote with local winner.");
                             remote_ops.push(SyncOperation::UpdateRemote(local_record.clone()));
                         } else {
                             // Remote already has the winning state? Log warning.
@@ -919,7 +919,7 @@ where
                         if remote_hlc > local_hlc
                             || (remote_hlc == local_hlc && remote_node_id < context.local_node_id)
                         {
-                            debug!(" -> Action: UpdateLocal with remote winner.");
+                            debug!(":: Action: UpdateLocal with remote winner.");
                             local_ops.push(SyncOperation::UpdateLocal(remote_record.clone()));
                         } else {
                             // Local already has the winning state? Log warning.
@@ -937,7 +937,7 @@ where
                     remote_ops.push(SyncOperation::NoOp(id));
                 } else {
                     // No winner (e.g., identical HLC and Node ID, or identical records implicitly)
-                    debug!(" -> No clear winner or records identical. Action: NoOp for both.");
+                    debug!(":: No clear winner or records identical. Action: NoOp for both.");
                     local_ops.push(SyncOperation::NoOp(id.clone()));
                     remote_ops.push(SyncOperation::NoOp(id));
                 }
