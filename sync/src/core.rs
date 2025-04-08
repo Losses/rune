@@ -845,40 +845,44 @@ where
                     id, local_hlc, remote_hlc
                 );
 
-                // Compare HLCs first
-                let comparison = local_hlc.cmp(&remote_hlc);
-                let (local_wins, remote_wins) = match comparison {
+                // Compare timestamp and version first
+                let ts_ver_cmp = (local_hlc.timestamp, local_hlc.version)
+                    .cmp(&(remote_hlc.timestamp, remote_hlc.version));
+
+                let (local_wins, remote_wins) = match ts_ver_cmp {
                     std::cmp::Ordering::Greater => {
-                        debug!(":: Local HLC is greater.");
-                        (true, false) // Local wins
+                        debug!(":: Local TS/Version is greater.");
+                        (true, false) // Local wins based on TS/Version
                     }
                     std::cmp::Ordering::Less => {
-                        debug!(":: Remote HLC is greater.");
-                        (false, true) // Remote wins
+                        debug!(":: Remote TS/Version is greater.");
+                        (false, true) // Remote wins based on TS/Version
                     }
                     std::cmp::Ordering::Equal => {
-                        // HLCs are identical, use Node ID as tie-breaker (lexicographically smaller wins)
+                        // Timestamps and Versions are identical, use Node ID as tie-breaker
                         debug!(
-                            ":: HLCs are equal. Tie-breaking using Node IDs (Local: {}, Remote: {}).",
+                            ":: TS/Version are equal. Tie-breaking using Node IDs (Local: {}, Remote: {}).",
                             context.local_node_id, remote_node_id
                         );
+                        // Explicitly compare node IDs now
                         match context.local_node_id.cmp(&remote_node_id) {
                             std::cmp::Ordering::Less => {
                                 debug!(":: Local Node ID wins tie-breaker.");
-                                (true, false)
+                                (true, false) // Local wins tie-breaker
                             }
                             std::cmp::Ordering::Equal => {
-                                // Node IDs are identical? Should not happen with UUIDs.
-                                // Treat as no-op or log error. Let's treat as no-op.
+                                // Node IDs are identical? Should not happen with UUIDs unless clocks synced *perfectly*
+                                // and somehow produced the exact same record state.
+                                // Treat as NoOp as the HLCs (and likely data) are identical.
                                 warn!(
-                                "Identical HLCs and Node IDs ({}) found for record {}. Treating as NoOp.",
-                                context.local_node_id, id
-                            );
+                                    "Identical HLCs (including Node ID: {}) found for record {}. Treating as NoOp.",
+                                    context.local_node_id, id
+                                );
                                 (false, false) // No winner, effectively NoOp
                             }
                             std::cmp::Ordering::Greater => {
                                 debug!(":: Remote Node ID wins tie-breaker.");
-                                (false, true)
+                                (false, true) // Remote wins tie-breaker
                             }
                         }
                     }
@@ -890,20 +894,11 @@ where
                     if context.sync_direction == SyncDirection::Push
                         || context.sync_direction == SyncDirection::Bidirectional
                     {
-                        // Check if remote actually needs the update (it should if local won)
-                        if local_hlc > remote_hlc
-                            || (local_hlc == remote_hlc && context.local_node_id < remote_node_id)
-                        {
-                            debug!(":: Action: UpdateRemote with local winner.");
-                            remote_ops.push(SyncOperation::UpdateRemote(local_record.clone()));
-                        } else {
-                            // Remote already has the winning state? Log warning.
-                            warn!(
-                                "Local won conflict for record {} but remote HLC ({}) was not older or tied differently. Remote NoOp.",
-                                id, remote_hlc
-                            );
-                            remote_ops.push(SyncOperation::NoOp(id.clone()));
-                        }
+                        // If local won (either by TS/Version or tie-breaker), push the update.
+                        // The previous complex check is simplified because `local_wins` already
+                        // incorporates the necessary comparison logic (including tie-breaker).
+                        debug!(":: Action: UpdateRemote with local winner.");
+                        remote_ops.push(SyncOperation::UpdateRemote(local_record.clone()));
                     } else {
                         // Pull only, no remote action needed if local wins
                         remote_ops.push(SyncOperation::NoOp(id.clone()));
@@ -915,20 +910,9 @@ where
                     if context.sync_direction == SyncDirection::Pull
                         || context.sync_direction == SyncDirection::Bidirectional
                     {
-                        // Check if local actually needs the update (it should if remote won)
-                        if remote_hlc > local_hlc
-                            || (remote_hlc == local_hlc && remote_node_id < context.local_node_id)
-                        {
-                            debug!(":: Action: UpdateLocal with remote winner.");
-                            local_ops.push(SyncOperation::UpdateLocal(remote_record.clone()));
-                        } else {
-                            // Local already has the winning state? Log warning.
-                            warn!(
-                                "Remote won conflict for record {} but local HLC ({}) was not older or tied differently. Local NoOp.",
-                                id, local_hlc
-                            );
-                            local_ops.push(SyncOperation::NoOp(id.clone()));
-                        }
+                        // If remote won, update local.
+                        debug!(":: Action: UpdateLocal with remote winner.");
+                        local_ops.push(SyncOperation::UpdateLocal(remote_record.clone()));
                     } else {
                         // Push only, no local action needed if remote wins
                         local_ops.push(SyncOperation::NoOp(id.clone()));
@@ -936,7 +920,7 @@ where
                     // Remote side needs no operation as it already has the winning version
                     remote_ops.push(SyncOperation::NoOp(id));
                 } else {
-                    // No winner (e.g., identical HLC and Node ID, or identical records implicitly)
+                    // No winner (e.g., identical HLC including Node ID)
                     debug!(":: No clear winner or records identical. Action: NoOp for both.");
                     local_ops.push(SyncOperation::NoOp(id.clone()));
                     remote_ops.push(SyncOperation::NoOp(id));
