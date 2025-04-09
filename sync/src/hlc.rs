@@ -417,6 +417,315 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     }
 }
 
+#[cfg(test)]
+mod hlcmodel_tests {
+    use crate::{
+        chunking::tests::test_model_def::Entity,
+        hlc::{create_hlc, hlc_timestamp_millis_to_rfc3339, HLCModel, HLC},
+    };
+    use anyhow::Result;
+    use sea_orm::{Condition, DbBackend, EntityTrait, QueryFilter, QueryTrait, Statement};
+    use uuid::Uuid;
+
+    // Helper to build SQL WHERE clause from a condition for verification
+    fn condition_to_sql(condition: Condition) -> String {
+        let statement: Statement = Entity::find().filter(condition).build(DbBackend::Sqlite);
+
+        let sql = statement.sql;
+        // Use unwrap_or with an empty Vec<Value> since Option<Values> is Option<Vec<Value>>
+        // and Vec<Value> implements Clone.
+        let values = statement.values.unwrap_or(sea_orm::Values(Vec::new()));
+
+        let where_clause = sql
+            .split_once("WHERE")
+            .map(|(_, clause)| clause.trim())
+            .unwrap_or("");
+
+        if where_clause.is_empty() {
+            return "".to_string();
+        }
+
+        let mut final_sql = where_clause.to_string();
+        for (i, val) in values.iter().enumerate() {
+            let placeholder = format!("${}", i + 1);
+            let replacement = format!("{}", val);
+            final_sql = final_sql.replace(&placeholder, &replacement);
+        }
+
+        final_sql
+    }
+
+    #[test]
+    fn test_hlcmodel_gt() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string()); // Example HLC
+        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+
+        let condition = Entity::gt(&hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        // Expected logic: (ts > 'ts_str') OR (ts = 'ts_str' AND v > 5)
+        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" > '{}'", expected_ts_str);
+        let expected_sql_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" > {})",
+            expected_ts_str, hlc.version
+        );
+        println!("Generated SQL WHERE (GT): {}", sql_where);
+
+        assert!(
+            sql_where.contains(&expected_sql_part1),
+            "SQL should contain timestamp greater than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_sql_part2),
+            "SQL should contain timestamp equal and version greater than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(" OR "),
+            "SQL parts should be joined by OR. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_lt() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+
+        let condition = Entity::lt(&hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        // Expected logic: (ts < 'ts_str') OR (ts = 'ts_str' AND v < 5)
+        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" < '{}'", expected_ts_str);
+        let expected_sql_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" < {})",
+            expected_ts_str, hlc.version
+        );
+        println!("Generated SQL WHERE (LT): {}", sql_where);
+
+        assert!(
+            sql_where.contains(&expected_sql_part1),
+            "SQL should contain timestamp less than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_sql_part2),
+            "SQL should contain timestamp equal and version less than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(" OR "),
+            "SQL parts should be joined by OR. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_gte() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+
+        let condition = Entity::gte(&hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        // Expected logic: (ts > 'ts_str') OR (ts = 'ts_str' AND v >= 5)
+        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" > '{}'", expected_ts_str);
+        let expected_sql_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
+            expected_ts_str, hlc.version
+        );
+        println!("Generated SQL WHERE (GTE): {}", sql_where);
+
+        assert!(
+            sql_where.contains(&expected_sql_part1),
+            "SQL should contain timestamp greater than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_sql_part2),
+            "SQL should contain timestamp equal and version greater than or equal condition. SQL: {}", sql_where
+        );
+        assert!(
+            sql_where.contains(" OR "),
+            "SQL parts should be joined by OR. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_lte() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+
+        let condition = Entity::lte(&hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        // Expected logic: (ts < 'ts_str') OR (ts = 'ts_str' AND v <= 5)
+        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" < '{}'", expected_ts_str);
+        let expected_sql_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
+            expected_ts_str, hlc.version
+        );
+        println!("Generated SQL WHERE (LTE): {}", sql_where);
+
+        assert!(
+            sql_where.contains(&expected_sql_part1),
+            "SQL should contain timestamp less than condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_sql_part2),
+            "SQL should contain timestamp equal and version less than or equal condition. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(" OR "),
+            "SQL parts should be joined by OR. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_between() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let start_hlc = create_hlc(1678886400000, 1, &node_id.to_string());
+        let end_hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let start_ts_str = hlc_timestamp_millis_to_rfc3339(start_hlc.timestamp)?;
+        let end_ts_str = hlc_timestamp_millis_to_rfc3339(end_hlc.timestamp)?;
+
+        let condition = Entity::between(&start_hlc, &end_hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        println!("Generated SQL WHERE (Between): {}", sql_where);
+
+        // Expected logic: GTE(start) AND LTE(end)
+        let expected_gte_part1 = format!("\"updated_at_hlc_ts\" > '{}'", start_ts_str);
+        let expected_gte_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
+            start_ts_str, start_hlc.version
+        );
+        let expected_lte_part1 = format!("\"updated_at_hlc_ts\" < '{}'", end_ts_str);
+        let expected_lte_part2 = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
+            end_ts_str, end_hlc.version
+        );
+
+        assert!(
+            sql_where.contains(&expected_gte_part1),
+            "SQL (Between) missing GTE timestamp part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_gte_part2),
+            "SQL (Between) missing GTE timestamp/version part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_lte_part1),
+            "SQL (Between) missing LTE timestamp part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_lte_part2),
+            "SQL (Between) missing LTE timestamp/version part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(") AND ("),
+            "SQL (Between) should combine GTE and LTE conditions with AND. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_between_same_hlc() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+
+        let condition = Entity::between(&hlc, &hlc)?;
+        let sql_where = condition_to_sql(condition);
+
+        println!("Generated SQL WHERE (Between Same HLC): {}", sql_where);
+
+        let expected_gte_part = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
+            ts_str, hlc.version
+        );
+        let expected_lte_part = format!(
+            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
+            ts_str, hlc.version
+        );
+
+        assert!(
+            sql_where.contains(&expected_gte_part),
+            "SQL (Between Same) missing GTE part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(&expected_lte_part),
+            "SQL (Between Same) missing LTE part. SQL: {}",
+            sql_where
+        );
+        assert!(
+            sql_where.contains(") AND ("),
+            "SQL (Between Same) should combine GTE and LTE conditions with AND. SQL: {}",
+            sql_where
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_hlcmodel_between_invalid_range() {
+        let node_id = Uuid::new_v4();
+        let start_hlc = create_hlc(1678886400123, 5, &node_id.to_string());
+        let end_hlc = create_hlc(1678886400000, 1, &node_id.to_string()); // End < Start
+
+        let result = Entity::between(&start_hlc, &end_hlc);
+
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Start HLC"));
+        assert!(err_msg.contains("must be less than or equal to End HLC"));
+        assert!(err_msg.contains(&start_hlc.to_string()));
+        assert!(err_msg.contains(&end_hlc.to_string()));
+    }
+
+    #[test]
+    fn test_hlcmodel_timestamp_conversion_error() {
+        let node_id = Uuid::new_v4();
+        let invalid_hlc = HLC {
+            timestamp: u64::MAX,
+            version: 0,
+            node_id,
+        };
+
+        let result = Entity::gt(&invalid_hlc);
+
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        println!("Timestamp conversion error message: {}", err_msg);
+        assert!(err_msg.contains("Failed to format GT timestamp"));
+        assert!(err_msg.contains("HLC Milliseconds timestamp is out of range"));
+    }
+}
+
 /// Extension trait for SeaORM queries to add HLC-based ordering.
 pub trait HLCQuery: Sized + QueryOrder {
     /// Orders the query results by HLC timestamp and version in ascending order.
