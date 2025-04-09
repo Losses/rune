@@ -44,7 +44,8 @@ use anyhow::{bail, Context, Result};
 use blake3::Hasher;
 use chrono::{LocalResult, TimeZone, Utc};
 use sea_orm::{
-    entity::prelude::*, Condition, DatabaseConnection, PaginatorTrait, QueryFilter, QueryOrder,
+    entity::prelude::*, Condition, DatabaseConnection, FromQueryResult, PaginatorTrait,
+    QueryFilter, QueryOrder,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -112,7 +113,9 @@ mod timestamp_tests {
         let invalid_millis: u64 = u64::MAX;
         let result = hlc_timestamp_millis_to_rfc3339(invalid_millis);
         assert!(result.is_err());
-        eprintln!("Out of range error: {:?}", result.err().unwrap()); // Print error for info
+        let error_message = result.err().unwrap().to_string();
+        println!("Out of range error: {}", error_message); // Print error for info
+        assert!(error_message.contains("HLC Milliseconds timestamp is out of range"));
     }
 }
 
@@ -154,6 +157,15 @@ impl SyncTaskContext {
         }
     }
 
+    /// Creates a context with a specific initial HLC (useful for testing).
+    #[cfg(test)]
+    fn with_initial_hlc(node_id: Uuid, initial_hlc: HLC) -> Self {
+        SyncTaskContext {
+            node_id,
+            last_hlc: Mutex::new(initial_hlc),
+        }
+    }
+
     pub fn generate_hlc(&self) -> HLC {
         HLC::generate(self)
     }
@@ -186,20 +198,24 @@ impl HLC {
 
         let (timestamp, counter) = match current_timestamp.cmp(&last_hlc.timestamp) {
             Ordering::Greater => (current_timestamp, 0),
-            Ordering::Equal => (current_timestamp, last_hlc.version + 1),
+            Ordering::Equal => {
+                if last_hlc.version == u32::MAX {
+                    panic!(
+                        "HLC counter overflow detected within a single millisecond. Timestamp: {}, Node: {}",
+                        current_timestamp,
+                        context.node_id
+                    );
+                }
+                (current_timestamp, last_hlc.version + 1)
+            }
             Ordering::Less => {
-                // Clock skew detected, use last HLC's timestamp
-                (last_hlc.timestamp, last_hlc.version + 1)
+                if last_hlc.version == u32::MAX {
+                    (last_hlc.timestamp + 1, 0)
+                } else {
+                    (last_hlc.timestamp, last_hlc.version + 1)
+                }
             }
         };
-
-        // Basic overflow check for counter (though u32::MAX is large)
-        if counter == 0 && last_hlc.version == u32::MAX && timestamp == last_hlc.timestamp {
-            // Extremely unlikely: wrapped u32 within the same millisecond.
-            // Options: panic, log error, or potentially bump timestamp artificially (less ideal).
-            // For now, let's panic as it indicates a potentially serious issue or misuse.
-            panic!("HLC counter overflow detected within a single millisecond. Timestamp: {}, Node: {}", timestamp, context.node_id);
-        }
 
         let new_hlc = HLC {
             timestamp,
@@ -445,7 +461,7 @@ pub async fn get_data_before_hlc<E>(
 ) -> Result<Vec<E::Model>>
 where
     E: HLCModel + EntityTrait + Sync,
-    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + FromQueryResult + Send + Sync,
     <E as EntityTrait>::Model: Sync,
 {
     let paginator = E::find()
@@ -468,7 +484,7 @@ pub async fn get_data_after_hlc<E>(
 ) -> Result<Vec<E::Model>>
 where
     E: HLCModel + EntityTrait + Sync,
-    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + FromQueryResult + Send + Sync,
     <E as EntityTrait>::Model: Sync,
 {
     let paginator = E::find()
@@ -492,7 +508,7 @@ pub async fn get_data_in_hlc_range<E>(
 ) -> Result<Vec<E::Model>>
 where
     E: HLCModel + EntityTrait + Sync,
-    E::Model: HLCRecord + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + FromQueryResult + Send + Sync,
     <E as EntityTrait>::Model: Sync,
 {
     let paginator = E::find()
@@ -506,6 +522,7 @@ where
         .context("Failed to fetch page for get_data_in_hlc_range")
 }
 
+#[cfg(test)]
 pub fn create_hlc(ts: u64, v: u32, node_id_str: &str) -> HLC {
     HLC {
         timestamp: ts,
@@ -587,5 +604,323 @@ mod hlc_increment_tests {
         hlc.increment();
         assert_eq!(hlc.timestamp, 1001);
         assert_eq!(hlc.version, 1);
+    }
+}
+
+#[cfg(test)]
+mod hlc_generate_tests {
+    use super::*;
+    use std::thread::sleep;
+
+    use chrono::Duration;
+
+    fn get_current_millis() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    #[test]
+    fn test_generate_time_moves_forward() {
+        let node_id = Uuid::new_v4();
+        let initial_ts = get_current_millis();
+        let initial_hlc = create_hlc(initial_ts, 5, &node_id.to_string());
+        let context = SyncTaskContext::with_initial_hlc(node_id, initial_hlc.clone());
+
+        // Wait for time to likely advance
+        sleep(Duration::milliseconds(5).to_std().unwrap());
+
+        let new_hlc = context.generate_hlc();
+        let after_ts = get_current_millis(); // Timestamp might advance slightly during test
+
+        assert!(
+            new_hlc.timestamp > initial_hlc.timestamp,
+            "New timestamp should be greater"
+        );
+        assert!(
+            new_hlc.timestamp >= initial_ts + 5,
+            "New timestamp should be roughly current time"
+        );
+        assert!(
+            new_hlc.timestamp <= after_ts,
+            "New timestamp should be roughly current time"
+        );
+        assert_eq!(new_hlc.version, 0, "Counter should reset");
+        assert_eq!(new_hlc.node_id, node_id);
+
+        // Check last_hlc was updated
+        assert_eq!(*context.last_hlc.lock().unwrap(), new_hlc);
+    }
+
+    #[test]
+    fn test_generate_time_stays_same() {
+        let node_id = Uuid::new_v4();
+        // Simulate by setting last_hlc's time to *now* just before generating
+        let current_ts = get_current_millis();
+        let initial_hlc = create_hlc(current_ts, 5, &node_id.to_string());
+        let context = SyncTaskContext::with_initial_hlc(node_id, initial_hlc.clone());
+
+        let new_hlc = context.generate_hlc();
+
+        // It's possible the millisecond ticked over between get_current_millis and generate()
+        if new_hlc.timestamp == initial_hlc.timestamp {
+            assert_eq!(
+                new_hlc.version,
+                initial_hlc.version + 1,
+                "Counter should increment if timestamp is the same"
+            );
+        } else {
+            // If time advanced, counter should reset
+            assert!(
+                new_hlc.timestamp > initial_hlc.timestamp,
+                "Timestamp advanced"
+            );
+            assert_eq!(
+                new_hlc.version, 0,
+                "Counter should reset if timestamp advanced"
+            );
+        }
+        assert_eq!(new_hlc.node_id, node_id);
+        assert_eq!(*context.last_hlc.lock().unwrap(), new_hlc);
+    }
+
+    #[test]
+    fn test_generate_clock_skew() {
+        let node_id = Uuid::new_v4();
+        // Set last_hlc to be in the future relative to current system time
+        let future_ts = get_current_millis() + 10000; // 10 seconds in the future
+        let initial_hlc = create_hlc(future_ts, 5, &node_id.to_string());
+        let context = SyncTaskContext::with_initial_hlc(node_id, initial_hlc.clone());
+
+        let new_hlc = context.generate_hlc();
+
+        assert_eq!(
+            new_hlc.timestamp, initial_hlc.timestamp,
+            "Timestamp should use the last HLC's timestamp during skew"
+        );
+        assert_eq!(
+            new_hlc.version,
+            initial_hlc.version + 1,
+            "Counter should increment during skew"
+        );
+        assert_eq!(new_hlc.node_id, node_id);
+        assert_eq!(*context.last_hlc.lock().unwrap(), new_hlc);
+    }
+
+    #[test]
+    #[should_panic(expected = "HLC counter overflow detected")]
+    fn test_generate_counter_overflow_panic() {
+        // This test is tricky because it relies on SystemTime::now() not advancing
+        // between the setup and the call to generate(). It might be flaky.
+        let node_id = Uuid::new_v4();
+        let current_ts = get_current_millis();
+        let initial_hlc = HLC {
+            timestamp: current_ts,
+            version: u32::MAX, // Set version to max
+            node_id,
+        };
+        let context = SyncTaskContext::with_initial_hlc(node_id, initial_hlc.clone());
+
+        // Immediately generate. If the clock *doesn't* tick, the panic should occur.
+        // If the clock *does* tick, timestamp increases, counter resets to 0, no panic.
+        // The should_panic expects the panic. If it doesn't panic, the test fails.
+        let _new_hlc = context.generate_hlc();
+        // We might need a slight delay *after* setting initial_hlc to ensure generate()
+        // sees the same timestamp, but that makes the test less reliable.
+        // Let's assume for testing purposes the clock might not advance instantly.
+
+        // Alternative: Mock SystemTime, but that requires external crates or complex setup.
+        // Given the rarity of this condition, relying on the panic safeguard and the
+        // deterministic `increment` test for overflow logic is often sufficient.
+    }
+}
+
+#[cfg(test)]
+mod hlc_from_str_tests {
+    use super::*;
+
+    #[test]
+    fn test_from_str_valid() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc_string = format!("1234567890123-0000abcd-{}", node_id);
+        let hlc = HLC::from_str(&hlc_string)?;
+
+        assert_eq!(hlc.timestamp, 1234567890123);
+        assert_eq!(hlc.version, 0xabcd);
+        assert_eq!(hlc.node_id, node_id);
+        Ok(())
+    }
+
+    #[test]
+    fn test_from_str_invalid_format_parts() {
+        let result = HLC::from_str("12345-abcd"); // Too few parts
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Invalid HLC string format"));
+        assert!(err_msg.contains("expected 'timestamp-counterHex-node_id'"));
+    }
+
+    #[test]
+    fn test_from_str_invalid_timestamp() {
+        let node_id = Uuid::new_v4();
+        let hlc_string = format!("not_a_number-0000abcd-{}", node_id);
+        let result = HLC::from_str(&hlc_string);
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        // Check the context message
+        assert!(err_msg.contains("Invalid timestamp format in HLC: 'not_a_number'"));
+    }
+
+    #[test]
+    fn test_from_str_invalid_counter() {
+        let node_id = Uuid::new_v4();
+        let hlc_string = format!("1234567890123-not_hex-{}", node_id);
+        let result = HLC::from_str(&hlc_string);
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        // Check the context message
+        assert!(err_msg.contains("Invalid hex counter format in HLC: 'not_hex'"));
+    }
+
+    #[test]
+    fn test_from_str_invalid_counter_format_length() {
+        // Valid hex, but format might imply fixed length (though not enforced by parse)
+        let node_id = Uuid::new_v4();
+        let hlc_string = format!("1234567890123-abc-{}", node_id); // Shorter hex than usual
+        let hlc = HLC::from_str(&hlc_string).unwrap(); // Should still parse
+        assert_eq!(hlc.version, 0xabc);
+
+        // Test hex with > 8 chars (overflows u32)
+        let hlc_string_overflow = format!("1234567890123-100000000-{}", node_id);
+        let result = HLC::from_str(&hlc_string_overflow);
+        assert!(result.is_err()); // Error comes from u32::from_str_radix
+        let err_msg = result.err().unwrap().to_string();
+        assert!(err_msg.contains("Invalid hex counter format in HLC: '100000000'"));
+    }
+
+    #[test]
+    fn test_from_str_invalid_node_id() {
+        let hlc_string = "1234567890123-0000abcd-not_a_uuid";
+        let result = HLC::from_str(hlc_string);
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap().to_string();
+        // Check the context message
+        assert!(err_msg.contains("Invalid node ID format in HLC: 'not_a_uuid'"));
+    }
+}
+
+#[cfg(test)]
+mod hlcrecord_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[derive(Clone, Debug)]
+    struct MockRecord {
+        id: i32,
+        data: String,
+        created: Option<HLC>,
+        updated: Option<HLC>,
+    }
+
+    impl HLCRecord for MockRecord {
+        fn created_at_hlc(&self) -> Option<HLC> {
+            self.created.clone()
+        }
+
+        fn updated_at_hlc(&self) -> Option<HLC> {
+            self.updated.clone()
+        }
+
+        fn unique_id(&self) -> String {
+            self.id.to_string()
+        }
+
+        fn data_for_hashing(&self) -> serde_json::Value {
+            // Only include data relevant for hashing
+            json!({
+                "id": self.id,
+                "data": self.data,
+                // Note: We explicitly exclude 'created' and 'updated' HLCs from the hash data
+            })
+        }
+
+        // We don't override to_summary or full_data, so they use the default
+    }
+
+    #[test]
+    fn test_hlcrecord_defaults() {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(100, 1, &node_id.to_string());
+        let record = MockRecord {
+            id: 1,
+            data: "test data".to_string(),
+            created: Some(hlc.clone()),
+            updated: Some(hlc.clone()),
+        };
+
+        let expected_hashing_data = json!({
+            "id": 1,
+            "data": "test data"
+        });
+
+        // Test data_for_hashing returns the correct subset
+        assert_eq!(record.data_for_hashing(), expected_hashing_data);
+
+        // Test default to_summary uses data_for_hashing
+        assert_eq!(
+            record.to_summary(),
+            expected_hashing_data,
+            "Default to_summary should equal data_for_hashing"
+        );
+
+        // Test default full_data uses data_for_hashing
+        assert_eq!(
+            record.full_data(),
+            expected_hashing_data,
+            "Default full_data should equal data_for_hashing"
+        );
+    }
+
+    #[test]
+    fn test_calculate_hash() -> Result<()> {
+        let node_id = Uuid::new_v4();
+        let hlc = create_hlc(100, 1, &node_id.to_string());
+        let record1 = MockRecord {
+            id: 1,
+            data: "test data".to_string(),
+            created: Some(hlc.clone()),
+            updated: Some(hlc.clone()),
+        };
+        let record2 = MockRecord {
+            // Same content, different HLCs
+            id: 1,
+            data: "test data".to_string(),
+            created: Some(hlc.clone()),
+            updated: Some(create_hlc(101, 0, &node_id.to_string())),
+        };
+        let record3 = MockRecord {
+            // Different content
+            id: 2,
+            data: "other data".to_string(),
+            created: Some(hlc.clone()),
+            updated: Some(hlc.clone()),
+        };
+
+        let hash1 = calculate_hash(&record1)?;
+        let hash2 = calculate_hash(&record2)?;
+        let hash3 = calculate_hash(&record3)?;
+
+        assert_eq!(
+            hash1, hash2,
+            "Hashes should be the same for same content despite different HLCs"
+        );
+        assert_ne!(hash1, hash3, "Hashes should differ for different content");
+
+        // Verify hash seems reasonable (BLAKE3 hex is 64 chars)
+        assert_eq!(hash1.len(), 64);
+        assert!(hash1.chars().all(|c| c.is_ascii_hexdigit()));
+
+        Ok(())
     }
 }
