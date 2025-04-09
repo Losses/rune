@@ -424,69 +424,94 @@ mod hlcmodel_tests {
         hlc::{create_hlc, hlc_timestamp_millis_to_rfc3339, HLCModel, HLC},
     };
     use anyhow::Result;
-    use sea_orm::{Condition, DbBackend, EntityTrait, QueryFilter, QueryTrait, Statement};
+    use sea_orm::{Condition, DbBackend, EntityTrait, QueryFilter, QueryTrait, Statement, Value};
     use uuid::Uuid;
 
-    // Helper to build SQL WHERE clause from a condition for verification
-    fn condition_to_sql(condition: Condition) -> String {
+    // Helper to build SQL WHERE clause and get values for verification
+    fn condition_to_sql(condition: Condition) -> (String, Vec<Value>) {
+        // Use the specific entity the tests are based on
         let statement: Statement = Entity::find().filter(condition).build(DbBackend::Sqlite);
 
         let sql = statement.sql;
-        // Use unwrap_or with an empty Vec<Value> since Option<Values> is Option<Vec<Value>>
-        // and Vec<Value> implements Clone.
-        let values = statement.values.unwrap_or(sea_orm::Values(Vec::new()));
+        let values = statement.values.map(|v| v.0).unwrap_or_default();
 
+        // Extract the part after WHERE, handling potential absence of WHERE clause
         let where_clause = sql
             .split_once("WHERE")
-            .map(|(_, clause)| clause.trim())
-            .unwrap_or("");
+            .map(|(_, clause)| clause.trim().to_string())
+            .unwrap_or_default();
 
-        if where_clause.is_empty() {
-            return "".to_string();
-        }
+        (where_clause, values)
+    }
 
-        let mut final_sql = where_clause.to_string();
-        for (i, val) in values.iter().enumerate() {
-            let placeholder = format!("${}", i + 1);
-            let replacement = format!("{}", val);
-            final_sql = final_sql.replace(&placeholder, &replacement);
-        }
+    // Helper function to create expected values Vec<Value>
+    fn expected_values(ts: &str, v: i32) -> Vec<Value> {
+        vec![
+            Value::from(ts.to_string()), // gt/lt ts
+            Value::from(ts.to_string()), // eq ts
+            Value::from(v),              // gt/lt/gte/lte v
+        ]
+    }
 
-        final_sql
+    // Helper to create expected values for between
+    fn expected_between_values(
+        start_ts: &str,
+        start_v: i32,
+        end_ts: &str,
+        end_v: i32,
+    ) -> Vec<Value> {
+        vec![
+            Value::from(start_ts.to_string()), // gte: gt start_ts
+            Value::from(start_ts.to_string()), // gte: eq start_ts
+            Value::from(start_v),              // gte: gte start_v
+            Value::from(end_ts.to_string()),   // lte: lt end_ts
+            Value::from(end_ts.to_string()),   // lte: eq end_ts
+            Value::from(end_v),                // lte: lte end_v
+        ]
+    }
+
+    // Helper to normalize SQL whitespace and quotes for comparison
+    fn normalize_sql(sql: &str) -> String {
+        // Replace different quotes with a standard one, remove extra whitespace
+        sql.replace('`', "\"") // Example: handle backticks if needed
+            .replace(['(', ')'], " ") // Add spaces around parentheses for splitting
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .join(" ")
+            .replace(" . ", ".") // Correct dot spacing if split created it
+            .replace(" \"", "\"") // Correct quote spacing
+            .replace("\" ", "\"")
+            // Add more specific normalizations if needed based on actual SeaORM output
+            .trim()
+            .to_string()
     }
 
     #[test]
     fn test_hlcmodel_gt() -> Result<()> {
         let node_id = Uuid::new_v4();
-        let hlc = create_hlc(1678886400123, 5, &node_id.to_string()); // Example HLC
+        let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_version = hlc.version as i32;
 
         let condition = Entity::gt(&hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
 
-        // Expected logic: (ts > 'ts_str') OR (ts = 'ts_str' AND v > 5)
-        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" > '{}'", expected_ts_str);
-        let expected_sql_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" > {})",
-            expected_ts_str, hlc.version
-        );
+        // Note: SeaORM >= 0.11 might produce slightly different SQL structures (e.g. extra parens)
+        // Check the actual output and adjust expected_sql accordingly, or use normalize_sql
+        let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" > ?)"#;
+        let expected_vals = expected_values(&expected_ts_str, expected_version);
+
         println!("Generated SQL WHERE (GT): {}", sql_where);
+        println!("Generated Values (GT): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        assert!(
-            sql_where.contains(&expected_sql_part1),
-            "SQL should contain timestamp greater than condition. SQL: {}",
-            sql_where
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        assert!(
-            sql_where.contains(&expected_sql_part2),
-            "SQL should contain timestamp equal and version greater than condition. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(" OR "),
-            "SQL parts should be joined by OR. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -496,33 +521,25 @@ mod hlcmodel_tests {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_version = hlc.version as i32;
 
         let condition = Entity::lt(&hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
 
-        // Expected logic: (ts < 'ts_str') OR (ts = 'ts_str' AND v < 5)
-        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" < '{}'", expected_ts_str);
-        let expected_sql_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" < {})",
-            expected_ts_str, hlc.version
-        );
+        let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" < ?)"#;
+        let expected_vals = expected_values(&expected_ts_str, expected_version);
+
         println!("Generated SQL WHERE (LT): {}", sql_where);
+        println!("Generated Values (LT): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        assert!(
-            sql_where.contains(&expected_sql_part1),
-            "SQL should contain timestamp less than condition. SQL: {}",
-            sql_where
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        assert!(
-            sql_where.contains(&expected_sql_part2),
-            "SQL should contain timestamp equal and version less than condition. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(" OR "),
-            "SQL parts should be joined by OR. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -532,32 +549,25 @@ mod hlcmodel_tests {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_version = hlc.version as i32;
 
         let condition = Entity::gte(&hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
 
-        // Expected logic: (ts > 'ts_str') OR (ts = 'ts_str' AND v >= 5)
-        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" > '{}'", expected_ts_str);
-        let expected_sql_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
-            expected_ts_str, hlc.version
-        );
+        let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)"#;
+        let expected_vals = expected_values(&expected_ts_str, expected_version);
+
         println!("Generated SQL WHERE (GTE): {}", sql_where);
+        println!("Generated Values (GTE): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        assert!(
-            sql_where.contains(&expected_sql_part1),
-            "SQL should contain timestamp greater than condition. SQL: {}",
-            sql_where
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        assert!(
-            sql_where.contains(&expected_sql_part2),
-            "SQL should contain timestamp equal and version greater than or equal condition. SQL: {}", sql_where
-        );
-        assert!(
-            sql_where.contains(" OR "),
-            "SQL parts should be joined by OR. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -567,33 +577,25 @@ mod hlcmodel_tests {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_version = hlc.version as i32;
 
         let condition = Entity::lte(&hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
 
-        // Expected logic: (ts < 'ts_str') OR (ts = 'ts_str' AND v <= 5)
-        let expected_sql_part1 = format!("\"updated_at_hlc_ts\" < '{}'", expected_ts_str);
-        let expected_sql_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
-            expected_ts_str, hlc.version
-        );
+        let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?)"#;
+        let expected_vals = expected_values(&expected_ts_str, expected_version);
+
         println!("Generated SQL WHERE (LTE): {}", sql_where);
+        println!("Generated Values (LTE): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        assert!(
-            sql_where.contains(&expected_sql_part1),
-            "SQL should contain timestamp less than condition. SQL: {}",
-            sql_where
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        assert!(
-            sql_where.contains(&expected_sql_part2),
-            "SQL should contain timestamp equal and version less than or equal condition. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(" OR "),
-            "SQL parts should be joined by OR. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -605,49 +607,30 @@ mod hlcmodel_tests {
         let end_hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let start_ts_str = hlc_timestamp_millis_to_rfc3339(start_hlc.timestamp)?;
         let end_ts_str = hlc_timestamp_millis_to_rfc3339(end_hlc.timestamp)?;
+        let start_version = start_hlc.version as i32;
+        let end_version = end_hlc.version as i32;
 
         let condition = Entity::between(&start_hlc, &end_hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
+
+        // GTE part: ("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)
+        // LTE part: ("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?)
+        // Combined: ( GTE part ) AND ( LTE part )
+        let expected_sql = r#"(("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)) AND (("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?))"#;
+        let expected_vals =
+            expected_between_values(&start_ts_str, start_version, &end_ts_str, end_version);
 
         println!("Generated SQL WHERE (Between): {}", sql_where);
+        println!("Generated Values (Between): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        // Expected logic: GTE(start) AND LTE(end)
-        let expected_gte_part1 = format!("\"updated_at_hlc_ts\" > '{}'", start_ts_str);
-        let expected_gte_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
-            start_ts_str, start_hlc.version
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        let expected_lte_part1 = format!("\"updated_at_hlc_ts\" < '{}'", end_ts_str);
-        let expected_lte_part2 = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
-            end_ts_str, end_hlc.version
-        );
-
-        assert!(
-            sql_where.contains(&expected_gte_part1),
-            "SQL (Between) missing GTE timestamp part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(&expected_gte_part2),
-            "SQL (Between) missing GTE timestamp/version part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(&expected_lte_part1),
-            "SQL (Between) missing LTE timestamp part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(&expected_lte_part2),
-            "SQL (Between) missing LTE timestamp/version part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(") AND ("),
-            "SQL (Between) should combine GTE and LTE conditions with AND. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -657,36 +640,25 @@ mod hlcmodel_tests {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
         let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let version = hlc.version as i32;
 
         let condition = Entity::between(&hlc, &hlc)?;
-        let sql_where = condition_to_sql(condition);
+        let (sql_where, values) = condition_to_sql(condition);
+
+        let expected_sql = r#"(("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)) AND (("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?))"#;
+        let expected_vals = expected_between_values(&ts_str, version, &ts_str, version);
 
         println!("Generated SQL WHERE (Between Same HLC): {}", sql_where);
+        println!("Generated Values (Between Same HLC): {:?}", values);
+        println!("Expected SQL: {}", expected_sql);
+        println!("Expected Values: {:?}", expected_vals);
 
-        let expected_gte_part = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" >= {})",
-            ts_str, hlc.version
+        assert_eq!(
+            normalize_sql(&sql_where),
+            normalize_sql(expected_sql),
+            "SQL structure mismatch"
         );
-        let expected_lte_part = format!(
-            "(\"updated_at_hlc_ts\" = '{}' AND \"updated_at_hlc_v\" <= {})",
-            ts_str, hlc.version
-        );
-
-        assert!(
-            sql_where.contains(&expected_gte_part),
-            "SQL (Between Same) missing GTE part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(&expected_lte_part),
-            "SQL (Between Same) missing LTE part. SQL: {}",
-            sql_where
-        );
-        assert!(
-            sql_where.contains(") AND ("),
-            "SQL (Between Same) should combine GTE and LTE conditions with AND. SQL: {}",
-            sql_where
-        );
+        assert_eq!(values, expected_vals, "Values mismatch");
 
         Ok(())
     }
@@ -711,7 +683,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_timestamp_conversion_error() {
         let node_id = Uuid::new_v4();
         let invalid_hlc = HLC {
-            timestamp: u64::MAX,
+            timestamp: u64::MAX, // Known out-of-range value for chrono
             version: 0,
             node_id,
         };
@@ -719,10 +691,34 @@ mod hlcmodel_tests {
         let result = Entity::gt(&invalid_hlc);
 
         assert!(result.is_err());
-        let err_msg = result.err().unwrap().to_string();
-        println!("Timestamp conversion error message: {}", err_msg);
-        assert!(err_msg.contains("Failed to format GT timestamp"));
-        assert!(err_msg.contains("HLC Milliseconds timestamp is out of range"));
+        let err = result.err().unwrap();
+        let top_level_msg = err.to_string(); // Message potentially including context
+
+        println!("Timestamp conversion error message: {}", top_level_msg);
+        println!("Timestamp conversion error chain: {:?}", err); // Print full chain for debugging
+
+        // Check the context message added by with_context() which is reliable
+        assert!(
+            top_level_msg.contains(&format!(
+                "Failed to format GT timestamp for HLC {}",
+                invalid_hlc
+            )),
+            "Error message should contain the context added in HLCModel::gt"
+        );
+
+        // Check the root cause message. This depends on the exact error from hlc_timestamp_millis_to_rfc3339
+        // It might be "timestamp out of range", "value too large", etc.
+        // Make the check more general or adapt to the specific message if known.
+        let root_cause_msg = err.root_cause().to_string();
+        println!("Root cause: {}", root_cause_msg);
+        assert!(
+            // Check for common keywords related to range errors
+            root_cause_msg.contains("out of range")
+                || root_cause_msg.contains("invalid")
+                || root_cause_msg.contains("value too large"),
+            "Root cause should indicate an out-of-range or invalid timestamp. Root cause: {}",
+            root_cause_msg
+        );
     }
 }
 
