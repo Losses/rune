@@ -626,7 +626,7 @@ where
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use chrono::{DateTime, TimeZone, Utc};
     use sea_orm::{
         ActiveModelBehavior, ActiveModelTrait, ConnectionTrait, Database, DbBackend, DbConn, DbErr,
@@ -640,7 +640,7 @@ mod tests {
     // Test-Specific Mock Entity Definition (Using TEXT for Timestamp)
     // This module defines the Entity, Model, and ActiveModel specifically for tests,
     // ensuring the timestamp is stored as an RFC3339 string (TEXT column).
-    mod test_model_def {
+    pub mod test_model_def {
         use super::*; // Inherit imports from parent test module
         use crate::hlc::{HLCModel, HLCRecord, HLC};
         use sea_orm::DeriveEntityModel;
@@ -722,7 +722,7 @@ mod tests {
     use test_model_def::{ActiveModel, Entity, Model};
 
     // Test Database Setup
-    async fn setup_db() -> Result<DbConn, DbErr> {
+    pub async fn setup_db() -> Result<DbConn, DbErr> {
         // Connect to an in-memory SQLite database for isolated tests
         let db = Database::connect("sqlite::memory:").await?;
         let schema = Schema::new(DbBackend::Sqlite);
@@ -769,7 +769,7 @@ mod tests {
 
     // Test Data Insertion Helper
     // Inserts a task into the database, converting the HLC timestamp to RFC3339 string.
-    async fn insert_task(db: &DbConn, id: i32, content: &str, hlc: &HLC) -> Result<Model, DbErr> {
+    pub async fn insert_task(db: &DbConn, id: i32, content: &str, hlc: &HLC) -> Result<Model, DbErr> {
         // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
         let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
             // Convert the anyhow::Error from the helper to DbErr for compatibility
