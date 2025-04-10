@@ -447,7 +447,7 @@ pub async fn break_data_chunk<E>(
     sub_chunk_size: u64,
 ) -> Result<Vec<SubDataChunk>>
 where
-    E: HLCModel + EntityTrait + Sync, // E needs HLCModel
+    E: HLCModel + EntityTrait + Sync,          // E needs HLCModel
     E::Model: HLCRecord + Clone + Send + Sync, // Model needs HLCRecord
     <E as EntityTrait>::Model: Sync,
 {
@@ -769,7 +769,12 @@ pub mod tests {
 
     // Test Data Insertion Helper
     // Inserts a task into the database, converting the HLC timestamp to RFC3339 string.
-    pub async fn insert_task(db: &DbConn, id: i32, content: &str, hlc: &HLC) -> Result<Model, DbErr> {
+    pub async fn insert_task(
+        db: &DbConn,
+        id: i32,
+        content: &str,
+        hlc: &HLC,
+    ) -> Result<Model, DbErr> {
         // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
         let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
             // Convert the anyhow::Error from the helper to DbErr for compatibility
@@ -1289,5 +1294,147 @@ pub mod tests {
         assert_eq!(chunks[2].count, 1);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_preset_high_frequency_mobile() {
+        let node_id = Uuid::new_v4();
+        let options = high_frequency_mobile_preset(node_id);
+        assert_eq!(options.min_size, 50);
+        assert_eq!(options.max_size, 2_000);
+        assert_eq!(options.alpha, 0.25);
+        assert_eq!(options.node_id, node_id);
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_preset_append_optimized_backend() {
+        let node_id = Uuid::new_v4();
+        let options = append_optimized_backend_preset(node_id);
+        assert_eq!(options.min_size, 250);
+        assert_eq!(options.max_size, 20_000);
+        assert_eq!(options.alpha, 0.7);
+        assert_eq!(options.node_id, node_id);
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_preset_balanced_web_desktop() {
+        let node_id = Uuid::new_v4();
+        let options = balanced_web_desktop_preset(node_id);
+        assert_eq!(options.min_size, 100);
+        assert_eq!(options.max_size, 10_000);
+        assert_eq!(options.alpha, 0.45);
+        assert_eq!(options.node_id, node_id);
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_preset_initial_sync_optimized() {
+        let node_id = Uuid::new_v4();
+        let options = initial_sync_optimized(node_id);
+        assert_eq!(options.min_size, 500);
+        assert_eq!(options.max_size, 15_000);
+        assert_eq!(options.alpha, 0.6);
+        assert_eq!(options.node_id, node_id);
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_preset_default() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions::default(node_id);
+        assert_eq!(options.min_size, 100);
+        assert_eq!(options.max_size, 10_000);
+        assert_eq!(options.alpha, 0.4);
+        assert_eq!(options.node_id, node_id);
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_chunking_options_validate_success() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 10,
+            max_size: 100,
+            alpha: 0.5,
+            node_id,
+        };
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_chunking_options_validate_min_size_zero() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 0, // Invalid
+            max_size: 100,
+            alpha: 0.5,
+            node_id,
+        };
+        let result = options.validate();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "min_size must be greater than 0"
+        );
+    }
+
+    #[test]
+    fn test_chunking_options_validate_max_less_than_min() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 100,
+            max_size: 50, // Invalid
+            alpha: 0.5,
+            node_id,
+        };
+        let result = options.validate();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "max_size must be greater than or equal to min_size"
+        );
+    }
+
+    #[test]
+    fn test_chunking_options_validate_negative_alpha() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 10,
+            max_size: 100,
+            alpha: -0.1, // Invalid
+            node_id,
+        };
+        let result = options.validate();
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "alpha must be non-negative"
+        );
+    }
+
+    #[test]
+    fn test_chunking_options_validate_max_equals_min() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 50,
+            max_size: 50, // Valid
+            alpha: 0.5,
+            node_id,
+        };
+        assert!(options.validate().is_ok());
+    }
+
+    #[test]
+    fn test_chunking_options_validate_alpha_zero() {
+        let node_id = Uuid::new_v4();
+        let options = ChunkingOptions {
+            min_size: 10,
+            max_size: 100,
+            alpha: 0.0, // Valid
+            node_id,
+        };
+        assert!(options.validate().is_ok());
     }
 }
