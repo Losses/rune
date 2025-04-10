@@ -473,6 +473,23 @@ where
         bail!("Invalid parent chunk definition: start_hlc > end_hlc with non-zero count.");
     }
 
+    // Handle the count == 0 case BEFORE attempting database query
+    if parent_chunk.count == 0 {
+        debug!("Parent chunk count is 0. Verifying empty hash directly.");
+        // Verify hash against the expected empty hash.
+        // Pass an empty slice to calculate_chunk_hash to get the canonical empty hash.
+        let expected_empty_hash = calculate_chunk_hash::<E::Model>(&[])?; // Use empty slice
+        if parent_chunk.chunk_hash != expected_empty_hash {
+            bail!(
+                     "Data inconsistency detected: Parent chunk reported 0 count, but hash mismatch (Expected empty hash '{}', Found '{}').",
+                     expected_empty_hash, parent_chunk.chunk_hash
+                 );
+        }
+        // If hash matches for empty chunk, verification passed.
+        debug!("Parent chunk was empty and verified successfully.");
+        return Ok(Vec::new()); // No sub-chunks for an empty parent. Return early.
+    }
+
     // Fetch Records for Verification
     // Fetch *all* records within the parent chunk's HLC range (inclusive)
     // Use HLCModel::between for the correct range query.
@@ -1436,5 +1453,111 @@ pub mod tests {
             node_id,
         };
         assert!(options.validate().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_invalid_sub_chunk_size() -> Result<()> {
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        // Insert a dummy record, although it won't be reached due to early exit
+        let h1 = hlc(base_ts + 100, 0, NODE1);
+        insert_task(&db, 1, "T1", &h1).await?;
+
+        // Create a valid parent chunk definition
+        let parent_chunk = DataChunk {
+            start_hlc: h1.clone(),
+            end_hlc: h1.clone(), // Single record chunk
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[Model {
+                // Manually construct for hash calc
+                id: 1,
+                content: "T1".to_string(),
+                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp)?,
+                updated_at_hlc_v: h1.version as i32,
+                updated_at_hlc_nid: h1.node_id,
+            }])?,
+        };
+
+        // Attempt to break with sub_chunk_size = 0
+        let sub_chunk_size = 0; // Invalid size
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // Assert that the operation failed
+        assert!(result.is_err());
+        // Assert that the error message indicates the specific reason
+        let err_msg = result.err().unwrap().to_string();
+        assert!(
+            err_msg.contains("Sub-chunk size cannot be zero"),
+            "Error message was: {}",
+            err_msg
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_invalid_parent_definition() -> Result<()> {
+        let db = setup_db().await?; // DB setup needed, though no fetch happens
+        let base_ts = 1700000000000;
+
+        // Define an invalid parent chunk where start > end but count > 0
+        let h_start = hlc(base_ts + 200, 0, NODE1);
+        let h_end = hlc(base_ts + 100, 0, NODE1); // start > end
+
+        let parent_chunk = DataChunk {
+            start_hlc: h_start.clone(),
+            end_hlc: h_end.clone(),
+            count: 1,                             // Non-zero count makes it invalid
+            chunk_hash: "dummy_hash".to_string(), // Hash doesn't matter here
+        };
+
+        let sub_chunk_size = 10; // Valid sub-chunk size
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // Assert that the operation failed
+        assert!(result.is_err());
+        // Assert that the error message indicates the specific reason
+        let err_msg = result.err().unwrap().to_string();
+        assert!(
+            err_msg.contains(
+                "Invalid parent chunk definition: start_hlc > end_hlc with non-zero count."
+            ),
+            "Error message was: {}",
+            err_msg
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_break_chunk_valid_parent_start_gt_end_zero_count() -> Result<()> {
+        // Test the edge case where start > end is technically allowed IF count is 0.
+        // This case should proceed to the verification step for an empty chunk.
+        let db = setup_db().await?;
+        let base_ts = 1700000000000;
+
+        let h_start = hlc(base_ts + 200, 0, NODE1);
+        let h_end = hlc(base_ts + 100, 0, NODE1); // start > end
+
+        // Create a parent chunk with start > end but count = 0 and correct empty hash
+        let empty_records: Vec<Model> = vec![];
+        let parent_chunk = DataChunk {
+            start_hlc: h_start.clone(),
+            end_hlc: h_end.clone(),
+            count: 0, // Count is zero, so this *might* be valid if hash matches empty
+            chunk_hash: calculate_chunk_hash(&empty_records)?,
+        };
+
+        let sub_chunk_size = 10;
+        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+
+        // In this case, the function should proceed past the initial validation,
+        // fetch records (find none in the weird range or any range if DB empty),
+        // verify count (0 == 0), verify hash (empty == empty), and return Ok([]).
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty()); // Expect no sub-chunks
+
+        Ok(())
     }
 }
