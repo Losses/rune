@@ -1581,6 +1581,7 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "seq-macro",
+ "sync",
  "tag-editor",
  "tempfile",
  "thiserror 2.0.12",

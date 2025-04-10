@@ -48,3 +48,4 @@ thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
 regex = "1.11.1"
 tempfile = "3.17.1"
+sync = { version = "0.1.0", path = "../sync" }
