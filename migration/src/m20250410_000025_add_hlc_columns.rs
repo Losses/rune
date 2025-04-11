@@ -2,7 +2,16 @@ use sea_orm::prelude::Expr;
 use sea_orm_migration::prelude::*;
 
 use crate::{
-    m20230701_000001_create_media_files_table::MediaFiles, m20230701_000002_create_media_metadata_table::MediaMetadata, m20230701_000003_create_media_analysis_table::MediaAnalysis, m20230701_000005_create_playlists_table::Playlists, m20230728_000008_create_media_cover_art_table::MediaCoverArt, m20230806_000009_create_artists_table::Artists, m20230806_000011_create_albums_table::Albums, m20230806_000012_create_media_file_albums_table::MediaFileAlbums, m20230912_000013_create_mixes_table::Mixes, m20230912_000014_create_mix_queries_table::MixQueries, m20250311_000021_create_genres_table::Genres
+    m20230701_000001_create_media_files_table::MediaFiles,
+    m20230701_000002_create_media_metadata_table::MediaMetadata,
+    m20230701_000003_create_media_analysis_table::MediaAnalysis,
+    m20230701_000005_create_playlists_table::Playlists,
+    m20230701_000006_create_media_file_playlists::MediaFilePlaylists,
+    m20230728_000008_create_media_cover_art_table::MediaCoverArt,
+    m20230806_000009_create_artists_table::Artists, m20230806_000011_create_albums_table::Albums,
+    m20230912_000013_create_mixes_table::Mixes,
+    m20230912_000014_create_mix_queries_table::MixQueries,
+    m20250311_000021_create_genres_table::Genres,
 };
 
 #[derive(DeriveMigrationName)]
@@ -26,9 +35,9 @@ impl MigrationTrait for Migration {
         Self::add_all_tracking_columns(manager, Genres::Table).await?;
         Self::add_all_tracking_columns(manager, MediaAnalysis::Table).await?;
         Self::add_all_tracking_columns(manager, MediaCoverArt::Table).await?;
-        Self::add_all_tracking_columns(manager, MediaFileAlbums::Table).await?;
         Self::add_all_tracking_columns(manager, MediaFiles::Table).await?;
         Self::add_all_tracking_columns(manager, MediaMetadata::Table).await?;
+        Self::add_all_tracking_columns(manager, MediaFilePlaylists::Table).await?;
 
         Self::add_data_version_column(manager, Mixes::Table).await?;
         Self::add_data_version_column(manager, MixQueries::Table).await?;
@@ -42,9 +51,9 @@ impl MigrationTrait for Migration {
         Self::remove_all_tracking_columns(manager, Genres::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaAnalysis::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaCoverArt::Table).await?;
-        Self::remove_all_tracking_columns(manager, MediaFileAlbums::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaFiles::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaMetadata::Table).await?;
+        Self::remove_all_tracking_columns(manager, MediaFilePlaylists::Table).await?;
 
         Self::remove_data_version_column(manager, Mixes::Table).await?;
         Self::remove_data_version_column(manager, MixQueries::Table).await?;
