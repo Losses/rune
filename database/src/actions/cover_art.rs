@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use dunce::canonicalize;
 use log::info;
 use once_cell::sync::Lazy;
@@ -52,6 +53,9 @@ pub async fn ensure_magic_cover_art(
             file_hash: ActiveValue::Set(String::new()),
             binary: ActiveValue::Set(Vec::new()),
             primary_color: ActiveValue::Set(Some(0)),
+            created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+            data_version: ActiveValue::Set(0),
         };
 
         let insert_result = media_cover_art::Entity::insert(new_magic_cover_art)
@@ -218,6 +222,9 @@ pub async fn insert_extract_result(
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
                 primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
+                created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                data_version: ActiveValue::Set(0),
             };
 
             let insert_result = media_cover_art::Entity::insert(new_cover_art)
