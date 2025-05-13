@@ -63,6 +63,20 @@ final List<NavigationItem> navigationItems = [
             ],
           ),
           NavigationItem(
+            (context) => S.of(context).genres,
+            '/genres',
+            shortcuts: [
+              const SingleActivator(alt: true, LogicalKeyboardKey.keyG)
+            ],
+            children: [
+              NavigationItem(
+                (context) => S.of(context).genreQuery,
+                '/genres/detail',
+                hidden: true,
+              ),
+            ],
+          ),
+          NavigationItem(
             (context) => S.of(context).playlists,
             '/playlists',
             shortcuts: [
@@ -115,8 +129,12 @@ final List<NavigationItem> navigationItems = [
             '/settings/library',
           ),
           NavigationItem(
-            (context) => S.of(context).analysis,
-            '/settings/analysis',
+            (context) => S.of(context).neighbors,
+            '/settings/neighbors',
+          ),
+          NavigationItem(
+            (context) => S.of(context).server,
+            '/settings/server',
           ),
           NavigationItem(
             (context) => S.of(context).playback,
@@ -137,6 +155,10 @@ final List<NavigationItem> navigationItems = [
           NavigationItem(
             (context) => S.of(context).home,
             '/settings/library_home',
+          ),
+          NavigationItem(
+            (context) => S.of(context).system,
+            '/settings/system',
           ),
           NavigationItem(
             (context) => S.of(context).log,

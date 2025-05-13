@@ -3,10 +3,8 @@ mod apple_bridge;
 mod macros;
 mod handlers;
 #[macro_use]
-mod local;
+pub mod backends;
 pub mod messages;
-#[macro_use]
-pub mod remote;
 #[macro_use]
 pub mod server;
 pub mod utils;
@@ -17,6 +15,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use log::{error, info};
+use rustls::crypto::ring::default_provider;
 use tokio::sync::Mutex;
 use tracing_subscriber::fmt;
 use tracing_subscriber::EnvFilter;
@@ -28,8 +27,12 @@ use ::scrobbling::manager::ScrobblingManager;
 use utils::receive_media_library_path;
 use utils::TaskTokens;
 
-use crate::messages::*;
 use crate::utils::init_logging;
+
+pub struct Session {
+    pub fingerprint: String,
+    pub host: String,
+}
 
 pub trait Signal: Sized {
     type Params;
@@ -37,6 +40,7 @@ pub trait Signal: Sized {
     fn handle(
         &self,
         params: Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> impl Future<Output = Result<Option<Self::Response>>> + Send;
 }
@@ -45,6 +49,10 @@ rinf::write_interface!();
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
+    if let Err(e) = default_provider().install_default() {
+        panic!("{:#?}", e);
+    };
+
     let args: Vec<String> = std::env::args().collect();
     let enable_log = args.contains(&"--enable-log".to_string());
 

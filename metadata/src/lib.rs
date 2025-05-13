@@ -4,3 +4,4 @@ pub mod crc;
 pub mod describe;
 pub mod reader;
 pub mod scanner;
+pub mod genre;

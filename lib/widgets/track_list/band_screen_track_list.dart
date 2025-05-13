@@ -1,13 +1,15 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:infinite_scroll_pagination/infinite_scroll_pagination.dart';
 
-import '../../utils/execute_middle_click_action.dart';
-import '../../utils/playing_item.dart';
 import '../../utils/query_list.dart';
 import '../../utils/format_time.dart';
+import '../../utils/playing_item.dart';
 import '../../utils/queries_has_recommendation.dart';
-import '../../utils/context_menu/track_item_context_menu.dart';
+import '../../utils/execute_middle_click_action.dart';
+import '../../utils/get_playlist_id_from_query_list.dart';
 import '../../utils/api/operate_playback_with_mix_query.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
+import '../../utils/context_menu/track_item_context_menu.dart';
 import '../../widgets/no_items.dart';
 import '../../widgets/ax_pressure.dart';
 import '../../widgets/smooth_horizontal_scroll.dart';
@@ -91,6 +93,7 @@ class BandScreenTrackList extends StatelessWidget {
             queries: queries,
             mode: mode,
             pagingController: pagingController,
+            position: index,
           );
         },
       ),
@@ -106,6 +109,7 @@ class BandViewTrackItem extends StatefulWidget {
     required this.queries,
     required this.mode,
     required this.pagingController,
+    required this.position,
   });
 
   final int index;
@@ -113,20 +117,20 @@ class BandViewTrackItem extends StatefulWidget {
   final QueryList queries;
   final int mode;
   final PagingController<int, InternalMediaFile> pagingController;
+  final int position;
 
   @override
   State<BandViewTrackItem> createState() => _BandViewTrackItemState();
 }
 
 class _BandViewTrackItemState extends State<BandViewTrackItem> {
-  final contextController = FlyoutController();
-
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   void dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   @override
@@ -144,8 +148,8 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
           ),
           child: AxPressure(
             child: ContextMenuWrapper(
-              contextAttachKey: contextAttachKey,
-              contextController: contextController,
+              contextAttachKey: _contextAttachKey,
+              contextController: _contextController,
               onMiddleClick: (_) {
                 executeMiddleClickAction(
                   context,
@@ -154,12 +158,16 @@ class _BandViewTrackItemState extends State<BandViewTrackItem> {
                 );
               },
               onContextMenu: (position) {
+                final playlistId = getPlaylistIdFromQueryList(widget.queries);
                 openTrackItemContextMenu(
                   position,
                   context,
-                  contextAttachKey,
-                  contextController,
+                  _contextAttachKey,
+                  _contextController,
+                  widget.position,
                   widget.item.id,
+                  playlistId,
+                  widget.pagingController.refresh,
                 );
               },
               child: Tile(

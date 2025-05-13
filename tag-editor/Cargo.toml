@@ -1,5 +1,5 @@
 [package]
-name = "tag_editor"
+name = "tag-editor"
 version = "0.1.0"
 edition = "2021"
 
@@ -16,7 +16,7 @@ rubato = "0.16.1"
 rustfft = "6.2.0"
 symphonia = { version = "0.5.4", features = ["all", "opt-simd"] }
 tokio-util = "0.7.11"
-tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"] }
+tokio = { version = "1.44.2", features = ["rt", "rt-multi-thread", "macros"] }
 byteorder = "1.5.0"
 crc32fast = "1.4.2"
 serde = { version = "1.0.217", features = ["derive"] }
@@ -27,7 +27,7 @@ uuid = { version = "1.11.0", features = ["v4"] }
 chrono = "0.4.39"
 rand = "0.8.5"
 once_cell = "1.20.2"
-rusty-chromaprint = { git = "https://github.com/Losses/rusty-chromaprint", rev = "db4d9af2dd66f8c7f38f04725fb1780e64b4686f" }
+rusty-chromaprint = { version = "0.3.0" }
 
 [dev-dependencies]
-clap = "4.5.9"
+clap = { version = "4.5.9", features = ["derive"] }

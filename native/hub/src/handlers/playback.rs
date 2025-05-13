@@ -17,6 +17,7 @@ use crate::utils::files_to_playback_request;
 use crate::utils::find_nearest_index;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
+use crate::Session;
 use crate::{messages::*, Signal};
 
 impl From<PlayingItem> for PlayingItemRequest {
@@ -73,6 +74,7 @@ impl Signal for LoadRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let volume = dart_signal.index;
@@ -93,7 +95,12 @@ impl Signal for PlayRequest {
     type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
-    async fn handle(&self, (player,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        (player,): Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
         player.lock().await.play();
         Ok(Some(()))
     }
@@ -111,7 +118,12 @@ impl Signal for PauseRequest {
     type Params = (Arc<Mutex<dyn Playable>>,);
     type Response = ();
 
-    async fn handle(&self, (player,): Self::Params, _: &Self) -> Result<Option<Self::Response>> {
+    async fn handle(
+        &self,
+        (player,): Self::Params,
+        _session: Option<Session>,
+        _: &Self,
+    ) -> Result<Option<Self::Response>> {
         player.lock().await.pause();
         Ok(Some(()))
     }
@@ -135,6 +147,7 @@ impl Signal for NextRequest {
     async fn handle(
         &self,
         (main_db, player): Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         let item = player.lock().await.get_status().item;
@@ -168,6 +181,7 @@ impl Signal for PreviousRequest {
     async fn handle(
         &self,
         (main_db, player): Self::Params,
+        _session: Option<Session>,
         _: &Self,
     ) -> Result<Option<Self::Response>> {
         let item = player.lock().await.get_status().item;
@@ -198,6 +212,7 @@ impl Signal for SetPlaybackModeRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let mode = dart_signal.mode;
@@ -224,6 +239,7 @@ impl Signal for SwitchRequest {
     async fn handle(
         &self,
         (main_db, player): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         if let Some(PlayingItem::InLibrary(file_id)) = player.lock().await.get_status().item {
@@ -256,6 +272,7 @@ impl Signal for SeekRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         player.lock().await.seek(dart_signal.position_seconds);
@@ -278,6 +295,7 @@ impl Signal for RemoveRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         player
@@ -303,6 +321,7 @@ impl Signal for VolumeRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let volume = dart_signal.volume;
@@ -326,6 +345,7 @@ impl Signal for MovePlaylistItemRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -355,6 +375,7 @@ impl Signal for SetRealtimeFftEnabledRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let enabled = dart_signal.enabled;
@@ -378,6 +399,7 @@ impl Signal for SetAdaptiveSwitchingEnabledRequest {
     async fn handle(
         &self,
         (player,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let enabled = dart_signal.enabled;
@@ -416,6 +438,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
     async fn handle(
         &self,
         (main_db, recommend_db, lib_path, player): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

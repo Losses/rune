@@ -29,12 +29,12 @@ class FancyCoverPainter extends CustomPainter {
     String text,
     FancyCoverConfig config,
   ) {
-    final scaledFontSize = (canvasSize.width / 256) * config.fontSize;
+    final scaledFontSize = max((canvasSize.width / 256) * config.fontSize, 1.0);
     final scaledTextBoxWidth = config.textBoxWidth * canvasSize.width;
 
     final textStyle = TextStyle(
       color: color,
-      fontSize: scaledFontSize,
+      fontSize: max(scaledFontSize, 1),
       fontWeight: config.fontWeight,
       height: 1,
     );

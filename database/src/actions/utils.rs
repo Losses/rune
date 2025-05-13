@@ -302,7 +302,7 @@ macro_rules! parallel_media_files_processing {
                             active_tasks.push(task);
                         }
                         None => {
-                            info!("Received termination signal, waiting for active tasks to complete...");
+                            info!("No files left, waiting for active tasks to complete...");
                             for task in active_tasks {
                                 if let Err(e) = task.await {
                                     error!("Task join error: {:?}", e);

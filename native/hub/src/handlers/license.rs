@@ -7,7 +7,7 @@ use database::connection::MainDbConnection;
 use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    Session, Signal,
 };
 use sha2::{Digest, Sha256};
 
@@ -100,6 +100,7 @@ impl Signal for RegisterLicenseRequest {
     async fn handle(
         &self,
         (_main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let path = &dart_signal.path;
@@ -163,6 +164,7 @@ impl Signal for ValidateLicenseRequest {
     async fn handle(
         &self,
         (_main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let license = &dart_signal.license;

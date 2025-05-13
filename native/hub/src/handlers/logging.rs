@@ -8,9 +8,7 @@ use ::database::{
 };
 
 use crate::{
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
 };
 
 impl ParamsExtractor for ListLogRequest {
@@ -28,6 +26,7 @@ impl Signal for ListLogRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -74,6 +73,7 @@ impl Signal for ClearLogRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         clear_logs(&main_db)
@@ -98,6 +98,7 @@ impl Signal for RemoveLogRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

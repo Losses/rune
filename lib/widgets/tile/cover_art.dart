@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:fluent_ui/fluent_ui.dart';
 
 import '../../utils/nearest_power_of_two.dart';
+import '../../utils/process_cover_art_path.dart';
 import '../../widgets/tile/fancy_cover.dart';
 
 class EmptyCoverArt extends StatelessWidget {
@@ -39,7 +40,7 @@ class EmptyCoverArt extends StatelessWidget {
   }
 }
 
-class CoverArt extends StatelessWidget {
+class CoverArt extends StatefulWidget {
   final String? path;
   final (String, String, String)? hint;
   final double? size;
@@ -54,32 +55,84 @@ class CoverArt extends StatelessWidget {
   });
 
   @override
+  State<CoverArt> createState() => _CoverArtState();
+}
+
+class _CoverArtState extends State<CoverArt> {
+  late Future<String> _processedPathFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _processPath();
+  }
+
+  @override
+  void didUpdateWidget(CoverArt oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.path != widget.path) {
+      _processPath();
+    }
+  }
+
+  void _processPath() {
+    _processedPathFuture = widget.path != null && widget.path!.isNotEmpty
+        ? processCoverArtPath(widget.path!)
+        : Future.value(widget.path ?? '');
+  }
+
+  @override
   Widget build(BuildContext context) {
     final pixelRatio = MediaQuery.devicePixelRatioOf(context);
 
     int? cachedSize;
 
-    if (size != null && size!.isFinite) {
-      cachedSize = nearestPowerOfTwo((size! * pixelRatio).floor());
+    if (widget.size != null && widget.size!.isFinite) {
+      cachedSize = nearestPowerOfTwo((widget.size! * pixelRatio).floor());
     }
 
-    return path == '' || path == null
-        ? hint == null
-            ? EmptyCoverArt(
-                size: size ?? double.infinity,
-                index: hash,
-              )
-            : FancyCover(
-                size: size ?? double.infinity,
-                texts: hint!,
-              )
-        : Image.file(
-            File(path!),
-            width: size ?? double.infinity,
-            height: size ?? double.infinity,
-            fit: BoxFit.cover,
-            cacheHeight: cachedSize,
-            filterQuality: FilterQuality.high,
+    if (widget.path == '' || widget.path == null) {
+      return widget.hint == null
+          ? EmptyCoverArt(
+              size: widget.size ?? double.infinity,
+              index: widget.hash,
+            )
+          : FancyCover(
+              size: widget.size ?? double.infinity,
+              texts: widget.hint!,
+            );
+    }
+
+    return FutureBuilder<String>(
+      future: _processedPathFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return EmptyCoverArt(
+            size: widget.size ?? double.infinity,
+            index: widget.hash,
           );
+        }
+
+        if (snapshot.hasError || !snapshot.hasData) {
+          // If there's an error, show empty cover art
+          return EmptyCoverArt(
+            size: widget.size ?? double.infinity,
+            index: widget.hash,
+          );
+        }
+
+        final processedPath = snapshot.data!;
+
+        // Use a standard Image.file widget for the processed path
+        return Image.file(
+          File(processedPath),
+          width: widget.size ?? double.infinity,
+          height: widget.size ?? double.infinity,
+          fit: BoxFit.cover,
+          cacheHeight: cachedSize,
+          filterQuality: FilterQuality.high,
+        );
+      },
+    );
   }
 }

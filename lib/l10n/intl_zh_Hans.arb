@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "表示已选择多个目录的状态文本。",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "确认",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 正在扫描媒体库，无法分析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 正在分析媒体库，请稍后。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 请分析媒体库以获得最佳体验。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "尚未完成",
@@ -1046,5 +1054,289 @@
   "userToken": "User Token",
   "@userToken": {
     "description": "scrobble 登录表单的输入字段标题。"
+  },
+  "hostname": "主机名",
+  "@hostname": {
+    "description": "URL 的主机名部分。"
+  },
+  "port": "端口",
+  "@port": {
+    "description": "URL 的端口部分。"
+  },
+  "secured": "已加密",
+  "@secured": {
+    "description": "是否为加密连接。"
+  },
+  "addConnection": "添加连接",
+  "@addConnection": {
+    "description": "对话框中的操作按钮。"
+  },
+  "neighbors": "附近",
+  "@neighbors": {
+    "description": "用于帮助用户互相连接的设置页面。"
+  },
+  "searchNeighbors": "搜索附近设备",
+  "@searchNeighbors": {
+    "description": "相邻设置页面中的项目，用于发现本地网络中的设备。"
+  },
+  "searchNeighborsSubtitle": "在本地网络中查找并连接 Rune 设备。",
+  "@searchNeighborsSubtitle": {
+    "description": "搜索邻居设置项的副标题。"
+  },
+  "editDeviceInformation": "编辑设备信息",
+  "@editDeviceInformation": {
+    "description": "出现在设备设置中。指的是在扫描过程中向其他用户展示的设备信息。"
+  },
+  "editDeviceInformationSubtitle": "自定义在扫描过程中展示给其他设备的详细信息。",
+  "@editDeviceInformationSubtitle": {
+    "description": "强调更改将影响在他人扫描列表中的可见性。避免使用技术术语，突出“扫描”这一交互场景。"
+  },
+  "enableBroadcast": "启用广播",
+  "@enableBroadcast": {
+    "description": "“广播”意味着主动发送设备信息。如目标语言中没有直接对应词汇，可优先使用“使可见”或“共享可用性”。"
+  },
+  "enableBroadcastSubtitle": "展示您的设备信息，供他人发现。",
+  "@enableBroadcastSubtitle": {
+    "description": "避免歧义：此处“公开”仅指对本地网络中的用户，而非整个互联网。"
+  },
+  "addNeighborManually": "手动添加附近设备",
+  "@addNeighborManually": {
+    "description": "“附近设备”指的是在同一局域网内的设备。如空间允许，也可使用“手动添加邻居”。应优先简洁表达。"
+  },
+  "addNeighborManuallySubtitle": "手动输入设备的局域网信息以建立连接。",
+  "@addNeighborManuallySubtitle": {
+    "description": "明确“局域网”不等于公共互联网（例如局域网中的 IP/端口）。“连接”意味着建立直接链接，而非仅仅显示可见。"
+  },
+  "stop": "停止",
+  "@stop": {
+    "description": "用于终止当前活动的操作按钮。"
+  },
+  "deviceFingerprint": "设备指纹",
+  "@deviceFingerprint": {
+    "description": "用于安全识别与连接的设备唯一标识符。"
+  },
+  "deviceName": "设备名称",
+  "@deviceName": {
+    "description": "用户自定义的设备名称，在扫描和连接过程中展示给其他用户。"
+  },
+  "noDevicesFound": "未发现设备",
+  "@noDevicesFound": {
+    "description": "扫描过程中未发现任何设备时显示的信息。"
+  },
+  "error": "错误：{error}",
+  "@error": {
+    "description": "设备发现失败时显示的错误信息。",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "权限被拒绝"
+      }
+    }
+  },
+  "model": "型号",
+  "@model": {
+    "description": "设备型号信息的标签。"
+  },
+  "type": "类型",
+  "@type": {
+    "description": "设备类型信息的标签。"
+  },
+  "fingerprint": "指纹",
+  "@fingerprint": {
+    "description": "设备指纹信息的标签。"
+  },
+  "lastSeen": "上次发现",
+  "@lastSeen": {
+    "description": "设备上次被检测到的时间标签。"
+  },
+  "ipAddresses": "IP 地址",
+  "@ipAddresses": {
+    "description": "设备 IP 地址的标签。"
+  },
+  "pair": "配对",
+  "@pair": {
+    "description": "用于发起设备配对的按钮文本。"
+  },
+  "pairingWith": "正在与 {deviceName} 配对…",
+  "@pairingWith": {
+    "description": "开始配对流程时显示的信息。",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "客厅电视"
+      }
+    }
+  },
+  "server": "服务器",
+  "@server": {
+    "description": "用于控制媒体播放器共享行为的设置页面标题，包括管理授权用户和广播设备状态。"
+  },
+  "serverControl": "服务器控制",
+  "@serverControl": {
+    "description": "用于控制本地网络服务器的部分标题。“服务器”指的是用于设备发现的后台服务。"
+  },
+  "serverControlSubtitle": "启动服务器以便其他设备在本地网络中发现此设备。",
+  "@serverControlSubtitle": {
+    "description": "明确服务器仅在本地网络中运行。强调启动服务器会使设备对他人可见。"
+  },
+  "selectInterface": "网络界面",
+  "@selectInterface": {
+    "description": "用于选择服务器绑定的网络界面的标签。保持技术性但应清晰。"
+  },
+  "approvedStatus": "已批准",
+  "@approvedStatus": {
+    "description": "作为用户/客户端状态徽章显示，表示该设备已被完全授权。若更自然，可使用“已验证”或“已确认”。"
+  },
+  "pendingStatus": "待审批",
+  "@pendingStatus": {
+    "description": "作为用户/客户端状态徽章显示，表示正等待批准。优先使用表示“待处理”的术语而非技术词汇如“排队中”。"
+  },
+  "blockedStatus": "已阻止",
+  "@blockedStatus": {
+    "description": "作为用户/客户端状态徽章显示，表示明确拒绝访问。可视文化适用使用“已封禁”或“被拒绝”等强烈用词，但应避免负面含义过重。"
+  },
+  "unknownStatus": "未知",
+  "@unknownStatus": {
+    "description": "作为用户/客户端状态徽章显示，表示状态无法识别或未定义。建议使用“未识别”或“未定义”，保持中性语气，不暗示错误。UI 中常配灰色。"
+  },
+  "review": "审查",
+  "@review": {
+    "description": "用于审查待处理设备连接请求的按钮。会弹出一个允许或阻止设备的对话框。"
+  },
+  "reviewRequestTitle": "连接请求",
+  "@reviewRequestTitle": {
+    "description": "审查设备连接时对话框显示的标题。保持简洁，突出所需操作。"
+  },
+  "blockDevice": "阻止设备",
+  "@blockDevice": {
+    "description": "永久拒绝访问的操作。根据文化习惯也可用“封禁”，但避免负面情绪过重。"
+  },
+  "allowAccess": "允许访问",
+  "@allowAccess": {
+    "description": "授权连接权限的操作。可根据习惯使用“批准”或“授权”。"
+  },
+  "connectionVerificationMessage": "若要允许设备 {alias}（{model}）连接，请分享以下通信密钥指纹以验证您的身份。",
+  "@connectionVerificationMessage": {
+    "description": "用于建立信任的操作说明文本。强调通过分享指纹来进行身份验证。可使用“验证”或“认证”类术语。",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "用户自定义的设备昵称"
+      },
+      "model": {
+        "type": "String",
+        "description": "厂商定义的设备型号标识"
+      }
+    }
+  },
+  "allowAccessSubtitle": "授权此设备控制播放并获取曲目。",
+  "@allowAccessSubtitle": {
+    "description": "说明允许访问时会授予的权限。“获取”指的是获取媒体内容。"
+  },
+  "blockDeviceSubtitle": "阻止未来的连接。您可随时取消对该设备的阻止。",
+  "@blockDeviceSubtitle": {
+    "description": "说明阻止行为的后果及可撤销性。如 UI 不同，可用“设备管理中解除”类描述。"
+  },
+  "removeTrust": "移除权限",
+  "@removeTrust": {
+    "description": "用于删除设备权限记录的对话框标题。强调永久移除所有已批准/已阻止状态，并需要重新注册。"
+  },
+  "removeTrustSubtitle": "此操作将永久删除权限记录。设备将失去所有访问状态（批准/阻止），并需重新发送注册请求，以再次出现在列表中。",
+  "@removeTrustSubtitle": {
+    "description": "说明删除行为会移除所有历史状态，并需要重新注册。如更自然可使用“清除记录”等表达，但应与“移除权限”保持一致。"
+  },
+  "pairingTitle": "设备配对",
+  "@pairingTitle": {
+    "description": "用于安全配对对话框的标题。应突出双向认证过程。"
+  },
+  "pairingLoading": "正在获取设备指纹…",
+  "@pairingLoading": {
+    "description": "指纹验证过程中显示的状态文本。表示正在进行安全检查。"
+  },
+  "pairingInstructions": "为进行安全验证，请选择与您的伙伴设备上显示的指纹相匹配的字符，以确认连接的是正确设备。",
+  "@pairingInstructions": {
+    "description": "说明部分指纹验证流程。使用“安全验证”而非技术术语如 MITM。"
+  },
+  "pairingFailureTitle": "配对失败",
+  "@pairingFailureTitle": {
+    "description": "指纹不匹配时的标题。表达失败结果但不引起过度担忧。"
+  },
+  "pairingFailureMessage": "指纹不匹配。请确认您正在连接正确的设备，并重新进行验证。",
+  "@pairingFailureMessage": {
+    "description": "引导用户重试，而不是建议检查网络。重点放在设备验证上。"
+  },
+  "closingWindowBehaviorTitle": "关闭窗口行为",
+  "@closingWindowBehaviorTitle": {
+    "description": "窗口关闭行为设置部分的标题文本。强调用户可控制应用关闭时的行为。"
+  },
+  "closingWindowBehaviorSubtitle": "选择点击关闭按钮时应用的行为。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "解释用户可以自定义关闭按钮的行为。可使用“自定义”或“配置”等词替代。"
+  },
+  "minimizeToTray": "最小化到托盘",
+  "@minimizeToTray": {
+    "description": "选项文本，表示关闭窗口后程序仍在后台运行。也可使用“隐藏到托盘”或“保持运行”表达方式。"
+  },
+  "exitProgram": "完全退出",
+  "@exitProgram": {
+    "description": "选项文本，表示关闭窗口时程序将彻底退出。也可使用“关闭应用”或“终止程序”等替代表述。"
+  },
+  "systemTabTitle": "系统",
+  "@systemTabTitle": {
+    "description": "系统设置部分的导航标签标题，表示包含系统级配置选项的集合。"
+  },
+  "removeFromPlaylist": "从播放列表中移除",
+  "@removeFromPlaylist": {
+    "description": "用于将曲目从当前播放列表中移除的操作。在右键点击歌曲时作为菜单选项出现。可根据语言习惯使用“删除”或“移除”。"
+  },
+  "waitForApprove": "正在等待服务器批准此请求…",
+  "@waitForApprove": {
+    "description": "在服务器连接验证过程中显示的加载信息。"
+  },
+  "clientBlockedTitle": "连接被阻止",
+  "@clientBlockedTitle": {
+    "description": "错误标题，表示远程设备已阻止该客户端的连接尝试。"
+  },
+  "clientBlockedMessage": "远程设备已阻止您的客户端连接。您需要获得该设备所有者的许可才能建立连接。",
+  "@clientBlockedMessage": {
+    "description": "说明用户的连接请求被远程设备拒绝。建议用户联系设备所有者以解决问题。"
+  },
+  "genres": "音乐类型",
+  "@genres": {
+    "description": "用于音乐类别/风格列表的标题或分区名。可能用于音乐库分类、筛选选项或偏好设置。可根据语言习惯选择“音乐分类”、“音乐风格”或“音乐种类”等表述。"
+  },
+  "genreQuery": "类型查询",
+  "@genreQuery": {},
+  "deduplicate": "去重",
+  "@deduplicate": {
+    "description": "按钮标签，用于从音乐库或播放列表中移除重复曲目。表示识别并删除重复歌曲的功能。可根据语言习惯使用“删除重复”或“清理重复”等说法。"
+  },
+  "deduplicateThresholdTitle": "去重阈值",
+  "@deduplicateThresholdTitle": {
+    "description": "音频相似度阈值设置的标题。表示用户可以在此调整检测重复曲目时的比较严格程度。"
+  },
+  "deduplicateThresholdSubtitle": "调整检测相似音频曲目的灵敏度级别。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "简要说明音频相似度阈值控制的内容。帮助用户理解该配置项的用途。"
+  },
+  "nearlyIdentical": "几乎一致",
+  "@nearlyIdentical": {
+    "description": "最高级别的音频相似度阈值，表示曲目几乎完全一致。用于配置重复检测设置。可根据语言习惯使用“完全一致”或“完美匹配”。"
+  },
+  "highlySimiar": "高度相似",
+  "@highlySimiar": {
+    "description": "第二高的音频相似度阈值，表示曲目之间差异极少。用于配置重复检测设置。可使用“非常相似”或“近乎一致”等表述。"
+  },
+  "moderatelySimilar": "部分相似",
+  "@moderatelySimilar": {
+    "description": "中等程度的音频相似度阈值，表示曲目之间存在明显但不严重的差异。可使用“部分相似”或“有些一致”。"
+  },
+  "slightlySimilar": "略微相似",
+  "@slightlySimilar": {
+    "description": "最低级别的音频相似度阈值，表示曲目之间仅有少量相似特征。可使用“基本不一致”或“略有相似”。"
+  },
+  "deduplicating": "正在去重",
+  "@deduplicating": {
+    "description": "表示当前正在执行去重过程的标签。向用户展示系统正在移除音乐库或播放列表中的重复曲目。也可使用“正在移除重复项”或“去重进行中”等表达。"
   }
 }

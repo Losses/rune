@@ -5,6 +5,7 @@ final Map<CollectionType, String> routerName = {
   CollectionType.Artist: 'artists',
   CollectionType.Playlist: 'playlists',
   CollectionType.Mix: 'mixes',
+  CollectionType.Genre: 'genres',
 };
 
 collectionTypeToRouterName(CollectionType x) => routerName[x];

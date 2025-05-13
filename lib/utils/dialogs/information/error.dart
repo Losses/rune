@@ -6,7 +6,7 @@ import '../../router/navigation.dart';
 Future<void> showErrorDialog({
   required BuildContext context,
   required String title,
-  required String subtitle,
+  String? subtitle,
   String? errorMessage,
   bool useFilledButton = true,
   bool barrierDismissible = true,
@@ -14,16 +14,22 @@ Future<void> showErrorDialog({
   await $showModal<bool>(
     context,
     (context, $close) => ContentDialog(
-      title: Text(title),
+      title: Column(
+        children: [
+          SizedBox(height: 8),
+          Text(title),
+        ],
+      ),
       constraints: const BoxConstraints(maxHeight: 320, maxWidth: 400),
       content: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            subtitle,
-            style: const TextStyle(height: 1.4),
-          ),
-          const SizedBox(height: 8),
+          if (subtitle != null)
+            Text(
+              subtitle,
+              style: const TextStyle(height: 1.4),
+            ),
+          if (subtitle != null) const SizedBox(height: 8),
           Expanded(
             child: SingleChildScrollView(
               child: SelectableText(

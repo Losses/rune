@@ -10,6 +10,11 @@ pub struct Model {
     pub playlist_id: i32,
     pub media_file_id: i32,
     pub position: i32,
+    #[sea_orm(column_type = "Text")]
+    pub created_at: String,
+    #[sea_orm(column_type = "Text")]
+    pub updated_at: String,
+    pub data_version: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -15,10 +15,13 @@ use database::actions::metadata::{get_metadata_summary_by_files, MetadataSummary
 use database::actions::mixes::query_mix_media_files;
 use database::connection::MainDbConnection;
 use database::connection::RecommendationDbConnection;
-use database::entities::{albums, artists, media_files, mixes, playlists};
+use database::entities::{albums, artists, genres, media_files, mixes, playlists};
 
-use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{
+    messages::*,
+    utils::{GlobalParams, ParamsExtractor},
+    Session, Signal,
+};
 
 #[async_trait]
 pub trait ComplexQuery: Send + Sync {
@@ -168,6 +171,10 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
             25,
             CollectionQueryListMode::from_str(parameter)?,
         ))),
+        "genres" => Ok(Box::new(CollectionComplexQuery::<genres::Model>::new(
+            25,
+            CollectionQueryListMode::from_str(parameter)?,
+        ))),
         "playlists" => Ok(Box::new(CollectionComplexQuery::<playlists::Model>::new(
             25,
             CollectionQueryListMode::from_str(parameter)?,
@@ -205,64 +212,92 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
 }
 
 impl ParamsExtractor for ComplexQueryRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        crate::utils::RunningMode,
+    );
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
             Arc::clone(&all_params.recommend_db),
+            all_params.running_mode,
         )
     }
 }
 
 impl Signal for ComplexQueryRequest {
-    type Params = (Arc<MainDbConnection>, Arc<RecommendationDbConnection>);
+    type Params = (
+        Arc<MainDbConnection>,
+        Arc<RecommendationDbConnection>,
+        crate::utils::RunningMode,
+    );
     type Response = ComplexQueryResponse;
 
     async fn handle(
         &self,
-        (main_db, recommend_db): Self::Params,
+        (main_db, recommend_db, running_mode): Self::Params,
+        session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let queries = &dart_signal.queries;
+        let remote_host = match session {
+            Some(x) => Some(x.host.clone()),
+            None => None,
+        };
 
         let futures = queries.iter().map(|query| {
             let main_db = main_db.clone();
             let recommend_db = recommend_db.clone();
-            async move {
-                let query_executor = create_query(&query.domain, &query.parameter)?;
-                let unified_collections = query_executor.execute(&main_db, &recommend_db).await?;
+            {
+                let value = remote_host.clone();
+                async move {
+                    let query_executor = create_query(&query.domain, &query.parameter)?;
+                    let unified_collections =
+                        query_executor.execute(&main_db, &recommend_db).await?;
+                    let remote_host = value.clone();
 
-                let entries_futures = unified_collections.into_iter().map(|unified_collection| {
-                    let main_db = main_db.clone();
-                    let recommend_db = recommend_db.clone();
-                    async move {
-                        let collection = Collection::from_unified_collection_bakeable(
-                            &main_db,
-                            recommend_db,
-                            unified_collection,
-                            true,
-                        )
-                        .await?;
+                    let entries_futures =
+                        unified_collections.into_iter().map(|unified_collection| {
+                            let main_db = main_db.clone();
+                            let recommend_db = recommend_db.clone();
+                            let remote_host = remote_host.clone();
+                            async move {
+                                // Get the collection with processed cover art paths
+                                let mut collection =
+                                    Collection::from_unified_collection(unified_collection);
+                                if collection.cover_art_map.is_empty() {
+                                    collection = crate::utils::inject_cover_art_map(
+                                        &main_db,
+                                        recommend_db,
+                                        collection,
+                                        None,
+                                        &running_mode,
+                                        &remote_host,
+                                    )
+                                    .await?;
+                                }
 
-                        Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
-                            id: collection.id,
-                            name: collection.name,
-                            queries: collection.queries,
-                            collection_type: collection.collection_type,
-                            cover_art_map: collection.cover_art_map,
-                            readonly: collection.readonly,
-                        })
-                    }
-                });
+                                Ok::<ComplexQueryEntry, Error>(ComplexQueryEntry {
+                                    id: collection.id,
+                                    name: collection.name,
+                                    queries: collection.queries,
+                                    collection_type: collection.collection_type,
+                                    cover_art_map: collection.cover_art_map,
+                                    readonly: collection.readonly,
+                                })
+                            }
+                        });
 
-                let entries = try_join_all(entries_futures).await?;
+                    let entries = try_join_all(entries_futures).await?;
 
-                Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
-                    id: query.id.clone(),
-                    title: query.title.clone(),
-                    entries,
-                })
+                    Ok::<ComplexQueryGroup, Error>(ComplexQueryGroup {
+                        id: query.id.clone(),
+                        title: query.title.clone(),
+                        entries,
+                    })
+                }
             }
         });
 

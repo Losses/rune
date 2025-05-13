@@ -52,17 +52,41 @@ class ScanTaskProgress {
   }
 }
 
+class DeduplicateTaskProgress {
+  final String path;
+  int progress;
+  int total;
+  TaskStatus status;
+
+  DeduplicateTaskProgress({
+    required this.path,
+    this.progress = 0,
+    this.total = 0,
+    this.status = TaskStatus.working,
+  });
+
+  @override
+  String toString() {
+    return 'DeduplicateTaskProgress(path: $path, progress: $progress, total: $total, status: $status)';
+  }
+}
+
 class LibraryManagerProvider with ChangeNotifier {
   final Map<String, AnalyzeTaskProgress> _analyzeTasks = {};
   final Map<String, ScanTaskProgress> _scanTasks = {};
+  final Map<String, DeduplicateTaskProgress> _deduplicateTasks = {};
+
   StreamSubscription? _scanProgressSubscription;
   StreamSubscription? _scanResultSubscription;
   StreamSubscription? _analyzeProgressSubscription;
   StreamSubscription? _analyzeResultSubscription;
   StreamSubscription? _cancelTaskSubscription;
+  StreamSubscription? _deduplicateProgressSubscription;
+  StreamSubscription? _deduplicateResultSubscription;
 
   final Map<String, Completer<void>> _scanCompleters = {};
   final Map<String, Completer<void>> _analyzeCompleters = {};
+  final Map<String, Completer<void>> _deduplicateCompleters = {};
 
   LibraryManagerProvider() {
     initListeners();
@@ -156,8 +180,42 @@ class LibraryManagerProvider with ChangeNotifier {
             TaskStatus.cancelled,
             false,
           );
+        } else if (cancelResponse.type ==
+            CancelTaskType.DeduplicateAudioLibrary) {
+          _updateDeduplicateProgress(
+            cancelResponse.path,
+            0,
+            0,
+            TaskStatus.cancelled,
+          );
         }
       }
+    });
+
+    _deduplicateProgressSubscription =
+        DeduplicateAudioLibraryProgress.rustSignalStream.listen((event) {
+      final deduplicateProgress = event.message;
+      _updateDeduplicateProgress(
+        deduplicateProgress.path,
+        deduplicateProgress.progress,
+        deduplicateProgress.total,
+        TaskStatus.working,
+      );
+    });
+
+    _deduplicateResultSubscription =
+        DeduplicateAudioLibraryResponse.rustSignalStream.listen((event) {
+      final deduplicateResult = event.message;
+      _updateDeduplicateProgress(
+        deduplicateResult.path,
+        100,
+        100,
+        TaskStatus.finished,
+      );
+
+      // Complete deduplicate task
+      _deduplicateCompleters[deduplicateResult.path]?.complete();
+      _deduplicateCompleters.remove(deduplicateResult.path);
     });
   }
 
@@ -203,9 +261,27 @@ class LibraryManagerProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  void _updateDeduplicateProgress(
+      String path, int progress, int total, TaskStatus status) {
+    if (_deduplicateTasks.containsKey(path)) {
+      _deduplicateTasks[path]!.progress = progress;
+      _deduplicateTasks[path]!.total = total;
+      _deduplicateTasks[path]!.status = status;
+    } else {
+      _deduplicateTasks[path] = DeduplicateTaskProgress(
+        path: path,
+        progress: progress,
+        total: total,
+        status: status,
+      );
+    }
+    notifyListeners();
+  }
+
   void clearAll(String path) {
     _scanTasks.clear();
     _analyzeTasks.clear();
+    _deduplicateTasks.clear();
     notifyListeners();
   }
 
@@ -256,12 +332,32 @@ class LibraryManagerProvider with ChangeNotifier {
     ).sendSignalToRust();
   }
 
+  Future<void> deduplicateLibrary(String path) async {
+    _updateDeduplicateProgress(path, 0, -1, TaskStatus.working);
+
+    double workloadFactor = 0.75;
+    String similarityLevel =
+        await $settingsManager.getValue<String>(kDeduplicateThresholdKey) ??
+            "0.85";
+    double similarityThreshold = double.tryParse(similarityLevel) ?? 0.85;
+
+    DeduplicateAudioLibraryRequest(
+      path: path,
+      similarityThreshold: similarityThreshold,
+      workloadFactor: workloadFactor,
+    ).sendSignalToRust();
+  }
+
   ScanTaskProgress? getScanTaskProgress(String? path) {
     return _scanTasks[path];
   }
 
   AnalyzeTaskProgress? getAnalyzeTaskProgress(String path) {
     return _analyzeTasks[path];
+  }
+
+  DeduplicateTaskProgress? getDeduplicateTaskProgress(String path) {
+    return _deduplicateTasks[path];
   }
 
   Future<void> waitForScanToComplete(String path) {
@@ -290,6 +386,19 @@ class LibraryManagerProvider with ChangeNotifier {
     return _analyzeCompleters[path]!.future;
   }
 
+  Future<void> waitForDeduplicateToComplete(String path) {
+    final taskProgress = getDeduplicateTaskProgress(path);
+    if (taskProgress == null || taskProgress.status == TaskStatus.finished) {
+      return Future.value();
+    }
+
+    final existed = _deduplicateCompleters[path];
+    if (existed != null) return existed.future;
+
+    _deduplicateCompleters[path] = Completer<void>();
+    return _deduplicateCompleters[path]!.future;
+  }
+
   Future<void> cancelTask(String path, CancelTaskType type) async {
     CancelTaskRequest(path: path, type: type).sendSignalToRust();
   }
@@ -301,6 +410,8 @@ class LibraryManagerProvider with ChangeNotifier {
     _analyzeProgressSubscription?.cancel();
     _analyzeResultSubscription?.cancel();
     _cancelTaskSubscription?.cancel();
+    _deduplicateProgressSubscription?.cancel();
+    _deduplicateResultSubscription?.cancel();
     super.dispose();
   }
 }

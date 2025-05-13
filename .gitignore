@@ -151,3 +151,4 @@ temp_macos/
 Output/Rune.exe
 *.afdesign~lock~
 profile.json
+tarpaulin-report.html

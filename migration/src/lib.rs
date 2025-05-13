@@ -18,6 +18,11 @@ mod m20231029_000017_create_search_index;
 mod m20231107_000018_add_column_primary_color;
 mod m20231110_000019_create_playback_queue_table;
 mod m20231117_000020_create_log_table;
+mod m20250311_000021_create_genres_table;
+mod m20250311_000022_create_media_file_genres_table;
+mod m20250312_000023_create_media_file_fingerprint_table;
+mod m20250312_000024_create_media_file_similarity_table;
+mod m20250410_000025_add_hlc_columns;
 
 pub struct Migrator;
 
@@ -43,6 +48,11 @@ impl MigratorTrait for Migrator {
             Box::new(m20231107_000018_add_column_primary_color::Migration),
             Box::new(m20231110_000019_create_playback_queue_table::Migration),
             Box::new(m20231117_000020_create_log_table::Migration),
+            Box::new(m20250311_000021_create_genres_table::Migration),
+            Box::new(m20250311_000022_create_media_file_genres_table::Migration),
+            Box::new(m20250312_000023_create_media_file_fingerprint_table::Migration),
+            Box::new(m20250312_000024_create_media_file_similarity_table::Migration),
+            Box::new(m20250410_000025_add_hlc_columns::Migration),
         ]
     }
 }

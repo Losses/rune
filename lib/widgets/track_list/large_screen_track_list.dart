@@ -101,6 +101,8 @@ class LargeScreenTrackList extends StatelessWidget {
                             coverArtPath: item.coverArtPath,
                             mode: mode,
                             isAlbumQuery: isAlbumQuery,
+                            position: index,
+                            reloadData: pagingController.refresh,
                           ),
                         ),
                       ),

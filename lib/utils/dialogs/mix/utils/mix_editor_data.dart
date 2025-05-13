@@ -8,6 +8,7 @@ class MixEditorData {
   final String group;
   final List<(int, String)> artists;
   final List<(int, String)> albums;
+  final List<(int, String)> genres;
   final List<(int, String)> playlists;
   final List<(int, String)> tracks;
   final int randomTracks;
@@ -24,6 +25,7 @@ class MixEditorData {
     required this.group,
     this.artists = const [],
     this.albums = const [],
+    this.genres = const [],
     this.playlists = const [],
     this.tracks = const [],
     this.randomTracks = 0,
@@ -41,6 +43,7 @@ class MixEditorData {
     String? group,
     List<(int, String)>? artists,
     List<(int, String)>? albums,
+    List<(int, String)>? genres,
     List<(int, String)>? playlists,
     List<(int, String)>? tracks,
     int? randomTracks,
@@ -77,6 +80,7 @@ class MixEditorData {
     group: $group,
     artists: $artists,
     albums: $albums,
+    genres: $genres,
     playlists: $playlists,
     tracks: $tracks,
     limit: $limit,
@@ -101,6 +105,7 @@ Future<MixEditorData> queryToMixEditorData(
   List<int> albumsId = [];
   List<int> playlistsId = [];
   List<int> tracksId = [];
+  List<int> genresId = [];
   int randomTracks = 0;
   Set<String> directories = {};
   double limit = 0.0;
@@ -117,6 +122,9 @@ Future<MixEditorData> queryToMixEditorData(
         break;
       case 'lib::album':
         albumsId.add(int.parse(item.$2));
+        break;
+      case 'lib::genre':
+        genresId.add(int.parse(item.$2));
         break;
       case 'lib::playlist':
         playlistsId.add(int.parse(item.$2));
@@ -157,6 +165,10 @@ Future<MixEditorData> queryToMixEditorData(
       (await fetchCollectionByIds(CollectionType.Album, albumsId))
           .map((x) => (x.id, x.name))
           .toList();
+  List<(int, String)> genres =
+      (await fetchCollectionByIds(CollectionType.Genre, genresId))
+          .map((x) => (x.id, x.name))
+          .toList();
   List<(int, String)> playlists =
       (await fetchCollectionByIds(CollectionType.Playlist, playlistsId))
           .map((x) => (x.id, x.name))
@@ -170,6 +182,7 @@ Future<MixEditorData> queryToMixEditorData(
     group: group,
     artists: artists,
     albums: albums,
+    genres: genres,
     playlists: playlists,
     tracks: tracks,
     randomTracks: randomTracks,
@@ -192,6 +205,10 @@ List<(String, String)> mixEditorDataToQuery(MixEditorData data) {
 
   for (var album in data.albums) {
     query.add(('lib::album', album.$1.toString()));
+  }
+
+  for (var genre in data.genres) {
+    query.add(('lib::genre', genre.$1.toString()));
   }
 
   for (var playlist in data.playlists) {

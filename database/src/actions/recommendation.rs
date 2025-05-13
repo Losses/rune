@@ -41,7 +41,9 @@ pub fn get_recommendation_by_file_id(
         .with_context(|| "Failed to convert item_id to u32")?;
 
     let results = reader
-        .nns_by_item(&rtxn, item_id, n, Some(search_k), None)?
+        .nns(n)
+        .search_k(search_k)
+        .by_item(&rtxn, item_id)?
         .with_context(|| "No results found for the given item_id")?;
 
     Ok(results)
@@ -69,7 +71,9 @@ pub fn get_recommendation_by_parameter(
         .with_context(|| "Failed to create NonZeroUsize from search_k")?;
 
     let results = reader
-        .nns_by_vector(&rtxn, &feature_vector, n, Some(search_k), None)
+        .nns(n)
+        .search_k(search_k)
+        .by_vector(&rtxn, &feature_vector)
         .with_context(|| "Failed to get recommendation by parameter");
 
     match results {
@@ -126,7 +130,7 @@ pub async fn sync_recommendation(
 
     // Build the index
     let mut rng = StdRng::seed_from_u64(42);
-    writer.build(&mut wtxn, &mut rng, None)?;
+    writer.builder(&mut rng).build(&mut wtxn)?;
 
     // Commit the transaction
     wtxn.commit()?;
@@ -137,7 +141,7 @@ pub async fn sync_recommendation(
     for id in reader.item_ids() {
         if !existing_ids.contains(&(id as i32)) {
             let mut wtxn = env.write_txn()?;
-            let writer = Writer::<Euclidean>::new(arroy_db, 0, 17);
+            let writer = Writer::<Euclidean>::new(arroy_db, 0, 61);
             writer.del_item(&mut wtxn, id)?;
             wtxn.commit()?;
         }

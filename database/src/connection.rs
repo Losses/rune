@@ -1,12 +1,18 @@
+use std::env::current_exe;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use arroy::distances::Euclidean;
+use arroy::internals::{KeyCodec, NodeCodec};
 use arroy::Database as ArroyDatabase;
 use heed::{Env, EnvFlags, EnvOpenOptions};
-use log::{info, LevelFilter};
-use sea_orm::{ConnectOptions, Database};
+use log::info;
+use sea_orm::sqlx::sqlite::SqliteConnectOptions;
+use sea_orm::sqlx::SqlitePool;
+use sea_orm::{Database, SqlxSqliteConnector};
+use tempfile::tempdir;
 use uuid::Uuid;
 #[cfg(windows)]
 use windows::core::PWSTR;
@@ -143,6 +149,25 @@ pub fn get_storage_info(lib_path: &str, db_path: Option<&str>) -> Result<Storage
 
 pub type MainDbConnection = sea_orm::DatabaseConnection;
 
+fn get_crsqlite_path() -> Result<String> {
+    let mut current_exe_path = current_exe()?;
+
+    current_exe_path.pop();
+
+    #[cfg(target_os = "linux")]
+    {
+        current_exe_path.push("lib");
+        current_exe_path.push("crsqlite");
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        current_exe_path.push("crsqlite");
+    }
+
+    Ok(current_exe_path.display().to_string())
+}
+
 pub async fn connect_main_db(lib_path: &str, db_path: Option<&str>) -> Result<MainDbConnection> {
     let storage_info = get_storage_info(lib_path, db_path)?;
     let db_path = storage_info.get_main_db_path();
@@ -155,14 +180,34 @@ pub async fn connect_main_db(lib_path: &str, db_path: Option<&str>) -> Result<Ma
         "sqlite:{}?mode=rwc",
         db_path.into_os_string().into_string().unwrap()
     );
-    let mut opt = ConnectOptions::new(db_url.clone());
-    opt.sqlx_logging(true)
-        .sqlx_logging_level(LevelFilter::Debug);
+
+    let crsqlite_path = get_crsqlite_path()?;
+
+    info!("Loading cr-sqlite from: {}", crsqlite_path);
+
+    let connection_options = SqliteConnectOptions::from_str(&db_url)?.extension(crsqlite_path);
+
+    let pool = SqlitePool::connect_with(connection_options).await?;
 
     info!("Initializing main database: {}", db_url);
 
-    let db = Database::connect(opt).await?;
+    let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
+
     initialize_db(&db).await?;
+
+    Ok(db)
+}
+
+pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
+    Migrator::up(conn, None).await?;
+    initialize_mix_queries(conn).await?;
+    Ok(())
+}
+
+pub async fn connect_fake_main_db() -> Result<MainDbConnection> {
+    info!("Initializing fake main database.");
+
+    let db = Database::connect("sqlite::memory:").await?;
 
     Ok(db)
 }
@@ -201,14 +246,32 @@ pub fn connect_recommendation_db(
     };
 
     let mut wtxn = env.write_txn()?;
-    let db: ArroyDatabase<Euclidean> = env.create_database(&mut wtxn, None)?;
+    let db: ArroyDatabase<Euclidean> = env
+        .database_options()
+        .types::<KeyCodec, NodeCodec<Euclidean>>()
+        .create(&mut wtxn)?;
     wtxn.commit()?;
 
     Ok(RecommendationDbConnection { env, db })
 }
 
-pub async fn initialize_db(conn: &sea_orm::DatabaseConnection) -> Result<()> {
-    Migrator::up(conn, None).await?;
-    initialize_mix_queries(conn).await?;
-    Ok(())
+pub fn connect_fake_recommendation_db() -> Result<RecommendationDbConnection> {
+    info!("Initializing fake recommendation database");
+
+    let dir = tempdir()?;
+    let env = unsafe {
+        EnvOpenOptions::new()
+            .map_size(DB_SIZE)
+            .flags(EnvFlags::NO_LOCK)
+            .open(dir.path())?
+    };
+
+    let mut wtxn = env.write_txn()?;
+    let db: ArroyDatabase<Euclidean> = env
+        .database_options()
+        .types::<KeyCodec, NodeCodec<Euclidean>>()
+        .create(&mut wtxn)?;
+    wtxn.commit()?;
+
+    Ok(RecommendationDbConnection { env, db })
 }

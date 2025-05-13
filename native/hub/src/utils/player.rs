@@ -4,11 +4,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Error};
 use anyhow::{Context, Result};
+use discovery::server::PermissionManager;
 use log::{debug, error, info};
 use sea_orm::{DatabaseConnection, TransactionTrait};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 use tokio::task;
 
+use ::scrobbling::manager::ScrobblingServiceManager;
 use ::database::actions::logging::insert_log;
 use ::database::actions::playback_queue::replace_playback_queue;
 use ::database::actions::stats::increase_played_through;
@@ -16,6 +18,7 @@ use ::database::connection::MainDbConnection;
 use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use ::database::playing_item::library_item::extract_in_library_ids;
 use ::database::playing_item::PlayingItemMetadataSummary;
+use ::discovery::client::CertValidator;
 use ::playback::controller::get_default_cover_art_path;
 use ::playback::controller::handle_media_control_event;
 use ::playback::controller::MediaControlManager;
@@ -24,14 +27,10 @@ use ::playback::player::{Playable, PlaylistStatus};
 use ::playback::MediaMetadata;
 use ::playback::MediaPlayback;
 use ::playback::MediaPosition;
-use ::scrobbling::manager::ScrobblingManager;
 use ::scrobbling::ScrobblingTrack;
 
+use crate::messages::*;
 use crate::utils::Broadcaster;
-use crate::{
-    CrashResponse, PlaybackStatus, PlaylistItem, PlaylistUpdate, RealtimeFft,
-    ScrobbleServiceStatus, ScrobbleServiceStatusUpdated,
-};
 
 pub fn metadata_summary_to_scrobbling_track(
     metadata: &PlayingItemMetadataSummary,
@@ -51,12 +50,14 @@ pub fn metadata_summary_to_scrobbling_track(
     }
 }
 
-pub async fn initialize_player(
+pub async fn initialize_local_player(
     lib_path: Arc<String>,
     main_db: Arc<MainDbConnection>,
     player: Arc<Mutex<dyn Playable>>,
-    scrobbler: Arc<Mutex<ScrobblingManager>>,
+    scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
     broadcaster: Arc<dyn Broadcaster>,
+    cert_validator: Arc<RwLock<CertValidator>>,
+    permission_manager: Arc<RwLock<PermissionManager>>,
 ) -> Result<()> {
     let status_receiver = player.lock().await.subscribe_status();
     let played_through_receiver = player.lock().await.subscribe_played_through();
@@ -64,6 +65,8 @@ pub async fn initialize_player(
     let realtime_fft_receiver = player.lock().await.subscribe_realtime_fft();
     let crash_receiver = player.lock().await.subscribe_crash();
     let player_log_receiver = player.lock().await.subscribe_log();
+    let mut certificate_receiver = cert_validator.read().await.subscribe_changes();
+    let mut permission_receiver = permission_manager.read().await.subscribe_new_user();
 
     // Clone main_db for each task
     let main_db_for_status = Arc::clone(&main_db);
@@ -88,6 +91,8 @@ pub async fn initialize_player(
     let broadcaster_for_realtime_fft = Arc::clone(&broadcaster);
     let broadcaster_for_scrobbler = Arc::clone(&broadcaster);
     let broadcaster_for_crash = Arc::clone(&broadcaster);
+    let broadcaster_for_certificate = Arc::clone(&broadcaster);
+    let broadcaster_for_permission_manager = Arc::clone(&broadcaster);
 
     manager.lock().await.initialize()?;
 
@@ -376,6 +381,35 @@ pub async fn initialize_player(
     task::spawn(async move {
         while let Ok(value) = crash_receiver.recv().await {
             broadcaster_for_crash.broadcast(&CrashResponse { detail: value });
+        }
+    });
+
+    task::spawn(async move {
+        while let Ok(fingerprints) = certificate_receiver.recv().await {
+            broadcaster_for_certificate.broadcast(&TrustListUpdated {
+                certificates: fingerprints
+                    .entries
+                    .into_iter()
+                    .map(|(fingerprint, hosts)| TrustedServerCertificate { fingerprint, hosts })
+                    .collect(),
+            });
+        }
+    });
+
+    task::spawn(async move {
+        while let Ok(user) = permission_receiver.recv().await {
+            broadcaster_for_permission_manager.broadcast(&IncommingClientPermissionNotification {
+                user: Some(ClientSummary {
+                    alias: user.alias,
+                    fingerprint: user.fingerprint,
+                    device_model: user.device_model,
+                    status: match user.status {
+                        discovery::server::UserStatus::Approved => 0,
+                        discovery::server::UserStatus::Pending => 1,
+                        discovery::server::UserStatus::Blocked => 2,
+                    },
+                }),
+            });
         }
     });
 

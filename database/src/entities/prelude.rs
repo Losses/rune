@@ -2,12 +2,16 @@
 
 pub use super::albums::Entity as Albums;
 pub use super::artists::Entity as Artists;
+pub use super::genres::Entity as Genres;
 pub use super::log::Entity as Log;
 pub use super::media_analysis::Entity as MediaAnalysis;
 pub use super::media_cover_art::Entity as MediaCoverArt;
 pub use super::media_file_albums::Entity as MediaFileAlbums;
 pub use super::media_file_artists::Entity as MediaFileArtists;
+pub use super::media_file_fingerprint::Entity as MediaFileFingerprint;
+pub use super::media_file_genres::Entity as MediaFileGenres;
 pub use super::media_file_playlists::Entity as MediaFilePlaylists;
+pub use super::media_file_similarity::Entity as MediaFileSimilarity;
 pub use super::media_file_stats::Entity as MediaFileStats;
 pub use super::media_files::Entity as MediaFiles;
 pub use super::media_metadata::Entity as MediaMetadata;

@@ -22,6 +22,11 @@ const scaleY = 0.9;
 
 class PlaybackControllerState extends State<PlaybackController> {
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final path = Provider.of<RouterPathProvider>(context).path;
     final isCoverArtWall = isCoverArtWallLayout(path);

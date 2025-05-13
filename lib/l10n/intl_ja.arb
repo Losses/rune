@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "確認",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 資料集を検査中のため、解析は実行できません。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 資料集を解析中です。処理が終了するまでお待ちください。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 最良の体験のために資料集を解析してください。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "準備ができていません",
@@ -1047,12 +1055,6 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "addRemoteDevice": "遠隔設備を追加",
-  "@addRemoteDevice": {
-    "description": "Button prompt text in the settings interface for connecting to a remote device."
-  },
-  "addRemoteDeviceSubtitle": "再生設備を遠隔操作し、再生曲を管理。",
-  "@addRemoteDeviceSubtitle": {},
   "hostname": "宿主名",
   "@hostname": {
     "description": "The host name part of an URL."

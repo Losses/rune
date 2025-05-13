@@ -18,7 +18,7 @@ use metadata::scanner::AudioScanner;
 use crate::actions::collection::CollectionQueryType;
 use crate::actions::cover_art::remove_cover_art_by_file_id;
 use crate::actions::file::get_file_ids_by_descriptions;
-use crate::actions::index::index_media_files;
+use crate::actions::index::{index_media_files, perform_library_maintenance};
 use crate::actions::logging::{insert_log, LogLevel};
 use crate::actions::search::{add_term, remove_term};
 use crate::entities::{albums, artists, media_file_albums, media_files};
@@ -91,7 +91,6 @@ pub async fn sync_file_descriptions(
                 {
                     Ok(file) => file,
                     Err(e) => {
-                        error!("{:#?}", e);
                         insert_log(
                             &txn,
                             LogLevel::Error,
@@ -875,6 +874,11 @@ where
             Ok(_) => info!("Cleanup completed successfully."),
             Err(e) => error!("{:#?}", e),
         }
+        // Perform library maintenance after indexing is completed.
+        match perform_library_maintenance(main_db, cancel_token.as_ref()).await {
+            Ok(_) => info!("Library maintainence successfully."),
+            Err(e) => error!("{:#?}", e),
+        };
     }
 
     info!("Audio library scan completed.");
@@ -895,6 +899,7 @@ pub struct MetadataSummary {
     pub file_name: String,
     pub artist: String,
     pub album: String,
+    pub genre: String,
     pub title: String,
     pub track_number: i32,
     pub duration: f64,
@@ -915,6 +920,7 @@ pub async fn get_metadata_summary_by_files(
             media_metadata::Column::MetaKey.is_in([
                 "artist",
                 "album",
+                "genre",
                 "track_title",
                 "disc_number",
                 "track_number",
@@ -960,6 +966,11 @@ pub async fn get_metadata_summary_by_files(
             file_name: file.file_name.clone(),
             artist: metadata.get("artist").cloned().unwrap_or_default(),
             album: metadata.get("album").cloned().unwrap_or_default(),
+            genre: metadata
+                .get("genre")
+                .cloned()
+                .unwrap_or_default()
+                .to_uppercase(),
             title: metadata
                 .get("track_title")
                 .cloned()

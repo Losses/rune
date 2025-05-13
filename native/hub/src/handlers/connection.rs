@@ -1,34 +1,34 @@
-use std::sync::Arc;
-
 use anyhow::Result;
+use log::info;
 
-use database::connection::{check_library_state, LibraryState, MainDbConnection};
+use database::connection::{check_library_state, LibraryState};
 
 use crate::{
     messages::*,
     utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    Session, Signal,
 };
 
 impl ParamsExtractor for TestLibraryInitializedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
 
-    fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
-    }
+    fn extract_params(&self, _: &GlobalParams) -> Self::Params {}
 }
 
 impl Signal for TestLibraryInitializedRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = ();
     type Response = TestLibraryInitializedResponse;
 
     async fn handle(
         &self,
-        (_main_db,): Self::Params,
+        _: Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let media_library_path = dart_signal.path.clone();
         let test_result = check_library_state(&media_library_path);
+
+        info!("Testing the library path: {}", media_library_path);
 
         let result = match test_result {
             Ok(state) => match &state {

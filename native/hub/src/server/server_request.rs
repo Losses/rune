@@ -23,7 +23,7 @@ macro_rules! register_single_handler {
     ($server:expr, $global_params:expr, $request:ty, $with_response:tt) => {
         paste::paste! {
             let global_params = $global_params.clone();
-            $server.register_handler(stringify!($request), move |payload| {
+            $server.register_handler(stringify!($request), move |payload, session| {
                 let global_params = global_params.clone();
                 async move {
                     let buf = payload.as_slice();
@@ -38,7 +38,7 @@ macro_rules! register_single_handler {
                     };
 
                     let params = request.extract_params(&global_params);
-                    match request.handle(params, &request).await {
+                    match request.handle(params, session, &request).await {
                         Ok(_response) => {
                             handle_server_response!(_response, $with_response)
                         }

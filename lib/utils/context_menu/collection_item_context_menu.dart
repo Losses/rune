@@ -22,6 +22,7 @@ import '../build_query.dart';
 import '../execute_middle_click_action.dart';
 import '../dialogs/export_cover_wall/show_export_cover_wall_dialog.dart';
 
+import '../router/router_aware_flyout_controller.dart';
 import 'utils/build_m3u8.dart';
 
 final Map<CollectionType, String> typeToOperator = {
@@ -29,6 +30,7 @@ final Map<CollectionType, String> typeToOperator = {
   CollectionType.Artist: "lib::artist",
   CollectionType.Playlist: "lib::playlist",
   CollectionType.Track: "lib::track",
+  CollectionType.Genre: "lib::genre",
 };
 
 final Map<
@@ -92,7 +94,7 @@ void openCollectionItemContextMenu(
   Offset localPosition,
   BuildContext context,
   GlobalKey contextAttachKey,
-  FlyoutController contextController,
+  RouterAwareFlyoutController contextController,
   CollectionType type,
   int id,
   String title, [

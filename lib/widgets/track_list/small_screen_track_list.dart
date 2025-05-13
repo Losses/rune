@@ -65,6 +65,8 @@ class SmallScreenTrackList extends StatelessWidget {
                 fallbackFileIds: fallbackFileIds,
                 coverArtPath: item.coverArtPath,
                 mode: mode,
+                position: index,
+                reloadData: pagingController.refresh,
               ),
             ),
           );

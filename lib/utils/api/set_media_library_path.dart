@@ -1,3 +1,4 @@
+import '../../constants/configurations.dart';
 import '../../messages/all.dart';
 
 import '../settings_manager.dart';
@@ -29,9 +30,13 @@ Future<(bool, bool, String?)> setMediaLibraryPath(
       ? path.substring(4)
       : path;
 
+  final settingsManager = SettingsManager();
+
   SetMediaLibraryPathRequest(
     path: cleanPath,
     dbPath: await getSettingsPath(),
+    configPath: await getSettingsPath(),
+    alias: await settingsManager.getValue(kDeviceAliasKey),
     mode: mode,
     playsOn: playsOn,
     hostedOn: hostedOn,

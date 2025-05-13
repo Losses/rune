@@ -55,25 +55,29 @@ The motivation behind Rune is to provide a modernized audio listening and manage
 
   These mixes automatically update as users listen to and add new tracks.
 
-## Pricing
-
-**Rune is not a free pint of beer.** To use it legally, you should purchase a license. The price basement is $10 across all platforms, though it may vary due to store policies and regional differences.
-
-However, we offer a WinRAR-style trial mechanism, allowing you to try the software indefinitely until satisfied. Due to its unique design philosophy, **we encourage thorough testing before purchase to ensure it suits your needs.**
-
-Please note that we do not accept feature requests from unpaid users.
-
 <p align="center">
   <a href="https://store.steampowered.com/app/3343500/Rune/"><img src="assets/available_steam.png" width=180 alt="Available on Steam"/></a>
   <a href="https://apps.microsoft.com/detail/9N52TW1F5348"><img src="assets/available_ms_store.png" width=180 alt="Available on Microsoft Store"/></a>
   <a href="https://apps.apple.com/us/app/rune-player/id6738841909"><img src="assets/available_app_store.png" width=180 alt="Available on App Store"/></a>
 </p>
 
+## Support Model
+
+As MPL-licensed open-source software, Rune is free as in speech - you can freely modify and distribute it. However, **unlike free beer**, full community access requires a paid license. The base price starts at $10 globally, though actual costs may vary due to platform policies and regional adjustments.
+
+To ensure sustainable development and continued innovation, we've established a tiered support system:
+
+- **Paid Members:** Paid supporters can submit feature requests and receive priority support
+- **Community Members:** Users of official binary packages can submit bug reports
+- **Self-build Users:** Those who compile Rune themselves can access community support channels
+
+For complete details about our support tiers and philosophy, please see our [support policy document](SUPPORT.md).
+
 ## Installation and Running
 
 We encourage you to purchase and use Rune through the official channels available in the software stores mentioned above, as these are maintained by the Rune team.
 
-However, if you have specific needs, you can choose to build your own binary package, download the [CI-provided binary builds](https://github.com/Losses/rune/actions) or use community-maintained packages like Scoop, Homebrew, and Flatpak. Please note that while some of these packages are acknowledged and supported by Rune developers, they are not officially maintained by Rune. We do not guarantee their stability or security.
+However, for users with specific needs, you can choose to build your own binary package, download the [CI-provided binary builds](https://github.com/Losses/rune/actions) or use community-maintained packages like Scoop, Homebrew, and Flatpak. Please note that while some of these packages are acknowledged and supported by Rune developers, they are not officially maintained by Rune. We do not guarantee their stability or security.
 
 If you want to compile your own binary package. The [documentation](https://github.com/Losses/rune/blob/master/documents/compiling.md) and [CI scripts](https://github.com/Losses/rune/blob/master/.github/workflows/build.yml) serve as excellent references.
 

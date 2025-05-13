@@ -2,6 +2,7 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/l10n.dart';
 import '../../utils/api/get_all_mixes.dart';
 import '../../utils/api/add_item_to_mix.dart';
 import '../../utils/api/get_all_playlists.dart';
@@ -11,19 +12,24 @@ import '../../utils/api/get_parsed_media_file.dart';
 import '../../utils/dialogs/mix/create_edit_mix.dart';
 import '../../messages/all.dart';
 import '../../providers/responsive_providers.dart';
-import '../../utils/l10n.dart';
 
+import '../rune_log.dart';
 import '../execute_middle_click_action.dart';
+import '../api/remove_item_from_playlist.dart';
 import '../router/navigation.dart';
 import '../router/query_tracks_parameter.dart';
+import '../router/router_aware_flyout_controller.dart';
 import '../dialogs/playlist/create_edit_playlist.dart';
 
 void openTrackItemContextMenu(
   Offset localPosition,
   BuildContext context,
   GlobalKey contextAttachKey,
-  FlyoutController contextController,
+  RouterAwareFlyoutController contextController,
+  int? positionIndex,
   int fileId,
+  int? playlistId,
+  void Function()? refreshList,
 ) async {
   final targetContext = contextAttachKey.currentContext;
 
@@ -71,6 +77,9 @@ void openTrackItemContextMenu(
       playlists,
       mixes,
       analyzed,
+      positionIndex,
+      playlistId,
+      refreshList,
     ),
   );
 }
@@ -81,6 +90,9 @@ Widget buildTrackItemContextMenu(
   List<Playlist> playlists,
   List<Mix> mixes,
   bool analyzed,
+  int? position,
+  int? playlistId,
+  void Function()? refreshList,
 ) {
   final List<MenuFlyoutItem> playlistItems = playlists.map((playlist) {
     return MenuFlyoutItem(
@@ -132,6 +144,24 @@ Widget buildTrackItemContextMenu(
         text: Text(S.of(context).startRoaming),
         onPressed: () async {
           startRoaming(context, CollectionType.Track, item.file.id, const []);
+        },
+      ),
+      if (playlistId != null) const MenuFlyoutSeparator(),
+      MenuFlyoutItem(
+        leading: const Icon(Symbols.delete),
+        text: Text(S.of(context).removeFromPlaylist),
+        onPressed: () async {
+          if (playlistId == null) return;
+          if (position == null) return;
+
+          try {
+            await removeItemFromPlaylist(playlistId, item.file.id, position);
+            if (refreshList != null) {
+              refreshList();
+            }
+          } catch (e) {
+            error$(e.toString());
+          }
         },
       ),
       const MenuFlyoutSeparator(),

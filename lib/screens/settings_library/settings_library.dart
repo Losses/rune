@@ -4,23 +4,23 @@ import 'package:provider/provider.dart';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../utils/dialogs/failed_to_initialize_library.dart';
+import '../../utils/l10n.dart';
 import '../../utils/settings_page_padding.dart';
 import '../../utils/settings_body_padding.dart';
 import '../../utils/api/close_library.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/dialogs/select_library_mode/test_and_select_library_mode.dart';
 import '../../widgets/library_task_button.dart';
+import '../../widgets/settings/settings_button.dart';
+import '../../widgets/settings/settings_tile_title.dart';
 import '../../widgets/unavailable_page_on_band.dart';
 import '../../widgets/navigation_bar/page_content_frame.dart';
 import '../../screens/settings_library/widgets/add_library_setting_button.dart';
 import '../../providers/library_path.dart';
 import '../../providers/library_manager.dart';
-import '../../utils/l10n.dart';
 
 import 'utils/show_reset_library_dialog.dart';
-import 'widgets/add_remote_device_setting_button.dart';
-import 'widgets/settings_button.dart';
-import 'widgets/settings_tile_title.dart';
 
 class SettingsLibraryPage extends StatefulWidget {
   const SettingsLibraryPage({super.key});
@@ -41,12 +41,10 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
     final libraryPath =
         Provider.of<LibraryPathProvider>(context, listen: false);
-    libraryPath.getAllOpenedFiles().then((x) {
-      if (!context.mounted) return;
 
-      setState(() {
-        allOpenedFiles = x.reversed.toList();
-      });
+    setState(() {
+      allOpenedFiles =
+          libraryPath.getLLPaths().reversed.map((x) => x.rawPath).toList();
     });
 
     super.didChangeDependencies();
@@ -68,10 +66,6 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const AddLibrarySettingButton(
-                    tryClose: true,
-                    navigateIfFailed: true,
-                  ),
-                  const AddRemoteDeviceSettingButton(
                     tryClose: true,
                     navigateIfFailed: true,
                   ),
@@ -156,11 +150,22 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
 
                                       if (!context.mounted) return;
 
-                                      libraryPath.setLibraryPath(
+                                      final (success, notReady, error) =
+                                          await libraryPath.setLibraryPath(
                                         context,
                                         allOpenedFiles[index],
                                         initializeMode,
                                       );
+
+                                      if (!success) {
+                                        await showFailedToInitializeLibrary(
+                                          context,
+                                          error,
+                                        );
+
+                                        $$replace("/");
+                                        return;
+                                      }
 
                                       if (!context.mounted) return;
                                       $push('/library');
@@ -182,6 +187,8 @@ class _SettingsLibraryPageState extends State<SettingsLibraryPage> {
                                   const ScanLibraryButton(),
                                   const SizedBox(width: 12),
                                   const AnalyzeLibraryButton(),
+                                  const SizedBox(width: 12),
+                                  const DeduplicateLibraryButton(),
                                 ]
                               ],
                             ),

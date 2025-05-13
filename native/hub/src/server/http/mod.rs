@@ -1,0 +1,15 @@
+pub mod check_fingerprint;
+pub mod device_info;
+pub mod file;
+pub mod list;
+pub mod panel_alias;
+pub mod panel_auth_middleware;
+pub mod panel_broadcast;
+pub mod panel_delete_user;
+pub mod panel_login;
+pub mod panel_refresh;
+pub mod panel_self;
+pub mod panel_status;
+pub mod ping;
+pub mod register;
+pub mod websocket;

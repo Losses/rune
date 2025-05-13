@@ -19,6 +19,76 @@ enum ConnectionType {
   remote,
 }
 
+@immutable
+class LibraryPathEntry {
+  final String rawPath;
+  final String cleanPath;
+  final OperationDestination source;
+  final OperationDestination destination;
+  final String alias;
+
+  const LibraryPathEntry._({
+    required this.rawPath,
+    required this.cleanPath,
+    required this.source,
+    required this.destination,
+    required this.alias,
+  });
+
+  factory LibraryPathEntry(String path, {String? alias}) {
+    final (src, dest) = determineConnectionType(path);
+    return LibraryPathEntry._(
+      rawPath: path,
+      cleanPath: removePrefix(path),
+      source: src,
+      destination: dest,
+      alias: alias ?? _generateDefaultAlias(removePrefix(path), src, dest),
+    );
+  }
+
+  factory LibraryPathEntry.fromLegacy(String path) {
+    return LibraryPathEntry(path);
+  }
+
+  static String _generateDefaultAlias(
+    String cleanPath,
+    OperationDestination src,
+    OperationDestination dest,
+  ) {
+    if (src == OperationDestination.Local &&
+        dest == OperationDestination.Local) {
+      final segments = cleanPath.split('/');
+      return segments.lastWhere((s) => s.isNotEmpty, orElse: () => cleanPath);
+    }
+
+    final uri = Uri.tryParse(cleanPath);
+    if (uri != null && uri.host.isNotEmpty) {
+      return uri.host;
+    }
+    return cleanPath;
+  }
+
+  static String removePrefix(String? path) {
+    if (path == null) return "";
+    if (path.startsWith('@RR|')) return path.substring(4);
+    if (path.startsWith('@LR|')) return path.substring(4);
+    return path;
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is LibraryPathEntry &&
+          runtimeType == other.runtimeType &&
+          rawPath == other.rawPath;
+
+  @override
+  int get hashCode => rawPath.hashCode;
+
+  @override
+  String toString() => '[$source→$destination] $cleanPath';
+}
+
 Future<String?> getInitialPath() async {
   const String libraryPath =
       String.fromEnvironment('LIBRARY_PATH', defaultValue: "");
@@ -31,7 +101,7 @@ Future<String?> getInitialPath() async {
 
 class LibraryPathProvider with ChangeNotifier {
   String? _currentPath;
-  Set<String> libraryHistory = {};
+  final Set<LibraryPathEntry> _libraryHistory = {};
 
   LibraryPathProvider(String? initialPath) {
     if (initialPath != null) {
@@ -43,18 +113,29 @@ class LibraryPathProvider with ChangeNotifier {
       });
     }
 
-    getAllOpenedFiles().then((x) {
-      for (final item in x) {
-        libraryHistory.add(item);
-      }
+    _fileStorageService.getAllOpenedFiles().then((files) {
+      _libraryHistory.addAll(files.map((p) => LibraryPathEntry(p)));
 
-      if (libraryHistory.isNotEmpty) {
+      if (_libraryHistory.isNotEmpty) {
         notifyListeners();
       }
     });
   }
 
   String? get currentPath => _currentPath;
+
+  Set<LibraryPathEntry> get libraryHistory => _libraryHistory;
+
+  void addLibraryPath(
+      BuildContext? context, String filePath, String alias) async {
+    final entry = LibraryPathEntry(filePath, alias: alias);
+
+    if (_libraryHistory.add(entry)) {
+      notifyListeners();
+    }
+
+    _fileStorageService.storeFilePath(filePath, alias: alias);
+  }
 
   Future<(bool, bool, String?)> setLibraryPath(
     BuildContext? context,
@@ -66,6 +147,10 @@ class LibraryPathProvider with ChangeNotifier {
 
     var (success, notReady, error) =
         await setMediaLibraryPath(filePath, selectedMode);
+
+    if (!success) {
+      return (false, false, error);
+    }
 
     if (notReady && context == null) {
       return (false, true, null);
@@ -85,8 +170,8 @@ class LibraryPathProvider with ChangeNotifier {
     }
 
     if (success) {
-      if (!libraryHistory.contains(filePath)) {
-        libraryHistory.add(filePath);
+      final entry = LibraryPathEntry(filePath);
+      if (_libraryHistory.add(entry)) {
         notifyListeners();
       }
       CollectionCache().clearAll();
@@ -113,30 +198,70 @@ class LibraryPathProvider with ChangeNotifier {
     return (success, false, error);
   }
 
-  Future<List<String>> getAllOpenedFiles() {
-    return _fileStorageService.getAllOpenedFiles();
+  List<LibraryPathEntry> _filterEntries({
+    OperationDestination? source,
+    OperationDestination? destination,
+  }) {
+    return _libraryHistory.where((entry) {
+      final sourceMatch = source == null || entry.source == source;
+      final destMatch = destination == null || entry.destination == destination;
+      return sourceMatch && destMatch;
+    }).toList();
   }
 
-  // Clear all opened files
+  List<LibraryPathEntry> getRRPaths() => _filterEntries(
+        source: OperationDestination.Remote,
+        destination: OperationDestination.Remote,
+      );
+
+  List<LibraryPathEntry> getLLPaths() => _filterEntries(
+        source: OperationDestination.Local,
+        destination: OperationDestination.Local,
+      );
+
+  List<LibraryPathEntry> getAnySourceRemotePaths() =>
+      _filterEntries(destination: OperationDestination.Remote);
+
+  List<LibraryPathEntry> getAnyDestinationRemotePaths() =>
+      _filterEntries(source: OperationDestination.Remote);
+
   Future<void> clearAllOpenedFiles() async {
     await _fileStorageService.clearAllOpenedFiles();
     _currentPath = null;
-    libraryHistory.clear();
-
+    _libraryHistory.clear();
     notifyListeners();
   }
 
-  // Add a method to remove a specific file path
   Future<void> removeOpenedFile(String filePath) async {
     await _fileStorageService.removeFilePath(filePath);
+
+    final originalCount = _libraryHistory.length;
+
+    _libraryHistory.removeWhere((entry) => entry.rawPath == filePath);
+
+    bool hasChanged = _libraryHistory.length != originalCount;
+
     if (_currentPath == filePath) {
       _currentPath = null;
-      libraryHistory.remove(filePath);
+      hasChanged = true;
     }
-    notifyListeners();
+
+    if (hasChanged) {
+      notifyListeners();
+    }
   }
 
-  removeCurrentPath() {
+  Future<void> removeOpenedFileByCleanPath(String cleanPath) async {
+    final toRemove =
+        _libraryHistory.where((e) => e.cleanPath == cleanPath).toList();
+
+    for (final entry in toRemove) {
+      await _fileStorageService.removeFilePath(entry.rawPath);
+      _libraryHistory.remove(entry);
+    }
+  }
+
+  void removeCurrentPath() {
     _currentPath = null;
     notifyListeners();
   }

@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "表示揀咗多個資料夾嘅狀態文字。",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "確定",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 歌曲庫而家掃描緊，暫時未能分析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 歌曲庫而家分析緊，請等分析完成。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 請分析你嘅歌曲庫以獲得最佳體驗。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "未準備好",

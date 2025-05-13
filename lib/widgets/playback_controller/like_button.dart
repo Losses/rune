@@ -5,7 +5,7 @@ import '../../utils/playing_item.dart';
 import '../../utils/api/get_liked.dart';
 import '../../utils/api/set_liked.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 class LikeButton extends StatefulWidget {
   final PlayingItem? item;
@@ -61,19 +61,19 @@ class _LikeButtonState extends State<LikeButton> {
 
   @override
   Widget build(BuildContext context) {
-    return RuneIconButton(
+    return RuneClickable(
       onPressed: item == null
           ? null
           : () {
               _toggleLikedStatus();
             },
-      icon: Icon(
-        Symbols.favorite,
-        fill: liked ? 1 : 0,
-      ),
       iconSize: 13,
       padding: 0,
       isTiny: true,
+      child: Icon(
+        Symbols.favorite,
+        fill: liked ? 1 : 0,
+      ),
     );
   }
 }

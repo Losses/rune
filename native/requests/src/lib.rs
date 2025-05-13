@@ -36,6 +36,11 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: None,
             local_only: false,
         },
+        RequestResponse {
+            request: "DeduplicateAudioLibraryRequest".to_string(),
+            response: None,
+            local_only: false,
+        },
         // Playback
         RequestResponse {
             request: "VolumeRequest".to_string(),
@@ -342,6 +347,112 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
             response: Some("ValidateLicenseResponse".to_string()),
             local_only: false,
         },
+        // Neighbors
+        RequestResponse {
+            request: "StartBroadcastRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StopBroadcastRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StartListeningRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "StopListeningRequest".to_string(),
+            response: None,
+            local_only: true,
+        },
+        RequestResponse {
+            request: "GetDiscoveredDeviceRequest".to_string(),
+            response: Some("GetDiscoveredDeviceResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "StartServerRequest".to_string(),
+            response: Some("StartServerResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "StopServerRequest".to_string(),
+            response: Some("StopServerResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "ListClientsRequest".to_string(),
+            response: Some("ListClientsResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "GetSslCertificateFingerprintRequest".to_string(),
+            response: Some("GetSslCertificateFingerprintResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "AddTrustedServerRequest".to_string(),
+            response: Some("AddTrustedServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "RemoveTrustedClientRequest".to_string(),
+            response: Some("RemoveTrustedClientResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "UpdateClientStatusRequest".to_string(),
+            response: Some("UpdateClientStatusResponse".to_string()),
+            local_only: false,
+        },
+        RequestResponse {
+            request: "EditHostsRequest".to_string(),
+            response: Some("EditHostsResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "RemoveTrustedServerRequest".to_string(),
+            response: Some("RemoveTrustedServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "ServerAvailabilityTestRequest".to_string(),
+            response: Some("ServerAvailabilityTestResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "RegisterDeviceOnServerRequest".to_string(),
+            response: Some("RegisterDeviceOnServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "CheckDeviceOnServerRequest".to_string(),
+            response: Some("CheckDeviceOnServerResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "ConnectRequest".to_string(),
+            response: Some("ConnectResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "FetchServerCertificateRequest".to_string(),
+            response: Some("FetchServerCertificateResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "FetchRemoteFileRequest".to_string(),
+            response: Some("FetchRemoteFileResponse".to_string()),
+            local_only: true,
+        },
+        RequestResponse {
+            request: "RemoveItemFromPlaylistRequest".to_string(),
+            response: Some("RemoveItemFromPlaylistResponse".to_string()),
+            local_only: true,
+        },
     ];
 
     let (with_response, without_response): (Vec<_>, Vec<_>) =
@@ -385,6 +496,25 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         .map(|t| syn::parse_str::<syn::Ident>(&t.request).unwrap())
         .collect();
 
+    let local_response_pairs: Vec<_> = with_response
+        .iter()
+        .filter(|t| t.local_only)
+        .map(|t| {
+            let req_ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            let resp_ident = syn::parse_str::<syn::Ident>(t.response.as_ref().unwrap()).unwrap();
+            quote! { (#req_ident, #resp_ident) }
+        })
+        .collect();
+
+    let local_request_only: Vec<_> = without_response
+        .iter()
+        .filter(|t| t.local_only)
+        .map(|t| {
+            let ident = syn::parse_str::<syn::Ident>(&t.request).unwrap();
+            quote! { #ident }
+        })
+        .collect();
+
     let expanded = quote! {
         #[macro_export]
         macro_rules! for_all_request_pairs {
@@ -397,6 +527,13 @@ pub fn define_request_types(_input: TokenStream) -> TokenStream {
         macro_rules! for_all_request_pairs2 {
             ($m:tt, $param1:expr, $param2:expr) => {
                 $m!($param1, $param2 #(, #response_pairs)* #(, #request_only)*);
+            };
+        }
+
+        #[macro_export]
+        macro_rules! for_all_local_only_request_pairs2 {
+            ($m:tt, $param1:expr, $param2:expr) => {
+                $m!($param1, $param2 #(, #local_response_pairs)* #(, #local_request_only)*);
             };
         }
 

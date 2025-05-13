@@ -23,13 +23,14 @@ path = "src/server/client/main.rs"
 [dependencies]
 rinf = "7.0.2"
 prost = "0.12.6"
-tokio = { version = "1.40.0", features = ["sync", "time", "rt-multi-thread"] }
+tokio = { version = "1.44.2", features = ["sync", "time", "rt-multi-thread"] }
 sea-orm = "1.1.0"
 lyric = { path = "../../lyric" }
 database = { path = "../../database" }
 analysis = { path = "../../analysis" }
 playback = { path = "../../playback" }
 scrobbling = { path = "../../scrobbling" }
+metadata = { path = "../../metadata" }
 discovery = { path = "../../discovery" }
 lazy_static = "1.5.0"
 dunce = "1.0.4"
@@ -43,20 +44,22 @@ futures = "0.3.30"
 async-trait = "0.1.83"
 sysinfo = { version = "0.31.4", features = ["windows", "apple-app-store"] }
 tracing-appender = "0.2.3"
-chrono = "0.4.38"
+chrono = { version = "0.4.38", features = ["serde"] }
 windows = { version = "0.58.0", features = ["Services", "Services_Store"] }
-sha2 = "0.10.8"
-tokio-tungstenite = "0.26.1"
+tokio-tungstenite = { version = "0.26.2", features = [
+    "rustls",
+    "rustls-tls-webpki-roots",
+] }
 futures-channel = "0.3.31"
 futures-util = "0.3.31"
 strum = "0.26.3"
 strum_macros = "0.26.4"
 requests = { path = "../requests" }
 clap = "4.5.26"
-axum = { version = "0.8.1", features = ["ws"] }
+axum = { version = "0.8.1", features = ["ws", "macros"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.2", features = ["fs"] }
-axum-server = "0.7.1"
+axum-server = { version = "0.7.1", features = ["tls-rustls-no-provider"] }
 uuid = "1.11.1"
 url = "2.5.4"
 rustyline = { version = "15.0.0", features = ["with-sqlite-history"] }
@@ -68,10 +71,26 @@ term_size = "0.3.2"
 colored = "3.0.0"
 unicode-width = "0.2.0"
 clean-path = "0.2.1"
+serde = "1.0.217"
+tower_governor = "0.6.0"
+rand = "0.8.0"
+sha2 = "0.10.8"
+toml = "0.8.20"
+directories = "6.0.0"
+humantime = "2.1.0"
+rustls = { version = "0.23.23", features = ["ring"], default-features = false }
+serde_json = "1.0.138"
+hyper = "1.6.0"
+http-body-util = "0.1.2"
+urlencoding = "2.1.3"
+jsonwebtoken = "9.3.1"
+base64 = "0.22.1"
+bcrypt = "0.17.0"
+rpassword = "7.3.1"
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }
-vergen-git2 = { version = "1.0.1", features = [
+vergen = { version = "9.0.4", features = [
     "build",
     "cargo",
     "rustc",

@@ -1,32 +1,40 @@
 pub mod broadcastable;
 pub mod player;
 
+use std::collections::HashMap;
+use std::fmt::Debug;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
-use tokio::sync::Mutex;
+use scrobbling::manager::ScrobblingServiceManager;
+use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
 
-use ::database::actions::{
-    collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
-    metadata::MetadataSummary, mixes::query_mix_media_files,
+use ::database::{
+    actions::{
+        collection::CollectionQueryType, cover_art::bake_cover_art_by_media_files,
+        metadata::MetadataSummary, mixes::query_mix_media_files,
+    },
+    connection::{
+        check_library_state, connect_main_db, connect_recommendation_db, create_redirect,
+        LibraryState, MainDbConnection, RecommendationDbConnection,
+    },
+    entities::media_files,
+    playing_item::MediaFileHandle,
 };
-use ::database::connection::{
-    check_library_state, connect_main_db, connect_recommendation_db, create_redirect, LibraryState,
-    MainDbConnection, RecommendationDbConnection,
+use ::discovery::{client::CertValidator, protocol::DiscoveryService, server::PermissionManager};
+use ::playback::{
+    player::{Playable, PlayingItem},
+    sfx_player::SfxPlayer,
 };
-use ::database::entities::media_files;
-use ::database::playing_item::MediaFileHandle;
-use ::playback::player::{Playable, PlayingItem};
-use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
-use crate::local::local_player_loop;
+use crate::backends::{local::local_player_loop, remote::server_player_loop};
 use crate::messages::*;
-use crate::remote::server_player_loop;
+use crate::server::ServerManager;
 
 #[cfg(target_os = "android")]
 use tracing_logcat::{LogcatMakeWriter, LogcatTag};
@@ -58,22 +66,43 @@ pub async fn initialize_databases(
     })
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct TaskTokens {
     pub scan_token: Option<CancellationToken>,
     pub analyze_token: Option<CancellationToken>,
+    pub deduplicate_token: Option<CancellationToken>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RunningMode {
+    Server,
+    Client
 }
 
 pub struct GlobalParams {
     pub lib_path: Arc<String>,
+    pub config_path: Arc<String>,
     pub main_db: Arc<MainDbConnection>,
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
     pub task_tokens: Arc<Mutex<TaskTokens>>,
     pub player: Arc<Mutex<dyn Playable>>,
     pub sfx_player: Arc<Mutex<SfxPlayer>>,
-    pub scrobbler: Arc<Mutex<ScrobblingManager>>,
+    pub scrobbler: Arc<Mutex<dyn ScrobblingServiceManager>>,
     pub broadcaster: Arc<dyn Broadcaster>,
+    pub device_scanner: Arc<DiscoveryService>,
+    pub cert_validator: Arc<RwLock<CertValidator>>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
+    pub server_manager: OnceLock<Arc<ServerManager>>,
+    pub running_mode: RunningMode,
+}
+
+impl Debug for GlobalParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GlobalParams")
+            .field("lib_path", &self.lib_path)
+            .finish()
+    }
 }
 
 pub trait ParamsExtractor {
@@ -127,6 +156,8 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
     loop {
         while let Some(dart_signal) = receiver.recv().await {
             let media_library_path = &dart_signal.message.path;
+            let config_path = &dart_signal.message.config_path;
+            let alias = &dart_signal.message.alias;
 
             match &dart_signal.message.hosted_on() {
                 OperationDestination::Local => {
@@ -193,6 +224,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             // Continue with main loop
                             local_player_loop(
                                 media_library_path.to_string(),
+                                config_path.to_string(),
                                 db_connections,
                                 scrobbler_clone,
                                 broadcaster.clone(),
@@ -211,7 +243,27 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                         }
                     }
                 }
-                OperationDestination::Remote => server_player_loop(media_library_path).await,
+                OperationDestination::Remote => {
+                    let config_path = &dart_signal.message.config_path;
+                    match server_player_loop(media_library_path, config_path, alias).await {
+                        Ok(_) => {
+                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                path: media_library_path.clone(),
+                                success: true,
+                                error: None,
+                                not_ready: false,
+                            });
+                        }
+                        Err(e) => {
+                            broadcaster.broadcast(&SetMediaLibraryPathResponse {
+                                path: media_library_path.clone(),
+                                success: false,
+                                error: Some(format!("{:#?}", e)),
+                                not_ready: false,
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -224,6 +276,8 @@ pub async fn inject_cover_art_map(
     recommend_db: Arc<RecommendationDbConnection>,
     collection: Collection,
     n: Option<i32>,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
 ) -> Result<Collection> {
     let files = query_cover_arts(
         main_db,
@@ -240,7 +294,16 @@ pub async fn inject_cover_art_map(
         n,
     )
     .await?;
-    let cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
+    
+    // Get the base cover art paths
+    let raw_cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
+    
+    // Process the cover art paths based on the running mode
+    let cover_art_map: HashMap<i32, String> = raw_cover_art_map
+        .into_iter()
+        .map(|(id, path)| (id, process_cover_art_path(&path, running_mode, remote_host)))
+        .collect();
+    
     Ok(Collection {
         id: collection.id,
         name: collection.name,
@@ -287,6 +350,40 @@ pub fn determine_batch_size(workload_factor: f32) -> usize {
     let max_batch_size = 1000;
 
     std::cmp::min(std::cmp::max(batch_size, min_batch_size), max_batch_size)
+}
+
+pub fn process_cover_art_path(
+    path: &str,
+    running_mode: &RunningMode,
+    remote_host: &Option<String>,
+) -> String {
+    match running_mode {
+        RunningMode::Server => {
+            // Path is from server, we need to convert to a remote URL
+            if path.is_empty() {
+                path.to_string()
+            } else {
+                // If we have a remote host, we need to construct a URL for the file
+                if let Some(host) = remote_host {
+                    // Extract the filename from the path, as we only need the cache part
+                    let file_name = Path::new(path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or_default();
+                    
+                    // Construct the URL using the host and cache prefix
+                    format!("{}/files/cache/{}", host, file_name)
+                } else {
+                    // No host available, return the original path
+                    path.to_string()
+                }
+            }
+        },
+        RunningMode::Client => {
+            // We're running as a client, so the path is already correct
+            path.to_string()
+        }
+    }
 }
 
 pub async fn parse_media_files(

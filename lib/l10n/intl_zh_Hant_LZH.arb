@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "Status text indicating multiple directories have been selected.",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "定",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} 方索庫中，仍不能析。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} 方正析庫，請俟其畢。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} 請析理庫藏，以臻至善",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "未畢",
@@ -1046,5 +1054,289 @@
   "userToken": "令牌",
   "@userToken": {
     "description": "Input field title of the scrobble login form."
+  },
+  "hostname": "主機名",
+  "@hostname": {
+    "description": "The host name part of an URL."
+  },
+  "port": "埠",
+  "@port": {
+    "description": "The port part of an URL."
+  },
+  "secured": "密",
+  "@secured": {
+    "description": "If the connection is secured."
+  },
+  "addConnection": "增聯",
+  "@addConnection": {
+    "description": "The action button of the dialog."
+  },
+  "neighbors": "鄰",
+  "@neighbors": {
+    "description": "The settings page that could help users connect with each other."
+  },
+  "searchNeighbors": "探鄰",
+  "@searchNeighbors": {
+    "description": "The item in the neighbors settings page, to discover devices in the local network."
+  },
+  "searchNeighborsSubtitle": "探本地網絡，聯載符聆器。",
+  "@searchNeighborsSubtitle": {
+    "description": "The subtitle of the search neighbors settings item"
+  },
+  "editDeviceInformation": "更器誌識",
+  "@editDeviceInformation": {
+    "description": "Appears in device settings. Refers to details shown to other users during scanning."
+  },
+  "editDeviceInformationSubtitle": "設所見之詳，應他者之尋。",
+  "@editDeviceInformationSubtitle": {
+    "description": "Emphasize that changes affect visibility in others' scan lists. Avoid technical terms. Focus on 'scans' as interaction context."
+  },
+  "enableBroadcast": "佈告",
+  "@enableBroadcast": {
+    "description": "'Broadcast' implies actively sending device info. If target language lacks direct equivalent, prioritize 'make visible' or 'share availability'."
+  },
+  "enableBroadcastSubtitle": "佈器誌識，使其得察。",
+  "@enableBroadcastSubtitle": {
+    "description": "Avoid ambiguity: 'publicly' = to users in the local network, not the entire internet."
+  },
+  "addNeighborManually": "手字錄鄰",
+  "@addNeighborManually": {
+    "description": "'Neighbor refers to devices on the same local network. If space allows, 'Manually Add Neighbor' is acceptable. Prioritize brevity."
+  },
+  "addNeighborManuallySubtitle": "手書鄰址於本域，親錄誌識以通機。",
+  "@addNeighborManuallySubtitle": {
+    "description": "Clarify 'local network' ≠ public internet (e.g. IP/port within LAN). 'connect' implies establishing a direct link, not just visibility."
+  },
+  "stop": "止",
+  "@stop": {
+    "description": "Action button to terminate active."
+  },
+  "deviceFingerprint": "器之指印",
+  "@deviceFingerprint": {
+    "description": "A unique identifier for the device, used for secure identification and connection."
+  },
+  "deviceName": "器名",
+  "@deviceName": {
+    "description": "The user-defined name of the device, displayed to other users during scanning and connection."
+  },
+  "noDevicesFound": "無器得覓",
+  "@noDevicesFound": {
+    "description": "Message shown when no devices are discovered during scanning"
+  },
+  "error": "訛：{error}",
+  "@error": {
+    "description": "Error message shown when device discovery fails",
+    "placeholders": {
+      "error": {
+        "type": "String",
+        "example": "無權"
+      }
+    }
+  },
+  "model": "型製",
+  "@model": {
+    "description": "Label for device model information"
+  },
+  "type": "別類",
+  "@type": {
+    "description": "Label for device type information"
+  },
+  "fingerprint": "指印",
+  "@fingerprint": {
+    "description": "Label for device fingerprint information"
+  },
+  "lastSeen": "末見",
+  "@lastSeen": {
+    "description": "Label for when device was last detected"
+  },
+  "ipAddresses": "網協之址",
+  "@ipAddresses": {
+    "description": "Label for device IP addresses"
+  },
+  "pair": "配",
+  "@pair": {
+    "description": "Button text for initiating device pairing"
+  },
+  "pairingWith": "配与 {deviceName}...",
+  "@pairingWith": {
+    "description": "Message shown when pairing process starts",
+    "placeholders": {
+      "deviceName": {
+        "type": "String",
+        "example": "廳中屏"
+      }
+    }
+  },
+  "server": "伺",
+  "@server": {
+    "description": "The settings page title for controlling media player sharing behaviors. Includes managing authorized users and broadcasting device presence."
+  },
+  "serverControl": "掌伺",
+  "@serverControl": {
+    "description": "Section title for controlling the local network server. 'Server' here refers to the background service that handles device discovery."
+  },
+  "serverControlSubtitle": "啟伺機於本域，俾他者得以察。",
+  "@serverControlSubtitle": {
+    "description": "Clarify that the server only operates on the local network. Emphasize that starting enables visibility to others."
+  },
+  "selectInterface": "網間門戶",
+  "@selectInterface": {
+    "description": "Label for selecting which network interface the server should bind to. Keep technical but clear."
+  },
+  "approvedStatus": "允",
+  "@approvedStatus": {
+    "description": "Shown as a user/client status badge. Indicates the device is fully authorized. Use affirmative terms like 'Verified' or 'Confirmed' if more natural."
+  },
+  "pendingStatus": "候",
+  "@pendingStatus": {
+    "description": "Shown as a user/client status badge. Indicates waiting for approval. Prefer terms implying 'awaiting action' over technical terms like 'In Queue'."
+  },
+  "blockedStatus": "拒",
+  "@blockedStatus": {
+    "description": "Shown as a user/client status badge. Indicates explicit denial of access. Use strong terms like 'Banned' or 'Denied' where appropriate, but avoid overly aggressive vocabulary."
+  },
+  "unknownStatus": "未識",
+  "@unknownStatus": {
+    "description": "Shown as a user/client status badge. Indicates the status is unrecognized or undefined. Suggest terms like 'Unrecognized' or 'Undefined' but maintain neutral tone without implying errors. Associated with neutral colors like grey in the UI."
+  },
+  "review": "審",
+  "@review": {
+    "description": "Button to review pending device connection requests. Triggers a modal to approve or block the device."
+  },
+  "reviewRequestTitle": "聯結請示",
+  "@reviewRequestTitle": {
+    "description": "Title shown in the modal when reviewing a device connection. Keep concise, focus on action required."
+  },
+  "blockDevice": "禁",
+  "@blockDevice": {
+    "description": "Action to permanently deny access. Use strong verbs like 'Ban' if culturally more appropriate, but avoid negative connotations."
+  },
+  "allowAccess": "准",
+  "@allowAccess": {
+    "description": "Action to grant connection permission. Align with terms like 'Approve' or 'Authorize' if better suited to target language."
+  },
+  "connectionVerificationMessage": "欲許「{model} · {alias}」之器相聯，請共其指印，驗明真身。",
+  "@connectionVerificationMessage": {
+    "description": "Instructional text in modal for establishing trust. Emphasizes sharing security credentials (fingerprint) to authenticate connections. Use terms like 'validate' or 'authenticate' if preferred in target language.",
+    "placeholders": {
+      "alias": {
+        "type": "String",
+        "description": "User-defined device nickname"
+      },
+      "model": {
+        "type": "String",
+        "description": "Manufacturer's device model identifier"
+      }
+    }
+  },
+  "allowAccessSubtitle": "許其掌奏，得以取曲。",
+  "@allowAccessSubtitle": {
+    "description": "Explains permissions granted when allowing access. Use 'Authorize' or 'Grant permissions' as alternatives. Clarify that 'download' refers to media content retrieval."
+  },
+  "blockDeviceSubtitle": "自此不聯，可解於後。",
+  "@blockDeviceSubtitle": {
+    "description": "Explains blocking consequences and reversibility. Use 'Ban' or 'Deny' as alternatives. Phrase 'in settings' contextually (e.g., 'via device management' if UI differs)."
+  },
+  "removeTrust": "除權",
+  "@removeTrust": {
+    "description": "Modal title for deleting a device's permission history. Emphasizes permanent removal of both allowed/blocked statuses and the need for re-registration."
+  },
+  "removeTrustSubtitle": "亦允亦拒，皆若無跡。若其再請，相待如新。",
+  "@removeTrustSubtitle": {
+    "description": "Explains that deletion removes all historical statuses and requires fresh registration. Use terms like 'erase' or 'clear history' if more natural, but maintain consistency with 'removeTrust' action."
+  },
+  "pairingTitle": "方配",
+  "@pairingTitle": {
+    "description": "Title for secure device pairing dialog. Should emphasize mutual authentication process."
+  },
+  "pairingLoading": "方取指印...",
+  "@pairingLoading": {
+    "description": "Status text shown during fingerprint verification. Indicates security check in progress."
+  },
+  "pairingInstructions": "選所見印，以驗其明。",
+  "@pairingInstructions": {
+    "description": "Explains partial fingerprint verification process. Uses 'security verification' instead of technical MITM terms."
+  },
+  "pairingFailureTitle": "相配未果",
+  "@pairingFailureTitle": {
+    "description": "Title for fingerprint mismatch. States outcome without causing undue alarm."
+  },
+  "pairingFailureMessage": "印難相匹，審驗更試。",
+  "@pairingFailureMessage": {
+    "description": "Guides user to retry rather than suggesting network checks. Focuses on device verification."
+  },
+  "closingWindowBehaviorTitle": "閉窗之舉",
+  "@closingWindowBehaviorTitle": {
+    "description": "Title text for the window close behavior settings section. Emphasizes user control over how the application closes."
+  },
+  "closingWindowBehaviorSubtitle": "擊「閉」之時，擇其將舉。",
+  "@closingWindowBehaviorSubtitle": {
+    "description": "Explains that users can customize the close button behavior. Use 'customize' or 'configure' as alternatives."
+  },
+  "minimizeToTray": "隱於托盤",
+  "@minimizeToTray": {
+    "description": "Option text indicating the program will continue running in the background when window is closed. Use 'Hide to tray' or 'Keep running' as alternative phrasing."
+  },
+  "exitProgram": "畢用離匣",
+  "@exitProgram": {
+    "description": "Option text indicating the program will terminate completely when window is closed. Use 'Close application' or 'Terminate app' as alternative phrasing."
+  },
+  "systemTabTitle": "制",
+  "@systemTabTitle": {
+    "description": "Navigation tab title for the system settings section. Indicates a collection of system-level configuration options."
+  },
+  "removeFromPlaylist": "自錄中棄",
+  "@removeFromPlaylist": {
+    "description": "Action to remove a track from the current playlist. Appears as a menu option when right-clicking a song. Use verbs like 'Delete' or 'Remove' based on what's more natural in the target language."
+  },
+  "waitForApprove": "靜俟其允...",
+  "@waitForApprove": {
+    "description": "Loading message displayed during server connection verification process."
+  },
+  "clientBlockedTitle": "聯結遭拒",
+  "@clientBlockedTitle": {
+    "description": "Error title indicating the remote device has blocked this client's connection attempts."
+  },
+  "clientBlockedMessage": "其主未許，彼道且隔。須其應允，請方可再。",
+  "@clientBlockedMessage": {
+    "description": "Explains that the user's connection attempt was rejected because their client has been blocked by the remote device. Suggests that user needs to contact the device owner for resolution."
+  },
+  "genres": "流",
+  "@genres": {
+    "description": "Header or section title for a list of music categories/styles. Could be used in music library organization, filter options, or music preference settings. Alternative phrasings could include 'Music Categories', 'Music Styles', or 'Music Types' depending on what's most natural in the target language."
+  },
+  "genreQuery": "流詢",
+  "@genreQuery": {},
+  "deduplicate": "除復",
+  "@deduplicate": {
+    "description": "Button label for removing duplicate tracks from a music library or playlist. Refers to the function of identifying and removing duplicate songs. Alternative phrasings could include 'Remove Duplicates' or 'Clean Duplicates' depending on what's most natural in the target language."
+  },
+  "deduplicateThresholdTitle": "除復準度",
+  "@deduplicateThresholdTitle": {
+    "description": "Title for the audio similarity threshold setting. Indicates where users can adjust how strictly audio tracks are compared for duplication detection."
+  },
+  "deduplicateThresholdSubtitle": "設其敏鈍，知曲遠近。",
+  "@deduplicateThresholdSubtitle": {
+    "description": "Brief explanation of what the audio similarity threshold setting controls. Helps users understand the purpose of this configuration option."
+  },
+  "nearlyIdentical": "如一",
+  "@nearlyIdentical": {
+    "description": "Highest level of audio similarity threshold indicating tracks that are almost exactly the same. Used when configuring duplicate detection settings. Alternative phrasings could include 'Exact Match' or 'Perfect Match' depending on what's most natural in the target language."
+  },
+  "highlySimiar": "幾近",
+  "@highlySimiar": {
+    "description": "Second highest level of audio similarity threshold indicating tracks that have very few differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Very Similar' or 'Almost Identical' depending on what's most natural in the target language."
+  },
+  "moderatelySimilar": "有合",
+  "@moderatelySimilar": {
+    "description": "Middle level of audio similarity threshold indicating tracks that have noticeable but not major differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Somewhat Similar' or 'Partially Matching' depending on what's most natural in the target language."
+  },
+  "slightlySimilar": "略同",
+  "@slightlySimilar": {
+    "description": "Lowest level of audio similarity threshold indicating tracks that share some characteristics but have significant differences. Used when configuring duplicate detection settings. Alternative phrasings could include 'Minimally Similar' or 'Barely Matching' depending on what's most natural in the target language."
+  },
+  "deduplicating": "方除復中",
+  "@deduplicating": {
+    "description": "Label indicating that the deduplication process is currently active. Shown to users while duplicate tracks are being removed from their music library or playlist. Alternative phrasings could include 'Removing duplicates in progress' or 'Deduplication in progress' depending on what's most natural in the target language."
   }
 }

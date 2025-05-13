@@ -5,7 +5,7 @@ import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_cover_art_wall.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 void showCoverArtWall() {
   final path = $router.path;
@@ -30,9 +30,9 @@ class CoverWallButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RuneIconButton(
+    return RuneClickable(
       onPressed: () => showCoverArtWall(),
-      icon: Icon(
+      child: Icon(
         Symbols.photo_frame,
         shadows: shadows,
       ),

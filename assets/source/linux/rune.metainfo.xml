@@ -57,6 +57,60 @@
   </screenshots>
 
   <releases>
+    <release version="2.0.0-alpha.4" date="2025-03-19">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Light mode not working on iOS issue by @XMLHexagram.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Add CI scripts for iOS App Store build by @laosb.</li>
+          <li>Adding track de-duplication.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.3" date="2025-03-12">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Return operation does not close Context Menu.</li>
+          <li>Clicking the Cover Art next to the playback progress bar does not open the Cover Art Wall.</li>
+          <li>Event listeners are not destroyed after the FFT visualization component is destroyed.</li>
+          <li>The background color tinting feature of the Cover Art Wall is not working properly.</li>
+          <li>Android version cannot be compiled normally.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Added classification by Genres functionality.</li>
+          <li>Clicking the song name above the playback progress bar can open the Cover Art Wall.</li>
+          <li>Added server authentication status detection process for device pairing.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.2" date="2025-02-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Android CI not working.</li>
+          <li>Linux ARM CI not working.</li>
+          <li>macOS permission not configurated correctly by @laosb.</li>
+        </ul>
+      </description>
+    </release>
+    <release version="2.0.0-alpha.1" date="2025-02-27">
+      <description>
+        <p>Bugs</p>
+        <ul>
+          <li>Tray icon not working on Flatpak for Linux by @Fei1Yang.</li>
+          <li>Add `type` field to all placeholders in arb by @balthild.</li>
+        </ul>
+        <p>Features</p>
+        <ul>
+          <li>Implementing the remote control protocol.</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.0-rc.2" date="2025-01-10">
       <description>
         <p>Bugs</p>

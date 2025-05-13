@@ -110,3 +110,16 @@ message CreateM3u8PlaylistResponse {
   bool success = 4;
   string error = 5;
 }
+
+// [DART-SIGNAL]
+message RemoveItemFromPlaylistRequest {
+  int32 playlist_id = 1;
+  int32 media_file_id = 2;
+  int32 position = 3;
+}
+
+// [RUST-SIGNAL]
+message RemoveItemFromPlaylistResponse {
+  bool success = 1;
+  string error = 2;
+}

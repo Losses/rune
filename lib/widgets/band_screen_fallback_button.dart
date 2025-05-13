@@ -2,7 +2,7 @@ import 'dart:math';
 
 import 'package:fluent_ui/fluent_ui.dart';
 
-import 'rune_icon_button.dart';
+import 'rune_clickable.dart';
 
 class BandScreenFallbackButton extends StatelessWidget {
   final VoidCallback onPressed;
@@ -20,11 +20,11 @@ class BandScreenFallbackButton extends StatelessWidget {
       builder: (context, constraint) {
         final size = min(constraint.maxWidth, constraint.maxHeight);
 
-        return RuneIconButton(
-          icon: icon,
+        return RuneClickable(
           iconSize: (size * 0.8).clamp(0, 48),
           padding: (size * 0.1).clamp(0, 12),
           onPressed: () => {},
+          child: icon,
         );
       },
     );

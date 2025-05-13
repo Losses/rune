@@ -14,6 +14,7 @@ const audioExtensions = [
   '.pcm',
   '.ogg',
   '.vorbis',
+  '.opus',
   '.wav'
 ];
 

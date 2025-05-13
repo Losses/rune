@@ -1,18 +1,17 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::Mutex;
 
 use ::scrobbling::manager::{ScrobblingCredential, ScrobblingManager};
 
 use crate::{
-    messages::*,
-    utils::{GlobalParams, ParamsExtractor},
-    Signal,
+    messages::*, utils::{GlobalParams, ParamsExtractor}, Session, Signal
 };
 
 impl ParamsExtractor for AuthenticateSingleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.scrobbler),)
@@ -20,12 +19,13 @@ impl ParamsExtractor for AuthenticateSingleServiceRequest {
 }
 
 impl Signal for AuthenticateSingleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
     type Response = AuthenticateSingleServiceResponse;
 
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = &dart_signal.request;
@@ -63,7 +63,7 @@ impl Signal for AuthenticateSingleServiceRequest {
 }
 
 impl ParamsExtractor for AuthenticateMultipleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.scrobbler),)
@@ -71,12 +71,13 @@ impl ParamsExtractor for AuthenticateMultipleServiceRequest {
 }
 
 impl Signal for AuthenticateMultipleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
     type Response = ();
 
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let requests = &dart_signal.requests;
@@ -100,7 +101,7 @@ impl Signal for AuthenticateMultipleServiceRequest {
 }
 
 impl ParamsExtractor for LogoutSingleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (Arc::clone(&all_params.scrobbler),)
@@ -108,12 +109,13 @@ impl ParamsExtractor for LogoutSingleServiceRequest {
 }
 
 impl Signal for LogoutSingleServiceRequest {
-    type Params = (Arc<Mutex<ScrobblingManager>>,);
+    type Params = (Arc<Mutex<dyn ScrobblingServiceManager>>,);
     type Response = ();
 
     async fn handle(
         &self,
         (scrobbler,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         scrobbler

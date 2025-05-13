@@ -12,6 +12,11 @@ pub struct Model {
     #[sea_orm(column_type = "Blob")]
     pub binary: Vec<u8>,
     pub primary_color: Option<i32>,
+    #[sea_orm(column_type = "Text")]
+    pub created_at: String,
+    #[sea_orm(column_type = "Text")]
+    pub updated_at: String,
+    pub data_version: i32,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -82,6 +82,7 @@ class FFTVisualizeState extends State<FFTVisualize>
   final _registry = FFTVisualizerRegistry();
   bool _mildSpectrum = false;
   StreamSubscription? _mildSpectrumSubscription;
+  StreamSubscription? _fftSubscription;
 
   @override
   void initState() {
@@ -108,7 +109,7 @@ class FFTVisualizeState extends State<FFTVisualize>
       },
     );
 
-    RealtimeFFT.rustSignalStream.listen((rustSignal) {
+    _fftSubscription = RealtimeFFT.rustSignalStream.listen((rustSignal) {
       if (!mounted) return;
 
       setState(() {
@@ -150,7 +151,10 @@ class FFTVisualizeState extends State<FFTVisualize>
 
   @override
   dispose() {
+    _fftSubscription?.cancel();
     _mildSpectrumSubscription?.cancel();
+    _ticker?.dispose();
+    _registry.unregister(this);
     _registry.dispose();
     super.dispose();
   }

@@ -1,4 +1,4 @@
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 
 #[derive(Clone, Debug)]
 pub enum PlaybackMode {
@@ -67,8 +67,7 @@ impl From<OperateMode> for i32 {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "rune-speaker-client")]
-pub enum Command {
+pub enum ReplCommand {
     /// List contents of current directory
     Ls {
         /// Use long listing format
@@ -138,7 +137,7 @@ pub enum Command {
     Exit,
 }
 
-impl Command {
+impl ReplCommand {
     pub fn parse(input: &str) -> Result<Self, clap::Error> {
         let input_vec: Vec<String> = std::iter::once("".to_string())
             .chain(shlex::split(input).unwrap_or_default())
@@ -146,22 +145,22 @@ impl Command {
 
         let args = input_vec.iter().map(|s| s.as_str());
 
-        let matches = Command::command()
+        let matches = ReplCommand::command()
             .override_usage("> [COMMAND]")
             .try_get_matches_from(args)?;
 
-        let command = Command::from_arg_matches(&matches)?;
+        let command = ReplCommand::from_arg_matches(&matches)?;
 
-        // Convert `Cdi` to `Cd` with `id` set to true
+        // Convert aliases
         Ok(match command {
-            Command::Cdi { path } => Command::Cd { path, id: true },
-            Command::Exit => Command::Quit,
-            Command::Opqi {
+            ReplCommand::Cdi { path } => ReplCommand::Cd { path, id: true },
+            ReplCommand::Exit => ReplCommand::Quit,
+            ReplCommand::Opqi {
                 path,
                 playback_mode,
                 instant_play,
                 operate_mode,
-            } => Command::Opq {
+            } => ReplCommand::Opq {
                 path,
                 id: true,
                 playback_mode,
@@ -171,4 +170,71 @@ impl Command {
             _ => command,
         })
     }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DiscoveryCmd {
+    /// Scan for devices in the network
+    Scan,
+    /// List discovered devices
+    Ls,
+    /// View device certificate information
+    Inspect {
+        /// Device index
+        index: usize,
+    },
+    /// Trust specified device
+    Trust {
+        /// Device index
+        index: usize,
+        /// Trusted hosts (splitted by comma)
+        #[arg(long)]
+        domains: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RemoteCmd {
+    /// List trusted devices
+    Ls,
+    /// Delete trusted device
+    Untrust {
+        /// Certificate index
+        index: usize,
+    },
+    /// Edit device associated hostnames
+    Edit {
+        /// Certificate fingerprint
+        fingerprint: String,
+        /// New hostname list (comma-separated)
+        hosts: String,
+    },
+    /// Verify servers by certificate index
+    Verify { index: usize },
+    /// Fetch device information of the remote revice
+    Inspect { host: String },
+    /// Register this client to the remote server
+    Register { host: String },
+    /// Printing the certification summary of this device
+    SelfInfo,
+}
+
+#[derive(Debug, Parser)]
+#[command(name = "rune-client", version, about, long_about = None)]
+pub enum Cli {
+    /// Interactive REPL mode
+    Repl(ReplArgs),
+    /// Device discovery and management
+    #[command(subcommand)]
+    Discovery(DiscoveryCmd),
+    /// Remote device trust management
+    #[command(subcommand)]
+    Remote(RemoteCmd),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ReplArgs {
+    /// Service URL
+    #[arg(help = "The URL of the service, e.g., example.com:7863 or 192.168.1.1:8963")]
+    pub service_url: String,
 }

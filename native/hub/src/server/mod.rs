@@ -1,31 +1,31 @@
 #[macro_use]
 mod server_request;
-pub mod handlers;
+pub mod api;
+pub mod http;
+mod manager;
+pub mod utils;
 
-use std::{
-    collections::HashMap,
-    future::Future,
-    path::{Path, PathBuf},
-    pin::Pin,
-    sync::Arc,
-};
+use discovery::protocol::DiscoveryService;
+pub use manager::generate_or_load_certificates;
+pub use manager::get_or_generate_alias;
+pub use manager::update_root_password;
+pub use manager::ServerManager;
 
-use anyhow::Result;
-use async_trait::async_trait;
-use discovery::{
-    http_api::{DiscoveryState, FileProvider, SessionInfo},
-    pin::{PinConfig, PinValidationState},
-    utils::{DeviceInfo, FileMetadata},
-};
+use std::{collections::HashMap, future::Future, path::PathBuf, pin::Pin, sync::Arc};
+
 use log::error;
 use tokio::sync::{broadcast, Mutex, RwLock};
 
+use ::discovery::{server::PermissionManager, utils::DeviceInfo};
+
 use crate::{
-    remote::encode_message,
+    backends::remote::encode_message,
     utils::{Broadcaster, RinfRustSignal},
+    Session,
 };
 
-pub type HandlerFn = Box<dyn Fn(Vec<u8>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
+pub type HandlerFn =
+    Box<dyn Fn(Vec<u8>, Option<Session>) -> BoxFuture<'static, (String, Vec<u8>)> + Send + Sync>;
 pub type HandlerMap = Arc<Mutex<HashMap<String, HandlerFn>>>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -40,55 +40,9 @@ pub struct AppState {
 pub struct ServerState {
     pub app_state: Arc<AppState>,
     pub websocket_service: Arc<WebSocketService>,
-    pub discovery_device_info: DeviceInfo,
-    pub discovery_active_sessions: Arc<RwLock<HashMap<String, SessionInfo>>>,
-    pub discovery_pin_config: Arc<RwLock<PinConfig>>,
-    pub discovery_file_provider: Arc<dyn FileProvider>,
-}
-
-impl PinValidationState for ServerState {
-    fn pin_config(&self) -> &Arc<RwLock<PinConfig>> {
-        &self.discovery_pin_config
-    }
-}
-
-impl DiscoveryState for ServerState {
-    type FileProvider = dyn FileProvider;
-
-    fn device_info(&self) -> &DeviceInfo {
-        &self.discovery_device_info
-    }
-
-    fn active_sessions(&self) -> Arc<RwLock<HashMap<String, SessionInfo>>> {
-        self.discovery_active_sessions.clone()
-    }
-
-    fn pin_config(&self) -> Arc<RwLock<PinConfig>> {
-        self.discovery_pin_config.clone()
-    }
-
-    fn file_provider(&self) -> Arc<Self::FileProvider> {
-        self.discovery_file_provider.clone()
-    }
-}
-
-pub struct LocalFileProvider {
-    pub root_dir: PathBuf,
-}
-
-impl LocalFileProvider {
-    pub fn new<P: AsRef<Path>>(root_dir: P) -> Self {
-        Self {
-            root_dir: root_dir.as_ref().to_path_buf(),
-        }
-    }
-}
-
-#[async_trait]
-impl FileProvider for LocalFileProvider {
-    async fn get_files(&self) -> Result<HashMap<String, FileMetadata>> {
-        Ok(HashMap::new())
-    }
+    pub discovery_device_info: Arc<RwLock<DeviceInfo>>,
+    pub permission_manager: Arc<RwLock<PermissionManager>>,
+    pub device_scanner: Arc<DiscoveryService>,
 }
 
 pub struct WebSocketService {
@@ -113,12 +67,12 @@ impl WebSocketService {
 
     pub async fn register_handler<F, Fut>(&self, msg_type: &str, handler: F)
     where
-        F: Fn(Vec<u8>) -> Fut + Send + Sync + 'static,
+        F: Fn(Vec<u8>, Option<Session>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = (String, Vec<u8>)> + Send + 'static,
     {
         self.handlers.lock().await.insert(
             msg_type.to_string(),
-            Box::new(move |payload| Box::pin(handler(payload))),
+            Box::new(move |payload, session| Box::pin(handler(payload, session))),
         );
     }
 
@@ -126,10 +80,11 @@ impl WebSocketService {
         &self,
         msg_type: &str,
         payload: Vec<u8>,
+        session: Option<Session>,
     ) -> Option<(String, Vec<u8>)> {
         let handlers = self.handlers.lock().await;
         let handler = handlers.get(msg_type)?;
-        Some(handler(payload).await)
+        Some(handler(payload, session).await)
     }
 }
 

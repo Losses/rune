@@ -378,7 +378,9 @@
   "@manyDirectories": {
     "description": "複数のディレクトリが選択されたことを示すステータステキスト。",
     "placeholders": {
-      "count": {}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "confirm": "コンファーム",
@@ -428,19 +430,25 @@
   "noAnalysisScanning": "{baseMessage} ライブラリがスキャン中のため、アナライズをスタートできません。",
   "@noAnalysisScanning": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisAnalyzing": "{baseMessage} ライブラリをアナライジングです。プロセスがエンドするまでお待ちください。",
   "@noAnalysisAnalyzing": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "noAnalysisDefault": "{baseMessage} ベストなエクスペリエンスのために、ライブラリをアナライズしてください。",
   "@noAnalysisDefault": {
     "placeholders": {
-      "baseMessage": {}
+      "baseMessage": {
+        "type": "String"
+      }
     }
   },
   "notReady": "ノットレディ",
@@ -1047,12 +1055,6 @@
   "@userToken": {
     "description": "Input field title of the scrobble login form."
   },
-  "addRemoteDevice": "リモートデバイスをアド",
-  "@addRemoteDevice": {
-    "description": "Button prompt text in the settings interface for connecting to a remote device."
-  },
-  "addRemoteDeviceSubtitle": "リモートプレーヤーをコントロールし、プレイングをマネージ。",
-  "@addRemoteDeviceSubtitle": {},
   "hostname": "ホスト",
   "@hostname": {
     "description": "The host name part of an URL."

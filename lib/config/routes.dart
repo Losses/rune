@@ -61,6 +61,27 @@ final Map<String, WidgetBuilder> routes = {
       mode: 99,
     );
   },
+  '/genres': (context) => const collections.CollectionPage(
+        key: ValueKey("Genres"),
+        collectionType: CollectionType.Genre,
+      ),
+  '/genres/detail': (context) {
+    final arguments = getQueryTracksParameter();
+    if (arguments is! QueryTracksParameter) {
+      throw "Invalid router parameters";
+    }
+
+    return query_tracks.QueryTracksPage(
+      queries: QueryList(
+        [
+          ("lib::genre", arguments.id.toString()),
+          ("sort::track_number", "true")
+        ],
+      ),
+      title: arguments.title,
+      mode: 99,
+    );
+  },
   '/playlists': (context) => const collections.CollectionPage(
         key: ValueKey("Playlists"),
         collectionType: CollectionType.Playlist,
@@ -97,7 +118,9 @@ final Map<String, WidgetBuilder> routes = {
   '/tracks': (context) => const tracks.TracksPage(),
   '/settings': (context) => const settings.SettingsHomePage(),
   '/settings/library': (context) => const settings.SettingsLibraryPage(),
-  '/settings/analysis': (context) => const settings.SettingsAnalysis(),
+  '/settings/neighbors': (context) => const settings.SettingsNeighborsPage(),
+  '/settings/server': (context) => const settings.SettingsServerPage(),
+  '/settings/system': (context) => const settings.SettingsAnalysis(),
   '/settings/theme': (context) => const settings.SettingsTheme(),
   '/settings/language': (context) => const settings.SettingsLanguage(),
   '/settings/playback': (context) => const settings.SettingsPlayback(),

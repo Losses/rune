@@ -13,14 +13,14 @@ import 'package:bitsdojo_window/bitsdojo_window.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_fullscreen/flutter_fullscreen.dart';
 
-import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 import 'package:system_tray/system_tray.dart';
+import 'package:flutter_gen/gen_l10n/app_localizations.dart';
 
 import 'utils/l10n.dart';
 import 'utils/locale.dart';
+import 'utils/rune_log.dart';
 import 'utils/platform.dart';
 import 'utils/query_list.dart';
-import 'utils/rune_log.dart';
 import 'utils/tray_manager.dart';
 import 'utils/close_manager.dart';
 import 'utils/settings_manager.dart';
@@ -37,6 +37,7 @@ import 'config/routes.dart';
 import 'config/app_title.dart';
 import 'config/shortcuts.dart';
 
+import 'widgets/router/discovery_frame.dart';
 import 'widgets/router/no_effect_page_route.dart';
 import 'widgets/title_bar/window_frame.dart';
 import 'widgets/shortcuts/router_actions_manager.dart';
@@ -55,6 +56,7 @@ import 'providers/status.dart';
 import 'providers/license.dart';
 import 'providers/playlist.dart';
 import 'providers/scrobble.dart';
+import 'providers/broadcast.dart';
 import 'providers/full_screen.dart';
 import 'providers/router_path.dart';
 import 'providers/library_path.dart';
@@ -281,10 +283,11 @@ void mainLoop(LicenseProvider licenseProvider) {
         ),
         ChangeNotifierProvider(create: (_) => $router),
         ChangeNotifierProvider(create: (_) => licenseProvider),
-        ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
-        ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
-        ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(create: (_) => BroadcastProvider()),
         ChangeNotifierProvider(create: (_) => FullScreenProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryHomeProvider()),
+        ChangeNotifierProvider(create: (_) => LibraryManagerProvider()),
+        ChangeNotifierProvider(create: (_) => PlaybackControllerProvider()),
       ],
       child: const Rune(),
     ),
@@ -357,7 +360,7 @@ class _RuneState extends State<Rune> {
               return NoEffectPageRoute<dynamic>(
                 settings: settings,
                 builder: (context) => WindowFrame(
-                  routes[routeName]!(context),
+                  DiscoveryFrame(routes[routeName]!(context)),
                   customRouteName: routeName,
                 ),
               );
@@ -369,7 +372,7 @@ class _RuneState extends State<Rune> {
 
             return NoEffectPageRoute<dynamic>(
               settings: settings,
-              builder: (context) => WindowFrame(page),
+              builder: (context) => WindowFrame(DiscoveryFrame(page)),
             );
           },
           debugShowCheckedModeBanner: false,

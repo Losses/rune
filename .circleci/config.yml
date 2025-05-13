@@ -31,7 +31,7 @@ jobs:
     - run:
         name: Download Flutter
         command: |
-          git clone --branch 3.24.4 --depth 1 https://github.com/flutter/flutter.git ../flutter
+          git clone --branch 3.27.1 --depth 1 https://github.com/flutter/flutter.git ../flutter
     - run:
         name: Run Flutter setup
         command: |

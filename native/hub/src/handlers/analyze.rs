@@ -6,7 +6,7 @@ use ::database::actions::analysis::{get_analyze_count, if_analyze_exists};
 use ::database::connection::MainDbConnection;
 
 use crate::utils::{GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
 impl ParamsExtractor for IfAnalyzeExistsRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -22,6 +22,7 @@ impl Signal for IfAnalyzeExistsRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let file_id = dart_signal.file_id;
@@ -47,6 +48,7 @@ impl Signal for GetAnalyzeCountRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let count = get_analyze_count(&main_db).await?;

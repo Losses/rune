@@ -1,16 +1,14 @@
-use std::sync::Arc;
-
-use http_api::FileProvider;
 use utils::DeviceInfo;
 
-pub mod file;
-pub mod http_api;
-pub mod pin;
-pub mod udp_multicast;
+pub mod client;
+pub mod persistent;
+pub mod protocol;
+pub mod request;
+pub mod server;
+pub mod ssl;
+pub mod url;
 pub mod utils;
 
 pub struct DiscoveryParams {
     pub device_info: DeviceInfo,
-    pub pin: Option<String>,
-    pub file_provider: Arc<dyn FileProvider>,
 }

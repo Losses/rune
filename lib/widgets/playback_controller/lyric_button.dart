@@ -5,7 +5,7 @@ import '../../providers/router_path.dart';
 import '../../utils/router/navigation.dart';
 import '../../utils/navigation/utils/escape_from_lyrics.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 void showLyrics() {
   final path = $router.path;
@@ -30,9 +30,9 @@ class LyricsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RuneIconButton(
+    return RuneClickable(
       onPressed: () => showLyrics(),
-      icon: Icon(
+      child: Icon(
         Symbols.lyrics,
         shadows: shadows,
       ),

@@ -8,7 +8,7 @@ import '../../utils/settings_manager.dart';
 import '../../widgets/playback_controller/utils/playback_mode.dart';
 import '../../providers/status.dart';
 
-import '../rune_icon_button.dart';
+import '../rune_clickable.dart';
 
 IconData modeToIcon(PlaybackMode mode) {
   switch (mode) {
@@ -102,12 +102,12 @@ class PlaybackModeButton extends StatelessWidget {
           playbackStatusProvider.playbackStatus.playbackMode,
         );
 
-        return RuneIconButton(
+        return RuneClickable(
           onPressed: () async {
             final next = await getNextEnabledMode(currentMode);
             playMode(next.toValue());
           },
-          icon: Icon(
+          child: Icon(
             modeToIcon(currentMode),
             shadows: shadows,
           ),

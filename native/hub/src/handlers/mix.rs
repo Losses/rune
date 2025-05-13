@@ -12,7 +12,7 @@ use database::actions::mixes::{
 use database::connection::{MainDbConnection, RecommendationDbConnection};
 
 use crate::utils::{parse_media_files, GlobalParams, ParamsExtractor};
-use crate::{messages::*, Signal};
+use crate::{messages::*, Session, Signal};
 
 impl ParamsExtractor for FetchAllMixesRequest {
     type Params = (Arc<MainDbConnection>,);
@@ -29,6 +29,7 @@ impl Signal for FetchAllMixesRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let mixes = get_all_mixes(&main_db)
@@ -65,6 +66,7 @@ impl Signal for CreateMixRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -121,6 +123,7 @@ impl Signal for UpdateMixRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -178,6 +181,7 @@ impl Signal for RemoveMixRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -208,6 +212,7 @@ impl Signal for AddItemToMixRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -244,6 +249,7 @@ impl Signal for GetMixByIdRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -291,6 +297,7 @@ impl Signal for MixQueryRequest {
     async fn handle(
         &self,
         (main_db, recommend_db, lib_path): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;
@@ -345,6 +352,7 @@ impl Signal for FetchMixQueriesRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let request = dart_signal;

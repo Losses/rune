@@ -8,6 +8,7 @@ use database::connection::MainDbConnection;
 
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
+use crate::Session;
 use crate::{messages::*, Signal};
 
 fn convert_directory_tree(tree: DirectoryTree) -> DirectoryTreeResponse {
@@ -36,6 +37,7 @@ impl Signal for FetchDirectoryTreeRequest {
     async fn handle(
         &self,
         (main_db,): Self::Params,
+        _session: Option<Session>,
         _dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
         let root = get_directory_tree(&main_db)

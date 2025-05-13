@@ -3,6 +3,7 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:collection/collection.dart';
 
 import '../../utils/l10n.dart';
+import '../../utils/router/router_aware_flyout_controller.dart';
 import '../../utils/dialogs/scrobble/show_scrobble_login_dialog.dart';
 import '../../utils/dialogs/information/confirm.dart';
 import '../../utils/dialogs/information/error.dart';
@@ -29,7 +30,7 @@ class SettingsBoxScrobbleLogin extends StatefulWidget {
 }
 
 class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
-  final _menuController = FlyoutController();
+  final _menuController = RouterAwareFlyoutController();
 
   Widget buildExpanderContent(BuildContext context) {
     final s = S.of(context);
@@ -89,7 +90,7 @@ class _SettingsBoxScrobbleLoginState extends State<SettingsBoxScrobbleLogin> {
         serviceStatus.hasCredentials;
 
     return FlyoutTarget(
-      controller: _menuController,
+      controller: _menuController.controller,
       child: Button(
         onPressed: isLoggedIn
             ? () => _showLogoutConfirmation(context)

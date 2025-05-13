@@ -1,11 +1,11 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:material_symbols_icons/material_symbols_icons.dart';
 
+import '../../../utils/router/router_aware_flyout_controller.dart';
 import '../../../widgets/context_menu_wrapper.dart';
 import '../../../screens/settings_log/utils/open_log_item_context_menu.dart';
+import '../../../widgets/settings/settings_button.dart';
 import '../../../messages/all.dart';
-
-import '../../settings_library/widgets/settings_button.dart';
 
 class LogItem extends StatefulWidget {
   final LogDetail log;
@@ -26,7 +26,7 @@ class LogItem extends StatefulWidget {
 }
 
 class LogItemState extends State<LogItem> {
-  final contextController = FlyoutController();
+  final contextController = RouterAwareFlyoutController();
   final contextAttachKey = GlobalKey();
 
   @override

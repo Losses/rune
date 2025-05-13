@@ -1,8 +1,11 @@
 import 'dart:ui' as ui;
 
+import 'process_cover_art_path.dart';
+
 Future<ui.Image> loadAndResizeImage(String path, int size) async {
-  // Load the image from file
-  final ui.Codec codec = await ui.instantiateImageCodecFromBuffer(
+  path = await processCoverArtPath(path);
+
+  final codec = await ui.instantiateImageCodecFromBuffer(
     await ui.ImmutableBuffer.fromFilePath(path),
   );
 
@@ -18,8 +21,8 @@ Future<ui.Image> loadAndResizeImage(String path, int size) async {
   final int newWidth = (originalImage.width * scale).ceil();
   final int newHeight = (originalImage.height * scale).ceil();
 
-  // Load the image from file again
-  final ui.Codec newCodec = await ui.instantiateImageCodecFromBuffer(
+  // Load the image again with the target size
+  final newCodec = await ui.instantiateImageCodecFromBuffer(
     await ui.ImmutableBuffer.fromFilePath(path),
     targetWidth: newWidth,
     targetHeight: newHeight,

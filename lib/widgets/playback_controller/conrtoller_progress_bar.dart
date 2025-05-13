@@ -9,6 +9,9 @@ import '../../messages/playback.pb.dart';
 import '../../providers/playback_controller.dart';
 import '../../providers/responsive_providers.dart';
 
+import 'cover_wall_button.dart';
+import 'track_title.dart';
+
 class ControllerProgressBar extends StatelessWidget {
   const ControllerProgressBar({
     super.key,
@@ -47,10 +50,10 @@ class ControllerProgressBar extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Expanded(
-                      child: Text(
-                        status?.title ?? "",
-                        overflow: TextOverflow.ellipsis,
+                      child: TrackTitle(
+                        title: status?.title ?? "",
                         style: typography.caption,
+                        onPressed: showCoverArtWall,
                       ),
                     ),
                     Padding(

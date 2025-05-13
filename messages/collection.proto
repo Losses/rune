@@ -9,6 +9,7 @@ enum CollectionType {
   Playlist = 2;
   Mix = 3;
   Track = 4;
+  Genre = 5;
 }
 
 // [DART-SIGNAL]

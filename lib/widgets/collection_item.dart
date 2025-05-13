@@ -5,6 +5,7 @@ import '../utils/playing_item.dart';
 import '../utils/execute_middle_click_action.dart';
 import '../utils/api/operate_playback_with_mix_query.dart';
 import '../utils/router/navigation.dart';
+import '../utils/router/router_aware_flyout_controller.dart';
 import '../utils/router/router_name.dart';
 import '../utils/router/query_tracks_parameter.dart';
 import '../utils/context_menu/track_item_context_menu.dart';
@@ -35,14 +36,13 @@ class CollectionItem extends StatefulWidget {
 }
 
 class _CollectionItemState extends State<CollectionItem> {
-  final contextController = FlyoutController();
-
-  final contextAttachKey = GlobalKey();
+  final _contextController = RouterAwareFlyoutController();
+  final _contextAttachKey = GlobalKey();
 
   @override
   dispose() {
     super.dispose();
-    contextController.dispose();
+    _contextController.dispose();
   }
 
   List<String> filterDuplicates(List<String> input) {
@@ -70,8 +70,8 @@ class _CollectionItemState extends State<CollectionItem> {
     return AxPressure(
       child: AxReveal0(
         child: ContextMenuWrapper(
-          contextAttachKey: contextAttachKey,
-          contextController: contextController,
+          contextAttachKey: _contextAttachKey,
+          contextController: _contextController,
           onMiddleClick: (_) {
             executeMiddleClickAction(
               context,
@@ -84,8 +84,8 @@ class _CollectionItemState extends State<CollectionItem> {
               openCollectionItemContextMenu(
                 position,
                 context,
-                contextAttachKey,
-                contextController,
+                _contextAttachKey,
+                _contextController,
                 widget.collectionType,
                 widget.collection.id,
                 widget.collection.name,
@@ -96,9 +96,12 @@ class _CollectionItemState extends State<CollectionItem> {
               openTrackItemContextMenu(
                 position,
                 context,
-                contextAttachKey,
-                contextController,
+                _contextAttachKey,
+                _contextController,
+                null,
                 widget.collection.id,
+                null,
+                widget.refreshList,
               );
             }
           },
