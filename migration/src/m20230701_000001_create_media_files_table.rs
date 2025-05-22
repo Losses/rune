@@ -56,7 +56,7 @@ impl MigrationTrait for Migration {
     }
 }
 
-#[derive(Iden)]
+#[derive(Iden, Clone, Copy)]
 pub enum MediaFiles {
     Table,
     Id,

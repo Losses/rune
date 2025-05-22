@@ -17,8 +17,7 @@ use crate::{
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
-// 通用列
-#[derive(DeriveIden)]
+#[derive(Iden)]
 enum CommonColumns {
     CreatedAt,
     UpdatedAt,
@@ -69,8 +68,9 @@ impl Migration {
         table: T,
     ) -> Result<(), DbErr>
     where
-        T: Iden + 'static,
+        T: Iden + Copy + 'static,
     {
+        // Add CreatedAt
         manager
             .alter_table(
                 Table::alter()
@@ -81,12 +81,30 @@ impl Migration {
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        // Add UpdatedAt
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
                     .add_column(
                         ColumnDef::new(CommonColumns::UpdatedAt)
                             .timestamp()
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        // Add DataVersion
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
                     .add_column(
                         ColumnDef::new(CommonColumns::DataVersion)
                             .integer()
@@ -125,14 +143,33 @@ impl Migration {
         table: T,
     ) -> Result<(), DbErr>
     where
-        T: Iden + 'static,
+        T: Iden + Copy + 'static,
     {
+        // Remove CreatedAt
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
                     .drop_column(CommonColumns::CreatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Remove UpdatedAt
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
                     .drop_column(CommonColumns::UpdatedAt)
+                    .to_owned(),
+            )
+            .await?;
+
+        // Remove DataVersion
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
                     .drop_column(CommonColumns::DataVersion)
                     .to_owned(),
             )
