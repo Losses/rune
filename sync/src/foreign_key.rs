@@ -3,6 +3,7 @@ use std::{collections::HashMap, fmt::Debug};
 use anyhow::Result;
 use async_trait::async_trait;
 use sea_orm::{ActiveModelBehavior, DatabaseConnection, DatabaseTransaction};
+use serde::Serialize;
 
 use crate::hlc::HLCRecord;
 
@@ -28,7 +29,7 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
     /// # Returns
     /// A map where keys are FK column names in `model`'s entity,
     /// and values are `Option<sync_id>` of the referenced records.
-    async fn extract_foreign_key_sync_ids<M: HLCRecord + Sync, E>(
+    async fn extract_foreign_key_sync_ids<M: HLCRecord + Sync + Serialize, E>(
         &self,
         entity_name: &str,
         model: &M,
@@ -74,7 +75,7 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
     /// This method typically involves knowing the structure of M and which fields
     /// correspond to logical foreign keys. The implementation will likely involve
     /// matching on `entity_name` and casting `remote_model_with_sync_id_fks`.
-    fn extract_sync_ids_from_remote_model<M: HLCRecord + Send + Sync>(
+    fn extract_sync_ids_from_remote_model<M: HLCRecord + Send + Sync + Serialize>(
         &self,
         entity_name: &str,
         remote_model_with_sync_id_fks: &M,

@@ -949,7 +949,7 @@ where
 
 /// Applies a list of local `SyncOperation`s within a single database transaction.
 async fn apply_local_changes<E, FKR>(
-    context: &SyncContext<'_, impl RemoteDataSource>, // Use impl Trait for R
+    context: &SyncContext<'_, impl RemoteDataSource>,
     fk_resolver: Option<&FKR>,
     operations: Vec<SyncOperation<E::Model>>,
 ) -> Result<()>
@@ -3711,4 +3711,113 @@ mod tests {
             }
         }
     }
+
+    use crate::foreign_key::DatabaseExecutor;
+
+    #[derive(Debug)]
+    struct TestForeignKeyResolver;
+
+    #[async_trait::async_trait]
+    impl ForeignKeyResolver for TestForeignKeyResolver {
+        async fn extract_foreign_key_sync_ids<
+            M: HLCRecord + Send + Sync + Serialize,
+            E: DatabaseExecutor + ConnectionTrait, // Renamed E to E_DB for clarity in this scope
+        >(
+            &self,
+            table_name: &str,
+            model: &M,
+            db: &E, // E here is the DatabaseExecutor
+        ) -> Result<FkPayload> {
+            let mut payload = FkPayload::new();
+            if table_name == "posts" {
+                let model_json = serde_json::to_value(model)?;
+                let post_model: post_entity::Model = serde_json::from_value(model_json)?;
+
+                // Fetch the author using the local integer FK from post_model
+                if let Some(author) = author_entity::Entity::find_by_id(post_model.author_id)
+                    .one(db) // db is E (DatabaseExecutor)
+                    .await?
+                {
+                    // Store the parent's sync_id in the payload
+                    payload.insert("author_id".to_string(), Some(author.sync_id));
+                } else {
+                    // If author_id is supposed to be non-nullable and points to a non-existent author
+                    return Err(anyhow!(
+                        "Author not found for post_model.author_id: {} when extracting FKs for table '{}'",
+                        post_model.author_id, table_name
+                    ));
+                    // If author_id can be legitimately null or unlinked, then:
+                    // payload.insert("author_id".to_string(), None);
+                }
+            }
+            Ok(payload)
+        }
+
+        fn extract_sync_ids_from_remote_model<M: HLCRecord + Send + Sync + Serialize>(
+            &self,
+            table_name: &str,
+            remote_model_with_sync_id_fks: &M,
+        ) -> Result<FkPayload> {
+            let mut payload = FkPayload::new();
+            if table_name == "posts" {
+                let model_json = serde_json::to_value(remote_model_with_sync_id_fks)?;
+                let post_model: post_entity::Model = serde_json::from_value(model_json)?;
+                // remote_author_sync_id is Option<String> on the post_entity::Model (transient field)
+                payload.insert("author_id".to_string(), post_model.remote_author_sync_id);
+            }
+            Ok(payload)
+        }
+
+        async fn remap_and_set_foreign_keys<
+            AM: ActiveModelBehavior + Send,
+            DB: DatabaseExecutor + ConnectionTrait,
+        >(
+            &self,
+            table_name: &str,
+            active_model: &mut AM,
+            fk_payload: &FkPayload,
+            db: &DB,
+        ) -> Result<()>
+        where
+            AM::Entity: EntityTrait, // EntityTrait implies ActiveModelTrait::Entity has Column
+            <AM::Entity as EntityTrait>::Column: sea_orm::ColumnTrait + sea_orm::Iterable, // Use sea_orm::Iterable
+        {
+            if table_name == "posts" {
+                let author_id_column_name = "author_id";
+                // The .iter() method comes from sea_orm::Iterable
+                let column_to_set = <AM::Entity as EntityTrait>::Column::iter()
+                    .find(|c| c.as_str() == author_id_column_name)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Column '{}' not found in ActiveModel for table '{}'",
+                            author_id_column_name,
+                            table_name
+                        )
+                    })?;
+
+                if let Some(maybe_author_sync_id) = fk_payload.get("author_id") {
+                    if let Some(author_sync_id) = maybe_author_sync_id {
+                        if let Some(author) = author_entity::Entity::find()
+                            .filter(author_entity::Column::SyncId.eq(author_sync_id.clone()))
+                            .one(db)
+                            .await?
+                        {
+                            active_model.set(column_to_set, author.id.into());
+                        } else {
+                            return Err(anyhow!(
+                                "FK Remap: Author with sync_id '{}' not found locally for table '{}'.",
+                                author_sync_id, table_name
+                            ));
+                        }
+                    } else {
+                        active_model.set(column_to_set, sea_orm::Value::Int(None));
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    static TEST_FK_RESOLVER_INSTANCE: TestForeignKeyResolver = TestForeignKeyResolver;
+    static TEST_FK_RESOLVER: Option<&TestForeignKeyResolver> = Some(&TEST_FK_RESOLVER_INSTANCE);
 }
