@@ -1070,7 +1070,7 @@
   "addConnection": "コネクションをアド",
   "@addConnection": {
     "description": "The action button of the dialog."
-  }
+  },
   "neighbors": "ネイバーズ",
   "@neighbors": {
     "description": "The settings page that could help users connect with each other."
