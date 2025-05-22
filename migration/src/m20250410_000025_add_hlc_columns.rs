@@ -1,4 +1,3 @@
-use sea_orm::prelude::Expr;
 use sea_orm_migration::prelude::*;
 
 use crate::{
@@ -70,6 +69,12 @@ impl Migration {
     where
         T: Iden + Copy + 'static,
     {
+        // A common placeholder timestamp string.
+        // SQLite will store this as TEXT.
+        // Ensure your application logic correctly sets these timestamps on new/updated records.
+        let default_timestamp_value =
+            Value::String(Some(Box::new("1970-01-01 00:00:00.000".to_string())));
+
         // Add CreatedAt
         manager
             .alter_table(
@@ -79,7 +84,8 @@ impl Migration {
                         ColumnDef::new(CommonColumns::CreatedAt)
                             .timestamp()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            // Use a constant default value for existing rows
+                            .default(default_timestamp_value.clone()),
                     )
                     .to_owned(),
             )
@@ -94,7 +100,8 @@ impl Migration {
                         ColumnDef::new(CommonColumns::UpdatedAt)
                             .timestamp()
                             .not_null()
-                            .default(Expr::current_timestamp()),
+                            // Use a constant default value for existing rows
+                            .default(default_timestamp_value),
                     )
                     .to_owned(),
             )
@@ -109,7 +116,7 @@ impl Migration {
                         ColumnDef::new(CommonColumns::DataVersion)
                             .integer()
                             .not_null()
-                            .default(0),
+                            .default(0), // 0 is a constant, so this is fine
                     )
                     .to_owned(),
             )
