@@ -1328,6 +1328,41 @@ mod tests {
     use crate::core::PrimaryKeyFromStr;
     use crate::hlc::{hlc_timestamp_millis_to_rfc3339, HLCModel, HLCRecord, SyncTaskContext, HLC};
 
+    #[derive(Debug)]
+    struct NoOpForeignKeyResolver;
+
+    #[async_trait::async_trait]
+    impl ForeignKeyResolver for NoOpForeignKeyResolver {
+        async fn extract_foreign_key_sync_ids<M: HLCRecord + Send + Sync, DB: ConnectionTrait>(
+            &self,
+            _table_name: &str,
+            _model: &M,
+            _db: &DB,
+        ) -> Result<FkPayload> {
+            Ok(FkPayload::new())
+        }
+
+        fn extract_sync_ids_from_remote_model<M: HLCRecord + Send + Sync>(
+            &self,
+            _table_name: &str,
+            _model: &M,
+        ) -> Result<FkPayload> {
+            Ok(FkPayload::new())
+        }
+
+        async fn remap_and_set_foreign_keys<AM: ActiveModelBehavior + Send, DB: ConnectionTrait>(
+            &self,
+            _table_name: &str,
+            _active_model: &mut AM,
+            _fk_payload: &FkPayload,
+            _db: &DB,
+        ) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    static NO_OP_RESOLVER: Option<&NoOpForeignKeyResolver> = None;
+
     mod test_entity {
         use std::str::FromStr;
 
@@ -1674,29 +1709,31 @@ mod tests {
             for op in operations {
                 // Convert E::Model to concrete Model for storage/logging in mock
                 let op_model: SyncOperation<Model> = match op {
-                    SyncOperation::InsertRemote(m) => {
+                    SyncOperation::InsertRemote(m, payload) => {
                         // Separate arm for InsertRemote
                         let json_val = serde_json::to_value(&m)
                             .context("Serialize failed in InsertRemote arm")?;
                         let model: Model = serde_json::from_value(json_val)
                             .context("Deserialize failed in InsertRemote arm")?;
-                        SyncOperation::InsertRemote(model)
+                        SyncOperation::InsertRemote(model, payload)
                     }
-                    SyncOperation::UpdateRemote(m) => {
+                    SyncOperation::UpdateRemote(m, payload) => {
                         // Separate arm for UpdateRemote
                         let json_val = serde_json::to_value(&m)
                             .context("Serialize failed in UpdateRemote arm")?;
                         let model: Model = serde_json::from_value(json_val)
                             .context("Deserialize failed in UpdateRemote arm")?;
-                        SyncOperation::UpdateRemote(model)
+                        SyncOperation::UpdateRemote(model, payload)
                     }
                     SyncOperation::DeleteRemote(sync_id) => SyncOperation::DeleteRemote(sync_id),
                     // These shouldn't normally be passed here, but handle for completeness/logging
-                    SyncOperation::InsertLocal(m) => SyncOperation::InsertLocal(
+                    SyncOperation::InsertLocal(m, payload) => SyncOperation::InsertLocal(
                         serde_json::from_value(serde_json::to_value(&m)?)?,
+                        payload,
                     ),
-                    SyncOperation::UpdateLocal(m) => SyncOperation::UpdateLocal(
+                    SyncOperation::UpdateLocal(m, payload) => SyncOperation::UpdateLocal(
                         serde_json::from_value(serde_json::to_value(&m)?)?,
+                        payload,
                     ),
                     SyncOperation::DeleteLocal(pk_str) => SyncOperation::DeleteLocal(pk_str),
                     SyncOperation::NoOp(sync_id) => SyncOperation::NoOp(sync_id),
@@ -1706,7 +1743,8 @@ mod tests {
 
                 // Simulate applying the change to the mock's data store
                 match op_model {
-                    SyncOperation::InsertRemote(model) | SyncOperation::UpdateRemote(model) => {
+                    SyncOperation::InsertRemote(model, _)
+                    | SyncOperation::UpdateRemote(model, _) => {
                         if let Some(hlc) = model.updated_at_hlc() {
                             if hlc > max_hlc {
                                 max_hlc = hlc; // Use clone here? No, hlc is owned/moved or copied
@@ -1726,8 +1764,8 @@ mod tests {
             if ops_guard.iter().any(|op| {
                 matches!(
                     op,
-                    SyncOperation::InsertRemote(_)
-                        | SyncOperation::UpdateRemote(_)
+                    SyncOperation::InsertRemote(_, _)
+                        | SyncOperation::UpdateRemote(_, _)
                         | SyncOperation::DeleteRemote(_)
                 )
             }) {
@@ -1839,8 +1877,13 @@ mod tests {
             "Should have generated at least one chunk"
         );
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // Assertions
         let applied_ops = remote_source.get_applied_ops().await;
@@ -1899,13 +1942,18 @@ mod tests {
         // Remote has no chunks initially
         remote_source.set_remote_chunks(vec![]).await;
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         let applied_ops = remote_source.get_applied_ops().await;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
-            SyncOperation::InsertRemote(model) => {
+            SyncOperation::InsertRemote(model, _) => {
                 assert_eq!(model.sync_id, "sync_local1");
                 assert_eq!(model.name, "NewLocal");
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc1);
@@ -1976,8 +2024,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         let applied_ops = remote_source.get_applied_ops().await;
         assert!(
@@ -2078,13 +2131,18 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         let applied_ops = remote_source.get_applied_ops().await;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
-            SyncOperation::UpdateRemote(model) => {
+            SyncOperation::UpdateRemote(model, _) => {
                 assert_eq!(model.sync_id, "sync_conflict1");
                 assert_eq!(model.name, "LocalWin");
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc_local_new);
@@ -2180,8 +2238,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         let applied_ops = remote_source.get_applied_ops().await;
         assert!(
@@ -2282,13 +2345,18 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         let applied_ops = remote_source.get_applied_ops().await;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
-            SyncOperation::UpdateRemote(model) => {
+            SyncOperation::UpdateRemote(model, _) => {
                 assert_eq!(model.sync_id, "sync_tie1");
                 assert_eq!(model.name, "LocalTie"); // Local wins tie-break
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc_local_tie);
@@ -2324,32 +2392,38 @@ mod tests {
             insert_test_record(&db, "sync_d", "DeleteMe", Some(2), &hlc_c, &hlc_c).await?;
 
         let ops = vec![
-            SyncOperation::InsertLocal(Model {
-                id: 0, // Placeholder
-                sync_id: "sync_i".to_string(),
-                name: "Inserted".to_string(),
-                value: Some(10),
-                created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_i.timestamp)?,
-                created_at_hlc_ct: hlc_i.version as i32,
-                created_at_hlc_id: hlc_i.node_id,
-                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_i.timestamp)?,
-                updated_at_hlc_ct: hlc_i.version as i32,
-                updated_at_hlc_id: hlc_i.node_id,
-            }),
-            SyncOperation::UpdateLocal(Model {
-                id: initial_record_u.id, // Use actual PK
-                sync_id: "sync_u".to_string(),
-                name: "Updated".to_string(),
-                value: Some(11),
-                // Preserve original creation HLC fields
-                created_at_hlc_ts: initial_record_u.created_at_hlc_ts.clone(),
-                created_at_hlc_ct: initial_record_u.created_at_hlc_ct,
-                created_at_hlc_id: initial_record_u.created_at_hlc_id,
-                // Set new update HLC fields
-                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_u.timestamp)?,
-                updated_at_hlc_ct: hlc_u.version as i32,
-                updated_at_hlc_id: hlc_u.node_id,
-            }),
+            SyncOperation::InsertLocal(
+                Model {
+                    id: 0, // Placeholder
+                    sync_id: "sync_i".to_string(),
+                    name: "Inserted".to_string(),
+                    value: Some(10),
+                    created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_i.timestamp)?,
+                    created_at_hlc_ct: hlc_i.version as i32,
+                    created_at_hlc_id: hlc_i.node_id,
+                    updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_i.timestamp)?,
+                    updated_at_hlc_ct: hlc_i.version as i32,
+                    updated_at_hlc_id: hlc_i.node_id,
+                },
+                FkPayload::new(),
+            ),
+            SyncOperation::UpdateLocal(
+                Model {
+                    id: initial_record_u.id, // Use actual PK
+                    sync_id: "sync_u".to_string(),
+                    name: "Updated".to_string(),
+                    value: Some(11),
+                    // Preserve original creation HLC fields
+                    created_at_hlc_ts: initial_record_u.created_at_hlc_ts.clone(),
+                    created_at_hlc_ct: initial_record_u.created_at_hlc_ct,
+                    created_at_hlc_id: initial_record_u.created_at_hlc_id,
+                    // Set new update HLC fields
+                    updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_u.timestamp)?,
+                    updated_at_hlc_ct: hlc_u.version as i32,
+                    updated_at_hlc_id: hlc_u.node_id,
+                },
+                FkPayload::new(),
+            ),
             // Pass the sync_id for deletion, apply_local_changes uses it with unique_id_column
             SyncOperation::DeleteLocal(initial_record_d.sync_id),
             SyncOperation::NoOp("sync_noop".to_string()), // Should be ignored
@@ -2366,7 +2440,7 @@ mod tests {
             hlc_context: &hlc_context,
         };
 
-        apply_local_changes::<Entity>(&context, ops).await?;
+        apply_local_changes::<Entity, _>(&context, NO_OP_RESOLVER, ops).await?;
 
         // Verify DB state after commit
         let final_data = Entity::find().order_by_asc(Column::SyncId).all(&db).await?; // Order by sync_id for consistent results
@@ -2410,31 +2484,37 @@ mod tests {
         .await?;
 
         let ops = vec![
-            SyncOperation::UpdateLocal(Model {
-                id: initial.id,
-                sync_id: "sync_dup".to_string(),
-                name: "UpdateTry".to_string(), // This update should be rolled back
-                value: Some(1),
-                created_at_hlc_ts: initial.created_at_hlc_ts.clone(),
-                created_at_hlc_ct: initial.created_at_hlc_ct,
-                created_at_hlc_id: initial.created_at_hlc_id,
-                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_update_try.timestamp)?,
-                updated_at_hlc_ct: hlc_update_try.version as i32,
-                updated_at_hlc_id: hlc_update_try.node_id,
-            }),
-            SyncOperation::InsertLocal(Model {
-                // This insert will fail (duplicate unique sync_id)
-                id: 0,                           // Placeholder
-                sync_id: "sync_dup".to_string(), // Duplicate unique key
-                name: "InsertedFail".to_string(),
-                value: Some(10),
-                created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_insert_fail.timestamp)?,
-                created_at_hlc_ct: hlc_insert_fail.version as i32,
-                created_at_hlc_id: hlc_insert_fail.node_id,
-                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_insert_fail.timestamp)?,
-                updated_at_hlc_ct: hlc_insert_fail.version as i32,
-                updated_at_hlc_id: hlc_insert_fail.node_id,
-            }),
+            SyncOperation::UpdateLocal(
+                Model {
+                    id: initial.id,
+                    sync_id: "sync_dup".to_string(),
+                    name: "UpdateTry".to_string(), // This update should be rolled back
+                    value: Some(1),
+                    created_at_hlc_ts: initial.created_at_hlc_ts.clone(),
+                    created_at_hlc_ct: initial.created_at_hlc_ct,
+                    created_at_hlc_id: initial.created_at_hlc_id,
+                    updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_update_try.timestamp)?,
+                    updated_at_hlc_ct: hlc_update_try.version as i32,
+                    updated_at_hlc_id: hlc_update_try.node_id,
+                },
+                FkPayload::new(),
+            ),
+            SyncOperation::InsertLocal(
+                Model {
+                    // This insert will fail (duplicate unique sync_id)
+                    id: 0,                           // Placeholder
+                    sync_id: "sync_dup".to_string(), // Duplicate unique key
+                    name: "InsertedFail".to_string(),
+                    value: Some(10),
+                    created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_insert_fail.timestamp)?,
+                    created_at_hlc_ct: hlc_insert_fail.version as i32,
+                    created_at_hlc_id: hlc_insert_fail.node_id,
+                    updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_insert_fail.timestamp)?,
+                    updated_at_hlc_ct: hlc_insert_fail.version as i32,
+                    updated_at_hlc_id: hlc_insert_fail.node_id,
+                },
+                FkPayload::new(),
+            ),
         ];
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2448,7 +2528,7 @@ mod tests {
             hlc_context: &hlc_context,
         };
 
-        let result = apply_local_changes::<Entity>(&context, ops).await;
+        let result = apply_local_changes::<Entity, _>(&context, NO_OP_RESOLVER, ops).await;
         assert!(
             result.is_err(),
             "Expected transaction to fail due to unique constraint violation"
@@ -2558,8 +2638,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // ... rest of the assertions from the original test ...
         let get_records_calls = remote_source.get_records_call_ranges().await;
@@ -2574,7 +2659,7 @@ mod tests {
         let applied_ops = remote_source.get_applied_ops().await;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
-            SyncOperation::UpdateRemote(model) => {
+            SyncOperation::UpdateRemote(model, _) => {
                 assert_eq!(model.sync_id, "fetch_rec");
                 assert_eq!(model.name, "LocalData");
             }
@@ -2701,8 +2786,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // Assertions
         let sub_chunk_requests = remote_source.get_sub_chunk_requests().await;
@@ -2736,7 +2826,7 @@ mod tests {
         );
         for i in 0..record_count {
             match &applied_ops[i as usize] {
-                SyncOperation::UpdateRemote(model) => {
+                SyncOperation::UpdateRemote(model, _) => {
                     assert!(model.sync_id.starts_with("break_rec_"));
                     assert!(model.name.starts_with("Local_")); // Local data pushed
                 }
@@ -2833,8 +2923,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // Assertions
         // align_and_queue_chunks should queue FetchRange for the misaligned parts
@@ -2863,7 +2958,7 @@ mod tests {
         let inserted_remotely: Vec<_> = applied_ops
             .iter()
             .filter_map(|op| match op {
-                SyncOperation::InsertRemote(m) => Some(m.sync_id.clone()),
+                SyncOperation::InsertRemote(m, _) => Some(m.sync_id.clone()),
                 _ => None,
             })
             .collect();
@@ -2975,8 +3070,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // Assertions
         let applied_ops = remote_source.get_applied_ops().await;
@@ -3083,8 +3183,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await?;
+        let final_metadata = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await?;
 
         // Assertions
         let applied_ops = remote_source.get_applied_ops().await;
@@ -3093,10 +3198,10 @@ mod tests {
         let mut ops_map = HashMap::new();
         for op in applied_ops {
             match op {
-                SyncOperation::InsertRemote(m) => {
+                SyncOperation::InsertRemote(m, _) => {
                     ops_map.insert("insert", m);
                 }
-                SyncOperation::UpdateRemote(m) => {
+                SyncOperation::UpdateRemote(m, _) => {
                     ops_map.insert("update", m);
                 }
                 _ => {}
@@ -3154,8 +3259,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let result =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await;
+        let result = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await;
 
         assert!(result.is_err());
         let error = result.err().unwrap(); // Get the anyhow::Error
@@ -3244,8 +3354,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let result =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await;
+        let result = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await;
 
         assert!(result.is_err());
         let error = result.err().unwrap();
@@ -3305,8 +3420,13 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let result =
-            synchronize_table::<Entity, _>(&context, "test_items", &initial_metadata).await;
+        let result = synchronize_table::<Entity, _, _>(
+            &context,
+            NO_OP_RESOLVER,
+            "test_items",
+            &initial_metadata,
+        )
+        .await;
 
         assert!(result.is_err());
         let error = result.err().unwrap();
