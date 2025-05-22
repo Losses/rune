@@ -3445,4 +3445,270 @@ mod tests {
 
         Ok(())
     }
+
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+    // FOREIGN KEY RELATED TESTS
+    // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+    pub mod author_entity {
+        use std::str::FromStr;
+
+        use anyhow::{anyhow, Result};
+        use sea_orm::entity::prelude::*;
+        use sea_orm::{
+            ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
+        };
+        use serde::{Deserialize, Serialize};
+        use uuid::Uuid;
+
+        use crate::core::PrimaryKeyFromStr;
+        use crate::hlc::{HLCModel, HLCRecord, HLC};
+
+        #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+        #[sea_orm(table_name = "authors")]
+        pub struct Model {
+            #[sea_orm(primary_key, auto_increment = true)]
+            pub id: i32,
+            #[sea_orm(unique)]
+            pub sync_id: String, // Typically a UUID string
+            pub name: String,
+            #[sea_orm(column_type = "Text")]
+            pub created_at_hlc_ts: String,
+            pub created_at_hlc_ct: i32,
+            pub created_at_hlc_id: Uuid,
+            #[sea_orm(column_type = "Text")]
+            pub updated_at_hlc_ts: String,
+            pub updated_at_hlc_ct: i32,
+            pub updated_at_hlc_id: Uuid,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {
+            #[sea_orm(has_many = "super::post_entity::Entity")]
+            Post,
+        }
+
+        impl Related<super::post_entity::Entity> for Entity {
+            fn to() -> RelationDef {
+                Relation::Post.def()
+            }
+        }
+
+        impl ActiveModelBehavior for ActiveModel {}
+
+        impl HLCRecord for Model {
+            fn created_at_hlc(&self) -> Option<HLC> {
+                match chrono::DateTime::parse_from_rfc3339(&self.created_at_hlc_ts) {
+                    Ok(dt) => Some(HLC {
+                        timestamp: dt.timestamp_millis() as u64,
+                        version: self.created_at_hlc_ct as u32,
+                        node_id: self.created_at_hlc_id,
+                    }),
+                    Err(e) => {
+                        eprintln!(
+                            "Error parsing author created_at HLC timestamp {}: {}",
+                            self.created_at_hlc_ts, e
+                        );
+                        None
+                    }
+                }
+            }
+
+            fn updated_at_hlc(&self) -> Option<HLC> {
+                match chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
+                    Ok(dt) => Some(HLC {
+                        timestamp: dt.timestamp_millis() as u64,
+                        version: self.updated_at_hlc_ct as u32,
+                        node_id: self.updated_at_hlc_id,
+                    }),
+                    Err(e) => {
+                        eprintln!(
+                            "Error parsing author updated_at HLC timestamp {}: {}",
+                            self.updated_at_hlc_ts, e
+                        );
+                        None
+                    }
+                }
+            }
+
+            fn unique_id(&self) -> String {
+                self.sync_id.clone()
+            }
+
+            fn data_for_hashing(&self) -> serde_json::Value {
+                serde_json::json!({
+                    "sync_id": self.sync_id,
+                    "name": self.name,
+                })
+            }
+        }
+
+        impl HLCModel for Entity {
+            fn updated_at_time_column() -> Self::Column {
+                Column::UpdatedAtHlcTs
+            }
+            fn updated_at_version_column() -> Self::Column {
+                Column::UpdatedAtHlcCt
+            }
+            fn unique_id_column() -> Self::Column {
+                Column::SyncId
+            }
+        }
+
+        impl PrimaryKeyFromStr<<Self as PrimaryKeyTrait>::ValueType> for PrimaryKey
+        where
+            i32: FromStr,
+            <i32 as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+        {
+            fn read_key(s: &str) -> Result<<Self as PrimaryKeyTrait>::ValueType> {
+                s.parse::<i32>().map_err(|e| {
+                    anyhow!(e).context(format!(
+                        "Failed to parse primary key string '{}' as i32 for Author",
+                        s
+                    ))
+                })
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub mod post_entity {
+        use std::str::FromStr;
+
+        use anyhow::{anyhow, Result};
+        use sea_orm::entity::prelude::*;
+        use sea_orm::{
+            ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
+        };
+        use serde::{Deserialize, Serialize};
+        use uuid::Uuid;
+
+        use crate::core::PrimaryKeyFromStr;
+        use crate::hlc::{HLCModel, HLCRecord, HLC};
+
+        #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
+        #[sea_orm(table_name = "posts")]
+        pub struct Model {
+            #[sea_orm(primary_key, auto_increment = true)]
+            pub id: i32,
+            #[sea_orm(unique)]
+            pub sync_id: String, // Typically a UUID string
+            pub title: String,
+            pub author_id: i32, // Foreign Key to local author.id
+            #[sea_orm(column_type = "Text")]
+            pub created_at_hlc_ts: String,
+            pub created_at_hlc_ct: i32,
+            pub created_at_hlc_id: Uuid,
+            #[sea_orm(column_type = "Text")]
+            pub updated_at_hlc_ts: String,
+            pub updated_at_hlc_ct: i32,
+            pub updated_at_hlc_id: Uuid,
+
+            // This field is transient, only used for carrying the parent's sync_id
+            // when this model instance represents a record pulled from a remote source.
+            // It's populated by the MockRemoteDataSource during deserialization of "remote" Post records.
+            // It's NOT part of the database schema.
+            #[sea_orm(skip)]
+            pub remote_author_sync_id: Option<String>,
+        }
+
+        #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+        pub enum Relation {
+            #[sea_orm(
+                belongs_to = "super::author_entity::Entity",
+                from = "Column::AuthorId",
+                to = "super::author_entity::Column::Id",
+                on_update = "NoAction",
+                on_delete = "Cascade" // Example: posts deleted if author is deleted
+            )]
+            Author,
+        }
+
+        impl Related<super::author_entity::Entity> for Entity {
+            fn to() -> RelationDef {
+                Relation::Author.def()
+            }
+        }
+
+        impl ActiveModelBehavior for ActiveModel {}
+
+        impl HLCRecord for Model {
+            fn created_at_hlc(&self) -> Option<HLC> {
+                match chrono::DateTime::parse_from_rfc3339(&self.created_at_hlc_ts) {
+                    Ok(dt) => Some(HLC {
+                        timestamp: dt.timestamp_millis() as u64,
+                        version: self.created_at_hlc_ct as u32,
+                        node_id: self.created_at_hlc_id,
+                    }),
+                    Err(e) => {
+                        eprintln!(
+                            "Error parsing post created_at HLC timestamp {}: {}",
+                            self.created_at_hlc_ts, e
+                        );
+                        None
+                    }
+                }
+            }
+
+            fn updated_at_hlc(&self) -> Option<HLC> {
+                match chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
+                    Ok(dt) => Some(HLC {
+                        timestamp: dt.timestamp_millis() as u64,
+                        version: self.updated_at_hlc_ct as u32,
+                        node_id: self.updated_at_hlc_id,
+                    }),
+                    Err(e) => {
+                        eprintln!(
+                            "Error parsing post updated_at HLC timestamp {}: {}",
+                            self.updated_at_hlc_ts, e
+                        );
+                        None
+                    }
+                }
+            }
+
+            fn unique_id(&self) -> String {
+                self.sync_id.clone()
+            }
+
+            fn data_for_hashing(&self) -> serde_json::Value {
+                // Important: `author_id` (the local integer FK) IS included because if a post
+                // is reparented, its `author_id` changes, its HLC timestamp should change,
+                // and thus its hash should change.
+                // The `remote_author_sync_id` is NOT included as it's transient.
+                serde_json::json!({
+                    "sync_id": self.sync_id,
+                    "title": self.title,
+                    "author_id": self.author_id,
+                })
+            }
+        }
+
+        impl HLCModel for Entity {
+            fn updated_at_time_column() -> Self::Column {
+                Column::UpdatedAtHlcTs
+            }
+            fn updated_at_version_column() -> Self::Column {
+                Column::UpdatedAtHlcCt
+            }
+            fn unique_id_column() -> Self::Column {
+                Column::SyncId
+            }
+        }
+
+        impl PrimaryKeyFromStr<<Self as PrimaryKeyTrait>::ValueType> for PrimaryKey
+        where
+            i32: FromStr,
+            <i32 as FromStr>::Err: std::error::Error + Send + Sync + 'static,
+        {
+            fn read_key(s: &str) -> Result<<Self as PrimaryKeyTrait>::ValueType> {
+                s.parse::<i32>().map_err(|e| {
+                    anyhow!(e).context(format!(
+                        "Failed to parse primary key string '{}' as i32 for Post",
+                        s
+                    ))
+                })
+            }
+        }
+    }
 }
