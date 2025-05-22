@@ -3450,6 +3450,22 @@ mod tests {
     // FOREIGN KEY RELATED TESTS
     // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 
+    async fn setup_db_fk() -> Result<DbConn> {
+        let db = Database::connect("sqlite::memory:").await?;
+        let schema = Schema::new(DbBackend::Sqlite);
+        db.execute(
+            db.get_database_backend()
+                .build(&schema.create_table_from_entity(author_entity::Entity)),
+        )
+        .await?;
+        db.execute(
+            db.get_database_backend()
+                .build(&schema.create_table_from_entity(post_entity::Entity)),
+        )
+        .await?;
+        Ok(db)
+    }
+
     pub mod author_entity {
         use std::str::FromStr;
 
@@ -3710,6 +3726,55 @@ mod tests {
                 })
             }
         }
+    }
+
+    async fn insert_author_record(
+        db: &DbConn,
+        sync_id: &str,
+        name: &str,
+        created_hlc: &HLC,
+        updated_hlc: &HLC,
+    ) -> Result<author_entity::Model> {
+        let model = author_entity::ActiveModel {
+            id: NotSet,
+            sync_id: Set(sync_id.to_string()),
+            name: Set(name.to_string()),
+            created_at_hlc_ts: Set(hlc_timestamp_millis_to_rfc3339(created_hlc.timestamp)?),
+            created_at_hlc_ct: Set(created_hlc.version as i32),
+            created_at_hlc_id: Set(created_hlc.node_id),
+            updated_at_hlc_ts: Set(hlc_timestamp_millis_to_rfc3339(updated_hlc.timestamp)?),
+            updated_at_hlc_ct: Set(updated_hlc.version as i32),
+            updated_at_hlc_id: Set(updated_hlc.node_id),
+        };
+        Ok(author_entity::Entity::insert(model)
+            .exec_with_returning(db)
+            .await?)
+    }
+
+    async fn insert_post_record(
+        db: &DbConn,
+        sync_id: &str,
+        title: &str,
+        author_id_val: i32,
+        created_hlc: &HLC,
+        updated_hlc: &HLC,
+    ) -> Result<post_entity::Model> {
+        let model = post_entity::ActiveModel {
+            id: NotSet,
+            sync_id: Set(sync_id.to_string()),
+            title: Set(title.to_string()),
+            author_id: Set(author_id_val),
+            remote_author_sync_id: Set(None), // Not stored in DB, set explicitly if needed for test construction
+            created_at_hlc_ts: Set(hlc_timestamp_millis_to_rfc3339(created_hlc.timestamp)?),
+            created_at_hlc_ct: Set(created_hlc.version as i32),
+            created_at_hlc_id: Set(created_hlc.node_id),
+            updated_at_hlc_ts: Set(hlc_timestamp_millis_to_rfc3339(updated_hlc.timestamp)?),
+            updated_at_hlc_ct: Set(updated_hlc.version as i32),
+            updated_at_hlc_id: Set(updated_hlc.node_id),
+        };
+        Ok(post_entity::Entity::insert(model)
+            .exec_with_returning(db)
+            .await?)
     }
 
     use crate::foreign_key::DatabaseExecutor;
