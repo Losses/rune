@@ -125,7 +125,7 @@ pub struct SyncTableMetadata {
 
 /// Represents an action determined during conflict resolution, to be applied
 /// either locally or remotely.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SyncOperation<Model: HLCRecord> {
     /// Insert a new record locally.
     InsertLocal(Model, FkPayload),
@@ -1477,73 +1477,132 @@ mod tests {
         }
     }
 
+    type SubChunk = Vec<(DataChunk, u64)>;
+    type RecordsCalls = Vec<(HLC, HLC)>;
     #[derive(Debug, Clone)]
     struct MockRemoteDataSource {
         node_id: Uuid,
-        remote_data: Arc<TokioMutex<HashMap<String, Model>>>,
-        remote_chunks: Arc<TokioMutex<Vec<DataChunk>>>,
-        applied_ops: Arc<TokioMutex<Vec<SyncOperation<Model>>>>,
+        // Stores data for multiple tables: table_name -> sync_id -> record_json
+        remote_table_data: Arc<TokioMutex<HashMap<String, HashMap<String, serde_json::Value>>>>,
+        // Stores DataChunk for multiple tables: table_name -> Vec<DataChunk>
+        remote_table_chunks: Arc<TokioMutex<HashMap<String, Vec<DataChunk>>>>,
+        // Stores applied operations: table_name -> Vec<SyncOperation<E::Model> as json>
+        // The E::Model part is tricky here for heterogeneous ops. We'll store the SyncOperation as JSON.
+        applied_ops_by_table: Arc<TokioMutex<HashMap<String, Vec<serde_json::Value>>>>,
+
         fail_on_apply: bool,
         fail_on_get_records: bool,
         fail_on_get_chunks: bool,
         fail_on_get_sub_chunks: bool,
-        sub_chunk_requests: Arc<TokioMutex<Vec<(DataChunk, u64)>>>,
-        get_records_calls: Arc<TokioMutex<Vec<(HLC, HLC)>>>, // Track get_records calls
+        // Stores sub-chunk requests: table_name -> Vec<(DataChunk, u64)>
+        sub_chunk_requests_by_table: Arc<TokioMutex<HashMap<String, SubChunk>>>,
+        // Stores get_records calls: table_name -> Vec<(HLC, HLC)>
+        get_records_calls_by_table: Arc<TokioMutex<HashMap<String, RecordsCalls>>>,
     }
 
     impl MockRemoteDataSource {
         fn new(node_id: Uuid) -> Self {
             MockRemoteDataSource {
                 node_id,
-                remote_data: Arc::new(TokioMutex::new(HashMap::new())),
-                remote_chunks: Arc::new(TokioMutex::new(Vec::new())),
-                applied_ops: Arc::new(TokioMutex::new(Vec::new())),
+                remote_table_data: Arc::new(TokioMutex::new(HashMap::new())),
+                remote_table_chunks: Arc::new(TokioMutex::new(HashMap::new())),
+                applied_ops_by_table: Arc::new(TokioMutex::new(HashMap::new())),
                 fail_on_apply: false,
                 fail_on_get_records: false,
                 fail_on_get_chunks: false,
                 fail_on_get_sub_chunks: false,
-                sub_chunk_requests: Arc::new(TokioMutex::new(Vec::new())),
-                get_records_calls: Arc::new(TokioMutex::new(Vec::new())),
+                sub_chunk_requests_by_table: Arc::new(TokioMutex::new(HashMap::new())),
+                get_records_calls_by_table: Arc::new(TokioMutex::new(HashMap::new())),
             }
         }
 
-        async fn set_remote_data(&self, data: Vec<Model>) {
-            let mut guard = self.remote_data.lock().await;
-            guard.clear();
+        async fn set_remote_data_for_table<M: HLCRecord + Serialize>(
+            &self,
+            table_name: &str,
+            data: Vec<M>,
+        ) -> Result<()> {
+            let mut table_data_guard = self.remote_table_data.lock().await;
+            let table_map = table_data_guard.entry(table_name.to_string()).or_default();
+            table_map.clear();
             for item in data {
-                guard.insert(item.sync_id.clone(), item);
+                let sync_id = item.unique_id();
+                let item_json = serde_json::to_value(item)?;
+                table_map.insert(sync_id, item_json);
+            }
+            Ok(())
+        }
+
+        async fn set_remote_chunks_for_table(&self, table_name: &str, chunks: Vec<DataChunk>) {
+            let mut table_chunks_guard = self.remote_table_chunks.lock().await;
+            table_chunks_guard.insert(table_name.to_string(), chunks);
+        }
+
+        async fn get_applied_ops_for_table<M>(
+            &self,
+            table_name: &str,
+        ) -> Result<Vec<SyncOperation<M>>>
+        where
+            M: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
+        {
+            let guard = self.applied_ops_by_table.lock().await;
+            if let Some(ops_json_vec) = guard.get(table_name) {
+                ops_json_vec
+                    .iter()
+                    .map(|json_val| {
+                        serde_json::from_value(json_val.clone()).map_err(anyhow::Error::from)
+                    })
+                    .collect()
+            } else {
+                Ok(Vec::new())
             }
         }
 
-        async fn set_remote_chunks(&self, chunks: Vec<DataChunk>) {
-            let mut guard = self.remote_chunks.lock().await;
-            *guard = chunks;
+        async fn get_sub_chunk_requests_for_table(
+            &self,
+            table_name: &str,
+        ) -> Vec<(DataChunk, u64)> {
+            self.sub_chunk_requests_by_table
+                .lock()
+                .await
+                .get(table_name)
+                .cloned()
+                .unwrap_or_default()
         }
 
-        async fn get_applied_ops(&self) -> Vec<SyncOperation<Model>> {
-            self.applied_ops.lock().await.clone()
+        async fn get_records_call_ranges_for_table(&self, table_name: &str) -> Vec<(HLC, HLC)> {
+            self.get_records_calls_by_table
+                .lock()
+                .await
+                .get(table_name)
+                .cloned()
+                .unwrap_or_default()
         }
 
-        async fn get_sub_chunk_requests(&self) -> Vec<(DataChunk, u64)> {
-            self.sub_chunk_requests.lock().await.clone()
-        }
-
-        async fn get_records_call_ranges(&self) -> Vec<(HLC, HLC)> {
-            self.get_records_calls.lock().await.clone()
-        }
-
-        // Helper to clear mock state between tests if needed
-        #[allow(dead_code)]
-        async fn clear(&mut self) {
-            self.remote_data.lock().await.clear();
-            self.remote_chunks.lock().await.clear();
-            self.applied_ops.lock().await.clear();
-            self.sub_chunk_requests.lock().await.clear();
-            self.get_records_calls.lock().await.clear();
-            self.fail_on_apply = false;
-            self.fail_on_get_records = false;
-            self.fail_on_get_chunks = false;
-            self.fail_on_get_sub_chunks = false;
+        async fn get_remote_record_as_model<M>(
+            &self,
+            table_name: &str,
+            sync_id: &str,
+        ) -> Result<Option<M>>
+        where
+            M: HLCRecord + for<'de> Deserialize<'de>,
+        {
+            let data_guard = self.remote_table_data.lock().await;
+            if let Some(table_data_json) = data_guard.get(table_name) {
+                if let Some(record_json) = table_data_json.get(sync_id) {
+                    let model: M =
+                        serde_json::from_value(record_json.clone()).with_context(|| {
+                            format!(
+                                "Failed to deserialize mock record {} from table {}",
+                                sync_id, table_name
+                            )
+                        })?;
+                    Ok(Some(model))
+                } else {
+                    Ok(None) // Record with sync_id not found in table
+                }
+            } else {
+                Ok(None) // Table not found
+            }
         }
     }
 
@@ -1555,24 +1614,28 @@ mod tests {
 
         async fn get_remote_chunks<E>(
             &self,
-            _table_name: &str,
+            table_name: &str,
             after_hlc: Option<&HLC>,
         ) -> Result<Vec<DataChunk>>
         where
             E: HLCModel + EntityTrait + Send + Sync,
-            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize + Debug,
+            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
         {
             if self.fail_on_get_chunks {
-                return Err(anyhow!("Simulated failure getting remote chunks"));
+                return Err(anyhow!(
+                    "Simulated failure getting remote chunks for table {}",
+                    table_name
+                ));
             }
-            let guard = self.remote_chunks.lock().await;
+            let guard = self.remote_table_chunks.lock().await;
+            let table_specific_chunks = guard.get(table_name).cloned().unwrap_or_default();
+
             let filtered_chunks = match after_hlc {
-                Some(start) => guard
-                    .iter()
-                    .filter(|c| &c.start_hlc > start) // Compare &HLC with &HLC
-                    .cloned()
+                Some(start) => table_specific_chunks
+                    .into_iter()
+                    .filter(|c| &c.start_hlc > start)
                     .collect(),
-                None => guard.clone(),
+                None => table_specific_chunks,
             };
             let mut sorted = filtered_chunks;
             sorted.sort_by(|a, b| a.start_hlc.cmp(&b.start_hlc));
@@ -1581,39 +1644,50 @@ mod tests {
 
         async fn get_remote_sub_chunks<E>(
             &self,
-            _table_name: &str,
+            table_name: &str,
             parent_chunk: &DataChunk,
             sub_chunk_size: u64,
         ) -> Result<Vec<DataChunk>>
         where
             E: HLCModel + EntityTrait + Send + Sync,
-            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize + Debug,
+            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
         {
-            // Record the request
-            self.sub_chunk_requests
+            self.sub_chunk_requests_by_table
                 .lock()
                 .await
+                .entry(table_name.to_string())
+                .or_default()
                 .push((parent_chunk.clone(), sub_chunk_size));
 
             if self.fail_on_get_sub_chunks {
-                return Err(anyhow!("Simulated failure getting remote sub-chunks"));
+                return Err(anyhow!(
+                    "Simulated failure getting remote sub-chunks for table {}",
+                    table_name
+                ));
             }
-            // Simulate breakdown based on actual remote data
-            let data_guard = self.remote_data.lock().await;
-            let mut records_in_range: Vec<Model> = data_guard
-                .values()
-                .filter_map(|m| {
-                    m.updated_at_hlc().and_then(|hlc| {
-                        // Inclusive range check
-                        if hlc >= parent_chunk.start_hlc && hlc <= parent_chunk.end_hlc {
-                            Some(m.clone())
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect();
-            records_in_range.sort_by_key(|m| m.updated_at_hlc()); // Sort by HLC
+
+            let data_guard = self.remote_table_data.lock().await;
+            let table_specific_data_json = match data_guard.get(table_name) {
+                Some(data) => data,
+                None => return Ok(Vec::new()), // No data for this table
+            };
+
+            let mut records_in_range: Vec<E::Model> = Vec::new();
+            for record_json in table_specific_data_json.values() {
+                let record: E::Model =
+                    serde_json::from_value(record_json.clone()).with_context(|| {
+                        format!(
+                            "Failed to deserialize record for sub-chunking in table {}",
+                            table_name
+                        )
+                    })?;
+                if let Some(hlc) = record.updated_at_hlc() {
+                    if hlc >= parent_chunk.start_hlc && hlc <= parent_chunk.end_hlc {
+                        records_in_range.push(record);
+                    }
+                }
+            }
+            records_in_range.sort_by_key(|m| m.updated_at_hlc());
 
             let mut sub_chunks = Vec::new();
             if records_in_range.is_empty() {
@@ -1628,8 +1702,7 @@ mod tests {
                 let first_hlc = chunk_slice.first().unwrap().updated_at_hlc().unwrap();
                 let last_hlc = chunk_slice.last().unwrap().updated_at_hlc().unwrap();
                 let count = chunk_slice.len() as u64;
-                // Calculate hash based on the concrete Model type
-                let hash = calculate_chunk_hash::<Model>(chunk_slice)
+                let hash = calculate_chunk_hash::<E::Model>(chunk_slice)
                     .context("Failed to calculate sub-chunk hash")?;
 
                 sub_chunks.push(DataChunk {
@@ -1644,134 +1717,121 @@ mod tests {
 
         async fn get_remote_records_in_hlc_range<E>(
             &self,
-            _table_name: &str,
+            table_name: &str,
             start_hlc: &HLC,
             end_hlc: &HLC,
         ) -> Result<Vec<E::Model>>
         where
             E: HLCModel + EntityTrait + Send + Sync,
-            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize + Debug, // Added Debug
+            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
         {
-            // Record the call
-            self.get_records_calls
+            self.get_records_calls_by_table
                 .lock()
                 .await
+                .entry(table_name.to_string())
+                .or_default()
                 .push((start_hlc.clone(), end_hlc.clone()));
 
             if self.fail_on_get_records {
-                return Err(anyhow!("Simulated failure getting remote records"));
+                return Err(anyhow!(
+                    "Simulated failure getting remote records for table {}",
+                    table_name
+                ));
             }
-            let guard = self.remote_data.lock().await;
-            let mut records: Vec<Model> = guard // Use concrete Model type
-                .values()
-                .filter_map(|m| {
-                    m.updated_at_hlc().and_then(|hlc| {
-                        // Inclusive range check
-                        if hlc >= *start_hlc && hlc <= *end_hlc {
-                            Some(m.clone())
-                        } else {
-                            None
-                        }
-                    })
-                })
-                .collect();
-            records.sort_by_key(|m| m.updated_at_hlc()); // Ensure sorted order
 
-            // Convert Vec<Model> to Vec<E::Model> using Serde for safety
-            let mut result_vec = Vec::new();
-            for model in records {
-                let json_val =
-                    serde_json::to_value(&model).context("Failed to serialize mock record")?;
-                let e_model: E::Model = serde_json::from_value(json_val)
-                    .context("Failed to deserialize mock record into target type")?;
-                result_vec.push(e_model);
+            let data_guard = self.remote_table_data.lock().await;
+            let table_specific_data_json = match data_guard.get(table_name) {
+                Some(data) => data,
+                None => return Ok(Vec::new()),
+            };
+
+            let mut records: Vec<E::Model> = Vec::new();
+            for record_json in table_specific_data_json.values() {
+                let record: E::Model =
+                    serde_json::from_value(record_json.clone()).with_context(|| {
+                        format!(
+                            "Failed to deserialize record for HLC range fetch in table {}",
+                            table_name
+                        )
+                    })?;
+                if let Some(hlc) = record.updated_at_hlc() {
+                    if hlc >= *start_hlc && hlc <= *end_hlc {
+                        records.push(record);
+                    }
+                }
             }
-            Ok(result_vec)
+            records.sort_by_key(|m| m.updated_at_hlc());
+            Ok(records)
         }
 
         async fn apply_remote_changes<E>(
             &self,
-            _table_name: &str,
+            table_name: &str,
             operations: Vec<SyncOperation<E::Model>>,
         ) -> Result<HLC>
         where
             E: HLCModel + EntityTrait + Send + Sync,
-            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize + Debug, // Added Debug
+            E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
         {
             if self.fail_on_apply {
-                return Err(anyhow!("Simulated remote apply failure"));
+                return Err(anyhow!(
+                    "Simulated remote apply failure for table {}",
+                    table_name
+                ));
             }
 
-            let mut data_guard = self.remote_data.lock().await;
-            let mut ops_guard = self.applied_ops.lock().await;
-            let mut max_hlc = HLC::new(self.node_id); // Start with a base HLC
+            let mut data_map_guard = self.remote_table_data.lock().await;
+            let table_data = data_map_guard.entry(table_name.to_string()).or_default();
+
+            let mut ops_map_guard = self.applied_ops_by_table.lock().await;
+            let table_ops_json = ops_map_guard.entry(table_name.to_string()).or_default();
+
+            let mut max_hlc = HLC::new(self.node_id);
 
             for op in operations {
-                // Convert E::Model to concrete Model for storage/logging in mock
-                let op_model: SyncOperation<Model> = match op {
-                    SyncOperation::InsertRemote(m, payload) => {
-                        // Separate arm for InsertRemote
-                        let json_val = serde_json::to_value(&m)
-                            .context("Serialize failed in InsertRemote arm")?;
-                        let model: Model = serde_json::from_value(json_val)
-                            .context("Deserialize failed in InsertRemote arm")?;
-                        SyncOperation::InsertRemote(model, payload)
-                    }
-                    SyncOperation::UpdateRemote(m, payload) => {
-                        // Separate arm for UpdateRemote
-                        let json_val = serde_json::to_value(&m)
-                            .context("Serialize failed in UpdateRemote arm")?;
-                        let model: Model = serde_json::from_value(json_val)
-                            .context("Deserialize failed in UpdateRemote arm")?;
-                        SyncOperation::UpdateRemote(model, payload)
-                    }
-                    SyncOperation::DeleteRemote(sync_id) => SyncOperation::DeleteRemote(sync_id),
-                    // These shouldn't normally be passed here, but handle for completeness/logging
-                    SyncOperation::InsertLocal(m, payload) => SyncOperation::InsertLocal(
-                        serde_json::from_value(serde_json::to_value(&m)?)?,
-                        payload,
-                    ),
-                    SyncOperation::UpdateLocal(m, payload) => SyncOperation::UpdateLocal(
-                        serde_json::from_value(serde_json::to_value(&m)?)?,
-                        payload,
-                    ),
-                    SyncOperation::DeleteLocal(pk_str) => SyncOperation::DeleteLocal(pk_str),
-                    SyncOperation::NoOp(sync_id) => SyncOperation::NoOp(sync_id),
-                };
+                let op_json = serde_json::to_value(&op).with_context(|| {
+                    format!("Failed to serialize SyncOperation for table {}", table_name)
+                })?;
+                table_ops_json.push(op_json);
 
-                ops_guard.push(op_model.clone()); // Store the concrete operation
-
-                // Simulate applying the change to the mock's data store
-                match op_model {
+                match op {
                     SyncOperation::InsertRemote(model, _)
                     | SyncOperation::UpdateRemote(model, _) => {
                         if let Some(hlc) = model.updated_at_hlc() {
                             if hlc > max_hlc {
-                                max_hlc = hlc; // Use clone here? No, hlc is owned/moved or copied
+                                max_hlc = hlc;
                             }
                         }
-                        data_guard.insert(model.sync_id.clone(), model);
+                        let model_sync_id = model.unique_id();
+                        let model_json = serde_json::to_value(model).with_context(|| {
+                            format!(
+                                "Failed to serialize model for remote storage in table {}",
+                                table_name
+                            )
+                        })?;
+                        table_data.insert(model_sync_id, model_json);
                     }
                     SyncOperation::DeleteRemote(sync_id) => {
-                        data_guard.remove(&sync_id);
-                        // Deletes don't typically contribute to max_hlc unless tracked via tombstone HLC
+                        table_data.remove(&sync_id);
                     }
-                    // Ignore local ops or NoOps for data modification and max_hlc
-                    _ => {}
+                    _ => {} // NoOps or local ops ignored for remote data modification
                 }
             }
-            // If no operations modified data, return the node's base HLC, otherwise return max_hlc found
-            if ops_guard.iter().any(|op| {
+
+            if table_ops_json.iter().any(|op_val| {
+                // Check if any "real" ops were processed
+                let op_type_str = op_val
+                    .as_object()
+                    .and_then(|o| o.keys().next())
+                    .map(|s| s.as_str());
                 matches!(
-                    op,
-                    SyncOperation::InsertRemote(_, _)
-                        | SyncOperation::UpdateRemote(_, _)
-                        | SyncOperation::DeleteRemote(_)
+                    op_type_str,
+                    Some("InsertRemote") | Some("UpdateRemote") | Some("DeleteRemote")
                 )
             }) {
                 Ok(max_hlc)
             } else {
-                Ok(HLC::new(self.node_id)) // Return base HLC if no real ops
+                Ok(HLC::new(self.node_id))
             }
         }
 
@@ -1845,7 +1905,10 @@ mod tests {
         // Insert identical record locally and remotely
         let record =
             insert_test_record(&db, "sync_nochange", "Same", Some(1), &data_hlc, &data_hlc).await?;
-        remote_source.set_remote_data(vec![record.clone()]).await;
+        remote_source
+            .set_remote_data_for_table("test_items", vec![record.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         let hlc_context = SyncTaskContext::new(local_node_id);
         let options = ChunkingOptions {
@@ -1870,7 +1933,9 @@ mod tests {
 
         // Generate local chunks and set them as remote chunks for the mock
         let local_chunks = generate_data_chunks::<Entity>(&db, &options, Some(start_hlc)).await?;
-        remote_source.set_remote_chunks(local_chunks.clone()).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", local_chunks.clone())
+            .await;
 
         assert!(
             !local_chunks.is_empty(),
@@ -1886,7 +1951,9 @@ mod tests {
         .await?;
 
         // Assertions
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert!(
             applied_ops
                 .iter()
@@ -1894,7 +1961,9 @@ mod tests {
             "No real operations should have been applied remotely"
         ); // Should be NoOp
 
-        let get_records_calls = remote_source.get_records_call_ranges().await;
+        let get_records_calls = remote_source
+            .get_records_call_ranges_for_table("test_items")
+            .await;
         assert!(
             get_records_calls.is_empty(),
             "Should not have fetched records when chunks match"
@@ -1940,7 +2009,9 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
         // Remote has no chunks initially
-        remote_source.set_remote_chunks(vec![]).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![])
+            .await;
 
         let final_metadata = synchronize_table::<Entity, _, _>(
             &context,
@@ -1950,7 +2021,9 @@ mod tests {
         )
         .await?;
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
             SyncOperation::InsertRemote(model, _) => {
@@ -1961,9 +2034,15 @@ mod tests {
             _ => panic!("Expected InsertRemote operation"),
         }
 
-        let remote_data_guard = remote_source.remote_data.lock().await;
-        assert_eq!(remote_data_guard.len(), 1);
-        assert!(remote_data_guard.contains_key("sync_local1"));
+        let remote_record_after_sync: Option<test_entity::Model> = remote_source
+            .get_remote_record_as_model("test_items", "sync_local1")
+            .await?;
+
+        assert!(
+            remote_record_after_sync.is_some(),
+            "Record 'sync_local1' should exist remotely after push"
+        );
+        assert_eq!(remote_record_after_sync.unwrap().name, "NewLocal");
 
         let local_final_data = Entity::find().all(&db).await?;
         assert_eq!(local_final_data.len(), 1); // Local data remains
@@ -1994,15 +2073,18 @@ mod tests {
             updated_at_hlc_id: hlc1.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await
+            .expect("Failed to set remote data");
         let remote_chunk = DataChunk {
             start_hlc: hlc1.clone(),
             end_hlc: hlc1.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record])?,
         };
-        remote_source.set_remote_chunks(vec![remote_chunk]).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk])
+            .await;
 
         let hlc_context = SyncTaskContext::new(local_node_id);
         let options = ChunkingOptions {
@@ -2032,7 +2114,9 @@ mod tests {
         )
         .await?;
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert!(
             applied_ops.is_empty()
                 || applied_ops
@@ -2060,7 +2144,7 @@ mod tests {
 
         let start_hlc = hlc(BASE_TS, 0, LOCAL_NODE_STR);
         let hlc_remote_old = hlc(BASE_TS + 100, 0, REMOTE_NODE_STR);
-        let hlc_local_new = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR); // Local has higher HLC
+        let hlc_local_new = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR);
 
         // Initial state: Both have the record, but local is newer
         let _local_initial = insert_test_record(
@@ -2071,22 +2155,23 @@ mod tests {
             &hlc_remote_old,
             &hlc_local_new,
         )
-        .await?; // Use remote HLC for creation, local for update
-        let remote_record = Model {
-            id: 998, // Mock PK
+        .await?;
+        let remote_record = test_entity::Model {
+            // Use test_entity::Model
+            id: 998,
             sync_id: "sync_conflict1".to_string(),
             name: "RemoteOld".to_string(),
             value: Some(99),
             created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_old.timestamp)?,
             created_at_hlc_ct: hlc_remote_old.version as i32,
             created_at_hlc_id: hlc_remote_old.node_id,
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_old.timestamp)?, // Older HLC
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_old.timestamp)?,
             updated_at_hlc_ct: hlc_remote_old.version as i32,
             updated_at_hlc_id: hlc_remote_old.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await?; // Added await and error propagation
 
         // Setup chunks - need one local, one remote covering the HLCs, with different hashes
         let options = ChunkingOptions {
@@ -2096,24 +2181,36 @@ mod tests {
             node_id: local_node_id,
         };
         let local_chunks =
-            generate_data_chunks::<Entity>(&db, &options, Some(start_hlc.clone())).await?;
-        let remote_chunk = DataChunk {
-            start_hlc: hlc_remote_old.clone(), // Assume remote chunk covers its update time
+            generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
+                .await?; // Use test_entity::Entity
+        let remote_chunk_data = DataChunk {
+            // Renamed to avoid conflict with remote_chunk if it was used later
+            start_hlc: hlc_remote_old.clone(),
             end_hlc: hlc_remote_old.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record])?,
         };
-        remote_source.set_remote_chunks(vec![remote_chunk]).await;
-        // Ensure local chunk covers its HLC too
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned remote_chunk_data
+            .await;
+
         assert!(
             local_chunks
                 .iter()
                 .any(|c| c.start_hlc <= hlc_local_new && c.end_hlc >= hlc_local_new),
             "Local chunk should cover the new HLC"
         );
+
+        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
+        let actual_remote_chunks = remote_chunks_guard
+            .get("test_items")
+            .expect("Remote chunks for 'test_items' should exist");
+        assert!(
+            !actual_remote_chunks.is_empty(),
+            "Remote chunks should not be empty"
+        );
         assert_ne!(
-            local_chunks[0].chunk_hash,
-            remote_source.remote_chunks.lock().await[0].chunk_hash,
+            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
             "Chunk hashes must differ"
         );
 
@@ -2131,7 +2228,8 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata = synchronize_table::<Entity, _, _>(
+        let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
+            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2139,7 +2237,9 @@ mod tests {
         )
         .await?;
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
             SyncOperation::UpdateRemote(model, _) => {
@@ -2150,17 +2250,20 @@ mod tests {
             op => panic!("Expected UpdateRemote operation, got {:?}", op),
         }
 
-        let remote_data_guard = remote_source.remote_data.lock().await;
-        assert_eq!(remote_data_guard.len(), 1);
-        assert_eq!(
-            remote_data_guard.get("sync_conflict1").unwrap().name,
-            "LocalWin"
-        );
+        let remote_record_after_sync: Option<test_entity::Model> = remote_source
+            .get_remote_record_as_model("test_items", "sync_conflict1")
+            .await?;
 
-        let local_final_data = Entity::find().all(&db).await?;
+        assert!(
+            remote_record_after_sync.is_some(),
+            "Record 'sync_conflict1' should exist remotely after update"
+        );
+        assert_eq!(remote_record_after_sync.unwrap().name, "LocalWin");
+
+        let local_final_data = test_entity::Entity::find().all(&db).await?;
         assert_eq!(local_final_data.len(), 1);
-        assert_eq!(local_final_data[0].name, "LocalWin"); // Local data remains the winner
-        assert_eq!(final_metadata.last_sync_hlc, hlc_local_new); // Max HLC encountered
+        assert_eq!(local_final_data[0].name, "LocalWin");
+        assert_eq!(final_metadata.last_sync_hlc, hlc_local_new);
 
         Ok(())
     }
@@ -2174,7 +2277,7 @@ mod tests {
 
         let start_hlc = hlc(BASE_TS, 0, LOCAL_NODE_STR);
         let hlc_local_old = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
-        let hlc_remote_new = hlc(BASE_TS + 200, 0, REMOTE_NODE_STR); // Remote has higher HLC
+        let hlc_remote_new = hlc(BASE_TS + 200, 0, REMOTE_NODE_STR);
 
         // Initial state: Both have the record, but remote is newer
         let _local_initial = insert_test_record(
@@ -2186,21 +2289,22 @@ mod tests {
             &hlc_local_old,
         )
         .await?;
-        let remote_record = Model {
-            id: 997, // Mock PK
+        let remote_record = test_entity::Model {
+            // Use test_entity::Model
+            id: 997,
             sync_id: "sync_conflict2".to_string(),
             name: "RemoteWin".to_string(),
             value: Some(100),
-            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?, // Assume same creation HLC for simplicity
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?,
             created_at_hlc_ct: hlc_local_old.version as i32,
             created_at_hlc_id: hlc_local_old.node_id,
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?, // Newer HLC
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?,
             updated_at_hlc_ct: hlc_remote_new.version as i32,
             updated_at_hlc_id: hlc_remote_new.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await?; // Added await and error propagation
 
         // Setup chunks
         let options = ChunkingOptions {
@@ -2210,18 +2314,32 @@ mod tests {
             node_id: local_node_id,
         };
         let local_chunks =
-            generate_data_chunks::<Entity>(&db, &options, Some(start_hlc.clone())).await?;
-        let remote_chunk = DataChunk {
-            start_hlc: hlc_remote_new.clone(), // Chunk covers the new HLC
+            generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
+                .await?; // Use test_entity::Entity
+        let remote_chunk_data = DataChunk {
+            // Renamed
+            start_hlc: hlc_remote_new.clone(),
             end_hlc: hlc_remote_new.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
         };
-        remote_source.set_remote_chunks(vec![remote_chunk]).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned
+            .await;
         assert!(!local_chunks.is_empty());
+
+        // MODIFIED: Access remote_table_chunks correctly
+        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
+        let actual_remote_chunks = remote_chunks_guard
+            .get("test_items")
+            .expect("Remote chunks for 'test_items' should exist");
+        assert!(
+            !actual_remote_chunks.is_empty(),
+            "Remote chunks should not be empty"
+        );
         assert_ne!(
-            local_chunks[0].chunk_hash,
-            remote_source.remote_chunks.lock().await[0].chunk_hash
+            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
+            "Chunk hashes must differ"
         );
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2238,7 +2356,8 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata = synchronize_table::<Entity, _, _>(
+        let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
+            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2246,23 +2365,25 @@ mod tests {
         )
         .await?;
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert!(
             applied_ops.is_empty()
                 || applied_ops
                     .iter()
                     .all(|op| matches!(op, SyncOperation::NoOp(_))),
             "No real ops should be sent to remote"
-        ); // Remote already has winner
+        );
 
-        let local_final_data = Entity::find().all(&db).await?;
+        let local_final_data = test_entity::Entity::find().all(&db).await?;
         assert_eq!(local_final_data.len(), 1);
-        assert_eq!(local_final_data[0].name, "RemoteWin"); // Local data updated
+        assert_eq!(local_final_data[0].name, "RemoteWin");
         assert_eq!(
             local_final_data[0].updated_at_hlc().unwrap(),
             hlc_remote_new
         );
-        assert_eq!(final_metadata.last_sync_hlc, hlc_remote_new); // Max HLC encountered
+        assert_eq!(final_metadata.last_sync_hlc, hlc_remote_new);
 
         Ok(())
     }
@@ -2270,20 +2391,20 @@ mod tests {
     #[tokio::test]
     async fn test_synchronize_table_tie_break_local_wins() -> Result<()> {
         let db = setup_db().await?;
-        let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?; // Smaller UUID
+        let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
         let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
         let remote_source = MockRemoteDataSource::new(remote_node_id);
 
         let start_hlc = hlc(BASE_TS, 0, LOCAL_NODE_STR);
-        let common_hlc = hlc(BASE_TS + 100, 0, &local_node_id.to_string()); // Base HLC ts/v
+        let common_hlc_base_ts_ver = hlc(BASE_TS + 100, 0, &local_node_id.to_string()); // Placeholder node_id, will be overridden
         let hlc_local_tie = HLC {
             node_id: local_node_id,
-            ..common_hlc
+            ..common_hlc_base_ts_ver.clone() // Clone the base part
         };
         let hlc_remote_tie = HLC {
             node_id: remote_node_id,
-            ..common_hlc
-        }; // Same ts/v, different node
+            ..common_hlc_base_ts_ver.clone() // Clone the base part
+        };
 
         // Initial state: Both updated to the same HLC ts/v, but with different node IDs and data
         let _local_initial = insert_test_record(
@@ -2291,25 +2412,26 @@ mod tests {
             "sync_tie1",
             "LocalTie",
             Some(1),
-            &common_hlc,
+            &common_hlc_base_ts_ver, // Use base for creation for simplicity
             &hlc_local_tie,
         )
         .await?;
-        let remote_record = Model {
-            id: 996, // Mock PK
+        let remote_record = test_entity::Model {
+            // Use test_entity::Model
+            id: 996,
             sync_id: "sync_tie1".to_string(),
             name: "RemoteTie".to_string(),
             value: Some(2),
-            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(common_hlc.timestamp)?,
-            created_at_hlc_ct: common_hlc.version as i32,
-            created_at_hlc_id: common_hlc.node_id,
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_tie.timestamp)?, // Same ts
-            updated_at_hlc_ct: hlc_remote_tie.version as i32,                              // Same v
-            updated_at_hlc_id: hlc_remote_tie.node_id, // Different node
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(common_hlc_base_ts_ver.timestamp)?,
+            created_at_hlc_ct: common_hlc_base_ts_ver.version as i32,
+            created_at_hlc_id: common_hlc_base_ts_ver.node_id, // Could be either, doesn't affect tie-break logic for update
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_tie.timestamp)?,
+            updated_at_hlc_ct: hlc_remote_tie.version as i32,
+            updated_at_hlc_id: hlc_remote_tie.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await?; // Added await and error propagation
 
         // Setup chunks - need differing hashes
         let options = ChunkingOptions {
@@ -2319,14 +2441,18 @@ mod tests {
             node_id: local_node_id,
         };
         let local_chunks =
-            generate_data_chunks::<Entity>(&db, &options, Some(start_hlc.clone())).await?;
-        let remote_chunk = DataChunk {
-            start_hlc: hlc_remote_tie.clone(), // Chunk HLC is specific to node
+            generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
+                .await?; // Use test_entity::Entity
+        let remote_chunk_data = DataChunk {
+            // Renamed
+            start_hlc: hlc_remote_tie.clone(),
             end_hlc: hlc_remote_tie.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record])?,
         };
-        remote_source.set_remote_chunks(vec![remote_chunk]).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data])
+            .await;
         assert!(!local_chunks.is_empty());
         // The start/end HLCs will differ due to node_id, so align_and_queue_chunks will likely FetchRange.
         // Let's ensure the test doesn't rely on specific chunk alignment logic details.
@@ -2345,7 +2471,8 @@ mod tests {
             last_sync_hlc: start_hlc.clone(),
         };
 
-        let final_metadata = synchronize_table::<Entity, _, _>(
+        let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
+            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2353,20 +2480,31 @@ mod tests {
         )
         .await?;
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
             SyncOperation::UpdateRemote(model, _) => {
                 assert_eq!(model.sync_id, "sync_tie1");
-                assert_eq!(model.name, "LocalTie"); // Local wins tie-break
+                assert_eq!(model.name, "LocalTie");
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc_local_tie);
             }
             op => panic!("Expected UpdateRemote operation, got {:?}", op),
         }
 
-        let remote_data_guard = remote_source.remote_data.lock().await;
-        assert_eq!(remote_data_guard.get("sync_tie1").unwrap().name, "LocalTie");
-        let local_final_data = Entity::find().all(&db).await?;
+        // MODIFIED: Use the new helper to check remote state
+        let remote_record_after_sync: Option<test_entity::Model> = remote_source
+            .get_remote_record_as_model("test_items", "sync_tie1")
+            .await?;
+
+        assert!(
+            remote_record_after_sync.is_some(),
+            "Record 'sync_tie1' should exist remotely after tie-break update"
+        );
+        assert_eq!(remote_record_after_sync.unwrap().name, "LocalTie");
+
+        let local_final_data = test_entity::Entity::find().all(&db).await?;
         assert_eq!(local_final_data[0].name, "LocalTie");
 
         // Max HLC encountered should be the one with the higher node ID when ts/v are equal
@@ -2580,8 +2718,9 @@ mod tests {
             updated_at_hlc_id: common_hlc.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         // Setup chunks (count=1, below threshold)
         let options = ChunkingOptions {
@@ -2599,7 +2738,7 @@ mod tests {
             chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?, // Hash based on remote data
         };
         remote_source
-            .set_remote_chunks(vec![remote_chunk.clone()])
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk.clone()])
             .await;
 
         // Assertions on setup
@@ -2647,7 +2786,9 @@ mod tests {
         .await?;
 
         // ... rest of the assertions from the original test ...
-        let get_records_calls = remote_source.get_records_call_ranges().await;
+        let get_records_calls = remote_source
+            .get_records_call_ranges_for_table("test_items")
+            .await;
         assert_eq!(
             get_records_calls.len(),
             1,
@@ -2656,7 +2797,9 @@ mod tests {
         assert_eq!(get_records_calls[0].0, common_hlc);
         assert_eq!(get_records_calls[0].1, common_hlc);
 
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(applied_ops.len(), 1);
         match &applied_ops[0] {
             SyncOperation::UpdateRemote(model, _) => {
@@ -2728,7 +2871,10 @@ mod tests {
         let chunk_hlc_end = current_hlc.clone(); // HLC of the last record
         let chunk_hlc_start = first_record_hlc.expect("Should have inserted at least one record"); // <--- Use the actual first HLC
 
-        remote_source.set_remote_data(remote_records.clone()).await;
+        remote_source
+            .set_remote_data_for_table("test_items", remote_records.clone())
+            .await
+            .expect("Failed to set remote data");
 
         // Setup chunks (count > threshold)
         let options = ChunkingOptions {
@@ -2746,7 +2892,7 @@ mod tests {
             chunk_hash: calculate_chunk_hash(&remote_records)?, // Different hash
         };
         remote_source
-            .set_remote_chunks(vec![remote_chunk.clone()])
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk.clone()])
             .await;
 
         // Assertions
@@ -2795,7 +2941,9 @@ mod tests {
         .await?;
 
         // Assertions
-        let sub_chunk_requests = remote_source.get_sub_chunk_requests().await;
+        let sub_chunk_requests = remote_source
+            .get_sub_chunk_requests_for_table("test_items")
+            .await;
         assert_eq!(
             sub_chunk_requests.len(),
             1,
@@ -2811,14 +2959,18 @@ mod tests {
         ); // Target size is threshold
 
         // Since sub-chunks will also likely mismatch, record fetching will happen eventually
-        let get_records_calls = remote_source.get_records_call_ranges().await;
+        let get_records_calls = remote_source
+            .get_records_call_ranges_for_table("test_items")
+            .await;
         assert!(
             !get_records_calls.is_empty(),
             "Should have eventually fetched records for sub-chunks"
         );
 
         // Conflict resolution (tie-break, local wins)
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(
             applied_ops.len(),
             record_count as usize,
@@ -2882,8 +3034,9 @@ mod tests {
             updated_at_hlc_id: hlc4.node_id,
         };
         remote_source
-            .set_remote_data(vec![r1.clone(), r2.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![r1.clone(), r2.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         // Setup chunks
         let options = ChunkingOptions {
@@ -2901,7 +3054,7 @@ mod tests {
             chunk_hash: calculate_chunk_hash(&[r1.clone(), r2.clone()])?,
         };
         remote_source
-            .set_remote_chunks(vec![remote_chunk.clone()])
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk.clone()])
             .await;
 
         assert_eq!(local_chunks.len(), 1);
@@ -2933,7 +3086,9 @@ mod tests {
 
         // Assertions
         // align_and_queue_chunks should queue FetchRange for the misaligned parts
-        let get_records_calls = remote_source.get_records_call_ranges().await;
+        let get_records_calls = remote_source
+            .get_records_call_ranges_for_table("test_items")
+            .await;
         // Expect FetchRange for local chunk's range [hlc1-hlc2] and remote chunk's range [hlc3-hlc4]
         assert!(
             get_records_calls
@@ -2954,7 +3109,9 @@ mod tests {
         );
 
         // Check final state: Local inserts remotely, remote inserts locally
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         let inserted_remotely: Vec<_> = applied_ops
             .iter()
             .filter_map(|op| match op {
@@ -3030,8 +3187,9 @@ mod tests {
             updated_at_hlc_id: hlc_remote_update.node_id,
         };
         remote_source
-            .set_remote_data(vec![r_new.clone(), r_update.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![r_new.clone(), r_update.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         // Setup remote chunks
         let options = ChunkingOptions {
@@ -3053,7 +3211,7 @@ mod tests {
             chunk_hash: calculate_chunk_hash(&[r_update.clone()])?,
         };
         remote_source
-            .set_remote_chunks(vec![remote_chunk1, remote_chunk2])
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk1, remote_chunk2])
             .await;
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -3079,7 +3237,9 @@ mod tests {
         .await?;
 
         // Assertions
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert!(
             applied_ops.is_empty()
                 || applied_ops
@@ -3152,7 +3312,10 @@ mod tests {
             updated_at_hlc_ct: hlc_remote_old.version as i32,
             updated_at_hlc_id: hlc_remote_old.node_id,
         };
-        remote_source.set_remote_data(vec![r_old.clone()]).await;
+        remote_source
+            .set_remote_data_for_table("test_items", vec![r_old.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         // Setup remote chunks
         let options = ChunkingOptions {
@@ -3167,7 +3330,9 @@ mod tests {
             count: 1,
             chunk_hash: calculate_chunk_hash(&[r_old.clone()])?,
         };
-        remote_source.set_remote_chunks(vec![remote_chunk]).await;
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk])
+            .await;
 
         let hlc_context = SyncTaskContext::new(local_node_id);
         let context = SyncContext {
@@ -3192,7 +3357,9 @@ mod tests {
         .await?;
 
         // Assertions
-        let applied_ops = remote_source.get_applied_ops().await;
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<test_entity::Model>("test_items")
+            .await?;
         assert_eq!(applied_ops.len(), 2); // InsertNew + UpdateExisting
 
         let mut ops_map = HashMap::new();
@@ -3308,8 +3475,9 @@ mod tests {
             updated_at_hlc_id: data_hlc.node_id,
         };
         remote_source
-            .set_remote_data(vec![remote_record.clone()])
-            .await;
+            .set_remote_data_for_table("test_items", vec![remote_record.clone()])
+            .await
+            .expect("Failed to set remote data");
 
         let options = ChunkingOptions {
             min_size: 1,
@@ -3327,7 +3495,7 @@ mod tests {
             chunk_hash: calculate_chunk_hash(&[remote_record])?,
         };
         remote_source
-            .set_remote_chunks(vec![remote_chunk.clone()])
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk.clone()])
             .await;
 
         // Ensure chunk hashes differ (critical for triggering fetch)
@@ -3397,8 +3565,13 @@ mod tests {
         )
         .await?;
         // Remote starts empty
-        remote_source.set_remote_data(vec![]).await;
-        remote_source.set_remote_chunks(vec![]).await;
+        remote_source
+            .set_remote_data_for_table::<test_entity::Model>("test_items", vec![])
+            .await
+            .expect("Failed to set remote data");
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![])
+            .await;
 
         let hlc_context = SyncTaskContext::new(local_node_id);
         let options = ChunkingOptions {
@@ -3885,4 +4058,485 @@ mod tests {
 
     static TEST_FK_RESOLVER_INSTANCE: TestForeignKeyResolver = TestForeignKeyResolver;
     static TEST_FK_RESOLVER: Option<&TestForeignKeyResolver> = Some(&TEST_FK_RESOLVER_INSTANCE);
+
+    #[tokio::test]
+    async fn test_fk_pull_post_with_existing_author() -> Result<()> {
+        let db = setup_db_fk().await?;
+        let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
+        let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
+        let remote_source = MockRemoteDataSource::new(remote_node_id);
+
+        let hlc_start_sync = hlc(BASE_TS, 0, LOCAL_NODE_STR);
+        let hlc_author_v1 = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR); // Author created locally
+        let hlc_post_v1_remote = hlc(BASE_TS + 200, 0, REMOTE_NODE_STR); // Post created on remote
+
+        // Local: Author L_A1
+        let local_author1 = insert_author_record(
+            &db,
+            "author_sync_1",
+            "Local Author 1",
+            &hlc_author_v1,
+            &hlc_author_v1,
+        )
+        .await?;
+
+        // Remote: Author R_A1 (same as local), Post R_P1 (belongs to R_A1)
+        let remote_author1_model = author_entity::Model {
+            id: 101, // Mock remote PK
+            sync_id: "author_sync_1".to_string(),
+            name: "Local Author 1".to_string(), // Same name
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_author_v1.timestamp)?,
+            created_at_hlc_ct: hlc_author_v1.version as i32,
+            created_at_hlc_id: hlc_author_v1.node_id,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_author_v1.timestamp)?,
+            updated_at_hlc_ct: hlc_author_v1.version as i32,
+            updated_at_hlc_id: hlc_author_v1.node_id,
+        };
+        remote_source
+            .set_remote_data_for_table("authors", vec![remote_author1_model.clone()])
+            .await?;
+        // Create remote chunks for authors
+        let remote_author_chunk = DataChunk {
+            start_hlc: hlc_author_v1.clone(),
+            end_hlc: hlc_author_v1.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("authors", vec![remote_author_chunk])
+            .await;
+
+        let remote_post1_model = post_entity::Model {
+            id: 201, // Mock remote PK
+            sync_id: "post_sync_1".to_string(),
+            title: "Remote Post 1".to_string(),
+            author_id: 101, // Remote's local FK to its author_sync_1
+            remote_author_sync_id: Some("author_sync_1".to_string()), // Critical for resolver
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_post_v1_remote.timestamp)?,
+            created_at_hlc_ct: hlc_post_v1_remote.version as i32,
+            created_at_hlc_id: hlc_post_v1_remote.node_id,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_post_v1_remote.timestamp)?,
+            updated_at_hlc_ct: hlc_post_v1_remote.version as i32,
+            updated_at_hlc_id: hlc_post_v1_remote.node_id,
+        };
+        remote_source
+            .set_remote_data_for_table("posts", vec![remote_post1_model.clone()])
+            .await?;
+        let remote_post_chunk = DataChunk {
+            start_hlc: hlc_post_v1_remote.clone(),
+            end_hlc: hlc_post_v1_remote.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_post1_model.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("posts", vec![remote_post_chunk])
+            .await;
+
+        let hlc_context = SyncTaskContext::new(local_node_id);
+        let options = ChunkingOptions::default(local_node_id); // Small chunks by default
+        let mut context = SyncContext {
+            db: &db,
+            local_node_id,
+            remote_source: &remote_source,
+            chunking_options: options.clone(),
+            sync_direction: SyncDirection::Pull, // Pull for authors first
+            hlc_context: &hlc_context,
+        };
+
+        // Sync authors (PULL) - should be no change if data is identical
+        let author_initial_metadata = SyncTableMetadata {
+            table_name: "authors".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let author_final_metadata = synchronize_table::<author_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "authors",
+            &author_initial_metadata,
+        )
+        .await?;
+        assert_eq!(
+            author_final_metadata.last_sync_hlc, hlc_author_v1,
+            "Author sync HLC should update"
+        );
+
+        // Sync posts (PULL)
+        context.sync_direction = SyncDirection::Pull;
+        let post_initial_metadata = SyncTableMetadata {
+            table_name: "posts".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let post_final_metadata = synchronize_table::<post_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "posts",
+            &post_initial_metadata,
+        )
+        .await?;
+
+        // Assertions for posts sync
+        let remote_applied_post_ops = remote_source
+            .get_applied_ops_for_table::<post_entity::Model>("posts")
+            .await?;
+        assert!(
+            remote_applied_post_ops
+                .iter()
+                .all(|op| matches!(op, SyncOperation::NoOp(_))),
+            "No real ops to remote for posts in PULL"
+        );
+
+        let pulled_post = post_entity::Entity::find()
+            .filter(post_entity::Column::SyncId.eq("post_sync_1"))
+            .one(&db)
+            .await?
+            .expect("Post 'post_sync_1' should be pulled");
+
+        assert_eq!(pulled_post.title, "Remote Post 1");
+        assert_eq!(pulled_post.updated_at_hlc().unwrap(), hlc_post_v1_remote);
+        assert_eq!(
+            pulled_post.author_id, local_author1.id,
+            "Pulled post should be linked to local author1"
+        );
+
+        assert_eq!(post_final_metadata.last_sync_hlc, hlc_post_v1_remote);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fk_push_post_with_existing_author() -> Result<()> {
+        let db = setup_db_fk().await?;
+        let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
+        let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
+        let remote_source = MockRemoteDataSource::new(remote_node_id);
+
+        let hlc_start_sync = hlc(BASE_TS, 0, LOCAL_NODE_STR);
+        let hlc_author_v1 = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
+        let hlc_post_v1_local = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR);
+
+        // Local: Author L_A1, Post L_P1 (belongs to L_A1)
+        let local_author1 = insert_author_record(
+            &db,
+            "author_sync_1",
+            "Local Author 1",
+            &hlc_author_v1,
+            &hlc_author_v1,
+        )
+        .await?;
+        let _local_post1 = insert_post_record(
+            &db,
+            "post_sync_1",
+            "Local Post 1",
+            local_author1.id,
+            &hlc_post_v1_local,
+            &hlc_post_v1_local,
+        )
+        .await?;
+
+        // Remote: Author R_A1 (same as local), no posts
+        let remote_author1_model = author_entity::Model {
+            // Identical to local one for simplicity
+            id: 101,
+            sync_id: "author_sync_1".to_string(),
+            name: "Local Author 1".to_string(),
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_author_v1.timestamp)?,
+            created_at_hlc_ct: hlc_author_v1.version as i32,
+            created_at_hlc_id: hlc_author_v1.node_id,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_author_v1.timestamp)?,
+            updated_at_hlc_ct: hlc_author_v1.version as i32,
+            updated_at_hlc_id: hlc_author_v1.node_id,
+        };
+        remote_source
+            .set_remote_data_for_table("authors", vec![remote_author1_model.clone()])
+            .await?;
+        let remote_author_chunk = DataChunk {
+            start_hlc: hlc_author_v1.clone(),
+            end_hlc: hlc_author_v1.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("authors", vec![remote_author_chunk])
+            .await;
+        remote_source
+            .set_remote_data_for_table::<post_entity::Model>("posts", vec![])
+            .await?; // No remote posts
+        remote_source
+            .set_remote_chunks_for_table("posts", vec![])
+            .await; // No remote post chunks
+
+        let hlc_context = SyncTaskContext::new(local_node_id);
+        let options = ChunkingOptions::default(local_node_id);
+        let mut context = SyncContext {
+            db: &db,
+            local_node_id,
+            remote_source: &remote_source,
+            chunking_options: options.clone(),
+            sync_direction: SyncDirection::Push, // Push for authors first
+            hlc_context: &hlc_context,
+        };
+
+        // Sync authors (PUSH)
+        let author_initial_metadata = SyncTableMetadata {
+            table_name: "authors".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let author_final_metadata = synchronize_table::<author_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "authors",
+            &author_initial_metadata,
+        )
+        .await?;
+        assert_eq!(author_final_metadata.last_sync_hlc, hlc_author_v1);
+
+        // Sync posts (PUSH)
+        context.sync_direction = SyncDirection::Push;
+        let post_initial_metadata = SyncTableMetadata {
+            table_name: "posts".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let post_final_metadata = synchronize_table::<post_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "posts",
+            &post_initial_metadata,
+        )
+        .await?;
+
+        // Assertions for posts sync
+        let applied_ops = remote_source
+            .get_applied_ops_for_table::<post_entity::Model>("posts")
+            .await?;
+        assert_eq!(
+            applied_ops.len(),
+            1,
+            "One InsertRemote operation expected for posts"
+        );
+
+        match &applied_ops[0] {
+            SyncOperation::InsertRemote(model, fk_payload) => {
+                assert_eq!(model.sync_id, "post_sync_1");
+                assert_eq!(model.title, "Local Post 1");
+                assert_eq!(model.updated_at_hlc().unwrap(), hlc_post_v1_local);
+                // The model's author_id is the local integer FK.
+                assert_eq!(model.author_id, local_author1.id);
+
+                let expected_fk_author_sync_id =
+                    fk_payload.get("author_id").and_then(|opt| opt.as_ref());
+                assert_eq!(
+                    expected_fk_author_sync_id,
+                    Some(&("author_sync_1".to_string())),
+                    "FkPayload should carry author's sync_id"
+                );
+            }
+            _ => panic!("Expected InsertRemote operation for post"),
+        }
+
+        // Verify remote mock data state (optional, depends on mock's apply_remote_changes sophistication)
+        let remote_posts_data_guard = remote_source.remote_table_data.lock().await;
+        let remote_posts_table = remote_posts_data_guard
+            .get("posts")
+            .expect("Posts table should exist in mock remote data");
+        let remote_post_json = remote_posts_table
+            .get("post_sync_1")
+            .expect("Pushed post should be in mock remote data");
+        let remote_post_stored: post_entity::Model =
+            serde_json::from_value(remote_post_json.clone())?;
+        assert_eq!(remote_post_stored.title, "Local Post 1");
+        // How author_id is stored in mock depends on mock's logic. Here it just stores the model as-is.
+
+        assert_eq!(post_final_metadata.last_sync_hlc, hlc_post_v1_local);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_fk_pull_reparented_post() -> Result<()> {
+        let db = setup_db_fk().await?;
+        let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
+        let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
+        let remote_source = MockRemoteDataSource::new(remote_node_id);
+
+        let hlc_start_sync = hlc(BASE_TS, 0, LOCAL_NODE_STR);
+        let hlc_author1_v1 = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
+        let hlc_author2_v1 = hlc(BASE_TS + 110, 0, LOCAL_NODE_STR);
+        let hlc_post_v1_local = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR); // Post P1 original (local)
+        let hlc_post_v1_remote_reparented = hlc(BASE_TS + 300, 0, REMOTE_NODE_STR); // Post P1 updated and reparented (remote)
+
+        // Local: Authors L_A1, L_A2. Post L_P1 belongs to L_A1.
+        let local_author1 = insert_author_record(
+            &db,
+            "author_sync_1",
+            "Local Author 1",
+            &hlc_author1_v1,
+            &hlc_author1_v1,
+        )
+        .await?;
+        let local_author2 = insert_author_record(
+            &db,
+            "author_sync_2",
+            "Local Author 2",
+            &hlc_author2_v1,
+            &hlc_author2_v1,
+        )
+        .await?;
+        let _local_post1_initial = insert_post_record(
+            &db,
+            "post_sync_1",
+            "Old Title Original Parent",
+            local_author1.id,
+            &hlc_post_v1_local,
+            &hlc_post_v1_local,
+        )
+        .await?;
+
+        // Remote: Authors R_A1, R_A2 (same as local). Post R_P1 belongs to R_A2 (reparented) and is newer.
+        let common_author_setup =
+            |sync_id: &str, hlc_val: &HLC, name_prefix: &str| -> author_entity::Model {
+                author_entity::Model {
+                    id: if sync_id == "author_sync_1" { 101 } else { 102 },
+                    sync_id: sync_id.to_string(),
+                    name: format!("{} {}", name_prefix, sync_id.chars().last().unwrap()),
+                    created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_val.timestamp).unwrap(),
+                    created_at_hlc_ct: hlc_val.version as i32,
+                    created_at_hlc_id: hlc_val.node_id,
+                    updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_val.timestamp).unwrap(),
+                    updated_at_hlc_ct: hlc_val.version as i32,
+                    updated_at_hlc_id: hlc_val.node_id,
+                }
+            };
+        let remote_author1_model =
+            common_author_setup("author_sync_1", &hlc_author1_v1, "Remote Author");
+        let remote_author2_model =
+            common_author_setup("author_sync_2", &hlc_author2_v1, "Remote Author");
+        remote_source
+            .set_remote_data_for_table(
+                "authors",
+                vec![remote_author1_model.clone(), remote_author2_model.clone()],
+            )
+            .await?;
+        // Remote author chunks (simplified - assuming they cover these HLCs)
+        let remote_author_chunks = vec![
+            DataChunk {
+                start_hlc: hlc_author1_v1.clone(),
+                end_hlc: hlc_author1_v1.clone(),
+                count: 1,
+                chunk_hash: calculate_chunk_hash(&[remote_author1_model.clone()])?,
+            },
+            DataChunk {
+                start_hlc: hlc_author2_v1.clone(),
+                end_hlc: hlc_author2_v1.clone(),
+                count: 1,
+                chunk_hash: calculate_chunk_hash(&[remote_author2_model.clone()])?,
+            },
+        ];
+        remote_source
+            .set_remote_chunks_for_table("authors", remote_author_chunks)
+            .await;
+
+        let remote_post1_reparented_model = post_entity::Model {
+            id: 201,
+            sync_id: "post_sync_1".to_string(),
+            title: "New Title Reparented".to_string(),
+            author_id: 102, // Remote's local FK to its author_sync_2
+            remote_author_sync_id: Some("author_sync_2".to_string()), // CRITICAL: points to Author 2
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_post_v1_local.timestamp)?, // Assume original creation HLC
+            created_at_hlc_ct: hlc_post_v1_local.version as i32,
+            created_at_hlc_id: hlc_post_v1_local.node_id,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(
+                hlc_post_v1_remote_reparented.timestamp,
+            )?, // Newer update HLC
+            updated_at_hlc_ct: hlc_post_v1_remote_reparented.version as i32,
+            updated_at_hlc_id: hlc_post_v1_remote_reparented.node_id,
+        };
+        remote_source
+            .set_remote_data_for_table("posts", vec![remote_post1_reparented_model.clone()])
+            .await?;
+        let remote_post_chunk = DataChunk {
+            start_hlc: hlc_post_v1_remote_reparented.clone(),
+            end_hlc: hlc_post_v1_remote_reparented.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_post1_reparented_model.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("posts", vec![remote_post_chunk])
+            .await;
+
+        let hlc_context = SyncTaskContext::new(local_node_id);
+        let options = ChunkingOptions::default(local_node_id);
+        let mut context = SyncContext {
+            db: &db,
+            local_node_id,
+            remote_source: &remote_source,
+            chunking_options: options.clone(),
+            sync_direction: SyncDirection::Pull,
+            hlc_context: &hlc_context,
+        };
+
+        // Sync authors (PULL)
+        let author_initial_metadata = SyncTableMetadata {
+            table_name: "authors".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let author_final_metadata = synchronize_table::<author_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "authors",
+            &author_initial_metadata,
+        )
+        .await?;
+        // Max HLC for authors could be hlc_author2_v1 if sorting by HLC
+        assert!(
+            author_final_metadata.last_sync_hlc >= hlc_author1_v1
+                && author_final_metadata.last_sync_hlc >= hlc_author2_v1
+        );
+
+        // Sync posts (PULL)
+        context.sync_direction = SyncDirection::Pull;
+        let post_initial_metadata = SyncTableMetadata {
+            table_name: "posts".to_string(),
+            last_sync_hlc: hlc_start_sync.clone(),
+        };
+        let post_final_metadata = synchronize_table::<post_entity::Entity, _, _>(
+            &context,
+            TEST_FK_RESOLVER,
+            "posts",
+            &post_initial_metadata,
+        )
+        .await?;
+
+        // Assertions for posts sync
+        let remote_applied_post_ops = remote_source
+            .get_applied_ops_for_table::<post_entity::Model>("posts")
+            .await?;
+        assert!(
+            remote_applied_post_ops
+                .iter()
+                .all(|op| matches!(op, SyncOperation::NoOp(_))),
+            "No real ops to remote for posts in PULL"
+        );
+
+        let updated_local_post = post_entity::Entity::find()
+            .filter(post_entity::Column::SyncId.eq("post_sync_1"))
+            .one(&db)
+            .await?
+            .expect("Post 'post_sync_1' should exist locally");
+
+        assert_eq!(updated_local_post.title, "New Title Reparented");
+        assert_eq!(
+            updated_local_post.updated_at_hlc().unwrap(),
+            hlc_post_v1_remote_reparented
+        );
+        assert_eq!(
+            updated_local_post.author_id, local_author2.id,
+            "Pulled post should now be linked to local author2 due to reparenting"
+        );
+
+        assert_eq!(
+            post_final_metadata.last_sync_hlc,
+            hlc_post_v1_remote_reparented
+        );
+
+        Ok(())
+    }
 }
