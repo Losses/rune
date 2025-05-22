@@ -106,31 +106,3 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
-
-# cr-sqlite
-if(WIN32)
-    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-        set(CRSQLITE_ARCH "x86_64-pc-windows-msvc")
-    else()
-        set(CRSQLITE_ARCH "i686-pc-windows-msvc")
-    endif()
-
-    set(CRSQLITE_LIB_PATH 
-        "${CMAKE_CURRENT_SOURCE_DIR}/../database/resources/crsqlite/${CRSQLITE_ARCH}/crsqlite.dll"
-    )
-
-    if(EXISTS "${CRSQLITE_LIB_PATH}")
-        set(crsqlite_bundled_libraries "${CRSQLITE_LIB_PATH}")
-
-        install(
-          FILES "${CRSQLITE_LIB_PATH}"
-          DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-          COMPONENT Runtime
-        )
-
-        message(FATAL_ERROR "COPYING CRSQLITE at: ${CRSQLITE_LIB_PATH}")
-        message(FATAL_ERROR "DESTINATION at: ${INSTALL_BUNDLE_LIB_DIR}")
-    else()
-        message(FATAL_ERROR "CRSQLite DLL not found at: ${CRSQLITE_LIB_PATH}")
-    endif()
-endif()

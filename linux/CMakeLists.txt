@@ -143,34 +143,3 @@ if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endif()
-
-# cr-sqlite
-if(UNIX AND NOT APPLE)
-    execute_process(
-        COMMAND uname -m
-        OUTPUT_VARIABLE ARCHITECTURE
-    )
-    string(STRIP "${ARCHITECTURE}" ARCHITECTURE)
-    
-    if(ARCHITECTURE STREQUAL "x86_64")
-        set(CRSQLITE_ARCH "x86_64-unknown-linux-gnu")
-    elseif(ARCHITECTURE STREQUAL "aarch64")
-        set(CRSQLITE_ARCH "aarch64-unknown-linux-gnu")
-    endif()
-
-    set(CRSQLITE_LIB_PATH
-        "${CMAKE_CURRENT_SOURCE_DIR}/../database/resources/crsqlite/${CRSQLITE_ARCH}/crsqlite.so"
-    )
-
-    if(EXISTS "${CRSQLITE_LIB_PATH}")
-        set(crsqlite_bundled_libraries "${CRSQLITE_LIB_PATH}")
-
-        install(
-          FILES "${CRSQLITE_LIB_PATH}"
-          DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-          COMPONENT Runtime
-        )
-    else()
-        message(FATAL_ERROR "CRSQLite so not found at: ${CRSQLITE_LIB_PATH}")
-    endif()
-endif()
