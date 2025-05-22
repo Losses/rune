@@ -2,7 +2,10 @@
 //! It implements an exponential decay algorithm to create variable-sized chunks
 //! and offers functionality to break down existing chunks into smaller ones.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    cmp,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{bail, Context, Result};
 use blake3::Hasher;
@@ -324,9 +327,10 @@ where
         let desired_size = options.min_size as f64 * (1.0 + options.alpha).powf(age_factor_ceil);
 
         // Clamp the size between min_size and max_size
-        let window_size = (desired_size.round() as u64) // Round to nearest integer
-            .max(options.min_size) // Ensure at least min_size
-            .min(options.max_size); // Ensure no more than max_size
+        let window_size = cmp::min(
+            cmp::max(desired_size.round() as u64, options.min_size),
+            options.max_size,
+        );
 
         debug!(
             "Current HLC: {}, Age (days): {:.2} (raw {:.2}), AgeFactorCeil: {}, DesiredSize: {:.2}, WindowSize: {}",
