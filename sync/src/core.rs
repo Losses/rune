@@ -68,7 +68,7 @@
 //! - Timestamp (`_ts`): `BigInt` (storing milliseconds since epoch) or `Timestamp`/`DateTime` (ensure proper conversion). The examples assume `BigInt`.
 //! - Counter (`_ct`): `Integer` or `BigInt`. The examples assume `Integer`.
 //! - Node ID (`_id`): `Uuid`.
-//! 
+//!
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
@@ -89,6 +89,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::chunking::{break_data_chunk, generate_data_chunks, ChunkingOptions, DataChunk};
+use crate::foreign_key::{FkPayload, ForeignKeyResolver};
 use crate::hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC};
 
 /// If a chunk pair has differing hashes, but the maximum record count
@@ -127,20 +128,42 @@ pub struct SyncTableMetadata {
 #[derive(Debug, Clone)]
 pub enum SyncOperation<Model: HLCRecord> {
     /// Insert a new record locally.
-    InsertLocal(Model),
+    InsertLocal(Model, FkPayload),
     /// Update an existing record locally with the provided model data.
-    UpdateLocal(Model),
+    UpdateLocal(Model, FkPayload),
     /// Delete a record locally identified by its unique ID.
     /// Requires underlying support for deletes (e.g., soft deletes or actual deletion).
     DeleteLocal(String), // String is the unique_id
     /// Insert a new record remotely.
-    InsertRemote(Model),
+    InsertRemote(Model, FkPayload),
     /// Update an existing record remotely with the provided model data.
-    UpdateRemote(Model),
+    UpdateRemote(Model, FkPayload),
     /// Delete a record remotely identified by its unique ID.
     DeleteRemote(String), // String is the unique_id
     /// No operation needed for this record (e.g., records are identical or sync direction prevents action).
     NoOp(String), // String is the unique_id
+}
+
+// Helper to get the model and FkPayload if present
+impl<Model: HLCRecord> SyncOperation<Model> {
+    pub fn model_payload(&self) -> Option<(&Model, Option<&FkPayload>)> {
+        match self {
+            SyncOperation::InsertLocal(m, p)
+            | SyncOperation::UpdateLocal(m, p)
+            | SyncOperation::InsertRemote(m, p)
+            | SyncOperation::UpdateRemote(m, p) => Some((m, Some(p))),
+            _ => None,
+        }
+    }
+    pub fn model(&self) -> Option<&Model> {
+        match self {
+            SyncOperation::InsertLocal(m, _)
+            | SyncOperation::UpdateLocal(m, _)
+            | SyncOperation::InsertRemote(m, _)
+            | SyncOperation::UpdateRemote(m, _) => Some(m),
+            _ => None,
+        }
+    }
 }
 
 /// Abstraction for interacting with the remote data source.
@@ -305,8 +328,9 @@ enum ReconciliationItem {
 /// # Returns
 /// A `Result` containing the updated `SyncTableMetadata` (with the new `last_sync_hlc`) upon successful completion,
 /// or an `anyhow::Error` if synchronization fails at any step.
-pub async fn synchronize_table<E, R>(
+pub async fn synchronize_table<E, R, FKR>(
     context: &SyncContext<'_, R>,
+    fk_resolver: Option<&FKR>,
     table_name: &str,
     metadata: &SyncTableMetadata,
 ) -> Result<SyncTableMetadata>
@@ -333,6 +357,7 @@ where
         Eq + Hash + Clone + Send + Sync + Debug + Ord + Into<Value>,
     // RemoteDataSource implementation
     R: RemoteDataSource + Send + Sync + Debug,
+    FKR: ForeignKeyResolver + Send + Sync,
 {
     info!(
         "Starting sync for table '{}' ({:?}) from HLC: {}",
@@ -635,8 +660,26 @@ where
                 if context.sync_direction == SyncDirection::Push
                     || context.sync_direction == SyncDirection::Bidirectional
                 {
+                    let fk_payload = if let Some(resolver) = &fk_resolver {
+                        resolver
+                            .extract_foreign_key_sync_ids::<E::Model, _>(
+                                table_name,
+                                &local_record,
+                                context.db,
+                            )
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to extract FK sync_ids for local-only record {}",
+                                    id
+                                )
+                            })?
+                    } else {
+                        FkPayload::new()
+                    };
+
                     // Push local record to remote
-                    remote_ops.push(SyncOperation::InsertRemote(local_record));
+                    remote_ops.push(SyncOperation::InsertRemote(local_record, fk_payload));
                 } else {
                     // Pull only, do nothing locally or remotely for this record
                     local_ops.push(SyncOperation::NoOp(id));
@@ -649,8 +692,14 @@ where
                 if context.sync_direction == SyncDirection::Pull
                     || context.sync_direction == SyncDirection::Bidirectional
                 {
+                    let fk_payload = if let Some(resolver) = &fk_resolver {
+                        resolver.extract_sync_ids_from_remote_model(table_name, &remote_record)?
+                    } else {
+                        FkPayload::new()
+                    };
+
                     // Pull remote record to local
-                    local_ops.push(SyncOperation::InsertLocal(remote_record));
+                    local_ops.push(SyncOperation::InsertLocal(remote_record, fk_payload));
                 } else {
                     // Push only, do nothing locally or remotely for this record
                     remote_ops.push(SyncOperation::NoOp(id));
@@ -730,7 +779,28 @@ where
                         // The previous complex check is simplified because `local_wins` already
                         // incorporates the necessary comparison logic (including tie-breaker).
                         debug!(":: Action: UpdateRemote with local winner.");
-                        remote_ops.push(SyncOperation::UpdateRemote(local_record.clone()));
+                        let fk_payload = if let Some(resolver) = &fk_resolver {
+                            resolver
+                                .extract_foreign_key_sync_ids::<E::Model, _>(
+                                    table_name,
+                                    &local_record,
+                                    context.db,
+                                )
+                                .await
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to extract FK sync_ids for local winning record {}",
+                                        id
+                                    )
+                                })?
+                        } else {
+                            FkPayload::new()
+                        };
+
+                        remote_ops.push(SyncOperation::UpdateRemote(
+                            local_record.clone(),
+                            fk_payload,
+                        ));
                     } else {
                         // Pull only, no remote action needed if local wins
                         remote_ops.push(SyncOperation::NoOp(id.clone()));
@@ -744,7 +814,18 @@ where
                     {
                         // If remote won, update local.
                         debug!(":: Action: UpdateLocal with remote winner.");
-                        local_ops.push(SyncOperation::UpdateLocal(remote_record.clone()));
+
+                        let fk_payload = if let Some(resolver) = &fk_resolver {
+                            resolver
+                                .extract_sync_ids_from_remote_model(table_name, &remote_record)?
+                        } else {
+                            FkPayload::new()
+                        };
+
+                        local_ops.push(SyncOperation::UpdateLocal(
+                            remote_record.clone(),
+                            fk_payload,
+                        ));
                     } else {
                         // Push only, no local action needed if remote wins
                         local_ops.push(SyncOperation::NoOp(id.clone()));
@@ -774,7 +855,7 @@ where
     );
 
     // Apply local changes first within a transaction
-    let local_apply_result = apply_local_changes::<E>(context, local_ops).await;
+    let local_apply_result = apply_local_changes::<E, FKR>(context, fk_resolver, local_ops).await;
 
     // Apply remote changes only if local changes succeeded and if needed by direction/ops
     let remote_apply_result = match local_apply_result {
@@ -867,8 +948,9 @@ where
 // Helper Functions
 
 /// Applies a list of local `SyncOperation`s within a single database transaction.
-async fn apply_local_changes<E>(
+async fn apply_local_changes<E, FKR>(
     context: &SyncContext<'_, impl RemoteDataSource>, // Use impl Trait for R
+    fk_resolver: Option<&FKR>,
     operations: Vec<SyncOperation<E::Model>>,
 ) -> Result<()>
 where
@@ -880,6 +962,7 @@ where
         PrimaryKeyTrait + PrimaryKeyFromStr<<E::PrimaryKey as PrimaryKeyTrait>::ValueType>,
     <E::PrimaryKey as PrimaryKeyTrait>::ValueType:
         Eq + Hash + Clone + Send + Sync + Debug + Ord + Into<Value>,
+    FKR: ForeignKeyResolver + Send + Sync,
 {
     // Filter out NoOp operations early
     let ops_to_apply: Vec<_> = operations
@@ -905,18 +988,31 @@ where
 
     for op in ops_to_apply {
         match op {
-            SyncOperation::InsertLocal(model) => {
+            SyncOperation::InsertLocal(model, fk_payload) => {
                 let id_str = model.unique_id(); // Get ID for logging before move
                 debug!("Local TXN: Inserting record ID {}", id_str);
                 // Convert Model to the Entity's specific ActiveModel
-                let active_model: E::ActiveModel = model.into_active_model();
+                let mut active_model: E::ActiveModel = model.into_active_model();
+
+                if let Some(resolver) = &fk_resolver {
+                    resolver
+                        .remap_and_set_foreign_keys::<E::ActiveModel, _>(
+                            E::table_name(&E::default()), // Get table name from Entity
+                            &mut active_model,
+                            &fk_payload,
+                            &txn, // Use transaction for lookups
+                        )
+                        .await
+                        .with_context(|| format!("Failed to remap FKs for insert of {}", id_str))?;
+                }
+
                 // Ensure PK is NotSet or Default if auto-incrementing
                 E::insert(active_model)
                     .exec(&txn)
                     .await
                     .with_context(|| format!("Failed to insert local record ID {}", id_str))?;
             }
-            SyncOperation::UpdateLocal(model) => {
+            SyncOperation::UpdateLocal(model, fk_payload) => {
                 let id_str = model.unique_id();
                 debug!("Local TXN: Updating record ID {}", id_str);
 
@@ -932,6 +1028,18 @@ where
                 //    Requires E::PrimaryKey: Into<E::Column> bound.
                 for pk_col in E::PrimaryKey::iter() {
                     am_from_model.reset(pk_col.into_column());
+                }
+
+                if let Some(resolver) = &fk_resolver {
+                    resolver
+                        .remap_and_set_foreign_keys::<E::ActiveModel, _>(
+                            E::table_name(&E::default()),
+                            &mut am_from_model, // Apply FK remapping to this AM
+                            &fk_payload,
+                            &txn,
+                        )
+                        .await
+                        .with_context(|| format!("Failed to remap FKs for update of {}", id_str))?;
                 }
 
                 // 3. Perform the update using `update_many` (even for a single row).
@@ -989,8 +1097,8 @@ where
             }
             SyncOperation::NoOp(_) => { /* Already filtered out */ }
             // Remote operations are ignored in apply_local_changes
-            SyncOperation::InsertRemote(_)
-            | SyncOperation::UpdateRemote(_)
+            SyncOperation::InsertRemote(_, _)
+            | SyncOperation::UpdateRemote(_, _)
             | SyncOperation::DeleteRemote(_) => {
                 unreachable!("Remote operations should not reach apply_local_changes")
             }
