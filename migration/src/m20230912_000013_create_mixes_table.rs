@@ -41,7 +41,7 @@ impl MigrationTrait for Migration {
     }
 }
 
-#[derive(Iden)]
+#[derive(Iden, Clone, Copy)]
 pub enum Mixes {
     Table,
     Id,

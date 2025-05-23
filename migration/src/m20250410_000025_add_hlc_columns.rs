@@ -18,9 +18,13 @@ pub struct Migration;
 
 #[derive(Iden)]
 enum CommonColumns {
-    CreatedAt,
-    UpdatedAt,
-    DataVersion,
+    HlcUuid,
+    CreatedAtHlcTs,
+    CreatedAtHlcVer,
+    CreatedAtHlcNid,
+    UpdatedAtHlcTs,
+    UpdatedAtHlcVer,
+    UpdatedAtHlcNid,
 }
 
 #[async_trait::async_trait]
@@ -36,10 +40,9 @@ impl MigrationTrait for Migration {
         Self::add_all_tracking_columns(manager, MediaFiles::Table).await?;
         Self::add_all_tracking_columns(manager, MediaMetadata::Table).await?;
         Self::add_all_tracking_columns(manager, MediaFilePlaylists::Table).await?;
-
-        Self::add_data_version_column(manager, Mixes::Table).await?;
-        Self::add_data_version_column(manager, MixQueries::Table).await?;
-        Self::add_data_version_column(manager, Playlists::Table).await?;
+        Self::add_all_tracking_columns(manager, Mixes::Table).await?;
+        Self::add_all_tracking_columns(manager, MixQueries::Table).await?;
+        Self::add_all_tracking_columns(manager, Playlists::Table).await?;
         Ok(())
     }
 
@@ -51,11 +54,9 @@ impl MigrationTrait for Migration {
         Self::remove_all_tracking_columns(manager, MediaCoverArt::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaFiles::Table).await?;
         Self::remove_all_tracking_columns(manager, MediaMetadata::Table).await?;
-        Self::remove_all_tracking_columns(manager, MediaFilePlaylists::Table).await?;
-
-        Self::remove_data_version_column(manager, Mixes::Table).await?;
-        Self::remove_data_version_column(manager, MixQueries::Table).await?;
-        Self::remove_data_version_column(manager, Playlists::Table).await?;
+        Self::remove_all_tracking_columns(manager, Mixes::Table).await?;
+        Self::remove_all_tracking_columns(manager, MixQueries::Table).await?;
+        Self::remove_all_tracking_columns(manager, Playlists::Table).await?;
 
         Ok(())
     }
@@ -75,74 +76,105 @@ impl Migration {
         let default_timestamp_value =
             Value::String(Some(Box::new("1970-01-01 00:00:00.000".to_string())));
 
-        // Add CreatedAt
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
                     .add_column(
-                        ColumnDef::new(CommonColumns::CreatedAt)
+                        ColumnDef::new(CommonColumns::HlcUuid)
+                            .string()
+                            .not_null()
+                            .default(""),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .add_column(
+                        ColumnDef::new(CommonColumns::UpdatedAtHlcTs)
                             .timestamp()
                             .not_null()
-                            // Use a constant default value for existing rows
                             .default(default_timestamp_value.clone()),
                     )
                     .to_owned(),
             )
             .await?;
 
-        // Add UpdatedAt
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
                     .add_column(
-                        ColumnDef::new(CommonColumns::UpdatedAt)
-                            .timestamp()
-                            .not_null()
-                            // Use a constant default value for existing rows
-                            .default(default_timestamp_value),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        // Add DataVersion
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(table)
-                    .add_column(
-                        ColumnDef::new(CommonColumns::DataVersion)
-                            .integer()
-                            .not_null()
-                            .default(0), // 0 is a constant, so this is fine
-                    )
-                    .to_owned(),
-            )
-            .await
-    }
-
-    async fn add_data_version_column<'a, T>(
-        manager: &'a SchemaManager<'a>,
-        table: T,
-    ) -> Result<(), DbErr>
-    where
-        T: Iden + 'static,
-    {
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(table)
-                    .add_column(
-                        ColumnDef::new(CommonColumns::DataVersion)
+                        ColumnDef::new(CommonColumns::UpdatedAtHlcVer)
                             .integer()
                             .not_null()
                             .default(0),
                     )
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .add_column(
+                        ColumnDef::new(CommonColumns::UpdatedAtHlcNid)
+                            .text()
+                            .not_null()
+                            .default(""),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .add_column(
+                        ColumnDef::new(CommonColumns::CreatedAtHlcTs)
+                            .timestamp()
+                            .not_null()
+                            .default(default_timestamp_value),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .add_column(
+                        ColumnDef::new(CommonColumns::CreatedAtHlcVer)
+                            .integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .add_column(
+                        ColumnDef::new(CommonColumns::CreatedAtHlcNid)
+                            .text()
+                            .not_null()
+                            .default(""),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
     }
 
     async fn remove_all_tracking_columns<'a, T>(
@@ -152,55 +184,69 @@ impl Migration {
     where
         T: Iden + Copy + 'static,
     {
-        // Remove CreatedAt
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
-                    .drop_column(CommonColumns::CreatedAt)
+                    .drop_column(CommonColumns::HlcUuid)
                     .to_owned(),
             )
             .await?;
 
-        // Remove UpdatedAt
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
-                    .drop_column(CommonColumns::UpdatedAt)
+                    .drop_column(CommonColumns::CreatedAtHlcTs)
                     .to_owned(),
             )
             .await?;
 
-        // Remove DataVersion
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
-                    .drop_column(CommonColumns::DataVersion)
+                    .drop_column(CommonColumns::CreatedAtHlcVer)
                     .to_owned(),
             )
-            .await
-    }
+            .await?;
 
-    async fn remove_data_version_column<'a, T>(
-        manager: &'a SchemaManager<'a>,
-        table: T,
-    ) -> Result<(), DbErr>
-    where
-        T: Iden + 'static,
-    {
-        println!(
-            "     -> Removing data_version column from: {}",
-            table.to_string()
-        );
         manager
             .alter_table(
                 Table::alter()
                     .table(table)
-                    .drop_column(CommonColumns::DataVersion)
+                    .drop_column(CommonColumns::CreatedAtHlcNid)
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .drop_column(CommonColumns::UpdatedAtHlcTs)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .drop_column(CommonColumns::UpdatedAtHlcVer)
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(table)
+                    .drop_column(CommonColumns::UpdatedAtHlcNid)
+                    .to_owned(),
+            )
+            .await?;
+
+        Ok(())
     }
 }
