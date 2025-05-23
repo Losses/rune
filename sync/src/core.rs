@@ -595,6 +595,65 @@ where
         remote_records_to_compare.len()
     );
 
+    let local_records_to_compare = {
+        let mut unique_map: HashMap<String, E::Model> = HashMap::new();
+        for record in local_records_to_compare {
+            // Iterates by value, consuming the old Vec
+            let key = record.unique_id();
+            let current_hlc_opt = record.updated_at_hlc();
+
+            match unique_map.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut occupied_entry) => {
+                    let existing_hlc_opt = occupied_entry.get().updated_at_hlc();
+                    // Prefer record with Some(HLC) over None, or later HLC if both Some.
+                    if current_hlc_opt.is_some()
+                        && (existing_hlc_opt.is_none() || current_hlc_opt > existing_hlc_opt)
+                    {
+                        occupied_entry.insert(record); // Update with the "better" record
+                    }
+                    // else, keep existing (it's better or equal, or current_hlc_opt is None and existing might be Some)
+                }
+                std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(record);
+                }
+            }
+        }
+        unique_map.into_values().collect::<Vec<_>>()
+    };
+
+    // Deduplicate remote_records_to_compare
+    // This consumes the original remote_records_to_compare Vec and rebinds the variable.
+    let remote_records_to_compare = {
+        let mut unique_map: HashMap<String, E::Model> = HashMap::new();
+        for record in remote_records_to_compare {
+            // Iterates by value, consuming the old Vec
+            let key = record.unique_id();
+            let current_hlc_opt = record.updated_at_hlc();
+
+            match unique_map.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut occupied_entry) => {
+                    let existing_hlc_opt = occupied_entry.get().updated_at_hlc();
+                    if current_hlc_opt.is_some()
+                        && (existing_hlc_opt.is_none() || current_hlc_opt > existing_hlc_opt)
+                    {
+                        occupied_entry.insert(record);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(record);
+                }
+            }
+        }
+        unique_map.into_values().collect::<Vec<_>>()
+    };
+
+    debug!(
+        "After deduplication: {} local and {} remote records for table '{}'.",
+        local_records_to_compare.len(),
+        remote_records_to_compare.len(),
+        table_name
+    );
+
     // 3. Merge and Compare Individual Records
     // Use a HashMap keyed by `unique_id` to efficiently merge local and remote records
     // and track their state (LocalOnly, RemoteOnly, Both).
@@ -4167,7 +4226,7 @@ mod tests {
         .await?;
         assert_eq!(
             author_final_metadata.last_sync_hlc, hlc_author_v1,
-            "Author sync HLC should update"
+            "Author sync HLC should update to the HLC of the single author processed"
         );
 
         // Sync posts (PULL)
