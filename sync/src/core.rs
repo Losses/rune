@@ -324,17 +324,17 @@ enum ReconciliationItem {
 /// # Arguments
 /// * `context`: The `SyncContext` containing configuration, connections, and the remote source implementation.
 /// * `fk_resolver`: Optional foreign key resolver that handles foreign key extraction, remote FK resolution,
-///                  dependency management and cross-table integrity.
+///   dependency management and cross-table integrity.
 ///   
-///                  When `None`, foreign key relationships are not processed, which may be appropriate for:
-///                  - Tables without foreign key constraints
-///                  - Sync operations where FK integrity is handled externally
-///                  - Simple sync scenarios where referential integrity is not required
+///   When `None`, foreign key relationships are not processed, which may be appropriate for:
+///   - Tables without foreign key constraints
+///   - Sync operations where FK integrity is handled externally
+///   - Simple sync scenarios where referential integrity is not required
 ///   
-///                  When `Some(resolver)`, the resolver will be called for every record operation (insert/update) to:
-///                  - Extract FK sync IDs before pushing local changes to remote
-///                  - Process FK sync IDs when pulling remote changes to local
-///                  - Generate `FkPayload` objects containing the necessary FK relationship data
+///   When `Some(resolver)`, the resolver will be called for every record operation (insert/update) to:
+///   - Extract FK sync IDs before pushing local changes to remote
+///   - Process FK sync IDs when pulling remote changes to local
+///   - Generate `FkPayload` objects containing the necessary FK relationship data
 /// * `table_name`: The string name of the table to synchronize (used for logging and remote calls).
 /// * `metadata`: The current `SyncTableMetadata` for this table, containing the `last_sync_hlc`.
 ///
@@ -1382,7 +1382,7 @@ pub trait PrimaryKeyFromStr<T>: PrimaryKeyTrait {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::sync::Arc;
@@ -1435,7 +1435,7 @@ mod tests {
 
     static NO_OP_RESOLVER: Option<&NoOpForeignKeyResolver> = None;
 
-    mod test_entity {
+    pub(crate) mod test_entity {
         use std::str::FromStr;
 
         use anyhow::{anyhow, Result};
@@ -1552,7 +1552,7 @@ mod tests {
     type SubChunk = Vec<(DataChunk, u64)>;
     type RecordsCalls = Vec<(HLC, HLC)>;
     #[derive(Debug, Clone)]
-    struct MockRemoteDataSource {
+    pub(crate) struct MockRemoteDataSource {
         node_id: Uuid,
         // Stores data for multiple tables: table_name -> sync_id -> record_json
         remote_table_data: Arc<TokioMutex<HashMap<String, HashMap<String, serde_json::Value>>>>,
@@ -1564,7 +1564,7 @@ mod tests {
 
         fail_on_apply: bool,
         fail_on_get_records: bool,
-        fail_on_get_chunks: bool,
+        pub(crate) fail_on_get_chunks: bool,
         fail_on_get_sub_chunks: bool,
         // Stores sub-chunk requests: table_name -> Vec<(DataChunk, u64)>
         sub_chunk_requests_by_table: Arc<TokioMutex<HashMap<String, SubChunk>>>,
@@ -1573,7 +1573,7 @@ mod tests {
     }
 
     impl MockRemoteDataSource {
-        fn new(node_id: Uuid) -> Self {
+        pub(crate) fn new(node_id: Uuid) -> Self {
             MockRemoteDataSource {
                 node_id,
                 remote_table_data: Arc::new(TokioMutex::new(HashMap::new())),
@@ -1604,7 +1604,11 @@ mod tests {
             Ok(())
         }
 
-        async fn set_remote_chunks_for_table(&self, table_name: &str, chunks: Vec<DataChunk>) {
+        pub(crate) async fn set_remote_chunks_for_table(
+            &self,
+            table_name: &str,
+            chunks: Vec<DataChunk>,
+        ) {
             let mut table_chunks_guard = self.remote_table_chunks.lock().await;
             table_chunks_guard.insert(table_name.to_string(), chunks);
         }
