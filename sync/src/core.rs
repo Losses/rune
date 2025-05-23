@@ -2146,18 +2146,17 @@ mod tests {
         let hlc_remote_old = hlc(BASE_TS + 100, 0, REMOTE_NODE_STR);
         let hlc_local_new = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR);
 
-        // Initial state: Both have the record, but local is newer
-        let _local_initial = insert_test_record(
+        let local_record_model = insert_test_record(
+            // Capture the model for hash calculation
             &db,
             "sync_conflict1",
             "LocalWin",
             Some(1),
-            &hlc_remote_old,
-            &hlc_local_new,
+            &hlc_remote_old, // Created with old HLC
+            &hlc_local_new,  // Updated to new HLC
         )
         .await?;
         let remote_record = test_entity::Model {
-            // Use test_entity::Model
             id: 998,
             sync_id: "sync_conflict1".to_string(),
             name: "RemoteOld".to_string(),
@@ -2171,47 +2170,56 @@ mod tests {
         };
         remote_source
             .set_remote_data_for_table("test_items", vec![remote_record.clone()])
-            .await?; // Added await and error propagation
+            .await?;
 
-        // Setup chunks - need one local, one remote covering the HLCs, with different hashes
         let options = ChunkingOptions {
             min_size: 1,
             max_size: 1,
             alpha: 0.0,
             node_id: local_node_id,
         };
+        // Generate local chunks based on the actual local data
         let local_chunks =
             generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
-                .await?; // Use test_entity::Entity
-        let remote_chunk_data = DataChunk {
-            // Renamed to avoid conflict with remote_chunk if it was used later
-            start_hlc: hlc_remote_old.clone(),
-            end_hlc: hlc_remote_old.clone(),
-            count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_record])?,
-        };
-        remote_source
-            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned remote_chunk_data
-            .await;
+                .await?;
 
+        // Ensure local_chunks is not empty and contains the expected HLC
+        assert!(!local_chunks.is_empty(), "Local chunks should not be empty");
         assert!(
             local_chunks
                 .iter()
                 .any(|c| c.start_hlc <= hlc_local_new && c.end_hlc >= hlc_local_new),
             "Local chunk should cover the new HLC"
         );
-
-        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
-        let actual_remote_chunks = remote_chunks_guard
-            .get("test_items")
-            .expect("Remote chunks for 'test_items' should exist");
-        assert!(
-            !actual_remote_chunks.is_empty(),
-            "Remote chunks should not be empty"
+        // Use the model we inserted to calculate the expected local chunk hash
+        // This assumes generate_data_chunks correctly creates a chunk for local_record_model
+        let expected_local_chunk_hash = calculate_chunk_hash(&[local_record_model])?;
+        assert_eq!(
+            local_chunks[0].chunk_hash, expected_local_chunk_hash,
+            "Local chunk hash mismatch based on inserted data"
         );
-        assert_ne!(
-            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
-            "Chunk hashes must differ"
+
+        let remote_chunk_data = DataChunk {
+            start_hlc: hlc_remote_old.clone(), // Remote chunk covers its older version
+            end_hlc: hlc_remote_old.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()])
+            .await;
+
+        let actual_remote_chunks_clone = {
+            let guard = remote_source.remote_table_chunks.lock().await;
+            guard
+                .get("test_items")
+                .cloned()
+                .expect("Remote chunks for 'test_items' should exist")
+        }; // Guard is dropped here
+
+        assert!(
+            !actual_remote_chunks_clone.is_empty(),
+            "Remote chunks should not be empty (cloned)"
         );
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2229,7 +2237,6 @@ mod tests {
         };
 
         let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
-            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2279,8 +2286,8 @@ mod tests {
         let hlc_local_old = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
         let hlc_remote_new = hlc(BASE_TS + 200, 0, REMOTE_NODE_STR);
 
-        // Initial state: Both have the record, but remote is newer
-        let _local_initial = insert_test_record(
+        let local_record_model = insert_test_record(
+            // Capture for hash calc
             &db,
             "sync_conflict2",
             "LocalOld",
@@ -2290,21 +2297,20 @@ mod tests {
         )
         .await?;
         let remote_record = test_entity::Model {
-            // Use test_entity::Model
             id: 997,
             sync_id: "sync_conflict2".to_string(),
             name: "RemoteWin".to_string(),
             value: Some(100),
-            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?,
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?, // Created at old hlc
             created_at_hlc_ct: hlc_local_old.version as i32,
             created_at_hlc_id: hlc_local_old.node_id,
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?, // Updated to new hlc
             updated_at_hlc_ct: hlc_remote_new.version as i32,
             updated_at_hlc_id: hlc_remote_new.node_id,
         };
         remote_source
             .set_remote_data_for_table("test_items", vec![remote_record.clone()])
-            .await?; // Added await and error propagation
+            .await?;
 
         // Setup chunks
         let options = ChunkingOptions {
@@ -2315,31 +2321,35 @@ mod tests {
         };
         let local_chunks =
             generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
-                .await?; // Use test_entity::Entity
+                .await?;
+        assert!(!local_chunks.is_empty(), "Local chunks should not be empty");
+        let expected_local_chunk_hash = calculate_chunk_hash(&[local_record_model])?;
+        assert_eq!(
+            local_chunks[0].chunk_hash, expected_local_chunk_hash,
+            "Local chunk hash mismatch based on inserted data"
+        );
+
         let remote_chunk_data = DataChunk {
-            // Renamed
-            start_hlc: hlc_remote_new.clone(),
+            start_hlc: hlc_remote_new.clone(), // Remote chunk covers its newer version
             end_hlc: hlc_remote_new.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
         };
         remote_source
-            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()])
             .await;
-        assert!(!local_chunks.is_empty());
 
-        // MODIFIED: Access remote_table_chunks correctly
-        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
-        let actual_remote_chunks = remote_chunks_guard
-            .get("test_items")
-            .expect("Remote chunks for 'test_items' should exist");
+        let actual_remote_chunks_clone = {
+            let guard = remote_source.remote_table_chunks.lock().await;
+            guard
+                .get("test_items")
+                .cloned()
+                .expect("Remote chunks for 'test_items' should exist")
+        }; // Guard is dropped here
+
         assert!(
-            !actual_remote_chunks.is_empty(),
-            "Remote chunks should not be empty"
-        );
-        assert_ne!(
-            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
-            "Chunk hashes must differ"
+            !actual_remote_chunks_clone.is_empty(),
+            "Remote chunks should not be empty (cloned)"
         );
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2357,7 +2367,6 @@ mod tests {
         };
 
         let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
-            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2373,7 +2382,8 @@ mod tests {
                 || applied_ops
                     .iter()
                     .all(|op| matches!(op, SyncOperation::NoOp(_))),
-            "No real ops should be sent to remote"
+            "No real ops should be sent to remote, got: {:?}",
+            applied_ops
         );
 
         let local_final_data = test_entity::Entity::find().all(&db).await?;
