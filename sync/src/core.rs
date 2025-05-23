@@ -315,6 +315,7 @@ enum ReconciliationItem {
 /// # Type Parameters
 /// * `E`: The SeaORM `EntityTrait` for the table being synchronized.
 /// * `R`: The type implementing the `RemoteDataSource` trait.
+/// * `FKR`: The type implementing the `ForeignKeyResolver` trait for handling foreign key relationships.
 ///
 /// # Constraints (where clause)
 /// Ensures that the Entity, Model, ActiveModel, and PrimaryKey types satisfy all traits required
@@ -322,6 +323,18 @@ enum ReconciliationItem {
 ///
 /// # Arguments
 /// * `context`: The `SyncContext` containing configuration, connections, and the remote source implementation.
+/// * `fk_resolver`: Optional foreign key resolver that handles foreign key extraction, remote FK resolution,
+///                  dependency management and cross-table integrity.
+///   
+///                  When `None`, foreign key relationships are not processed, which may be appropriate for:
+///                  - Tables without foreign key constraints
+///                  - Sync operations where FK integrity is handled externally
+///                  - Simple sync scenarios where referential integrity is not required
+///   
+///                  When `Some(resolver)`, the resolver will be called for every record operation (insert/update) to:
+///                  - Extract FK sync IDs before pushing local changes to remote
+///                  - Process FK sync IDs when pulling remote changes to local
+///                  - Generate `FkPayload` objects containing the necessary FK relationship data
 /// * `table_name`: The string name of the table to synchronize (used for logging and remote calls).
 /// * `metadata`: The current `SyncTableMetadata` for this table, containing the `last_sync_hlc`.
 ///
