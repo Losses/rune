@@ -315,6 +315,7 @@ enum ReconciliationItem {
 /// # Type Parameters
 /// * `E`: The SeaORM `EntityTrait` for the table being synchronized.
 /// * `R`: The type implementing the `RemoteDataSource` trait.
+/// * `FKR`: The type implementing the `ForeignKeyResolver` trait for handling foreign key relationships.
 ///
 /// # Constraints (where clause)
 /// Ensures that the Entity, Model, ActiveModel, and PrimaryKey types satisfy all traits required
@@ -322,6 +323,18 @@ enum ReconciliationItem {
 ///
 /// # Arguments
 /// * `context`: The `SyncContext` containing configuration, connections, and the remote source implementation.
+/// * `fk_resolver`: Optional foreign key resolver that handles foreign key extraction, remote FK resolution,
+///   dependency management and cross-table integrity.
+///   
+///   When `None`, foreign key relationships are not processed, which may be appropriate for:
+///   - Tables without foreign key constraints
+///   - Sync operations where FK integrity is handled externally
+///   - Simple sync scenarios where referential integrity is not required
+///   
+///   When `Some(resolver)`, the resolver will be called for every record operation (insert/update) to:
+///   - Extract FK sync IDs before pushing local changes to remote
+///   - Process FK sync IDs when pulling remote changes to local
+///   - Generate `FkPayload` objects containing the necessary FK relationship data
 /// * `table_name`: The string name of the table to synchronize (used for logging and remote calls).
 /// * `metadata`: The current `SyncTableMetadata` for this table, containing the `last_sync_hlc`.
 ///
@@ -593,6 +606,65 @@ where
         table_name,
         local_records_to_compare.len(),
         remote_records_to_compare.len()
+    );
+
+    let local_records_to_compare = {
+        let mut unique_map: HashMap<String, E::Model> = HashMap::new();
+        for record in local_records_to_compare {
+            // Iterates by value, consuming the old Vec
+            let key = record.unique_id();
+            let current_hlc_opt = record.updated_at_hlc();
+
+            match unique_map.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut occupied_entry) => {
+                    let existing_hlc_opt = occupied_entry.get().updated_at_hlc();
+                    // Prefer record with Some(HLC) over None, or later HLC if both Some.
+                    if current_hlc_opt.is_some()
+                        && (existing_hlc_opt.is_none() || current_hlc_opt > existing_hlc_opt)
+                    {
+                        occupied_entry.insert(record); // Update with the "better" record
+                    }
+                    // else, keep existing (it's better or equal, or current_hlc_opt is None and existing might be Some)
+                }
+                std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(record);
+                }
+            }
+        }
+        unique_map.into_values().collect::<Vec<_>>()
+    };
+
+    // Deduplicate remote_records_to_compare
+    // This consumes the original remote_records_to_compare Vec and rebinds the variable.
+    let remote_records_to_compare = {
+        let mut unique_map: HashMap<String, E::Model> = HashMap::new();
+        for record in remote_records_to_compare {
+            // Iterates by value, consuming the old Vec
+            let key = record.unique_id();
+            let current_hlc_opt = record.updated_at_hlc();
+
+            match unique_map.entry(key) {
+                std::collections::hash_map::Entry::Occupied(mut occupied_entry) => {
+                    let existing_hlc_opt = occupied_entry.get().updated_at_hlc();
+                    if current_hlc_opt.is_some()
+                        && (existing_hlc_opt.is_none() || current_hlc_opt > existing_hlc_opt)
+                    {
+                        occupied_entry.insert(record);
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(vacant_entry) => {
+                    vacant_entry.insert(record);
+                }
+            }
+        }
+        unique_map.into_values().collect::<Vec<_>>()
+    };
+
+    debug!(
+        "After deduplication: {} local and {} remote records for table '{}'.",
+        local_records_to_compare.len(),
+        remote_records_to_compare.len(),
+        table_name
     );
 
     // 3. Merge and Compare Individual Records
@@ -1310,7 +1382,7 @@ pub trait PrimaryKeyFromStr<T>: PrimaryKeyTrait {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::sync::Arc;
@@ -1363,7 +1435,7 @@ mod tests {
 
     static NO_OP_RESOLVER: Option<&NoOpForeignKeyResolver> = None;
 
-    mod test_entity {
+    pub(crate) mod test_entity {
         use std::str::FromStr;
 
         use anyhow::{anyhow, Result};
@@ -1480,7 +1552,7 @@ mod tests {
     type SubChunk = Vec<(DataChunk, u64)>;
     type RecordsCalls = Vec<(HLC, HLC)>;
     #[derive(Debug, Clone)]
-    struct MockRemoteDataSource {
+    pub(crate) struct MockRemoteDataSource {
         node_id: Uuid,
         // Stores data for multiple tables: table_name -> sync_id -> record_json
         remote_table_data: Arc<TokioMutex<HashMap<String, HashMap<String, serde_json::Value>>>>,
@@ -1492,7 +1564,7 @@ mod tests {
 
         fail_on_apply: bool,
         fail_on_get_records: bool,
-        fail_on_get_chunks: bool,
+        pub(crate) fail_on_get_chunks: bool,
         fail_on_get_sub_chunks: bool,
         // Stores sub-chunk requests: table_name -> Vec<(DataChunk, u64)>
         sub_chunk_requests_by_table: Arc<TokioMutex<HashMap<String, SubChunk>>>,
@@ -1501,7 +1573,7 @@ mod tests {
     }
 
     impl MockRemoteDataSource {
-        fn new(node_id: Uuid) -> Self {
+        pub(crate) fn new(node_id: Uuid) -> Self {
             MockRemoteDataSource {
                 node_id,
                 remote_table_data: Arc::new(TokioMutex::new(HashMap::new())),
@@ -1532,7 +1604,11 @@ mod tests {
             Ok(())
         }
 
-        async fn set_remote_chunks_for_table(&self, table_name: &str, chunks: Vec<DataChunk>) {
+        pub(crate) async fn set_remote_chunks_for_table(
+            &self,
+            table_name: &str,
+            chunks: Vec<DataChunk>,
+        ) {
             let mut table_chunks_guard = self.remote_table_chunks.lock().await;
             table_chunks_guard.insert(table_name.to_string(), chunks);
         }
@@ -2146,18 +2222,17 @@ mod tests {
         let hlc_remote_old = hlc(BASE_TS + 100, 0, REMOTE_NODE_STR);
         let hlc_local_new = hlc(BASE_TS + 200, 0, LOCAL_NODE_STR);
 
-        // Initial state: Both have the record, but local is newer
-        let _local_initial = insert_test_record(
+        let local_record_model = insert_test_record(
+            // Capture the model for hash calculation
             &db,
             "sync_conflict1",
             "LocalWin",
             Some(1),
-            &hlc_remote_old,
-            &hlc_local_new,
+            &hlc_remote_old, // Created with old HLC
+            &hlc_local_new,  // Updated to new HLC
         )
         .await?;
         let remote_record = test_entity::Model {
-            // Use test_entity::Model
             id: 998,
             sync_id: "sync_conflict1".to_string(),
             name: "RemoteOld".to_string(),
@@ -2171,47 +2246,56 @@ mod tests {
         };
         remote_source
             .set_remote_data_for_table("test_items", vec![remote_record.clone()])
-            .await?; // Added await and error propagation
+            .await?;
 
-        // Setup chunks - need one local, one remote covering the HLCs, with different hashes
         let options = ChunkingOptions {
             min_size: 1,
             max_size: 1,
             alpha: 0.0,
             node_id: local_node_id,
         };
+        // Generate local chunks based on the actual local data
         let local_chunks =
             generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
-                .await?; // Use test_entity::Entity
-        let remote_chunk_data = DataChunk {
-            // Renamed to avoid conflict with remote_chunk if it was used later
-            start_hlc: hlc_remote_old.clone(),
-            end_hlc: hlc_remote_old.clone(),
-            count: 1,
-            chunk_hash: calculate_chunk_hash(&[remote_record])?,
-        };
-        remote_source
-            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned remote_chunk_data
-            .await;
+                .await?;
 
+        // Ensure local_chunks is not empty and contains the expected HLC
+        assert!(!local_chunks.is_empty(), "Local chunks should not be empty");
         assert!(
             local_chunks
                 .iter()
                 .any(|c| c.start_hlc <= hlc_local_new && c.end_hlc >= hlc_local_new),
             "Local chunk should cover the new HLC"
         );
-
-        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
-        let actual_remote_chunks = remote_chunks_guard
-            .get("test_items")
-            .expect("Remote chunks for 'test_items' should exist");
-        assert!(
-            !actual_remote_chunks.is_empty(),
-            "Remote chunks should not be empty"
+        // Use the model we inserted to calculate the expected local chunk hash
+        // This assumes generate_data_chunks correctly creates a chunk for local_record_model
+        let expected_local_chunk_hash = calculate_chunk_hash(&[local_record_model])?;
+        assert_eq!(
+            local_chunks[0].chunk_hash, expected_local_chunk_hash,
+            "Local chunk hash mismatch based on inserted data"
         );
-        assert_ne!(
-            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
-            "Chunk hashes must differ"
+
+        let remote_chunk_data = DataChunk {
+            start_hlc: hlc_remote_old.clone(), // Remote chunk covers its older version
+            end_hlc: hlc_remote_old.clone(),
+            count: 1,
+            chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
+        };
+        remote_source
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()])
+            .await;
+
+        let actual_remote_chunks_clone = {
+            let guard = remote_source.remote_table_chunks.lock().await;
+            guard
+                .get("test_items")
+                .cloned()
+                .expect("Remote chunks for 'test_items' should exist")
+        }; // Guard is dropped here
+
+        assert!(
+            !actual_remote_chunks_clone.is_empty(),
+            "Remote chunks should not be empty (cloned)"
         );
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2229,7 +2313,6 @@ mod tests {
         };
 
         let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
-            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2279,8 +2362,8 @@ mod tests {
         let hlc_local_old = hlc(BASE_TS + 100, 0, LOCAL_NODE_STR);
         let hlc_remote_new = hlc(BASE_TS + 200, 0, REMOTE_NODE_STR);
 
-        // Initial state: Both have the record, but remote is newer
-        let _local_initial = insert_test_record(
+        let local_record_model = insert_test_record(
+            // Capture for hash calc
             &db,
             "sync_conflict2",
             "LocalOld",
@@ -2290,21 +2373,20 @@ mod tests {
         )
         .await?;
         let remote_record = test_entity::Model {
-            // Use test_entity::Model
             id: 997,
             sync_id: "sync_conflict2".to_string(),
             name: "RemoteWin".to_string(),
             value: Some(100),
-            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?,
+            created_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_local_old.timestamp)?, // Created at old hlc
             created_at_hlc_ct: hlc_local_old.version as i32,
             created_at_hlc_id: hlc_local_old.node_id,
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(hlc_remote_new.timestamp)?, // Updated to new hlc
             updated_at_hlc_ct: hlc_remote_new.version as i32,
             updated_at_hlc_id: hlc_remote_new.node_id,
         };
         remote_source
             .set_remote_data_for_table("test_items", vec![remote_record.clone()])
-            .await?; // Added await and error propagation
+            .await?;
 
         // Setup chunks
         let options = ChunkingOptions {
@@ -2315,31 +2397,35 @@ mod tests {
         };
         let local_chunks =
             generate_data_chunks::<test_entity::Entity>(&db, &options, Some(start_hlc.clone()))
-                .await?; // Use test_entity::Entity
+                .await?;
+        assert!(!local_chunks.is_empty(), "Local chunks should not be empty");
+        let expected_local_chunk_hash = calculate_chunk_hash(&[local_record_model])?;
+        assert_eq!(
+            local_chunks[0].chunk_hash, expected_local_chunk_hash,
+            "Local chunk hash mismatch based on inserted data"
+        );
+
         let remote_chunk_data = DataChunk {
-            // Renamed
-            start_hlc: hlc_remote_new.clone(),
+            start_hlc: hlc_remote_new.clone(), // Remote chunk covers its newer version
             end_hlc: hlc_remote_new.clone(),
             count: 1,
             chunk_hash: calculate_chunk_hash(&[remote_record.clone()])?,
         };
         remote_source
-            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()]) // Use cloned
+            .set_remote_chunks_for_table("test_items", vec![remote_chunk_data.clone()])
             .await;
-        assert!(!local_chunks.is_empty());
 
-        // MODIFIED: Access remote_table_chunks correctly
-        let remote_chunks_guard = remote_source.remote_table_chunks.lock().await;
-        let actual_remote_chunks = remote_chunks_guard
-            .get("test_items")
-            .expect("Remote chunks for 'test_items' should exist");
+        let actual_remote_chunks_clone = {
+            let guard = remote_source.remote_table_chunks.lock().await;
+            guard
+                .get("test_items")
+                .cloned()
+                .expect("Remote chunks for 'test_items' should exist")
+        }; // Guard is dropped here
+
         assert!(
-            !actual_remote_chunks.is_empty(),
-            "Remote chunks should not be empty"
-        );
-        assert_ne!(
-            local_chunks[0].chunk_hash, actual_remote_chunks[0].chunk_hash,
-            "Chunk hashes must differ"
+            !actual_remote_chunks_clone.is_empty(),
+            "Remote chunks should not be empty (cloned)"
         );
 
         let hlc_context = SyncTaskContext::new(local_node_id);
@@ -2357,7 +2443,6 @@ mod tests {
         };
 
         let final_metadata = synchronize_table::<test_entity::Entity, _, _>(
-            // Use test_entity::Entity
             &context,
             NO_OP_RESOLVER,
             "test_items",
@@ -2373,7 +2458,8 @@ mod tests {
                 || applied_ops
                     .iter()
                     .all(|op| matches!(op, SyncOperation::NoOp(_))),
-            "No real ops should be sent to remote"
+            "No real ops should be sent to remote, got: {:?}",
+            applied_ops
         );
 
         let local_final_data = test_entity::Entity::find().all(&db).await?;
@@ -4157,7 +4243,7 @@ mod tests {
         .await?;
         assert_eq!(
             author_final_metadata.last_sync_hlc, hlc_author_v1,
-            "Author sync HLC should update"
+            "Author sync HLC should update to the HLC of the single author processed"
         );
 
         // Sync posts (PULL)
