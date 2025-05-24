@@ -148,7 +148,8 @@ async fn main() {
         }
     };
 
-    let main_db = match connect_main_db(lib_path, None).await {
+    // TODO: INTEGRATING THE CLIENT ID LATER
+    let main_db = match connect_main_db(lib_path, None, "").await {
         Ok(db) => db,
         Err(e) => {
             error!("Failed to connect to main database: {}", e);
@@ -168,7 +169,7 @@ async fn main() {
         Commands::Scan => {
             let _ = scan_audio_library(&main_db, &path, true, false, empty_progress_callback, None)
                 .await;
-            let _ = scan_cover_arts(&main_db, &path, 10, |_now, _total| {}, None).await;
+            let _ = scan_cover_arts(&main_db, &path, "", 10, |_now, _total| {}, None).await;
             info!("Library scanned successfully.");
         }
         Commands::Index => {

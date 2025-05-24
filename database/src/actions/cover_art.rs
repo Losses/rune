@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use metadata::cover_art::get_primary_color;
 use metadata::cover_art::{extract_cover_art_binary, CoverArt};
+use uuid::Uuid;
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -43,6 +44,7 @@ pub async fn get_magic_cover_art_id(main_db: &DatabaseConnection) -> Option<i32>
 
 pub async fn ensure_magic_cover_art(
     main_db: &DatabaseConnection,
+    node_id: &str,
 ) -> Result<media_cover_art::Model> {
     if let Some(magic_cover_art) = get_magic_cover_art(main_db).await? {
         Ok(magic_cover_art)
@@ -53,9 +55,13 @@ pub async fn ensure_magic_cover_art(
             file_hash: ActiveValue::Set(String::new()),
             binary: ActiveValue::Set(Vec::new()),
             primary_color: ActiveValue::Set(Some(0)),
-            created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            data_version: ActiveValue::Set(0),
+            hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            created_at_hlc_ver: ActiveValue::Set(0),
+            updated_at_hlc_ver: ActiveValue::Set(0),
+            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         };
 
         let insert_result = media_cover_art::Entity::insert(new_magic_cover_art)
@@ -73,8 +79,8 @@ pub async fn ensure_magic_cover_art(
     }
 }
 
-pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection) -> Result<i32> {
-    let magic_cover_art = ensure_magic_cover_art(main_db).await?;
+pub async fn ensure_magic_cover_art_id(main_db: &DatabaseConnection, node_id: &str) -> Result<i32> {
+    let magic_cover_art = ensure_magic_cover_art(main_db, node_id).await?;
     Ok(magic_cover_art.id)
 }
 
@@ -222,9 +228,13 @@ pub async fn insert_extract_result(
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
                 primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
-                created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-                updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-                data_version: ActiveValue::Set(0),
+                hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+                created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                created_at_hlc_ver: ActiveValue::Set(0),
+                updated_at_hlc_ver: ActiveValue::Set(0),
+                created_at_hlc_nid: ActiveValue::Set("".to_owned()),
+                updated_at_hlc_nid: ActiveValue::Set("".to_owned()),
             };
 
             let insert_result = media_cover_art::Entity::insert(new_cover_art)
@@ -255,6 +265,7 @@ pub async fn insert_extract_result(
 pub async fn scan_cover_arts<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
+    node_id: &str,
     batch_size: usize,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
@@ -272,7 +283,7 @@ where
     let cursor_query = media_files::Entity::find();
 
     let lib_path = Arc::new(lib_path.to_path_buf());
-    let magic_cover_art_id = ensure_magic_cover_art_id(main_db).await?;
+    let magic_cover_art_id = ensure_magic_cover_art_id(main_db, node_id).await?;
 
     parallel_media_files_processing!(
         main_db,

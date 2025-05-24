@@ -6,7 +6,7 @@ use database::connection::connect_main_db;
 #[tokio::main]
 async fn main() {
     let path = ".";
-    let main_db = connect_main_db(path, None).await.unwrap();
+    let main_db = connect_main_db(path, None, "").await.unwrap();
 
     // Get the first command line argument.
     let args: Vec<String> = std::env::args().collect();

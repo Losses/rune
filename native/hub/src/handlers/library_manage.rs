@@ -78,6 +78,7 @@ impl Signal for CloseLibraryRequest {
 impl ParamsExtractor for ScanAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
@@ -85,6 +86,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
         )
@@ -94,6 +96,7 @@ impl ParamsExtractor for ScanAudioLibraryRequest {
 impl Signal for ScanAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
@@ -101,7 +104,7 @@ impl Signal for ScanAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, task_tokens, broadcaster): Self::Params,
+        (main_db, node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<()>> {
@@ -158,6 +161,7 @@ impl Signal for ScanAudioLibraryRequest {
                     scan_cover_arts(
                         &main_db_clone,
                         Path::new(&path.clone()),
+                        &node_id,
                         batch_size,
                         move |now, total| {
                             cloned_broadcaster.broadcast(&ScanAudioLibraryProgress {

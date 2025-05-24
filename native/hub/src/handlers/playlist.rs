@@ -49,19 +49,22 @@ impl Signal for FetchAllPlaylistsRequest {
 }
 
 impl ParamsExtractor for CreatePlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for CreatePlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = CreatePlaylistResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -71,7 +74,7 @@ impl Signal for CreatePlaylistRequest {
         let group = &request.group;
 
         let txn = main_db.begin().await?;
-        let playlist = create_playlist(&txn, name.clone(), group.clone())
+        let playlist = create_playlist(&txn, &node_id, name.clone(), group.clone())
             .await
             .with_context(|| {
                 format!("Failed to create playlist: name={}, group={}", name, group)
@@ -89,19 +92,22 @@ impl Signal for CreatePlaylistRequest {
 }
 
 impl ParamsExtractor for UpdatePlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for UpdatePlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = UpdatePlaylistResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -112,6 +118,7 @@ impl Signal for UpdatePlaylistRequest {
 
         let playlist = update_playlist(
             &main_db,
+            &node_id,
             request.playlist_id,
             Some(name.clone()),
             Some(group.clone()),
@@ -165,19 +172,22 @@ impl Signal for RemovePlaylistRequest {
 }
 
 impl ParamsExtractor for AddItemToPlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for AddItemToPlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = AddItemToPlaylistResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -185,6 +195,7 @@ impl Signal for AddItemToPlaylistRequest {
 
         add_item_to_playlist(
             &main_db,
+            &node_id,
             request.playlist_id,
             request.media_file_id,
             request.position,
@@ -276,19 +287,22 @@ impl Signal for GetPlaylistByIdRequest {
 }
 
 impl ParamsExtractor for CreateM3u8PlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for CreateM3u8PlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = CreateM3u8PlaylistResponse;
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -298,7 +312,15 @@ impl Signal for CreateM3u8PlaylistRequest {
         let group = &request.group;
         let path = &request.path;
 
-        match create_m3u8_playlist(&main_db, name.clone(), group.clone(), Path::new(&path)).await {
+        match create_m3u8_playlist(
+            &main_db,
+            &node_id,
+            name.clone(),
+            group.clone(),
+            Path::new(&path),
+        )
+        .await
+        {
             Ok((playlist, import_result)) => Ok(Some(CreateM3u8PlaylistResponse {
                 playlist: Some(Playlist {
                     id: playlist.id,
@@ -322,20 +344,23 @@ impl Signal for CreateM3u8PlaylistRequest {
 }
 
 impl ParamsExtractor for RemoveItemFromPlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for RemoveItemFromPlaylistRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = RemoveItemFromPlaylistResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -343,6 +368,7 @@ impl Signal for RemoveItemFromPlaylistRequest {
 
         match remove_item_from_playlist(
             &main_db,
+            &node_id,
             request.playlist_id,
             request.media_file_id,
             request.position,

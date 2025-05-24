@@ -11,11 +11,17 @@ pub struct Model {
     pub name: String,
     #[sea_orm(column_type = "Text")]
     pub group: String,
+    pub hlc_uuid: String,
     #[sea_orm(column_type = "Text")]
-    pub created_at: String,
+    pub created_at_hlc_ts: String,
+    pub created_at_hlc_ver: i32,
     #[sea_orm(column_type = "Text")]
-    pub updated_at: String,
-    pub data_version: i32,
+    pub created_at_hlc_nid: String,
+    #[sea_orm(column_type = "Text")]
+    pub updated_at_hlc_ts: String,
+    pub updated_at_hlc_ver: i32,
+    #[sea_orm(column_type = "Text")]
+    pub updated_at_hlc_nid: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

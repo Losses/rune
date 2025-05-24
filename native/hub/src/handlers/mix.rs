@@ -52,20 +52,23 @@ impl Signal for FetchAllMixesRequest {
 }
 
 impl ParamsExtractor for CreateMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for CreateMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = CreateMixResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -73,6 +76,7 @@ impl Signal for CreateMixRequest {
 
         let mix = create_mix(
             &main_db,
+            &node_id,
             request.name.clone(),
             request.group.clone(),
             request.scriptlet_mode,
@@ -84,6 +88,7 @@ impl Signal for CreateMixRequest {
 
         replace_mix_queries(
             &main_db,
+            &node_id,
             mix.id,
             request
                 .queries
@@ -109,20 +114,23 @@ impl Signal for CreateMixRequest {
 }
 
 impl ParamsExtractor for UpdateMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for UpdateMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = UpdateMixResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -130,6 +138,7 @@ impl Signal for UpdateMixRequest {
 
         let mix = update_mix(
             &main_db,
+            &node_id,
             request.mix_id,
             Some(request.name.clone()),
             Some(request.group.clone()),
@@ -142,6 +151,7 @@ impl Signal for UpdateMixRequest {
 
         replace_mix_queries(
             &main_db,
+            &node_id,
             request.mix_id,
             request
                 .queries
@@ -198,20 +208,23 @@ impl Signal for RemoveMixRequest {
 }
 
 impl ParamsExtractor for AddItemToMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
 
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
-        (Arc::clone(&all_params.main_db),)
+        (
+            Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
+        )
     }
 }
 
 impl Signal for AddItemToMixRequest {
-    type Params = (Arc<MainDbConnection>,);
+    type Params = (Arc<MainDbConnection>, Arc<String>);
     type Response = AddItemToMixResponse;
 
     async fn handle(
         &self,
-        (main_db,): Self::Params,
+        (main_db, node_id): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -221,14 +234,20 @@ impl Signal for AddItemToMixRequest {
         let operator = &request.operator;
         let parameter = &request.parameter;
 
-        add_item_to_mix(&main_db, mix_id, operator.clone(), parameter.clone())
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to add item to mix: mix_id={}, operator={}, parameter={}",
-                    mix_id, operator, parameter
-                )
-            })?;
+        add_item_to_mix(
+            &main_db,
+            &node_id,
+            mix_id,
+            operator.clone(),
+            parameter.clone(),
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to add item to mix: mix_id={}, operator={}, parameter={}",
+                mix_id, operator, parameter
+            )
+        })?;
 
         Ok(Some(AddItemToMixResponse { success: true }))
     }

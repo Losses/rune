@@ -185,6 +185,7 @@ impl CollectionQuery for mixes::Model {
 
 pub async fn create_mix(
     db: &DatabaseConnection,
+    node_id: &str,
     name: String,
     group: String,
     scriptlet_mode: bool,
@@ -199,8 +200,13 @@ pub async fn create_mix(
         scriptlet_mode: ActiveValue::Set(scriptlet_mode),
         mode: ActiveValue::Set(Some(mode)),
         locked: ActiveValue::Set(locked),
-        created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+        hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(0),
+        updated_at_hlc_ver: ActiveValue::Set(0),
+        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
 
@@ -225,8 +231,10 @@ pub async fn get_mix_by_id(main_db: &DatabaseConnection, id: i32) -> Result<mixe
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn update_mix(
     db: &DatabaseConnection,
+    node_id: &str,
     id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -239,6 +247,7 @@ pub async fn update_mix(
     let mix = MixEntity::find_by_id(id).one(db).await?;
 
     if let Some(mix) = mix {
+        let ver = mix.created_at_hlc_ver;
         let mut active_model: mixes::ActiveModel = mix.into();
 
         if let Some(name) = name {
@@ -257,7 +266,9 @@ pub async fn update_mix(
             active_model.locked = ActiveValue::Set(locked);
         }
 
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.updated_at_hlc_ver = ActiveValue::Set(ver + 1);
+        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
         let updated_mix = active_model.update(db).await?;
 
         Ok(updated_mix)
@@ -280,6 +291,7 @@ pub async fn remove_mix(main_db: &DatabaseConnection, id: i32) -> Result<()> {
 
 pub async fn replace_mix_queries(
     main_db: &DatabaseConnection,
+    node_id: &str,
     mix_id: i32,
     operator_parameters: Vec<(String, String)>,
     group: Option<i32>,
@@ -311,8 +323,13 @@ pub async fn replace_mix_queries(
                 operator: ActiveValue::Set(operator.clone()),
                 parameter: ActiveValue::Set(parameter.clone()),
                 group: ActiveValue::Set(group.unwrap_or_default()),
-                created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-                updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+                created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                created_at_hlc_ver: ActiveValue::Set(0),
+                updated_at_hlc_ver: ActiveValue::Set(0),
+                created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                 ..Default::default()
             };
 
@@ -418,6 +435,7 @@ where
 
 pub async fn add_item_to_mix(
     main_db: &DatabaseConnection,
+    node_id: &str,
     mix_id: i32,
     operator: String,
     parameter: String,
@@ -443,8 +461,13 @@ pub async fn add_item_to_mix(
             operator: ActiveValue::Set(operator),
             parameter: ActiveValue::Set(parameter),
             group: ActiveValue::Set(0),
-            created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-            updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+            hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+            created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+            created_at_hlc_ver: ActiveValue::Set(0),
+            updated_at_hlc_ver: ActiveValue::Set(0),
+            created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+            updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
             ..Default::default()
         };
 
@@ -453,7 +476,7 @@ pub async fn add_item_to_mix(
     }
 }
 
-pub async fn initialize_mix_queries(main_db: &DatabaseConnection) -> Result<()> {
+pub async fn initialize_mix_queries(main_db: &DatabaseConnection, node_id: &str) -> Result<()> {
     let all_mixes: Vec<mixes::Model> = mixes::Entity::find()
         .filter(
             Condition::all()
@@ -491,8 +514,13 @@ pub async fn initialize_mix_queries(main_db: &DatabaseConnection) -> Result<()> 
                     operator: ActiveValue::Set(operator.to_string()),
                     parameter: ActiveValue::Set(parameter.to_string()),
                     group: ActiveValue::Set(0),
-                    created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-                    updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+                    created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+                    created_at_hlc_ver: ActiveValue::Set(0),
+                    updated_at_hlc_ver: ActiveValue::Set(0),
+                    created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+                    updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
                     ..Default::default()
                 };
 

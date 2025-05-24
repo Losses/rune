@@ -43,6 +43,7 @@ collection_query!(
 ///
 /// # Arguments
 /// * `db` - A reference to the database connection.
+/// * `node_id` - The id of the client that triggers the operation.
 /// * `name` - The name of the new playlist.
 /// * `group` - The group to which the playlist belongs.
 ///
@@ -50,6 +51,7 @@ collection_query!(
 /// * `Result<Model>` - The created playlist model or an error.
 pub async fn create_playlist<E>(
     main_db: &E,
+    node_id: &str,
     name: String,
     group: String,
 ) -> Result<playlists::Model>
@@ -62,8 +64,13 @@ where
     let new_playlist = ActiveModel {
         name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
-        created_at: ActiveValue::Set(Utc::now().to_rfc3339()),
-        updated_at: ActiveValue::Set(Utc::now().to_rfc3339()),
+        hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+        created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(0),
+        updated_at_hlc_ver: ActiveValue::Set(0),
+        created_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
+        updated_at_hlc_nid: ActiveValue::Set(node_id.to_owned()),
         ..Default::default()
     };
 
@@ -104,6 +111,7 @@ pub async fn get_all_playlists(db: &DatabaseConnection) -> Result<Vec<playlists:
 ///
 /// # Arguments
 /// * `db` - A reference to the database connection.
+/// * `node_id` - The id of the client that triggers the operation.
 /// * `playlist_id` - The ID of the playlist to update.
 /// * `name` - The new name for the playlist.
 /// * `group` - The new group for the playlist.
@@ -112,6 +120,7 @@ pub async fn get_all_playlists(db: &DatabaseConnection) -> Result<Vec<playlists:
 /// * `Result<Model>` - The updated playlist model or an error.
 pub async fn update_playlist(
     main_db: &DatabaseConnection,
+    node_id: &str,
     playlist_id: i32,
     name: Option<String>,
     group: Option<String>,
@@ -122,6 +131,7 @@ pub async fn update_playlist(
     let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
 
     if let Some(playlist) = playlist {
+        let ver = playlist.updated_at_hlc_ver;
         let mut active_model: playlists::ActiveModel = playlist.into();
 
         // Update the fields if provided
@@ -132,7 +142,9 @@ pub async fn update_playlist(
             active_model.group = ActiveValue::Set(group);
         }
 
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.created_at_hlc_ver = ActiveValue::Set(ver + 1);
+        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
 
         // Update the playlist in the database
         let updated_playlist = active_model.update(main_db).await?;
@@ -191,6 +203,7 @@ pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> 
 ///
 /// # Arguments
 /// * `main_db` - A reference to the database connection.
+/// * `node_id` - The id of the client that triggers the operation.
 /// * `playlist_id` - The ID of the playlist to add the item to.
 /// * `media_file_id` - The ID of the media file to add.
 /// * `position` - The optional position of the media file in the playlist.
@@ -199,6 +212,7 @@ pub async fn remove_playlist(main_db: &DatabaseConnection, playlist_id: i32) -> 
 /// * `Result<Model>` - The created media file playlist model or an error.
 pub async fn add_item_to_playlist(
     main_db: &DatabaseConnection,
+    node_id: &str,
     playlist_id: i32,
     media_file_id: i32,
     position: Option<i32>,
@@ -235,8 +249,11 @@ pub async fn add_item_to_playlist(
     let playlist = PlaylistEntity::find_by_id(playlist_id).one(main_db).await?;
 
     if let Some(playlist) = playlist {
+        let ver = playlist.updated_at_hlc_ver;
         let mut active_model: playlists::ActiveModel = playlist.into();
-        active_model.updated_at = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.updated_at_hlc_ts = ActiveValue::Set(Utc::now().to_rfc3339());
+        active_model.created_at_hlc_ver = ActiveValue::Set(ver + 1);
+        active_model.updated_at_hlc_nid = ActiveValue::Set(node_id.to_owned());
         let _ = active_model.update(main_db).await?;
     } else {
         bail!("Playlist not found")
@@ -448,6 +465,7 @@ where
 
 pub async fn create_m3u8_playlist(
     main_db: &MainDbConnection,
+    node_id: &str,
     name: String,
     group: String,
     m3u8_path: &Path,
@@ -455,7 +473,8 @@ pub async fn create_m3u8_playlist(
     let txn = main_db.begin().await?;
 
     // Create the playlist
-    let playlist: playlists::Model = create_playlist(&txn, name.clone(), group.clone()).await?;
+    let playlist: playlists::Model =
+        create_playlist(&txn, node_id, name.clone(), group.clone()).await?;
 
     // Import the M3U8 file contents into the playlist
     let import_result = import_m3u8_to_playlist(&txn, playlist.id, m3u8_path).await;
@@ -479,6 +498,7 @@ pub async fn create_m3u8_playlist(
 ///
 /// # Arguments
 /// * `main_db` - A reference to the database connection.
+/// * `node_id` - The id of the client that triggers the operation.
 /// * `playlist_id` - The ID of the playlist containing the item.
 /// * `media_file_id` - The ID of the media file to remove.
 /// * `position` - The exact position of the item in the playlist.
@@ -487,6 +507,7 @@ pub async fn create_m3u8_playlist(
 /// * `Result<()>` - An empty result or an error.
 pub async fn remove_item_from_playlist(
     main_db: &DatabaseConnection,
+    node_id: &str,
     playlist_id: i32,
     media_file_id: i32,
     position: i32,
@@ -523,8 +544,16 @@ pub async fn remove_item_from_playlist(
 
     PlaylistEntity::update_many()
         .col_expr(
-            playlists::Column::UpdatedAt,
+            playlists::Column::UpdatedAtHlcTs,
             Expr::value(Utc::now().to_rfc3339()),
+        )
+        .col_expr(
+            playlists::Column::UpdatedAtHlcNid,
+            Expr::value(node_id.to_owned()),
+        )
+        .col_expr(
+            playlists::Column::UpdatedAtHlcVer,
+            Expr::add(Expr::col(playlists::Column::UpdatedAtHlcVer), 1),
         )
         .filter(playlists::Column::Id.eq(playlist_id))
         .exec(&txn)

@@ -1,4 +1,5 @@
 pub mod broadcastable;
+pub mod nid;
 pub mod player;
 
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{Context, Result};
 use dunce::canonicalize;
 use log::{error, info};
+use nid::get_or_create_node_id;
 use scrobbling::manager::ScrobblingServiceManager;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
@@ -50,10 +52,11 @@ pub struct DatabaseConnections {
 pub async fn initialize_databases(
     path: &str,
     db_path: Option<&str>,
+    node_id: &str,
 ) -> Result<DatabaseConnections> {
     info!("Initializing databases");
 
-    let main_db = connect_main_db(path, db_path)
+    let main_db = connect_main_db(path, db_path, node_id)
         .await
         .with_context(|| "Failed to connect to main DB")?;
 
@@ -76,12 +79,13 @@ pub struct TaskTokens {
 #[derive(Debug, Clone, Copy)]
 pub enum RunningMode {
     Server,
-    Client
+    Client,
 }
 
 pub struct GlobalParams {
     pub lib_path: Arc<String>,
     pub config_path: Arc<String>,
+    pub node_id: Arc<String>,
     pub main_db: Arc<MainDbConnection>,
     pub recommend_db: Arc<RecommendationDbConnection>,
     pub main_token: Arc<CancellationToken>,
@@ -158,6 +162,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
             let media_library_path = &dart_signal.message.path;
             let config_path = &dart_signal.message.config_path;
             let alias = &dart_signal.message.alias;
+            let node_id = get_or_create_node_id(config_path).await?.to_string();
 
             match &dart_signal.message.hosted_on() {
                 OperationDestination::Local => {
@@ -208,7 +213,9 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                     }
 
                     // Initialize databases
-                    match initialize_databases(media_library_path, Some(&database_path)).await {
+                    match initialize_databases(media_library_path, Some(&database_path), &node_id)
+                        .await
+                    {
                         Ok(db_connections) => {
                             // Send success response to Dart
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
@@ -294,16 +301,16 @@ pub async fn inject_cover_art_map(
         n,
     )
     .await?;
-    
+
     // Get the base cover art paths
     let raw_cover_art_map = bake_cover_art_by_media_files(main_db, files).await?;
-    
+
     // Process the cover art paths based on the running mode
     let cover_art_map: HashMap<i32, String> = raw_cover_art_map
         .into_iter()
         .map(|(id, path)| (id, process_cover_art_path(&path, running_mode, remote_host)))
         .collect();
-    
+
     Ok(Collection {
         id: collection.id,
         name: collection.name,
@@ -370,7 +377,7 @@ pub fn process_cover_art_path(
                         .file_name()
                         .and_then(|name| name.to_str())
                         .unwrap_or_default();
-                    
+
                     // Construct the URL using the host and cache prefix
                     format!("{}/files/cache/{}", host, file_name)
                 } else {
@@ -378,7 +385,7 @@ pub fn process_cover_art_path(
                     path.to_string()
                 }
             }
-        },
+        }
         RunningMode::Client => {
             // We're running as a client, so the path is already correct
             path.to_string()

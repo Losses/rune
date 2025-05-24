@@ -20,8 +20,8 @@ use cli::{
 use hub::{
     server::{ServerManager, WebSocketService},
     utils::{
-        initialize_databases, player::initialize_local_player, GlobalParams, RunningMode,
-        TaskTokens,
+        initialize_databases, nid::get_or_create_node_id, player::initialize_local_player,
+        GlobalParams, RunningMode, TaskTokens,
     },
 };
 
@@ -108,7 +108,9 @@ fn setup_logging() {
 
 async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<Arc<GlobalParams>> {
     let db_path = format!("{}/.rune", lib_path);
-    let db_connections = initialize_databases(lib_path, Some(&db_path)).await?;
+    let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
+
+    let db_connections = initialize_databases(lib_path, Some(&db_path), &node_id).await?;
 
     let main_db: Arc<MainDbConnection> = db_connections.main_db;
     let recommend_db: Arc<RecommendationDbConnection> = db_connections.recommend_db;
@@ -150,6 +152,7 @@ async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<A
     let global_params = Arc::new(GlobalParams {
         lib_path,
         config_path,
+        node_id,
         main_db,
         recommend_db,
         main_token: main_cancel_token,

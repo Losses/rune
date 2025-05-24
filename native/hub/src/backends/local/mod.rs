@@ -21,6 +21,7 @@ use ::scrobbling::manager::ScrobblingManager;
 use crate::listen_local_gui_event;
 use crate::messages::*;
 use crate::server::ServerManager;
+use crate::utils::nid::get_or_create_node_id;
 use crate::utils::player::initialize_local_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
@@ -47,6 +48,13 @@ pub async fn local_player_loop(
 
         let lib_path: Arc<String> = Arc::new(lib_path);
         let config_path: Arc<String> = Arc::new(config_path);
+
+        let node_id = Arc::new(
+            get_or_create_node_id(&config_path)
+                .await
+                .unwrap()
+                .to_string(),
+        );
 
         let main_cancel_token = CancellationToken::new();
         let task_tokens: Arc<Mutex<TaskTokens>> = Arc::new(Mutex::new(TaskTokens::default()));
@@ -82,6 +90,7 @@ pub async fn local_player_loop(
         let global_params = GlobalParams {
             lib_path,
             config_path,
+            node_id,
             main_db,
             recommend_db,
             main_token: Arc::clone(&main_cancel_token),

@@ -35,7 +35,8 @@ use crate::{
     register_remote_handlers,
     server::{api::check_fingerprint, generate_or_load_certificates},
     utils::{
-        GlobalParams, LocalGuiBroadcaster, ParamsExtractor, RinfRustSignal, RunningMode, TaskTokens,
+        nid::get_or_create_node_id, GlobalParams, LocalGuiBroadcaster, ParamsExtractor,
+        RinfRustSignal, RunningMode, TaskTokens,
     },
     Signal,
 };
@@ -264,9 +265,12 @@ impl WebSocketDartBridge {
                     Arc::new(RwLock::new(CertValidator::new(config_path).await.unwrap()));
 
                 info!("Initializing UI events");
+                let node_id = get_or_create_node_id(config_path).await?.to_string();
+
                 let global_params = GlobalParams {
                     lib_path: Arc::new(rnsrv_url.to_owned()),
                     config_path: Arc::new(config_path.to_string()),
+                    node_id: Arc::new(node_id),
                     main_db: Arc::new(connect_fake_main_db().await?),
                     recommend_db: Arc::new(connect_fake_recommendation_db()?),
                     main_token: Arc::clone(&cancel_token),
