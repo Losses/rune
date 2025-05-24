@@ -184,7 +184,7 @@ jobs:
         run: flutter pub get
 
       - name: Generate message files
-        run: rinf message
+        run: flutter pub run rinf message
 
       - name: Build linux
         run: flutter build linux --release --verbose
