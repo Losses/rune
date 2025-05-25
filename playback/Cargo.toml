@@ -44,7 +44,7 @@ once_cell = "1.20.2"
 simple_channel = { path = "../simple-channel" }
 
 [target.'cfg(not(any(target_os = "android")))'.dependencies]
-souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a2774306718a0c561609083f1acc617" }
+souvlaki = { git = "https://github.com/Losses/souvlaki", rev = "e60e9b9a6a2774306718a0c561609083f1acc617", default-features = false, features = ["use_zbus"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
