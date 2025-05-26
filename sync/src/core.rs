@@ -1531,6 +1531,9 @@ pub(crate) mod tests {
             fn unique_id_column() -> Self::Column {
                 Column::SyncId
             }
+            fn updated_at_node_id_column() -> Self::Column {
+                Column::UpdatedAtHlcId
+            }
         }
 
         // Implement PrimaryKeyFromStr for the Entity's PrimaryKey
@@ -3828,6 +3831,9 @@ pub(crate) mod tests {
             fn unique_id_column() -> Self::Column {
                 Column::SyncId
             }
+            fn updated_at_node_id_column() -> Self::Column {
+                Column::CreatedAtHlcId
+            }
         }
 
         impl PrimaryKeyFromStr<<Self as PrimaryKeyTrait>::ValueType> for PrimaryKey
@@ -3968,6 +3974,9 @@ pub(crate) mod tests {
             }
             fn unique_id_column() -> Self::Column {
                 Column::SyncId
+            }
+            fn updated_at_node_id_column() -> Self::Column {
+                Column::CreatedAtHlcId
             }
         }
 

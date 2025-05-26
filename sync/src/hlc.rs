@@ -340,6 +340,9 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     /// Assumes this column stores an integer type (like INTEGER or BIGINT).
     fn updated_at_version_column() -> Self::Column;
 
+    /// Returns the SeaORM column definition for the node ID.
+    fn updated_at_node_id_column() -> Self::Column;
+
     /// Returns the SeaORM column definition for the unique identifier.
     fn unique_id_column() -> Self::Column;
 

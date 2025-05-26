@@ -734,6 +734,9 @@ pub mod tests {
             fn unique_id_column() -> Self::Column {
                 Column::Id
             }
+            fn updated_at_node_id_column() -> Self::Column {
+                Column::UpdatedAtHlcNid
+            }
             // node_id column not currently required by HLCModel trait for queries
         }
     }
