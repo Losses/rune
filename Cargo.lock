@@ -1581,6 +1581,8 @@ dependencies = [
  "sea-orm",
  "sea-orm-migration",
  "seq-macro",
+ "serde",
+ "serde_json",
  "sync",
  "tag-editor",
  "tempfile",

@@ -17,11 +17,14 @@ sea-orm = { version = "1.1.0", features = [
     "debug-print",
 ] }
 sea-orm-migration = "1.1.0"
+serde = "1.0.219"
+serde_json = "1.0.140"
 migration = { path = "../migration" }
 metadata = { path = "../metadata" }
 analysis = { path = "../analysis" }
 playback = { path = "../playback" }
 tag-editor = { path = "../tag-editor" }
+sync = { path = "../sync" }
 futures = "0.3.30"
 tokio = { version = "1.40.0", features = ["fs"] }
 arroy = "0.5.0"
@@ -48,4 +51,3 @@ thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
 regex = "1.11.1"
 tempfile = "3.17.1"
-sync = { version = "0.1.0", path = "../sync" }
