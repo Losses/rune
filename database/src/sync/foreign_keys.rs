@@ -1,18 +1,20 @@
 use std::collections::{hash_map, HashMap};
 use std::fmt::Debug;
+use std::marker::PhantomData;
 
 use anyhow::{anyhow, bail, Context, Result};
 use async_trait::async_trait;
 use log::{debug, warn};
 use sea_orm::{
-    ActiveModelBehavior, ActiveValue, ColumnTrait, ConnectionTrait, EntityName, EntityTrait,
-    FromQueryResult, Iden, Iterable, PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter, QuerySelect,
-    TryGetable, Value,
+    ActiveValue, ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult, Iden, Iterable,
+    PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter, QuerySelect, TryGetable, Value,
 };
-use serde::Serialize;
 
 use sync::chunking::ChunkFkMapping;
-use sync::foreign_key::{DatabaseExecutor, FkPayload, ForeignKeyResolver};
+use sync::foreign_key::{
+    ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ForeignKeyResolver,
+    ModelWithForeignKeyOps,
+};
 use sync::hlc::{HLCModel, HLCRecord};
 
 use crate::entities::{
@@ -23,7 +25,6 @@ use crate::entities::{
 #[derive(Debug, Clone)]
 pub struct RuneForeignKeyResolver;
 
-// Helper to get sync_id (hlc_uuid) of a referenced entity
 async fn get_referenced_sync_id<ReferencedEntity, Db>(
     db: &Db,
     model_fk_value: Option<<ReferencedEntity::PrimaryKey as PrimaryKeyTrait>::ValueType>,
@@ -77,22 +78,22 @@ where
         let pk_def = ReferencedEntity::PrimaryKey::iter().next().ok_or_else(|| {
             anyhow!(
                 "Entity {} has no primary key defined",
-                std::any::type_name::<ReferencedEntity>()
+                ReferencedEntity::table_name(&ReferencedEntity::default())
             )
         })?;
         let pk_column_in_query = pk_def.into_column();
 
         #[derive(Debug)]
-        struct PkOnlyModel<RE: EntityTrait>
+        struct PkOnlyModelHelper<RE: EntityTrait>
         where
             <RE::PrimaryKey as PrimaryKeyTrait>::ValueType:
                 Clone + TryGetable + Send + Sync + Debug + 'static,
         {
             pk_value: <RE::PrimaryKey as PrimaryKeyTrait>::ValueType,
-            _phantom: std::marker::PhantomData<RE>,
+            _phantom: PhantomData<RE>,
         }
 
-        impl<RE: EntityTrait> FromQueryResult for PkOnlyModel<RE>
+        impl<RE: EntityTrait> FromQueryResult for PkOnlyModelHelper<RE>
         where
             <RE::PrimaryKey as PrimaryKeyTrait>::ValueType:
                 Clone + TryGetable + Send + Sync + Debug + 'static,
@@ -101,29 +102,31 @@ where
                 res: &sea_orm::QueryResult,
                 pre: &str,
             ) -> std::result::Result<Self, sea_orm::DbErr> {
-                let expected_pk_col_name = RE::PrimaryKey::iter()
-                    .next()
-                    .ok_or_else(|| {
-                        sea_orm::DbErr::Custom(format!(
-                            "Entity {} has no PK for FromQueryResult",
-                            std::any::type_name::<RE>()
-                        ))
-                    })?
-                    .to_string();
-                let val: <RE::PrimaryKey as PrimaryKeyTrait>::ValueType =
-                    res.try_get(pre, &expected_pk_col_name)?;
-                Ok(PkOnlyModel {
+                // RE is now constrained and known here.
+                let pk_item_def = RE::PrimaryKey::iter().next().ok_or_else(|| {
+                    sea_orm::DbErr::Custom(format!(
+                        "Entity {} has no primary key defined (in PkOnlyModelHelper for table {})",
+                        std::any::type_name::<RE>(),
+                        RE::table_name(&RE::default())
+                    ))
+                })?;
+                // The column selected was pk_def.into_column(). We need its string name.
+                let pk_column_name_in_result = pk_item_def.into_column().to_string();
+
+                let val = res.try_get(pre, &pk_column_name_in_result)?;
+                Ok(PkOnlyModelHelper {
                     pk_value: val,
-                    _phantom: std::marker::PhantomData,
+                    _phantom: PhantomData,
                 })
             }
         }
 
         let result = ReferencedEntity::find()
             .select_only()
-            .column(pk_column_in_query)
+            .column(pk_column_in_query) // Select the actual PK column
             .filter(ReferencedEntity::unique_id_column().eq(sid_str.clone()))
-            .into_model::<PkOnlyModel<ReferencedEntity>>()
+            // Pass ReferencedEntity as the generic argument to PkOnlyModelHelper
+            .into_model::<PkOnlyModelHelper<ReferencedEntity>>()
             .one(db)
             .await
             .with_context(|| {
@@ -149,587 +152,867 @@ where
 
 #[async_trait]
 impl ForeignKeyResolver for RuneForeignKeyResolver {
-    async fn extract_foreign_key_sync_ids<M: HLCRecord + Sync + Serialize, DbEx>(
+    async fn extract_foreign_key_sync_ids<M, E>(&self, model: &M, db: &E) -> Result<FkPayload>
+    where
+        M: ModelWithForeignKeyOps,
+        E: DatabaseExecutor,
+    {
+        model.extract_model_fk_sync_ids(db).await
+    }
+
+    async fn remap_and_set_foreign_keys<AM, E>(
         &self,
-        entity_name: &str,
-        model: &M,
-        db: &DbEx,
+        active_model: &mut AM,
+        fk_sync_id_payload: &FkPayload,
+        db: &E,
+    ) -> Result<()>
+    where
+        AM: ActiveModelWithForeignKeyOps,
+        E: DatabaseExecutor,
+    {
+        active_model
+            .remap_model_and_set_foreign_keys(fk_sync_id_payload, db)
+            .await
+    }
+
+    fn extract_sync_ids_from_remote_model_with_mapping<M>(
+        &self,
+        remote_model: &M,
+        chunk_fk_map: Option<&ChunkFkMapping>,
     ) -> Result<FkPayload>
     where
-        DbEx: DatabaseExecutor + ConnectionTrait,
+        M: ModelWithForeignKeyOps,
     {
+        let Some(fk_map) = chunk_fk_map else {
+            // This resolver requires the map to be present to call the model's method,
+            // as the model's method `extract_model_sync_ids_from_remote` expects a non-Option map.
+            bail!(
+                "Missing ChunkFkMapping for remote model '{}' (unique_id: {}). RuneForeignKeyResolver expects it.",
+                std::any::type_name::<M>(), // Log model type for easier debugging
+                remote_model.unique_id()
+            );
+        };
+        remote_model.extract_model_sync_ids_from_remote(fk_map)
+    }
+
+    async fn generate_fk_mappings_for_records<M, E>(
+        &self,
+        records: &[M],
+        db: &E,
+    ) -> Result<ChunkFkMapping>
+    where
+        M: ModelWithForeignKeyOps,
+        E: DatabaseExecutor,
+    {
+        M::generate_model_fk_mappings_for_batch(records, db).await
+    }
+}
+
+#[async_trait]
+impl ModelWithForeignKeyOps for media_files::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(
+        &self, // self is &media_files::Model
+        db: &E,
+    ) -> Result<FkPayload> {
         let mut payload = FkPayload::new();
-        match entity_name {
-            "media_files" => {
-                let concrete_model: &media_files::Model =
-                    unsafe { &*(model as *const M as *const media_files::Model) };
-                if let Some(cover_art_pk_val) = concrete_model.cover_art_id {
-                    let cover_art_sync_id = get_referenced_sync_id::<media_cover_art::Entity, _>(
-                        db,
-                        Some(cover_art_pk_val),
-                        media_cover_art::Column::Id,
-                    )
-                    .await?;
-                    payload.insert("cover_art_id".to_string(), cover_art_sync_id);
-                } else {
-                    payload.insert("cover_art_id".to_string(), None);
-                }
-            }
-            "media_file_albums" => {
-                let concrete_model: &media_file_albums::Model =
-                    unsafe { &*(model as *const M as *const media_file_albums::Model) };
-                let album_sync_id = get_referenced_sync_id::<albums::Entity, _>(
-                    db,
-                    Some(concrete_model.album_id),
-                    albums::Column::Id,
-                )
-                .await?;
-                payload.insert("album_id".to_string(), album_sync_id);
-                let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
-                    db,
-                    Some(concrete_model.media_file_id),
-                    media_files::Column::Id,
-                )
-                .await?;
-                payload.insert("media_file_id".to_string(), media_file_sync_id);
-            }
-            "media_file_artists" => {
-                let concrete_model: &media_file_artists::Model =
-                    unsafe { &*(model as *const M as *const media_file_artists::Model) };
-                let artist_sync_id = get_referenced_sync_id::<artists::Entity, _>(
-                    db,
-                    Some(concrete_model.artist_id),
-                    artists::Column::Id,
-                )
-                .await?;
-                payload.insert("artist_id".to_string(), artist_sync_id);
-                let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
-                    db,
-                    Some(concrete_model.media_file_id),
-                    media_files::Column::Id,
-                )
-                .await?;
-                payload.insert("media_file_id".to_string(), media_file_sync_id);
-            }
-            "media_file_genres" => {
-                let concrete_model: &media_file_genres::Model =
-                    unsafe { &*(model as *const M as *const media_file_genres::Model) };
-                let genre_sync_id = get_referenced_sync_id::<genres::Entity, _>(
-                    db,
-                    Some(concrete_model.genre_id),
-                    genres::Column::Id,
-                )
-                .await?;
-                payload.insert("genre_id".to_string(), genre_sync_id);
-                let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
-                    db,
-                    Some(concrete_model.media_file_id),
-                    media_files::Column::Id,
-                )
-                .await?;
-                payload.insert("media_file_id".to_string(), media_file_sync_id);
-            }
-            _ => {}
+        let fk_col_name = media_files::Column::CoverArtId.to_string();
+        if let Some(cover_art_pk_val) = self.cover_art_id {
+            // Direct field access
+            let cover_art_sync_id = get_referenced_sync_id::<media_cover_art::Entity, _>(
+                db,
+                Some(cover_art_pk_val),
+                media_cover_art::Column::Id,
+            )
+            .await?;
+            payload.insert(fk_col_name, cover_art_sync_id);
+        } else {
+            payload.insert(fk_col_name, None);
         }
         Ok(payload)
     }
 
-    async fn remap_and_set_foreign_keys<AM: ActiveModelBehavior + Send, DbEx>(
-        &self,
-        entity_name: &str,
-        active_model: &mut AM,
-        fk_sync_id_payload: &FkPayload,
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        records: &[Self], // Self is media_files::Model
         db: &DbEx,
-    ) -> Result<()>
-    where
-        DbEx: DatabaseExecutor + ConnectionTrait,
-    {
-        // ... (rest of the function remains the same)
-        if entity_name == media_files::Entity::table_name(&media_files::Entity) {
-            let concrete_am: &mut media_files::ActiveModel =
-                unsafe { &mut *(active_model as *mut AM as *mut media_files::ActiveModel) };
-            let fk_col_name = media_files::Column::CoverArtId.to_string();
-            if let Some(cover_art_sync_id_opt_str) = fk_sync_id_payload.get(&fk_col_name) {
-                if let Some(cover_art_sync_id_str) = cover_art_sync_id_opt_str {
-                    let local_cover_art_pk_opt =
-                        get_local_pk_from_sync_id::<media_cover_art::Entity, _>(
-                            db,
-                            Some(cover_art_sync_id_str),
+    ) -> Result<ChunkFkMapping> {
+        let mut overall_mapping = ChunkFkMapping::new();
+        let fk_column_name = media_files::Column::CoverArtId.to_string();
+        let mut column_specific_map = HashMap::new();
+
+        for record_model in records {
+            if let Some(parent_local_id) = record_model.cover_art_id {
+                if let hash_map::Entry::Vacant(e) =
+                    column_specific_map.entry(parent_local_id.to_string())
+                {
+                    let parent_sync_id = get_referenced_sync_id::<media_cover_art::Entity, _>(
+                        db,
+                        Some(parent_local_id),
+                        media_cover_art::Column::Id,
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to get sync_id for parent entity media_cover_art referenced by {} (local_id: {}) in child media_files",
+                            fk_column_name, parent_local_id
                         )
-                        .await?;
-                    concrete_am.cover_art_id = ActiveValue::Set(local_cover_art_pk_opt);
-                    if local_cover_art_pk_opt.is_none() {
-                        debug!(
-                            "CoverArt with sync_id {} not found locally for media_files.cover_art_id. Setting to NULL.",
-                            cover_art_sync_id_str
-                        );
+                    })?;
+
+                    if let Some(sync_id_str) = parent_sync_id {
+                        e.insert(sync_id_str);
+                    } else {
+                        warn!(
+                                "Could not find sync_id for parent media_cover_art referenced by media_files.{} = {} (child record {}). Parent might not exist or missing HLC UUID.",
+                                fk_column_name, parent_local_id, record_model.unique_id()
+                            );
                     }
+                }
+            }
+        }
+        if !column_specific_map.is_empty() {
+            overall_mapping.insert(fk_column_name.to_string(), column_specific_map);
+        }
+        Ok(overall_mapping)
+    }
+
+    fn extract_model_sync_ids_from_remote(
+        &self, // self is &media_files::Model
+        chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+        let fk_col_name = media_files::Column::CoverArtId.to_string();
+
+        if let Some(parent_local_id_i32) = self.cover_art_id {
+            let parent_local_id_str = parent_local_id_i32.to_string();
+            if let Some(col_map) = chunk_fk_map.get(&fk_col_name) {
+                if let Some(sync_id) = col_map.get(&parent_local_id_str) {
+                    payload.insert(fk_col_name.clone(), Some(sync_id.clone()));
                 } else {
-                    concrete_am.cover_art_id = ActiveValue::Set(None);
+                    // Warn if the specific local ID is not in the map for this FK column
+                    warn!("Sync ID not found in map for media_files.{} = {} (remote model {}). Foreign key will be unresolved.", fk_col_name, parent_local_id_str, self.unique_id());
+                    payload.insert(fk_col_name.clone(), None);
                 }
             } else {
-                concrete_am.cover_art_id = ActiveValue::NotSet;
+                // Warn if the FK column itself is not in the ChunkFkMapping
+                warn!("FK column '{}' not found in ChunkFkMapping for entity 'media_files' (remote model {}). Foreign key will be unresolved.", fk_col_name, self.unique_id());
+                payload.insert(fk_col_name.clone(), None);
             }
-        } else if entity_name == media_file_albums::Entity::table_name(&media_file_albums::Entity) {
-            let concrete_am: &mut media_file_albums::ActiveModel =
-                unsafe { &mut *(active_model as *mut AM as *mut media_file_albums::ActiveModel) };
-            let album_id_col_name = media_file_albums::Column::AlbumId.to_string();
-            let album_sync_id = fk_sync_id_payload
-                .get(&album_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        album_id_col_name
+        } else {
+            // FK is NULL on the remote model
+            payload.insert(fk_col_name, None);
+        }
+        Ok(payload)
+    }
+}
+
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for media_files::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self, // self is &mut media_files::ActiveModel
+        fk_sync_id_payload: &FkPayload,
+        db: &E,
+    ) -> Result<()> {
+        let fk_col_name = media_files::Column::CoverArtId.to_string();
+        if let Some(cover_art_sync_id_opt_str) = fk_sync_id_payload.get(&fk_col_name) {
+            if let Some(cover_art_sync_id_str) = cover_art_sync_id_opt_str {
+                let local_cover_art_pk_opt =
+                    get_local_pk_from_sync_id::<media_cover_art::Entity, _>(
+                        db,
+                        Some(cover_art_sync_id_str),
                     )
-                })?;
+                    .await?;
+                self.cover_art_id = ActiveValue::Set(local_cover_art_pk_opt);
+                if local_cover_art_pk_opt.is_none() {
+                    debug!(
+                        "CoverArt with sync_id {} not found locally for media_files.cover_art_id. Setting FK to NULL.",
+                        cover_art_sync_id_str
+                    );
+                }
+            } else {
+                // FK was explicitly None in payload
+                self.cover_art_id = ActiveValue::Set(None);
+            }
+        }
+        // If fk_col_name is not in fk_sync_id_payload, cover_art_id remains Unchanged or as previously set.
+        Ok(())
+    }
+}
+
+// Example for media_file_albums (Junction Table with two FKs)
+#[async_trait]
+impl ModelWithForeignKeyOps for media_file_albums::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, db: &E) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+        // Album FK
+        let album_fk_col_name = media_file_albums::Column::AlbumId.to_string();
+        let album_sync_id = get_referenced_sync_id::<albums::Entity, _>(
+            db,
+            Some(self.album_id),
+            albums::Column::Id,
+        )
+        .await?;
+        payload.insert(album_fk_col_name, album_sync_id);
+
+        // MediaFile FK
+        let mf_fk_col_name = media_file_albums::Column::MediaFileId.to_string();
+        let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
+            db,
+            Some(self.media_file_id),
+            media_files::Column::Id,
+        )
+        .await?;
+        payload.insert(mf_fk_col_name, media_file_sync_id);
+        Ok(payload)
+    }
+
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        records: &[Self],
+        db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        let mut overall_mapping = ChunkFkMapping::new();
+
+        // Helper closure for repeated logic
+        async fn gen_map_for_col<ParentEntity, Rec, GetParentIdFn, DBE>(
+            records_slice: &[Rec],
+            get_parent_local_id_fn: GetParentIdFn,
+            parent_entity_pk_col: ParentEntity::Column, // PK column in ParentEntity table (e.g., albums::Column::Id)
+            db_conn: &DBE,
+        ) -> Result<Option<HashMap<String, String>>>
+        where
+            ParentEntity: EntityTrait + HLCModel,
+            <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType:
+                Into<Value> + Eq + Copy + Send + Sync + Debug + ToString,
+            Rec: HLCRecord + Sync, // The record type being processed (e.g., media_file_albums::Model)
+            GetParentIdFn: Fn(&Rec) -> <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType,
+            DBE: DatabaseExecutor,
+        {
+            let mut col_specific_map = HashMap::new();
+            for r_model in records_slice {
+                let parent_local_id = get_parent_local_id_fn(r_model); // e.g., r_model.album_id
+                if let hash_map::Entry::Vacant(e) =
+                    col_specific_map.entry(parent_local_id.to_string())
+                {
+                    if let Some(sync_id_str) = get_referenced_sync_id::<ParentEntity, _>(
+                        db_conn,
+                        Some(parent_local_id), // The local PK value of the parent
+                        parent_entity_pk_col,  // The column name of the PK in the parent table
+                    )
+                    .await?
+                    {
+                        e.insert(sync_id_str);
+                    } else {
+                        warn!("Could not find sync_id for parent {} referenced by local_id {} (child record {}). Parent might not exist or missing HLC UUID.",
+                            std::any::type_name::<ParentEntity>(), parent_local_id.to_string(), r_model.unique_id());
+                    }
+                }
+            }
+            if col_specific_map.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(col_specific_map))
+            }
+        }
+
+        let album_fk_col_str = media_file_albums::Column::AlbumId.to_string();
+        if let Some(map) = gen_map_for_col::<albums::Entity, _, _, _>(
+            records,
+            |r| r.album_id,
+            albums::Column::Id, // PK column in albums table
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(album_fk_col_str, map);
+        }
+
+        let mf_fk_col_str = media_file_albums::Column::MediaFileId.to_string();
+        if let Some(map) = gen_map_for_col::<media_files::Entity, _, _, _>(
+            records,
+            |r| r.media_file_id,
+            media_files::Column::Id, // PK column in media_files table
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(mf_fk_col_str, map);
+        }
+        Ok(overall_mapping)
+    }
+
+    fn extract_model_sync_ids_from_remote(
+        &self,
+        chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+
+        let album_fk_col = media_file_albums::Column::AlbumId.to_string();
+        let album_parent_id_str = self.album_id.to_string();
+        let album_sync_id = chunk_fk_map
+            .get(&album_fk_col)
+            .and_then(|col_map| col_map.get(&album_parent_id_str))
+            .cloned();
+        if album_sync_id.is_none()
+            && chunk_fk_map
+                .get(&album_fk_col)
+                .map_or(false, |m| m.get(&album_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_albums.{} = {} (remote model {}). Child of non-existent parent?",
+                album_fk_col,
+                album_parent_id_str,
+                self.unique_id()
+            );
+        }
+        payload.insert(album_fk_col.clone(), album_sync_id);
+
+        let mf_fk_col = media_file_albums::Column::MediaFileId.to_string();
+        let mf_parent_id_str = self.media_file_id.to_string();
+        let mf_sync_id = chunk_fk_map
+            .get(&mf_fk_col)
+            .and_then(|col_map| col_map.get(&mf_parent_id_str))
+            .cloned();
+        if mf_sync_id.is_none()
+            && chunk_fk_map
+                .get(&mf_fk_col)
+                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_albums.{} = {} (remote model {}). Child of non-existent parent?",
+                mf_fk_col,
+                mf_parent_id_str,
+                self.unique_id()
+            );
+        }
+        payload.insert(mf_fk_col.clone(), mf_sync_id);
+        Ok(payload)
+    }
+}
+
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for media_file_albums::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        fk_sync_id_payload: &FkPayload,
+        db: &E,
+    ) -> Result<()> {
+        let album_id_col_name = media_file_albums::Column::AlbumId.to_string();
+        if let Some(album_sync_id_opt) = fk_sync_id_payload.get(&album_id_col_name) {
+            // For junction tables, FKs are usually not nullable.
+            let album_sync_id = album_sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_albums.{}",
+                    album_id_col_name
+                )
+            })?;
             let local_album_pk =
                 get_local_pk_from_sync_id::<albums::Entity, _>(db, Some(album_sync_id))
                     .await?
                     .ok_or_else(|| {
                         anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
+                            "Failed to find local PK for media_file_albums.{} (FK to albums) using sync_id: {}. Referenced album may not exist locally.",
                             album_id_col_name,
                             album_sync_id
                         )
                     })?;
-            concrete_am.album_id = ActiveValue::Set(local_album_pk);
-            let media_file_id_col_name = media_file_albums::Column::MediaFileId.to_string();
-            let media_file_sync_id = fk_sync_id_payload
-                .get(&media_file_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        media_file_id_col_name
-                    )
-                })?;
-            let local_media_file_pk =
-                get_local_pk_from_sync_id::<media_files::Entity, _>(db, Some(media_file_sync_id))
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
-                            media_file_id_col_name,
-                            media_file_sync_id
-                        )
-                    })?;
-            concrete_am.media_file_id = ActiveValue::Set(local_media_file_pk);
-        } else if entity_name == media_file_artists::Entity::table_name(&media_file_artists::Entity)
-        {
-            let concrete_am: &mut media_file_artists::ActiveModel =
-                unsafe { &mut *(active_model as *mut AM as *mut media_file_artists::ActiveModel) };
-            let artist_id_col_name = media_file_artists::Column::ArtistId.to_string();
-            let artist_sync_id = fk_sync_id_payload
-                .get(&artist_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        artist_id_col_name
-                    )
-                })?;
-            let local_artist_pk =
-                get_local_pk_from_sync_id::<artists::Entity, _>(db, Some(artist_sync_id))
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
-                            artist_id_col_name,
-                            artist_sync_id
-                        )
-                    })?;
-            concrete_am.artist_id = ActiveValue::Set(local_artist_pk);
-            let media_file_id_col_name = media_file_artists::Column::MediaFileId.to_string();
-            let media_file_sync_id = fk_sync_id_payload
-                .get(&media_file_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        media_file_id_col_name
-                    )
-                })?;
-            let local_media_file_pk =
-                get_local_pk_from_sync_id::<media_files::Entity, _>(db, Some(media_file_sync_id))
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
-                            media_file_id_col_name,
-                            media_file_sync_id
-                        )
-                    })?;
-            concrete_am.media_file_id = ActiveValue::Set(local_media_file_pk);
-        } else if entity_name == media_file_genres::Entity::table_name(&media_file_genres::Entity) {
-            let concrete_am: &mut media_file_genres::ActiveModel =
-                unsafe { &mut *(active_model as *mut AM as *mut media_file_genres::ActiveModel) };
-            let genre_id_col_name = media_file_genres::Column::GenreId.to_string();
-            let genre_sync_id = fk_sync_id_payload
-                .get(&genre_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        genre_id_col_name
-                    )
-                })?;
-            let local_genre_pk =
-                get_local_pk_from_sync_id::<genres::Entity, _>(db, Some(genre_sync_id))
-                    .await?
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
-                            genre_id_col_name,
-                            genre_sync_id
-                        )
-                    })?;
-            concrete_am.genre_id = ActiveValue::Set(local_genre_pk);
+            self.album_id = ActiveValue::Set(local_album_pk);
+        }
 
-            let media_file_id_col_name = media_file_genres::Column::MediaFileId.to_string();
-            let media_file_sync_id = fk_sync_id_payload
-                .get(&media_file_id_col_name)
-                .and_then(|opt_s| opt_s.as_ref())
-                .ok_or_else(|| {
-                    anyhow!(
-                        "FkPayload missing mandatory FK sync_id for '{}.{}'",
-                        entity_name,
-                        media_file_id_col_name
-                    )
-                })?;
+        let media_file_id_col_name = media_file_albums::Column::MediaFileId.to_string();
+        if let Some(mf_sync_id_opt) = fk_sync_id_payload.get(&media_file_id_col_name) {
+            let media_file_sync_id = mf_sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_albums.{}",
+                    media_file_id_col_name
+                )
+            })?;
             let local_media_file_pk =
                 get_local_pk_from_sync_id::<media_files::Entity, _>(db, Some(media_file_sync_id))
                     .await?
                     .ok_or_else(|| {
                         anyhow!(
-                            "Failed to find local PK for {}.{} using sync_id: {}",
-                            entity_name,
+                            "Failed to find local PK for media_file_albums.{} (FK to media_files) using sync_id: {}. Referenced media_file may not exist locally.",
                             media_file_id_col_name,
                             media_file_sync_id
                         )
                     })?;
-            concrete_am.media_file_id = ActiveValue::Set(local_media_file_pk);
+            self.media_file_id = ActiveValue::Set(local_media_file_pk);
         }
         Ok(())
     }
+}
 
-    async fn generate_fk_mappings_for_records<M, DbEx>(
+#[async_trait]
+impl ModelWithForeignKeyOps for artists::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, _db: &E) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        _records: &[Self],
+        _db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        Ok(ChunkFkMapping::new())
+    }
+    fn extract_model_sync_ids_from_remote(
         &self,
-        entity_name: &str,
-        records: &[M],
-        db: &DbEx,
-    ) -> Result<ChunkFkMapping>
-    where
-        M: HLCRecord + Sync + Serialize,
-        DbEx: DatabaseExecutor + ConnectionTrait,
-    {
-        let mut overall_mapping = ChunkFkMapping::new();
+        _chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+}
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for artists::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        _fk_sync_id_payload: &FkPayload,
+        _db: &E,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
 
-        // Auxiliary function, adjusted for type correctness
-        async fn process_fk_column<ParentEntity, RecordModel, DBE>(
-            child_entity_name_for_log: &str,
-            fk_column_name: &str,
-            records_slice: &[RecordModel],
-            // MODIFIED: Closure returns Option of ParentEntity's PK ValueType
-            get_parent_local_id_fn: impl Fn(
-                &RecordModel,
-            ) -> Option<
-                <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType,
-            >,
+#[async_trait]
+impl ModelWithForeignKeyOps for genres::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, _db: &E) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        _records: &[Self],
+        _db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        Ok(ChunkFkMapping::new())
+    }
+    fn extract_model_sync_ids_from_remote(
+        &self,
+        _chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+}
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for genres::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        _fk_sync_id_payload: &FkPayload,
+        _db: &E,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ModelWithForeignKeyOps for media_cover_art::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, _db: &E) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        _records: &[Self],
+        _db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        Ok(ChunkFkMapping::new())
+    }
+    fn extract_model_sync_ids_from_remote(
+        &self,
+        _chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+}
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for media_cover_art::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        _fk_sync_id_payload: &FkPayload,
+        _db: &E,
+    ) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ModelWithForeignKeyOps for media_file_artists::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, db: &E) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+        let artist_fk_col_name = media_file_artists::Column::ArtistId.to_string();
+        let artist_sync_id = get_referenced_sync_id::<artists::Entity, _>(
+            db,
+            Some(self.artist_id),
+            artists::Column::Id,
+        )
+        .await?;
+        payload.insert(artist_fk_col_name, artist_sync_id);
+
+        let mf_fk_col_name = media_file_artists::Column::MediaFileId.to_string();
+        let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
+            db,
+            Some(self.media_file_id),
+            media_files::Column::Id,
+        )
+        .await?;
+        payload.insert(mf_fk_col_name, media_file_sync_id);
+        Ok(payload)
+    }
+
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        records: &[Self],
+        db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        let mut overall_mapping = ChunkFkMapping::new();
+        // Helper closure (copied and adapted from media_file_albums)
+        async fn gen_map_for_col<ParentEntity, Rec, GetParentIdFn, DBE>(
+            records_slice: &[Rec],
+            get_parent_local_id_fn: GetParentIdFn,
             parent_entity_pk_col: ParentEntity::Column,
-            overall_map: &mut ChunkFkMapping,
             db_conn: &DBE,
-        ) -> Result<()>
+        ) -> Result<Option<HashMap<String, String>>>
         where
             ParentEntity: EntityTrait + HLCModel,
-            // MODIFIED: Added ToString bound for parent_local_id.to_string()
             <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType:
                 Into<Value> + Eq + Copy + Send + Sync + Debug + ToString,
-            RecordModel: HLCRecord + Sync + Serialize,
-            DBE: DatabaseExecutor + ConnectionTrait,
+            Rec: HLCRecord + Sync,
+            GetParentIdFn: Fn(&Rec) -> <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType,
+            DBE: DatabaseExecutor,
         {
-            let mut column_specific_map = HashMap::new();
-            for record_model in records_slice {
-                if let Some(parent_local_id) = get_parent_local_id_fn(record_model) {
-                    if let hash_map::Entry::Vacant(e) =
-                        column_specific_map.entry(parent_local_id.to_string())
+            let mut col_specific_map = HashMap::new();
+            for r_model in records_slice {
+                let parent_local_id = get_parent_local_id_fn(r_model);
+                if let hash_map::Entry::Vacant(e) =
+                    col_specific_map.entry(parent_local_id.to_string())
+                {
+                    if let Some(sync_id_str) = get_referenced_sync_id::<ParentEntity, _>(
+                        db_conn,
+                        Some(parent_local_id),
+                        parent_entity_pk_col,
+                    )
+                    .await?
                     {
-                        let parent_sync_id = get_referenced_sync_id::<ParentEntity, DBE>(
-                            db_conn,
-                            Some(parent_local_id), // parent_local_id is Copy, so this is fine
-                            parent_entity_pk_col,  // ParentEntity::Column is Copy, so this is fine
-                        )
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to get sync_id for parent entity referenced by {} (local_id: {}) in child {}",
-                                fk_column_name, parent_local_id.to_string(), child_entity_name_for_log
-                            )
-                        })?;
-
-                        if let Some(sync_id_str) = parent_sync_id {
-                            e.insert(sync_id_str);
-                        } else {
-                            warn!(
-                                "Could not find sync_id for parent referenced by {}.{} = {} (child record {}). Parent might not exist or missing HLC UUID.",
-                                child_entity_name_for_log, fk_column_name, parent_local_id.to_string(), record_model.unique_id()
-                            );
-                        }
+                        e.insert(sync_id_str);
+                    } else {
+                        warn!("Could not find sync_id for parent {} referenced by local_id {} (child record {}). Parent might not exist or missing HLC UUID.",
+                            std::any::type_name::<ParentEntity>(), parent_local_id.to_string(), r_model.unique_id());
                     }
                 }
             }
-            if !column_specific_map.is_empty() {
-                overall_map.insert(fk_column_name.to_string(), column_specific_map);
+            if col_specific_map.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(col_specific_map))
             }
-            Ok(())
         }
 
-        match entity_name {
-            "media_files" => {
-                let concrete_records: &[media_files::Model] =
-                    unsafe { std::mem::transmute(records) }; // Assuming M is media_files::Model
+        let artist_fk_col = media_file_artists::Column::ArtistId.to_string();
+        if let Some(map) = gen_map_for_col::<artists::Entity, _, _, _>(
+            records,
+            |r| r.artist_id,
+            artists::Column::Id,
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(artist_fk_col, map);
+        }
 
-                // Call to process_fk_column, RecordModel will be media_files::Model
-                // ParentEntity is media_cover_art::Entity. Its PK ValueType is i32.
-                // Closure |rec| rec.cover_art_id returns Option<i32>, which matches.
-                process_fk_column::<media_cover_art::Entity, _, _>(
-                    // ChildEntity removed, RecordModel inferred (or explicit)
-                    "media_files",
-                    media_files::Column::CoverArtId.to_string().as_str(),
-                    concrete_records,
-                    |rec| rec.cover_art_id, // rec is &media_files::Model
-                    media_cover_art::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-            }
-            "media_file_albums" => {
-                let concrete_records: &[media_file_albums::Model] =
-                    unsafe { std::mem::transmute(records) }; // Assuming M is media_file_albums::Model
-
-                // For album_id: ParentEntity is albums::Entity. PK ValueType i32.
-                // Closure |rec| Some(rec.album_id) returns Option<i32>. Matches.
-                process_fk_column::<albums::Entity, _, _>(
-                    "media_file_albums",
-                    media_file_albums::Column::AlbumId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.album_id), // rec is &media_file_albums::Model
-                    albums::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-
-                // For media_file_id: ParentEntity is media_files::Entity. PK ValueType i32.
-                // Closure |rec| Some(rec.media_file_id) returns Option<i32>. Matches.
-                process_fk_column::<media_files::Entity, _, _>(
-                    "media_file_albums",
-                    media_file_albums::Column::MediaFileId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.media_file_id), // rec is &media_file_albums::Model
-                    media_files::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-            }
-            "media_file_artists" => {
-                let concrete_records: &[media_file_artists::Model] =
-                    unsafe { std::mem::transmute(records) };
-
-                process_fk_column::<artists::Entity, _, _>(
-                    "media_file_artists",
-                    media_file_artists::Column::ArtistId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.artist_id),
-                    artists::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-
-                process_fk_column::<media_files::Entity, _, _>(
-                    "media_file_artists",
-                    media_file_artists::Column::MediaFileId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.media_file_id),
-                    media_files::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-            }
-            "media_file_genres" => {
-                let concrete_records: &[media_file_genres::Model] =
-                    unsafe { std::mem::transmute(records) };
-
-                process_fk_column::<genres::Entity, _, _>(
-                    "media_file_genres",
-                    media_file_genres::Column::GenreId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.genre_id),
-                    genres::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-
-                process_fk_column::<media_files::Entity, _, _>(
-                    "media_file_genres",
-                    media_file_genres::Column::MediaFileId.to_string().as_str(),
-                    concrete_records,
-                    |rec| Some(rec.media_file_id),
-                    media_files::Column::Id,
-                    &mut overall_mapping,
-                    db,
-                )
-                .await?;
-            }
-            _ => {}
+        let mf_fk_col = media_file_artists::Column::MediaFileId.to_string();
+        if let Some(map) = gen_map_for_col::<media_files::Entity, _, _, _>(
+            records,
+            |r| r.media_file_id,
+            media_files::Column::Id,
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(mf_fk_col, map);
         }
         Ok(overall_mapping)
     }
 
-    fn extract_sync_ids_from_remote_model_with_mapping<M: HLCRecord + Send + Sync + Serialize>(
+    fn extract_model_sync_ids_from_remote(
         &self,
-        entity_name: &str,
-        remote_model: &M,
-        chunk_fk_map: Option<&ChunkFkMapping>,
+        chunk_fk_map: &ChunkFkMapping,
     ) -> Result<FkPayload> {
-        // ... (rest of the function remains the same)
         let mut payload = FkPayload::new();
-        let Some(fk_map) = chunk_fk_map else {
-            bail!(
-                "Missing ChunkFkMapping for entity '{}', record '{}'",
-                entity_name,
-                remote_model.unique_id()
+        let artist_fk_col = media_file_artists::Column::ArtistId.to_string();
+        let artist_parent_id_str = self.artist_id.to_string();
+        let artist_sync_id = chunk_fk_map
+            .get(&artist_fk_col)
+            .and_then(|m| m.get(&artist_parent_id_str))
+            .cloned();
+        if artist_sync_id.is_none()
+            && chunk_fk_map
+                .get(&artist_fk_col)
+                .map_or(false, |m| m.get(&artist_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_artists.{} = {} (remote model {}). Child of non-existent parent?",
+                artist_fk_col,
+                artist_parent_id_str,
+                self.unique_id()
             );
-        };
-        match entity_name {
-            "media_files" => {
-                let concrete_model: &media_files::Model =
-                    unsafe { &*(remote_model as *const M as *const media_files::Model) };
-                let fk_col_name = media_files::Column::CoverArtId.to_string();
-                if let Some(parent_local_id_i32) = concrete_model.cover_art_id {
-                    let parent_local_id_str = parent_local_id_i32.to_string();
-                    if let Some(col_map) = fk_map.get(&fk_col_name) {
-                        if let Some(sync_id) = col_map.get(&parent_local_id_str) {
-                            payload.insert(fk_col_name, Some(sync_id.clone()));
-                        } else {
-                            warn!("Sync ID not found in map for {}.{} = {} (remote model {}). Foreign key will be unresolved.", entity_name, fk_col_name, parent_local_id_str, remote_model.unique_id());
-                            payload.insert(fk_col_name, None);
-                        }
-                    } else {
-                        warn!("FK column '{}' not found in ChunkFkMapping for entity '{}' (remote model {}).", fk_col_name, entity_name, remote_model.unique_id());
-                        payload.insert(fk_col_name, None);
-                    }
-                } else {
-                    payload.insert(fk_col_name, None);
-                }
-            }
-            "media_file_albums" => {
-                let concrete_model: &media_file_albums::Model =
-                    unsafe { &*(remote_model as *const M as *const media_file_albums::Model) };
-                let album_fk_col = media_file_albums::Column::AlbumId.to_string();
-                let album_parent_id_str = concrete_model.album_id.to_string();
-                let album_sync_id = fk_map
-                    .get(&album_fk_col)
-                    .and_then(|col_map| col_map.get(&album_parent_id_str))
-                    .cloned();
-                if album_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, album_fk_col, album_parent_id_str
-                    );
-                }
-                payload.insert(album_fk_col, album_sync_id);
-                let mf_fk_col = media_file_albums::Column::MediaFileId.to_string();
-                let mf_parent_id_str = concrete_model.media_file_id.to_string();
-                let mf_sync_id = fk_map
-                    .get(&mf_fk_col)
-                    .and_then(|col_map| col_map.get(&mf_parent_id_str))
-                    .cloned();
-                if mf_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, mf_fk_col, mf_parent_id_str
-                    );
-                }
-                payload.insert(mf_fk_col, mf_sync_id);
-            }
-            "media_file_artists" => {
-                let concrete_model: &media_file_artists::Model =
-                    unsafe { &*(remote_model as *const M as *const media_file_artists::Model) };
-                let artist_fk_col = media_file_artists::Column::ArtistId.to_string();
-                let artist_parent_id_str = concrete_model.artist_id.to_string();
-                let artist_sync_id = fk_map
-                    .get(&artist_fk_col)
-                    .and_then(|m| m.get(&artist_parent_id_str))
-                    .cloned();
-                if artist_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, artist_fk_col, artist_parent_id_str
-                    );
-                }
-                payload.insert(artist_fk_col, artist_sync_id);
-                let mf_fk_col = media_file_artists::Column::MediaFileId.to_string();
-                let mf_parent_id_str = concrete_model.media_file_id.to_string();
-                let mf_sync_id = fk_map
-                    .get(&mf_fk_col)
-                    .and_then(|m| m.get(&mf_parent_id_str))
-                    .cloned();
-                if mf_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, mf_fk_col, mf_parent_id_str
-                    );
-                }
-                payload.insert(mf_fk_col, mf_sync_id);
-            }
-            "media_file_genres" => {
-                let concrete_model: &media_file_genres::Model =
-                    unsafe { &*(remote_model as *const M as *const media_file_genres::Model) };
-                let genre_fk_col = media_file_genres::Column::GenreId.to_string();
-                let genre_parent_id_str = concrete_model.genre_id.to_string();
-                let genre_sync_id = fk_map
-                    .get(&genre_fk_col)
-                    .and_then(|m| m.get(&genre_parent_id_str))
-                    .cloned();
-                if genre_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, genre_fk_col, genre_parent_id_str
-                    );
-                }
-                payload.insert(genre_fk_col, genre_sync_id);
-                let mf_fk_col = media_file_genres::Column::MediaFileId.to_string();
-                let mf_parent_id_str = concrete_model.media_file_id.to_string();
-                let mf_sync_id = fk_map
-                    .get(&mf_fk_col)
-                    .and_then(|m| m.get(&mf_parent_id_str))
-                    .cloned();
-                if mf_sync_id.is_none() {
-                    warn!(
-                        "Sync ID not found in map for {}.{} = {}",
-                        entity_name, mf_fk_col, mf_parent_id_str
-                    );
-                }
-                payload.insert(mf_fk_col, mf_sync_id);
-            }
-            _ => {}
         }
+        payload.insert(artist_fk_col.clone(), artist_sync_id);
+
+        let mf_fk_col = media_file_artists::Column::MediaFileId.to_string();
+        let mf_parent_id_str = self.media_file_id.to_string();
+        let mf_sync_id = chunk_fk_map
+            .get(&mf_fk_col)
+            .and_then(|m| m.get(&mf_parent_id_str))
+            .cloned();
+        if mf_sync_id.is_none()
+            && chunk_fk_map
+                .get(&mf_fk_col)
+                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_artists.{} = {} (remote model {}). Child of non-existent parent?",
+                mf_fk_col,
+                mf_parent_id_str,
+                self.unique_id()
+            );
+        }
+        payload.insert(mf_fk_col.clone(), mf_sync_id);
         Ok(payload)
+    }
+}
+
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for media_file_artists::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        fk_sync_id_payload: &FkPayload,
+        db: &E,
+    ) -> Result<()> {
+        let artist_id_col_name = media_file_artists::Column::ArtistId.to_string();
+        if let Some(sync_id_opt) = fk_sync_id_payload.get(&artist_id_col_name) {
+            let sync_id = sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_artists.{}",
+                    artist_id_col_name
+                )
+            })?;
+            let local_pk = get_local_pk_from_sync_id::<artists::Entity, _>(db, Some(sync_id))
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to find local PK for media_file_artists.{} (FK to artists) using sync_id: {}. Referenced artist may not exist locally.",
+                        artist_id_col_name,
+                        sync_id
+                    )
+                })?;
+            self.artist_id = ActiveValue::Set(local_pk);
+        }
+
+        let media_file_id_col_name = media_file_artists::Column::MediaFileId.to_string();
+        if let Some(sync_id_opt) = fk_sync_id_payload.get(&media_file_id_col_name) {
+            let sync_id = sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_artists.{}",
+                    media_file_id_col_name
+                )
+            })?;
+            let local_pk = get_local_pk_from_sync_id::<media_files::Entity, _>(db, Some(sync_id))
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to find local PK for media_file_artists.{} (FK to media_files) using sync_id: {}. Referenced media_file may not exist locally.",
+                        media_file_id_col_name,
+                        sync_id
+                    )
+                })?;
+            self.media_file_id = ActiveValue::Set(local_pk);
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ModelWithForeignKeyOps for media_file_genres::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, db: &E) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+        let genre_fk_col_name = media_file_genres::Column::GenreId.to_string();
+        let genre_sync_id = get_referenced_sync_id::<genres::Entity, _>(
+            db,
+            Some(self.genre_id),
+            genres::Column::Id,
+        )
+        .await?;
+        payload.insert(genre_fk_col_name, genre_sync_id);
+
+        let mf_fk_col_name = media_file_genres::Column::MediaFileId.to_string();
+        let media_file_sync_id = get_referenced_sync_id::<media_files::Entity, _>(
+            db,
+            Some(self.media_file_id),
+            media_files::Column::Id,
+        )
+        .await?;
+        payload.insert(mf_fk_col_name, media_file_sync_id);
+        Ok(payload)
+    }
+
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        records: &[Self],
+        db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        let mut overall_mapping = ChunkFkMapping::new();
+        // Helper closure (copied and adapted)
+        async fn gen_map_for_col<ParentEntity, Rec, GetParentIdFn, DBE>(
+            records_slice: &[Rec],
+            get_parent_local_id_fn: GetParentIdFn,
+            parent_entity_pk_col: ParentEntity::Column,
+            db_conn: &DBE,
+        ) -> Result<Option<HashMap<String, String>>>
+        where
+            ParentEntity: EntityTrait + HLCModel,
+            <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType:
+                Into<Value> + Eq + Copy + Send + Sync + Debug + ToString,
+            Rec: HLCRecord + Sync,
+            GetParentIdFn: Fn(&Rec) -> <ParentEntity::PrimaryKey as PrimaryKeyTrait>::ValueType,
+            DBE: DatabaseExecutor,
+        {
+            let mut col_specific_map = HashMap::new();
+            for r_model in records_slice {
+                let parent_local_id = get_parent_local_id_fn(r_model);
+                if let hash_map::Entry::Vacant(e) =
+                    col_specific_map.entry(parent_local_id.to_string())
+                {
+                    if let Some(sync_id_str) = get_referenced_sync_id::<ParentEntity, _>(
+                        db_conn,
+                        Some(parent_local_id),
+                        parent_entity_pk_col,
+                    )
+                    .await?
+                    {
+                        e.insert(sync_id_str);
+                    } else {
+                        warn!("Could not find sync_id for parent {} referenced by local_id {} (child record {}). Parent might not exist or missing HLC UUID.",
+                            std::any::type_name::<ParentEntity>(), parent_local_id.to_string(), r_model.unique_id());
+                    }
+                }
+            }
+            if col_specific_map.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(col_specific_map))
+            }
+        }
+
+        let genre_fk_col = media_file_genres::Column::GenreId.to_string();
+        if let Some(map) = gen_map_for_col::<genres::Entity, _, _, _>(
+            records,
+            |r| r.genre_id,
+            genres::Column::Id,
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(genre_fk_col, map);
+        }
+
+        let mf_fk_col = media_file_genres::Column::MediaFileId.to_string();
+        if let Some(map) = gen_map_for_col::<media_files::Entity, _, _, _>(
+            records,
+            |r| r.media_file_id,
+            media_files::Column::Id,
+            db,
+        )
+        .await?
+        {
+            overall_mapping.insert(mf_fk_col, map);
+        }
+        Ok(overall_mapping)
+    }
+
+    fn extract_model_sync_ids_from_remote(
+        &self,
+        chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        let mut payload = FkPayload::new();
+        let genre_fk_col = media_file_genres::Column::GenreId.to_string();
+        let genre_parent_id_str = self.genre_id.to_string();
+        let genre_sync_id = chunk_fk_map
+            .get(&genre_fk_col)
+            .and_then(|m| m.get(&genre_parent_id_str))
+            .cloned();
+        if genre_sync_id.is_none()
+            && chunk_fk_map
+                .get(&genre_fk_col)
+                .map_or(false, |m| m.get(&genre_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_genres.{} = {} (remote model {}). Child of non-existent parent?",
+                genre_fk_col,
+                genre_parent_id_str,
+                self.unique_id()
+            );
+        }
+        payload.insert(genre_fk_col.clone(), genre_sync_id);
+
+        let mf_fk_col = media_file_genres::Column::MediaFileId.to_string();
+        let mf_parent_id_str = self.media_file_id.to_string();
+        let mf_sync_id = chunk_fk_map
+            .get(&mf_fk_col)
+            .and_then(|m| m.get(&mf_parent_id_str))
+            .cloned();
+        if mf_sync_id.is_none()
+            && chunk_fk_map
+                .get(&mf_fk_col)
+                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+        {
+            warn!(
+                "Sync ID not found in map for media_file_genres.{} = {} (remote model {}). Child of non-existent parent?",
+                mf_fk_col,
+                mf_parent_id_str,
+                self.unique_id()
+            );
+        }
+        payload.insert(mf_fk_col.clone(), mf_sync_id);
+        Ok(payload)
+    }
+}
+
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for media_file_genres::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        fk_sync_id_payload: &FkPayload,
+        db: &E,
+    ) -> Result<()> {
+        let genre_id_col_name = media_file_genres::Column::GenreId.to_string();
+        if let Some(sync_id_opt) = fk_sync_id_payload.get(&genre_id_col_name) {
+            let sync_id = sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_genres.{}",
+                    genre_id_col_name
+                )
+            })?;
+            let local_pk = get_local_pk_from_sync_id::<genres::Entity, _>(db, Some(sync_id))
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to find local PK for media_file_genres.{} (FK to genres) using sync_id: {}. Referenced genre may not exist locally.",
+                        genre_id_col_name,
+                        sync_id
+                    )
+                })?;
+            self.genre_id = ActiveValue::Set(local_pk);
+        }
+
+        let media_file_id_col_name = media_file_genres::Column::MediaFileId.to_string();
+        if let Some(sync_id_opt) = fk_sync_id_payload.get(&media_file_id_col_name) {
+            let sync_id = sync_id_opt.as_ref().ok_or_else(|| {
+                anyhow!(
+                    "FkPayload missing mandatory sync_id for non-nullable FK media_file_genres.{}",
+                    media_file_id_col_name
+                )
+            })?;
+            let local_pk = get_local_pk_from_sync_id::<media_files::Entity, _>(db, Some(sync_id))
+                .await?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to find local PK for media_file_genres.{} (FK to media_files) using sync_id: {}. Referenced media_file may not exist locally.",
+                        media_file_id_col_name,
+                        sync_id
+                    )
+                })?;
+            self.media_file_id = ActiveValue::Set(local_pk);
+        }
+        Ok(())
     }
 }
