@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use sea_orm::{ActiveModelBehavior, DatabaseConnection, DatabaseTransaction};
+use sea_orm::{ActiveModelBehavior, ConnectionTrait, DatabaseConnection, DatabaseTransaction};
 use serde::Serialize;
 
 use crate::{chunking::ChunkFkMapping, hlc::HLCRecord};
@@ -11,8 +11,11 @@ use crate::{chunking::ChunkFkMapping, hlc::HLCRecord};
 // Option<String> because the FK might be nullable.
 pub type FkPayload = HashMap<String, Option<String>>;
 
-pub trait DatabaseExecutor: Send + Sync {}
+// Define a marker trait for types that can execute database queries.
+// This helps constrain the `db` parameter in ForeignKeyResolver methods.
+pub trait DatabaseExecutor: ConnectionTrait + Send + Sync {} // Ensure ConnectionTrait is a supertrait
 
+// Implement the marker trait for specific SeaORM connection types.
 impl DatabaseExecutor for DatabaseConnection {}
 impl DatabaseExecutor for DatabaseTransaction {}
 
@@ -36,7 +39,7 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
         db: &E,
     ) -> Result<FkPayload>
     where
-        E: DatabaseExecutor + sea_orm::ConnectionTrait;
+        E: DatabaseExecutor;
 
     /// Given an `ActiveModel` and a payload of foreign key `sync_id`s,
     /// this method resolves those `sync_id`s to local primary key `Value`s
@@ -60,7 +63,7 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
         db: &E,
     ) -> Result<()>
     where
-        E: DatabaseExecutor + sea_orm::ConnectionTrait;
+        E: DatabaseExecutor;
 
     /// Extracts FkPayload from a remote model (usually obtained via get_remote_records_in_hlc_range).
     /// Now it requires access to the ChunkFkMapping associated with these models.
@@ -98,5 +101,5 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
     ) -> Result<ChunkFkMapping>
     where
         M: HLCRecord + Sync + Serialize,
-        E: DatabaseExecutor + sea_orm::ConnectionTrait;
+        E: DatabaseExecutor;
 }
