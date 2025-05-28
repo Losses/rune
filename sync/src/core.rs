@@ -2017,7 +2017,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_synchronize_table_no_changes() -> Result<()> {
-        // ... (existing test code)
         let db = setup_db().await?;
         let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
         let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
@@ -2756,7 +2755,6 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn test_apply_local_changes_rollback() -> Result<()> {
-        // ... (existing test code)
         let db = setup_db().await?;
         let local_node_id = Uuid::parse_str(LOCAL_NODE_STR)?;
         let remote_node_id = Uuid::parse_str(REMOTE_NODE_STR)?;
@@ -2947,7 +2945,6 @@ pub(crate) mod tests {
         )
         .await?;
 
-        // ... rest of the assertions from the original test ...
         let get_records_calls = remote_source
             .get_records_call_ranges_for_table("test_items")
             .await;
@@ -3031,7 +3028,7 @@ pub(crate) mod tests {
             remote_records.push(remote.clone());
         }
         let chunk_hlc_end = current_hlc.clone(); // HLC of the last record
-        let chunk_hlc_start = first_record_hlc.expect("Should have inserted at least one record"); // <--- Use the actual first HLC
+        let chunk_hlc_start = first_record_hlc.expect("Should have inserted at least one record");
 
         remote_source
             .set_remote_data_for_table("test_items", remote_records.clone())
