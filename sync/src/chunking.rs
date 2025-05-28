@@ -4,6 +4,7 @@
 
 use std::{
     cmp,
+    collections::HashMap,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -15,9 +16,20 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // Use the refined HLC module functions/traits
-use crate::hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC};
+use crate::{
+    foreign_key::ForeignKeyResolver,
+    hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC},
+};
 
 const MILLISECONDS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
+
+pub type ChunkFkMapping = HashMap<
+    String, /* fk_column_name_in_child */
+    HashMap<
+        String, /* remote_parent_internal_id_str */
+        String, /* parent_sync_id_uuid_str */
+    >,
+>;
 
 /// Represents metadata for a chunk of data ordered by HLC.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,6 +43,7 @@ pub struct DataChunk {
     /// BLAKE3 hash representing the content of the chunk.
     /// Calculated based on the hashes of individual records within the chunk.
     pub chunk_hash: String,
+    pub fk_mappings: Option<ChunkFkMapping>,
 }
 
 /// Represents a sub-chunk created by breaking down a parent chunk.
@@ -226,15 +239,17 @@ where
 /// # Returns
 ///
 /// A `Result` containing a vector of `DataChunk` metadata, ordered by HLC.
-pub async fn generate_data_chunks<E>(
+pub async fn generate_data_chunks<E, FKR>(
     db: &DatabaseConnection,
     options: &ChunkingOptions,
     start_hlc_exclusive: Option<HLC>,
+    fk_resolver: Option<&FKR>,
 ) -> Result<Vec<DataChunk>>
 where
     E: HLCModel + EntityTrait + Sync, // E needs HLCModel for queries
-    E::Model: HLCRecord + Clone + Send + Sync, // Model needs HLCRecord
+    E::Model: HLCRecord + Clone + Send + Sync + Serialize,
     <E as EntityTrait>::Model: Sync,
+    FKR: ForeignKeyResolver + Send + Sync,
 {
     options.validate()?; // Validate options first
 
@@ -403,11 +418,35 @@ where
             )
         })?;
 
+        let mut current_chunk_fk_mappings: Option<ChunkFkMapping> = None;
+        if let Some(resolver) = fk_resolver {
+            if !records.is_empty() {
+                let mappings = resolver
+                    .generate_fk_mappings_for_records::<E::Model, _>(
+                        E::table_name(&E::default()),
+                        &records,
+                        db,
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to generate FK mappings for chunk of entity {}",
+                            E::table_name(&E::default())
+                        )
+                    })?;
+
+                if !mappings.is_empty() {
+                    current_chunk_fk_mappings = Some(mappings);
+                }
+            }
+        }
+
         let data_chunk = DataChunk {
             start_hlc: chunk_start_hlc.clone(),
             end_hlc: chunk_end_hlc.clone(),
             count: chunk_count,
             chunk_hash,
+            fk_mappings: current_chunk_fk_mappings,
         };
 
         debug!("Generated chunk: {:?}", data_chunk);
@@ -445,15 +484,17 @@ where
 /// # Returns
 ///
 /// A `Result` containing a vector of `SubDataChunk` structs, or an error if verification fails.
-pub async fn break_data_chunk<E>(
+pub async fn break_data_chunk<E, FKR>(
     db: &DatabaseConnection,
     parent_chunk: &DataChunk,
     sub_chunk_size: u64,
+    fk_resolver: Option<&FKR>,
 ) -> Result<Vec<SubDataChunk>>
 where
-    E: HLCModel + EntityTrait + Sync,          // E needs HLCModel
-    E::Model: HLCRecord + Clone + Send + Sync, // Model needs HLCRecord
+    E: HLCModel + EntityTrait + Sync, // E needs HLCModel
+    E::Model: HLCRecord + Clone + Send + Sync + Serialize,
     <E as EntityTrait>::Model: Sync,
+    FKR: ForeignKeyResolver + Send + Sync,
 {
     info!(
         "Breaking down chunk [{}-{}] (Count: {}, Hash: {:.8}) into sub-chunks of size {}",
@@ -622,11 +663,34 @@ where
                 )
             })?;
 
+        let mut sub_chunk_fk_map: Option<ChunkFkMapping> = None;
+        if let Some(resolver) = fk_resolver {
+            if !sub_chunk_records_slice.is_empty() {
+                let mappings = resolver
+                    .generate_fk_mappings_for_records::<E::Model, _>(
+                        E::table_name(&E::default()),
+                        sub_chunk_records_slice,
+                        db,
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to generate FK mappings for sub-chunk of entity {}",
+                            E::table_name(&E::default())
+                        )
+                    })?;
+                if !mappings.is_empty() {
+                    sub_chunk_fk_map = Some(mappings);
+                }
+            }
+        }
+
         let sub_data_chunk = DataChunk {
             start_hlc: sub_start_hlc,
             end_hlc: sub_end_hlc,
             count: sub_count,
             chunk_hash: sub_chunk_hash,
+            fk_mappings: sub_chunk_fk_map,
         };
 
         sub_chunks_info.push(SubDataChunk {
@@ -656,7 +720,7 @@ pub mod tests {
 
     use super::*;
 
-    use crate::hlc::HLC;
+    use crate::{core::tests::NoOpForeignKeyResolver, hlc::HLC};
 
     // Test-Specific Mock Entity Definition (Using TEXT for Timestamp)
     // This module defines the Entity, Model, and ActiveModel specifically for tests,
@@ -914,7 +978,9 @@ pub mod tests {
         let db = setup_db().await?;
         let options = ChunkingOptions::default(Uuid::parse_str(NODE1).unwrap());
         // Use the test Entity
-        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+        let chunks =
+            generate_data_chunks::<Entity, NoOpForeignKeyResolver>(&db, &options, None, None)
+                .await?;
         assert!(chunks.is_empty());
         Ok(())
     }
@@ -945,7 +1011,9 @@ pub mod tests {
         };
 
         // Use the test Entity
-        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+        let chunks =
+            generate_data_chunks::<Entity, NoOpForeignKeyResolver>(&db, &options, None, None)
+                .await?;
 
         // Expected: Chunk1 (r1, r2), Chunk2 (r3, r4), Chunk3 (r5)
         // The logic remains the same as the internal representation (HLC struct) is used
@@ -1013,7 +1081,9 @@ pub mod tests {
             node_id,
         };
 
-        let chunks = generate_data_chunks::<Entity>(&db, &options, None).await?;
+        let chunks =
+            generate_data_chunks::<Entity, NoOpForeignKeyResolver>(&db, &options, None, None)
+                .await?;
 
         // Trace: Latest = h7 (ts7)
         // Loop 1: current=0. age=(ts7 - 0)/days = large. ceil(age)=large.
@@ -1033,7 +1103,9 @@ pub mod tests {
             alpha: 0.1,
             node_id,
         };
-        let chunks2 = generate_data_chunks::<Entity>(&db, &options2, None).await?;
+        let chunks2 =
+            generate_data_chunks::<Entity, NoOpForeignKeyResolver>(&db, &options2, None, None)
+                .await?;
         // Trace:
         // Loop 1: current=0. age=large. desired=3*(1.1)^large > 10. window=10.
         //        Fetch(limit 10) -> r1..r7. Chunk [h1-h7], count 7. next=h7.
@@ -1075,11 +1147,18 @@ pub mod tests {
             end_hlc: h5.clone(),
             count: 5,
             chunk_hash: calculate_chunk_hash(&all_records)?, // Hash based on fetched records
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 2;
         // Use the test Entity
-        let sub_chunks = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await?;
+        let sub_chunks = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await?;
 
         assert_eq!(sub_chunks.len(), 3); // Expect 2, 2, 1
 
@@ -1140,11 +1219,18 @@ pub mod tests {
             end_hlc: empty_end.clone(),
             count: 0,
             chunk_hash: calculate_chunk_hash(&empty_records)?, // Hash of empty
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 10;
         // Use the test Entity
-        let sub_chunks = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await?;
+        let sub_chunks = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await?;
 
         // Expect successful verification of empty chunk and no sub-chunks generated
         assert!(sub_chunks.is_empty());
@@ -1171,11 +1257,18 @@ pub mod tests {
             end_hlc: h3.clone(), // Range covers the 3 inserted records
             count: 4,            // Mismatched count
             chunk_hash: "dummy_hash".to_string(), // Hash doesn't matter yet
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 2;
         // Use the test Entity
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // Assert that the operation failed
         assert!(result.is_err());
@@ -1212,11 +1305,18 @@ pub mod tests {
             end_hlc: h2.clone(),
             count: 2,
             chunk_hash: "incorrect_hash_string_12345".to_string(), // Wrong hash
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 1;
         // Use the test Entity
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // Assert that the operation failed
         assert!(result.is_err());
@@ -1246,11 +1346,18 @@ pub mod tests {
             end_hlc: empty_end.clone(),
             count: 0,
             chunk_hash: "non_empty_hash_or_just_plain_wrong".to_string(), // Incorrect hash
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 10;
         // Use the test Entity
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // Assert that the operation failed
         assert!(result.is_err());
@@ -1292,7 +1399,13 @@ pub mod tests {
         let start_after = h2.clone();
 
         // Generate chunks using the test Entity and the exclusive start HLC
-        let chunks = generate_data_chunks::<Entity>(&db, &options, Some(start_after)).await?;
+        let chunks = generate_data_chunks::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &options,
+            Some(start_after),
+            None,
+        )
+        .await?;
 
         // Trace: min=1, max=5, alpha=0. Latest=h5. Start current=h2.
         // Loop 1: current=h2. age=small. desired=1*(1)^n=1. window=max(1,min(5,1))=1.
@@ -1484,11 +1597,18 @@ pub mod tests {
                 updated_at_hlc_v: h1.version as i32,
                 updated_at_hlc_nid: h1.node_id,
             }])?,
+            fk_mappings: Default::default(),
         };
 
         // Attempt to break with sub_chunk_size = 0
         let sub_chunk_size = 0; // Invalid size
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // Assert that the operation failed
         assert!(result.is_err());
@@ -1517,10 +1637,17 @@ pub mod tests {
             end_hlc: h_end.clone(),
             count: 1,                             // Non-zero count makes it invalid
             chunk_hash: "dummy_hash".to_string(), // Hash doesn't matter here
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 10; // Valid sub-chunk size
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // Assert that the operation failed
         assert!(result.is_err());
@@ -1554,10 +1681,17 @@ pub mod tests {
             end_hlc: h_end.clone(),
             count: 0, // Count is zero, so this *might* be valid if hash matches empty
             chunk_hash: calculate_chunk_hash(&empty_records)?,
+            fk_mappings: Default::default(),
         };
 
         let sub_chunk_size = 10;
-        let result = break_data_chunk::<Entity>(&db, &parent_chunk, sub_chunk_size).await;
+        let result = break_data_chunk::<Entity, NoOpForeignKeyResolver>(
+            &db,
+            &parent_chunk,
+            sub_chunk_size,
+            None,
+        )
+        .await;
 
         // In this case, the function should proceed past the initial validation,
         // fetch records (find none in the weird range or any range if DB empty),

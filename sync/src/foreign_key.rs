@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use sea_orm::{ActiveModelBehavior, DatabaseConnection, DatabaseTransaction};
 use serde::Serialize;
 
-use crate::hlc::HLCRecord;
+use crate::{chunking::ChunkFkMapping, hlc::HLCRecord};
 
 // Maps an FK column name (in the current entity) to the sync_id of the referenced record.
 // Option<String> because the FK might be nullable.
@@ -62,22 +62,41 @@ pub trait ForeignKeyResolver: Send + Sync + Debug {
     where
         E: DatabaseExecutor + sea_orm::ConnectionTrait;
 
-    /// Constructs an FkPayload from a model instance that is assumed to have come
-    /// from a remote source, where its foreign key fields already represent sync_ids.
+    /// Extracts FkPayload from a remote model (usually obtained via get_remote_records_in_hlc_range).
+    /// Now it requires access to the ChunkFkMapping associated with these models.
     ///
     /// # Arguments
-    /// * `entity_name`: Name of the entity `model` belongs to.
-    /// * `remote_model_with_sync_id_fks`: The model instance. Its FK fields should be sync_ids.
-    ///
-    /// # Returns
-    /// An FkPayload.
-    ///
-    /// This method typically involves knowing the structure of M and which fields
-    /// correspond to logical foreign keys. The implementation will likely involve
-    /// matching on `entity_name` and casting `remote_model_with_sync_id_fks`.
-    fn extract_sync_ids_from_remote_model<M: HLCRecord + Send + Sync + Serialize>(
+    /// * `entity_name`: The name of the entity to which the model belongs.
+    /// * `remote_model_with_sync_id_fks`: An instance of the remote model.
+    /// * `chunk_fk_map`: Option<&ChunkFkMapping> containing FK mappings for the current context.
+    ///                  Should be provided if the model comes from a DataChunk carrying mappings.
+    ///                  May be None for individually fetched models, requiring fallback or specific logic.
+    fn extract_sync_ids_from_remote_model_with_mapping<M: HLCRecord + Send + Sync + Serialize>(
         &self,
         entity_name: &str,
         remote_model_with_sync_id_fks: &M,
+        chunk_fk_map: Option<&ChunkFkMapping>,
     ) -> Result<FkPayload>;
+
+    /// Generate a mapping from foreign keys to sync_ids for a batch of models belonging to a specific entity type.
+    /// This method is primarily used on the data provider side (e.g., when the server generates a DataChunk).
+    ///
+    /// # Arguments
+    /// * `entity_name`: The name of the entity to which the models belong.
+    /// * `models`: A batch of model instances that need to be processed.
+    /// * `db`: The database connection used to look up the sync_id of the referenced parent entities.
+    ///
+    /// # Returns
+    /// A `ChunkFkMapping` that contains the mappings for all foreign key references in this batch of models.
+    /// Key: The foreign key column name in the child table (e.g., "album_id")
+    /// Value: HashMap { Parent table local numeric ID string -> Parent table sync_id (UUID string) }
+    async fn generate_fk_mappings_for_records<M, E>(
+        &self,
+        entity_name: &str,
+        records: &[M],
+        db: &E,
+    ) -> Result<ChunkFkMapping>
+    where
+        M: HLCRecord + Sync + Serialize,
+        E: DatabaseExecutor + sea_orm::ConnectionTrait;
 }
