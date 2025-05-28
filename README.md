@@ -12,7 +12,7 @@
   <p>
     <a href="https://github.com/Losses/rune/blob/master/LICENSE"><img alt="GitHub License" src="https://img.shields.io/github/license/losses/rune?color=%233f51b5" /></a>
     <a href="https://github.com/Losses/rune/blob/master/flake.nix"><img alt="Nix Flakes" src="https://img.shields.io/badge/nix-flake-blue?logo=nixos" /></a>
-    <a href="https://deepwiki.com/Losses/rune"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
+    <a href="https://deepwiki.com/Losses/rune"><img src="https://deepwiki.com/badge.svg" alt="Ask DeepWiki"></a>
     <a href="https://oss.issuehunt.io/r/Losses/rune"><img alt="Issue Hunt" src="https://img.shields.io/badge/hunt-hunt?logo=cashapp&logoColor=white&label=issue&color=%232cc28c"></a>
     <a href="https://github.com/Losses/rune/actions/workflows/build.yml"><img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/losses/rune/build.yml"></a>
     <a href="https://github.com/losses/rune/releases/latest"><img alt="Stable Release" src="https://img.shields.io/github/v/release/losses/rune?color=green&label=stable"></a>
