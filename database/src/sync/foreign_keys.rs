@@ -453,7 +453,7 @@ impl ModelWithForeignKeyOps for media_file_albums::Model {
         if album_sync_id.is_none()
             && chunk_fk_map
                 .get(&album_fk_col)
-                .map_or(false, |m| m.get(&album_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&album_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_albums.{} = {} (remote model {}). Child of non-existent parent?",
@@ -473,7 +473,7 @@ impl ModelWithForeignKeyOps for media_file_albums::Model {
         if mf_sync_id.is_none()
             && chunk_fk_map
                 .get(&mf_fk_col)
-                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&mf_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_albums.{} = {} (remote model {}). Child of non-existent parent?",
@@ -536,6 +536,35 @@ impl ActiveModelWithForeignKeyOps for media_file_albums::ActiveModel {
                     })?;
             self.media_file_id = ActiveValue::Set(local_media_file_pk);
         }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ModelWithForeignKeyOps for albums::Model {
+    async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(&self, _db: &E) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+    async fn generate_model_fk_mappings_for_batch<DbEx: DatabaseExecutor>(
+        _records: &[Self],
+        _db: &DbEx,
+    ) -> Result<ChunkFkMapping> {
+        Ok(ChunkFkMapping::new())
+    }
+    fn extract_model_sync_ids_from_remote(
+        &self,
+        _chunk_fk_map: &ChunkFkMapping,
+    ) -> Result<FkPayload> {
+        Ok(FkPayload::new())
+    }
+}
+#[async_trait]
+impl ActiveModelWithForeignKeyOps for albums::ActiveModel {
+    async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+        &mut self,
+        _fk_sync_id_payload: &FkPayload,
+        _db: &E,
+    ) -> Result<()> {
         Ok(())
     }
 }
@@ -738,7 +767,7 @@ impl ModelWithForeignKeyOps for media_file_artists::Model {
         if artist_sync_id.is_none()
             && chunk_fk_map
                 .get(&artist_fk_col)
-                .map_or(false, |m| m.get(&artist_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&artist_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_artists.{} = {} (remote model {}). Child of non-existent parent?",
@@ -758,7 +787,7 @@ impl ModelWithForeignKeyOps for media_file_artists::Model {
         if mf_sync_id.is_none()
             && chunk_fk_map
                 .get(&mf_fk_col)
-                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&mf_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_artists.{} = {} (remote model {}). Child of non-existent parent?",
@@ -933,7 +962,7 @@ impl ModelWithForeignKeyOps for media_file_genres::Model {
         if genre_sync_id.is_none()
             && chunk_fk_map
                 .get(&genre_fk_col)
-                .map_or(false, |m| m.get(&genre_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&genre_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_genres.{} = {} (remote model {}). Child of non-existent parent?",
@@ -953,7 +982,7 @@ impl ModelWithForeignKeyOps for media_file_genres::Model {
         if mf_sync_id.is_none()
             && chunk_fk_map
                 .get(&mf_fk_col)
-                .map_or(false, |m| m.get(&mf_parent_id_str).is_none())
+                .is_some_and(|m| m.get(&mf_parent_id_str).is_none())
         {
             warn!(
                 "Sync ID not found in map for media_file_genres.{} = {} (remote model {}). Child of non-existent parent?",
