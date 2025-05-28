@@ -89,7 +89,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::chunking::{break_data_chunk, generate_data_chunks, ChunkingOptions, DataChunk};
-use crate::foreign_key::{FkPayload, ForeignKeyResolver};
+use crate::foreign_key::{
+    ActiveModelWithForeignKeyOps, FkPayload, ForeignKeyResolver, ModelWithForeignKeyOps,
+};
 use crate::hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC};
 use crate::utils::merge_fk_mappings;
 
@@ -360,9 +362,10 @@ where
         + Clone
         + Serialize // Needed for apply_remote_changes potentially
         + for<'de> Deserialize<'de> // Needed for receiving remote records potentially
-        + IntoActiveModel<E::ActiveModel>,
+        + IntoActiveModel<E::ActiveModel>
+        + ModelWithForeignKeyOps,
     // ActiveModel must support standard SeaORM behavior
-    E::ActiveModel: ActiveModelBehavior + Send + Sync + Debug,
+    E::ActiveModel: ActiveModelBehavior + Send + Sync + Debug + ActiveModelWithForeignKeyOps,
     // PrimaryKey must support trait operations and conversion from string ID
     E::PrimaryKey:
         PrimaryKeyTrait + PrimaryKeyFromStr<<E::PrimaryKey as PrimaryKeyTrait>::ValueType>,
@@ -744,11 +747,7 @@ where
                 {
                     let fk_payload = if let Some(resolver) = &fk_resolver {
                         resolver
-                            .extract_foreign_key_sync_ids::<E::Model, _>(
-                                table_name,
-                                &local_record,
-                                context.db,
-                            )
+                            .extract_foreign_key_sync_ids(&local_record, context.db)
                             .await
                             .with_context(|| {
                                 format!(
@@ -776,7 +775,6 @@ where
                 {
                     let fk_payload = if let Some(resolver) = &fk_resolver {
                         resolver.extract_sync_ids_from_remote_model_with_mapping(
-                            table_name,
                             &remote_record,
                             Some(&remote_fk_mappings),
                         )?
@@ -867,11 +865,7 @@ where
                         debug!(":: Action: UpdateRemote with local winner.");
                         let fk_payload = if let Some(resolver) = &fk_resolver {
                             resolver
-                                .extract_foreign_key_sync_ids::<E::Model, _>(
-                                    table_name,
-                                    &local_record,
-                                    context.db,
-                                )
+                                .extract_foreign_key_sync_ids(&local_record, context.db)
                                 .await
                                 .with_context(|| {
                                     format!(
@@ -903,7 +897,6 @@ where
 
                         let fk_payload = if let Some(resolver) = &fk_resolver {
                             resolver.extract_sync_ids_from_remote_model_with_mapping(
-                                table_name,
                                 &remote_record,
                                 Some(&remote_fk_mappings),
                             )?
@@ -1045,8 +1038,15 @@ async fn apply_local_changes<E, FKR>(
 where
     // Constraints copied from synchronize_table for consistency
     E: HLCModel + EntityTrait + Send + Sync,
-    E::Model: HLCRecord + Send + Sync + Debug + Clone + Serialize + IntoActiveModel<E::ActiveModel>,
-    E::ActiveModel: ActiveModelBehavior + Send + Sync + Debug,
+    E::Model: HLCRecord
+        + Send
+        + Sync
+        + Debug
+        + Clone
+        + Serialize
+        + IntoActiveModel<E::ActiveModel>
+        + ModelWithForeignKeyOps,
+    E::ActiveModel: ActiveModelBehavior + Send + Sync + Debug + ActiveModelWithForeignKeyOps,
     E::PrimaryKey:
         PrimaryKeyTrait + PrimaryKeyFromStr<<E::PrimaryKey as PrimaryKeyTrait>::ValueType>,
     <E::PrimaryKey as PrimaryKeyTrait>::ValueType:
@@ -1085,8 +1085,7 @@ where
 
                 if let Some(resolver) = &fk_resolver {
                     resolver
-                        .remap_and_set_foreign_keys::<E::ActiveModel, _>(
-                            E::table_name(&E::default()), // Get table name from Entity
+                        .remap_and_set_foreign_keys(
                             &mut active_model,
                             &fk_payload,
                             &txn, // Use transaction for lookups
@@ -1121,8 +1120,7 @@ where
 
                 if let Some(resolver) = &fk_resolver {
                     resolver
-                        .remap_and_set_foreign_keys::<E::ActiveModel, _>(
-                            E::table_name(&E::default()),
+                        .remap_and_set_foreign_keys(
                             &mut am_from_model, // Apply FK remapping to this AM
                             &fk_payload,
                             &txn,
@@ -1414,10 +1412,11 @@ pub trait PrimaryKeyFromStr<T>: PrimaryKeyTrait {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::collections::{hash_map, HashMap};
+    use std::collections::HashMap;
     use std::fmt::Debug;
     use std::sync::Arc;
 
+    use async_trait::async_trait;
     use sea_orm::{
         ConnectionTrait, Database, DbBackend, DbConn, NotSet, PrimaryKeyTrait, QueryOrder, Schema,
         Set,
@@ -1438,7 +1437,6 @@ pub(crate) mod tests {
     impl ForeignKeyResolver for NoOpForeignKeyResolver {
         async fn extract_foreign_key_sync_ids<M: HLCRecord + Send + Sync, DB: ConnectionTrait>(
             &self,
-            _table_name: &str,
             _model: &M,
             _db: &DB,
         ) -> Result<FkPayload> {
@@ -1447,7 +1445,6 @@ pub(crate) mod tests {
 
         fn extract_sync_ids_from_remote_model_with_mapping<M: HLCRecord + Send + Sync>(
             &self,
-            _table_name: &str,
             _model: &M,
             _fkmap: Option<&ChunkFkMapping>,
         ) -> Result<FkPayload> {
@@ -1456,7 +1453,6 @@ pub(crate) mod tests {
 
         async fn remap_and_set_foreign_keys<AM: ActiveModelBehavior + Send, DB: ConnectionTrait>(
             &self,
-            _table_name: &str,
             _active_model: &mut AM,
             _fk_payload: &FkPayload,
             _db: &DB,
@@ -1466,7 +1462,6 @@ pub(crate) mod tests {
 
         async fn generate_fk_mappings_for_records<AM, DB: ConnectionTrait>(
             &self,
-            _entity_name: &str,
             _records: &[AM],
             _db: &DB,
         ) -> Result<ChunkFkMapping> {
@@ -1480,6 +1475,7 @@ pub(crate) mod tests {
         use std::str::FromStr;
 
         use anyhow::{anyhow, Result};
+        use async_trait::async_trait;
         use sea_orm::{
             ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
         };
@@ -1559,6 +1555,41 @@ pub(crate) mod tests {
                     "value": self.value,
                     // Omit created/updated HLC fields
                 })
+            }
+        }
+
+        #[async_trait]
+        impl ModelWithForeignKeyOps for Model {
+            async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(
+                &self,
+                _db: &E,
+            ) -> Result<FkPayload> {
+                Ok(FkPayload::new()) // Authors don't have outgoing FKs
+            }
+
+            async fn generate_model_fk_mappings_for_batch<E: DatabaseExecutor>(
+                _records: &[Self],
+                _db: &E,
+            ) -> Result<ChunkFkMapping> {
+                Ok(ChunkFkMapping::new()) // Authors don't have FKs that need mapping for children
+            }
+
+            fn extract_model_sync_ids_from_remote(
+                &self,
+                _chunk_fk_map: &ChunkFkMapping,
+            ) -> Result<FkPayload> {
+                Ok(FkPayload::new()) // Authors are parents, not consuming FKs this way
+            }
+        }
+
+        #[async_trait]
+        impl ActiveModelWithForeignKeyOps for ActiveModel {
+            async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+                &mut self,
+                _fk_sync_id_payload: &FkPayload,
+                _db: &E,
+            ) -> Result<()> {
+                Ok(()) // Authors don't have FKs to remap
             }
         }
 
@@ -3820,9 +3851,11 @@ pub(crate) mod tests {
     }
 
     pub mod author_entity {
+        use std::collections::HashMap;
         use std::str::FromStr;
 
         use anyhow::{anyhow, Result};
+        use async_trait::async_trait;
         use sea_orm::entity::prelude::*;
         use sea_orm::{
             ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
@@ -3830,7 +3863,11 @@ pub(crate) mod tests {
         use serde::{Deserialize, Serialize};
         use uuid::Uuid;
 
+        use crate::chunking::ChunkFkMapping;
         use crate::core::PrimaryKeyFromStr;
+        use crate::foreign_key::{
+            ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ModelWithForeignKeyOps,
+        };
         use crate::hlc::{HLCModel, HLCRecord, HLC};
 
         #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
@@ -3912,6 +3949,56 @@ pub(crate) mod tests {
             }
         }
 
+        #[async_trait]
+        impl ModelWithForeignKeyOps for Model {
+            /// Authors do not reference other entities with foreign keys in this schema.
+            async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(
+                &self,
+                _db: &E, // db not needed as no outgoing FKs
+            ) -> Result<FkPayload> {
+                Ok(FkPayload::new())
+            }
+
+            /// When generating chunks of Author models, create mappings from the Author's local PK
+            /// to its sync_id. This is used by consumers of this chunk (e.g., Post entity)
+            /// to resolve their foreign key references to Authors.
+            async fn generate_model_fk_mappings_for_batch<E: DatabaseExecutor>(
+                records: &[Self],
+                _db: &E, // db not strictly needed here as models have id/sync_id
+            ) -> Result<ChunkFkMapping> {
+                let mut author_pk_to_sync_id_map = HashMap::new();
+                for record in records {
+                    // Map local primary key (as string) to sync_id
+                    author_pk_to_sync_id_map.insert(record.id.to_string(), record.sync_id.clone());
+                }
+                let mut chunk_fk_mapping = ChunkFkMapping::new();
+                // Store this mapping keyed by the foreign key column name *in the child table* that references this entity.
+                // In this case, the child is Post and the column is 'author_id'.
+                chunk_fk_mapping.insert("author_id".to_string(), author_pk_to_sync_id_map);
+                Ok(chunk_fk_mapping)
+            }
+
+            /// Authors do not consume foreign keys received from a remote.
+            fn extract_model_sync_ids_from_remote(
+                &self,
+                _chunk_fk_map: &ChunkFkMapping, // map not needed as authors don't consume FKs this way
+            ) -> Result<FkPayload> {
+                Ok(FkPayload::new())
+            }
+        }
+
+        #[async_trait]
+        impl ActiveModelWithForeignKeyOps for ActiveModel {
+            /// Authors have no foreign keys to remap based on sync_id.
+            async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+                &mut self,
+                _fk_sync_id_payload: &FkPayload, // payload not needed
+                _db: &E,                         // db not needed
+            ) -> Result<()> {
+                Ok(())
+            }
+        }
+
         impl HLCModel for Entity {
             fn updated_at_time_column() -> Self::Column {
                 Column::UpdatedAtHlcTs
@@ -3945,17 +4032,24 @@ pub(crate) mod tests {
 
     #[cfg(test)]
     pub mod post_entity {
+        use std::collections::HashMap as StdHashMap;
+        use std::println as warn;
         use std::str::FromStr;
 
-        use anyhow::{anyhow, Result};
+        use anyhow::{anyhow, Context, Result};
+        use async_trait::async_trait;
         use sea_orm::entity::prelude::*;
         use sea_orm::{
-            ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter,
+            ActiveModelBehavior, DeriveEntityModel, DerivePrimaryKey, DeriveRelation, EnumIter, Set,
         };
         use serde::{Deserialize, Serialize};
         use uuid::Uuid;
 
+        use crate::chunking::ChunkFkMapping;
         use crate::core::PrimaryKeyFromStr;
+        use crate::foreign_key::{
+            ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ModelWithForeignKeyOps,
+        };
         use crate::hlc::{HLCModel, HLCRecord, HLC};
 
         #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize, Deserialize)]
@@ -4056,6 +4150,133 @@ pub(crate) mod tests {
             }
         }
 
+        #[async_trait]
+        impl ModelWithForeignKeyOps for Model {
+            async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(
+                &self,
+                db: &E,
+            ) -> Result<FkPayload> {
+                let mut payload = FkPayload::new();
+                // Assuming author_id is non-nullable. If it can be null, handle Option<i32> and insert None for payload.
+                if let Some(author) = super::author_entity::Entity::find_by_id(self.author_id)
+                    .one(db)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to find author by id {} for post {}",
+                            self.author_id, self.sync_id
+                        )
+                    })?
+                {
+                    payload.insert("author_id".to_string(), Some(author.sync_id));
+                } else {
+                    // This implies a data integrity issue if author_id is a non-nullable FK.
+                    return Err(anyhow!(
+                        "Data integrity issue: Author with id {} referenced by post {} not found.",
+                        self.author_id,
+                        self.sync_id
+                    ));
+                }
+                Ok(payload)
+            }
+
+            async fn generate_model_fk_mappings_for_batch<E: DatabaseExecutor>(
+                records: &[Self],
+                db: &E,
+            ) -> Result<ChunkFkMapping> {
+                let mut chunk_fk_mapping = ChunkFkMapping::new();
+                if records.is_empty() {
+                    return Ok(chunk_fk_mapping);
+                }
+
+                let author_pks: Vec<i32> = records.iter().map(|post| post.author_id).collect();
+
+                let authors = super::author_entity::Entity::find()
+                    .filter(super::author_entity::Column::Id.is_in(author_pks))
+                    .all(db)
+                    .await
+                    .with_context(|| "Failed to fetch authors for FK mapping generation")?;
+
+                let author_pk_to_sync_id: StdHashMap<i32, String> = authors
+                    .into_iter()
+                    .map(|author| (author.id, author.sync_id))
+                    .collect();
+
+                let mut author_id_column_mapping = StdHashMap::new();
+                for post_model in records {
+                    if let Some(author_sync_id) = author_pk_to_sync_id.get(&post_model.author_id) {
+                        // Key: The local PK of the author (post_model.author_id as String)
+                        // Value: The sync_id of the author
+                        author_id_column_mapping
+                            .insert(post_model.author_id.to_string(), author_sync_id.clone());
+                    } else {
+                        warn!(
+                            "generate_fk_mappings_for_records (Post): Author with local PK {} not found for post with sync_id {}.",
+                            post_model.author_id,
+                            post_model.sync_id
+                        );
+                        // Decide if this is an error or if None should be stored. For now, just warn and skip.
+                    }
+                }
+
+                if !author_id_column_mapping.is_empty() {
+                    chunk_fk_mapping.insert("author_id".to_string(), author_id_column_mapping);
+                }
+                Ok(chunk_fk_mapping)
+            }
+
+            fn extract_model_sync_ids_from_remote(
+                &self,
+                _chunk_fk_map: &ChunkFkMapping, // Test models use direct `remote_author_sync_id`
+            ) -> Result<FkPayload> {
+                let mut payload = FkPayload::new();
+                // This relies on the test setup populating `remote_author_sync_id`
+                payload.insert("author_id".to_string(), self.remote_author_sync_id.clone());
+                Ok(payload)
+            }
+        }
+
+        #[async_trait]
+        impl ActiveModelWithForeignKeyOps for ActiveModel {
+            async fn remap_model_and_set_foreign_keys<E: DatabaseExecutor>(
+                &mut self,
+                fk_sync_id_payload: &FkPayload,
+                db: &E,
+            ) -> Result<()> {
+                if let Some(maybe_author_sync_id) = fk_sync_id_payload.get("author_id") {
+                    if let Some(author_sync_id) = maybe_author_sync_id {
+                        if let Some(author) = super::author_entity::Entity::find()
+                            .filter(super::author_entity::Column::SyncId.eq(author_sync_id.clone()))
+                            .one(db)
+                            .await
+                            .with_context(|| {
+                                format!(
+                                    "Failed to find author by sync_id {} for remapping FK",
+                                    author_sync_id
+                                )
+                            })?
+                        {
+                            self.author_id = Set(author.id);
+                        } else {
+                            return Err(anyhow!(
+                                "FK Remap (Post): Author with sync_id '{}' not found locally.",
+                                author_sync_id
+                            ));
+                        }
+                    } else {
+                        // The FkPayload indicates a NULL foreign key.
+                        // Post.author_id is `i32`, not `Option<i32>`, so it's non-nullable.
+                        // This is an error condition if the schema enforces non-nullability.
+                        return Err(anyhow!(
+                            "FK Remap (Post): Attempted to set non-nullable author_id to NULL."
+                        ));
+                    }
+                }
+                // If "author_id" is not in payload, do nothing (field not being changed or not applicable).
+                Ok(())
+            }
+        }
+
         impl HLCModel for Entity {
             fn updated_at_time_column() -> Self::Column {
                 Column::UpdatedAtHlcTs
@@ -4141,158 +4362,54 @@ pub(crate) mod tests {
     #[derive(Debug)]
     struct TestForeignKeyResolver;
 
-    #[async_trait::async_trait]
+    #[async_trait]
     impl ForeignKeyResolver for TestForeignKeyResolver {
-        async fn extract_foreign_key_sync_ids<
-            M: HLCRecord + Send + Sync + Serialize,
-            E: DatabaseExecutor + ConnectionTrait,
-        >(
-            &self,
-            table_name: &str,
-            model: &M,
-            db: &E,
-        ) -> Result<FkPayload> {
-            let mut payload = FkPayload::new();
-            if table_name == "posts" {
-                let model_json = serde_json::to_value(model)?;
-                let post_model: post_entity::Model = serde_json::from_value(model_json)?;
-
-                if let Some(author) = author_entity::Entity::find_by_id(post_model.author_id)
-                    .one(db)
-                    .await?
-                {
-                    payload.insert("author_id".to_string(), Some(author.sync_id));
-                } else {
-                    warn!( // Changed to warn to avoid hard error if FK is nullable or legitimately missing
-                        "Author not found for post_model.author_id: {} when extracting FKs for table '{}', post_sync_id: {}",
-                        post_model.author_id, table_name, post_model.sync_id
-                    );
-                    payload.insert("author_id".to_string(), None); // Indicate FK is not linked
-                }
-            }
-            Ok(payload)
+        async fn extract_foreign_key_sync_ids<M, E>(&self, model: &M, db: &E) -> Result<FkPayload>
+        where
+            M: ModelWithForeignKeyOps,
+            E: DatabaseExecutor,
+        {
+            model.extract_model_fk_sync_ids(db).await
         }
 
-        fn extract_sync_ids_from_remote_model_with_mapping<
-            M: HLCRecord + Send + Sync + Serialize,
-        >(
+        async fn remap_and_set_foreign_keys<AM, E>(
             &self,
-            table_name: &str,
-            remote_model_with_sync_id_fks: &M,
-            _chunk_fk_map: Option<&ChunkFkMapping>, // Added parameter, though mock relies on transient field
-        ) -> Result<FkPayload> {
-            let mut payload = FkPayload::new();
-            if table_name == "posts" {
-                let model_json = serde_json::to_value(remote_model_with_sync_id_fks)?;
-                let post_model: post_entity::Model = serde_json::from_value(model_json)?;
-                payload.insert("author_id".to_string(), post_model.remote_author_sync_id);
-            }
-            Ok(payload)
-        }
-
-        async fn remap_and_set_foreign_keys<
-            AM: ActiveModelBehavior + Send,
-            DB: DatabaseExecutor + ConnectionTrait,
-        >(
-            &self,
-            table_name: &str,
             active_model: &mut AM,
             fk_payload: &FkPayload,
-            db: &DB,
+            db: &E,
         ) -> Result<()>
         where
-            AM::Entity: EntityTrait,
-            <AM::Entity as EntityTrait>::Column: sea_orm::ColumnTrait + sea_orm::Iterable,
+            AM: ActiveModelWithForeignKeyOps,
+            E: DatabaseExecutor,
         {
-            if table_name == "posts" {
-                let author_id_column_name = "author_id";
-                let column_to_set = <AM::Entity as EntityTrait>::Column::iter()
-                    .find(|c| c.as_str() == author_id_column_name)
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "Column '{}' not found in ActiveModel for table '{}'",
-                            author_id_column_name,
-                            table_name
-                        )
-                    })?;
+            active_model
+                .remap_model_and_set_foreign_keys(fk_payload, db)
+                .await
+        }
 
-                if let Some(maybe_author_sync_id) = fk_payload.get("author_id") {
-                    if let Some(author_sync_id) = maybe_author_sync_id {
-                        if let Some(author) = author_entity::Entity::find()
-                            .filter(author_entity::Column::SyncId.eq(author_sync_id.clone()))
-                            .one(db)
-                            .await?
-                        {
-                            active_model.set(column_to_set, author.id.into());
-                        } else {
-                            return Err(anyhow!(
-                                "FK Remap: Author with sync_id '{}' not found locally for table '{}'.",
-                                author_sync_id, table_name
-                            ));
-                        }
-                    } else {
-                        // FK is explicitly None, meaning it should be set to NULL locally
-                        active_model.set(column_to_set, sea_orm::Value::Int(None));
-                    }
-                } // If "author_id" is not in FkPayload, do nothing (assume it's not being changed or not applicable)
-            }
-            Ok(())
+        fn extract_sync_ids_from_remote_model_with_mapping<M>(
+            &self,
+            remote_model_with_sync_id_fks: &M,
+            chunk_fk_map: Option<&ChunkFkMapping>,
+        ) -> Result<FkPayload>
+        where
+            M: ModelWithForeignKeyOps,
+        {
+            // Pass an empty map if None, as the model might not use it if it has direct fields (like Post.remote_author_sync_id)
+            remote_model_with_sync_id_fks
+                .extract_model_sync_ids_from_remote(chunk_fk_map.unwrap_or(&ChunkFkMapping::new()))
         }
 
         async fn generate_fk_mappings_for_records<M, E>(
             &self,
-            entity_name: &str,
             records: &[M],
             db: &E,
         ) -> Result<ChunkFkMapping>
         where
-            M: HLCRecord + Sync + Serialize,
-            E: DatabaseExecutor + sea_orm::ConnectionTrait,
+            M: ModelWithForeignKeyOps,
+            E: DatabaseExecutor,
         {
-            let mut chunk_fk_mapping = ChunkFkMapping::new();
-            if entity_name == "posts" {
-                let mut author_id_to_sync_id_map = HashMap::new();
-                for record_m in records {
-                    let model_json = serde_json::to_value(record_m).with_context(|| {
-                        format!(
-                            "Failed to serialize record of entity {} for FK mapping generation",
-                            entity_name
-                        )
-                    })?;
-                    let post_model: post_entity::Model = serde_json::from_value(model_json)
-                        .with_context(|| format!("Failed to deserialize record of entity {} into post_entity::Model for FK mapping generation", entity_name))?;
-
-                    // Only proceed if author_id is not already mapped to avoid redundant DB queries.
-                    if let hash_map::Entry::Vacant(e) =
-                        author_id_to_sync_id_map.entry(post_model.author_id.to_string())
-                    {
-                        if let Some(author) =
-                            author_entity::Entity::find_by_id(post_model.author_id)
-                                .one(db)
-                                .await
-                                .with_context(|| {
-                                    format!(
-                                        "DB error looking up author with ID {} for FK mapping",
-                                        post_model.author_id
-                                    )
-                                })?
-                        {
-                            e.insert(author.sync_id);
-                        } else {
-                            warn!(
-                                "generate_fk_mappings: Author with local PK {} not found for post with sync_id {}.",
-                                post_model.author_id,
-                                post_model.sync_id
-                            );
-                            // Optionally, insert a specific marker or handle as an error depending on strictness
-                        }
-                    }
-                }
-                if !author_id_to_sync_id_map.is_empty() {
-                    chunk_fk_mapping.insert("author_id".to_string(), author_id_to_sync_id_map);
-                }
-            }
-            Ok(chunk_fk_mapping)
+            M::generate_model_fk_mappings_for_batch(records, db).await
         }
     }
 

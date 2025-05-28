@@ -17,7 +17,7 @@ use uuid::Uuid;
 
 // Use the refined HLC module functions/traits
 use crate::{
-    foreign_key::ForeignKeyResolver,
+    foreign_key::{ForeignKeyResolver, ModelWithForeignKeyOps},
     hlc::{calculate_hash as calculate_record_hash, HLCModel, HLCQuery, HLCRecord, HLC},
 };
 
@@ -247,7 +247,7 @@ pub async fn generate_data_chunks<E, FKR>(
 ) -> Result<Vec<DataChunk>>
 where
     E: HLCModel + EntityTrait + Sync, // E needs HLCModel for queries
-    E::Model: HLCRecord + Clone + Send + Sync + Serialize,
+    E::Model: HLCRecord + Clone + Send + Sync + Serialize + ModelWithForeignKeyOps,
     <E as EntityTrait>::Model: Sync,
     FKR: ForeignKeyResolver + Send + Sync,
 {
@@ -422,11 +422,7 @@ where
         if let Some(resolver) = fk_resolver {
             if !records.is_empty() {
                 let mappings = resolver
-                    .generate_fk_mappings_for_records::<E::Model, _>(
-                        E::table_name(&E::default()),
-                        &records,
-                        db,
-                    )
+                    .generate_fk_mappings_for_records(&records, db)
                     .await
                     .with_context(|| {
                         format!(
@@ -492,7 +488,7 @@ pub async fn break_data_chunk<E, FKR>(
 ) -> Result<Vec<SubDataChunk>>
 where
     E: HLCModel + EntityTrait + Sync, // E needs HLCModel
-    E::Model: HLCRecord + Clone + Send + Sync + Serialize,
+    E::Model: HLCRecord + Clone + Send + Sync + Serialize + ModelWithForeignKeyOps,
     <E as EntityTrait>::Model: Sync,
     FKR: ForeignKeyResolver + Send + Sync,
 {
@@ -667,11 +663,7 @@ where
         if let Some(resolver) = fk_resolver {
             if !sub_chunk_records_slice.is_empty() {
                 let mappings = resolver
-                    .generate_fk_mappings_for_records::<E::Model, _>(
-                        E::table_name(&E::default()),
-                        sub_chunk_records_slice,
-                        db,
-                    )
+                    .generate_fk_mappings_for_records(sub_chunk_records_slice, db)
                     .await
                     .with_context(|| {
                         format!(
@@ -720,14 +712,18 @@ pub mod tests {
 
     use super::*;
 
-    use crate::{core::tests::NoOpForeignKeyResolver, hlc::HLC};
+    use crate::{core::tests::NoOpForeignKeyResolver, foreign_key::DatabaseExecutor, hlc::HLC};
 
     // Test-Specific Mock Entity Definition (Using TEXT for Timestamp)
     // This module defines the Entity, Model, and ActiveModel specifically for tests,
     // ensuring the timestamp is stored as an RFC3339 string (TEXT column).
     pub mod test_model_def {
         use super::*; // Inherit imports from parent test module
-        use crate::hlc::{HLCModel, HLCRecord, HLC};
+        use crate::{
+            foreign_key::FkPayload,
+            hlc::{HLCModel, HLCRecord, HLC},
+        };
+        use async_trait::async_trait;
         use sea_orm::DeriveEntityModel;
         use serde_json::json;
         use uuid::Uuid;
@@ -783,6 +779,30 @@ pub mod tests {
                 // Define which fields contribute to the record's content hash
                 // Exclude HLC fields themselves if hash represents content state only.
                 json!({ "id": self.id, "content": self.content })
+            }
+        }
+
+        #[async_trait]
+        impl ModelWithForeignKeyOps for Model {
+            async fn extract_model_fk_sync_ids<E: DatabaseExecutor>(
+                &self,
+                _db: &E,
+            ) -> Result<FkPayload> {
+                Ok(HashMap::new())
+            }
+
+            async fn generate_model_fk_mappings_for_batch<E: DatabaseExecutor>(
+                _records: &[Self],
+                _db: &E,
+            ) -> Result<ChunkFkMapping> {
+                Ok(HashMap::new())
+            }
+
+            fn extract_model_sync_ids_from_remote(
+                &self,
+                _chunk_fk_map: &ChunkFkMapping,
+            ) -> Result<FkPayload> {
+                Ok(HashMap::new())
             }
         }
 

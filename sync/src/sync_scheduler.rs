@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::{println as info, println as error};
 
 use crate::core::{self, PrimaryKeyFromStr, RemoteDataSource, SyncContext, SyncTableMetadata};
-use crate::foreign_key::ForeignKeyResolver;
+use crate::foreign_key::{
+    ActiveModelWithForeignKeyOps, ForeignKeyResolver, ModelWithForeignKeyOps,
+};
 use crate::hlc::{HLCModel, HLCRecord};
 
 use sea_orm::{ActiveModelBehavior, EntityTrait, IntoActiveModel, PrimaryKeyTrait, Value};
@@ -61,8 +63,10 @@ impl<R: RemoteDataSource + Send + Sync + Debug + 'static> TableSyncJob<R> {
             + Serialize
             + for<'de> Deserialize<'de>
             + IntoActiveModel<E::ActiveModel>
+            + ModelWithForeignKeyOps
             + 'static,
-        E::ActiveModel: ActiveModelBehavior + Send + Sync + Debug + 'static,
+        E::ActiveModel:
+            ActiveModelBehavior + Send + Sync + Debug + ActiveModelWithForeignKeyOps + 'static,
         E::PrimaryKey: PrimaryKeyTrait
             + PrimaryKeyFromStr<<E::PrimaryKey as PrimaryKeyTrait>::ValueType>
             + 'static,
