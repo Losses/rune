@@ -1385,6 +1385,7 @@ fn update_max_hlc(current_max: &mut HLC, potentially_new: &HLC) {
     }
 }
 
+#[derive(Serialize)]
 pub struct RemoteRecordsWithPayload<Model: HLCRecord> {
     pub records: Vec<Model>,
     pub fk_payloads: Vec<FkPayload>,
