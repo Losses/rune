@@ -22,3 +22,4 @@ pub mod mixes;
 pub mod playback_queue;
 pub mod playlists;
 pub mod search_index;
+pub mod sync_record;
