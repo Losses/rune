@@ -546,11 +546,12 @@ where
                         fk_resolver,
                     );
 
-                    // Request remote sub-chunks (remote performs its own verification)
-                    // Pass the *local* chunk definition as the basis for remote breakdown request
+                    // Request remote sub-chunks. The remote is asked to break down its own 'remote_chunk'.
+                    // The remote implementation should verify this 'remote_chunk' against its current data
+                    // for that HLC range before generating sub-chunks from its data.
                     let remote_subs_fut = context.remote_source.get_remote_sub_chunks::<E>(
                         table_name,
-                        &remote_chunk,
+                        &remote_chunk, // Pass the remote_chunk from the ChunkPair
                         sub_chunk_size,
                     );
 
@@ -3146,8 +3147,9 @@ pub(crate) mod tests {
             "Should have requested sub-chunks once"
         );
         assert_eq!(
-            sub_chunk_requests[0].0, local_chunks[0],
-            "Sub-chunk request should be for the mismatched local chunk"
+            sub_chunk_requests[0].0, // This IS remote_chunk.clone() from the pair
+            remote_chunk, // Compare it to the original remote_chunk definition from the test setup
+            "Sub-chunk request should be for the remote's definition of the chunk in the pair"
         ); // Parent chunk matches local
         assert_eq!(
             sub_chunk_requests[0].1, COMPARISON_THRESHOLD,
