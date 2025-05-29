@@ -10,12 +10,14 @@ use sea_orm::{
     PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter, QuerySelect, TryGetable, Value,
 };
 
-use sync::chunking::ChunkFkMapping;
-use sync::foreign_key::{
-    ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ForeignKeyResolver,
-    ModelWithForeignKeyOps,
+use ::sync::{
+    chunking::ChunkFkMapping,
+    foreign_key::{
+        ActiveModelWithForeignKeyOps, DatabaseExecutor, FkPayload, ForeignKeyResolver,
+        ModelWithForeignKeyOps,
+    },
+    hlc::{HLCModel, HLCRecord},
 };
-use sync::hlc::{HLCModel, HLCRecord};
 
 use crate::entities::{
     albums, artists, genres, media_cover_art, media_file_albums, media_file_artists,
