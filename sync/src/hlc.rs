@@ -41,11 +41,12 @@ use std::{
 };
 
 use anyhow::{bail, Context, Result};
+use async_trait::async_trait;
 use blake3::Hasher;
 use chrono::{LocalResult, TimeZone, Utc};
 use sea_orm::{
-    entity::prelude::*, Condition, DatabaseConnection, FromQueryResult, PaginatorTrait,
-    QueryFilter, QueryOrder,
+    entity::prelude::*, Condition, DatabaseConnection, DeleteResult, FromQueryResult,
+    PaginatorTrait, QueryFilter, QueryOrder,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -150,33 +151,6 @@ impl std::fmt::Display for HLC {
             "{}-{:08x}-{}",
             self.timestamp, self.version, self.node_id
         )
-    }
-}
-
-pub struct SyncTaskContext {
-    node_id: Uuid,
-    last_hlc: Mutex<HLC>,
-}
-
-impl SyncTaskContext {
-    pub fn new(node_id: Uuid) -> Self {
-        SyncTaskContext {
-            node_id,
-            last_hlc: Mutex::new(HLC::new(node_id)),
-        }
-    }
-
-    /// Creates a context with a specific initial HLC (useful for testing).
-    #[cfg(test)]
-    fn with_initial_hlc(node_id: Uuid, initial_hlc: HLC) -> Self {
-        SyncTaskContext {
-            node_id,
-            last_hlc: Mutex::new(initial_hlc),
-        }
-    }
-
-    pub fn generate_hlc(&self) -> HLC {
-        HLC::generate(self)
     }
 }
 
@@ -291,6 +265,33 @@ impl FromStr for HLC {
     }
 }
 
+pub struct SyncTaskContext {
+    node_id: Uuid,
+    last_hlc: Mutex<HLC>,
+}
+
+impl SyncTaskContext {
+    pub fn new(node_id: Uuid) -> Self {
+        SyncTaskContext {
+            node_id,
+            last_hlc: Mutex::new(HLC::new(node_id)),
+        }
+    }
+
+    /// Creates a context with a specific initial HLC (useful for testing).
+    #[cfg(test)]
+    fn with_initial_hlc(node_id: Uuid, initial_hlc: HLC) -> Self {
+        SyncTaskContext {
+            node_id,
+            last_hlc: Mutex::new(initial_hlc),
+        }
+    }
+
+    pub fn generate_hlc(&self) -> HLC {
+        HLC::generate(self)
+    }
+}
+
 /// A trait for SeaORM *Models* that need HLC timestamps and hashing.
 ///
 /// Models implementing this trait can be tracked for changes over time
@@ -331,6 +332,7 @@ pub trait HLCRecord: Clone + Send + Sync + 'static {
 }
 
 /// Trait for SeaORM Entities to provide HLC column information for querying.
+#[async_trait]
 pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     /// Returns the SeaORM column definition for the HLC timestamp component.
     /// Assumes this column stores a value comparable via RFC3339 strings (like DATETIME or TIMESTAMP).
@@ -417,6 +419,30 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
         Ok(Condition::all()
             .add(Self::gte(start_hlc)?)
             .add(Self::lte(end_hlc)?))
+    }
+
+    /// Finds a single record by its unique_id (typically sync_id).
+    async fn find_by_unique_id<C>(unique_id_value: &str, db: &C) -> Result<Option<Self::Model>>
+    where
+        C: ConnectionTrait,
+    {
+        Self::find()
+            .filter(Self::unique_id_column().eq(unique_id_value))
+            .one(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to find record by unique ID: {}", e))
+    }
+
+    /// Deletes a single record by its unique_id.
+    async fn delete_by_unique_id<C>(unique_id_value: &str, db: &C) -> Result<DeleteResult>
+    where
+        C: ConnectionTrait,
+    {
+        Self::delete_many()
+            .filter(Self::unique_id_column().eq(unique_id_value))
+            .exec(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to delete record by unique ID: {}", e))
     }
 }
 
