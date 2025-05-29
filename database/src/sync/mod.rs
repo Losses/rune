@@ -14,7 +14,9 @@ use uuid::Uuid;
 use crate::entities;
 
 pub mod bindings;
+pub mod chunking;
 pub mod foreign_keys;
+pub mod utils;
 
 pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync + 'static>(
     db: &'s DatabaseConnection,

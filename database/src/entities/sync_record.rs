@@ -25,11 +25,11 @@ pub struct Model {
 
 impl Model {
     pub fn get_hlc(&self) -> Result<HLC> {
-        Ok(parse_hlc(
+        parse_hlc(
             &self.last_sync_hlc_ts,
             self.last_sync_hlc_ver,
             &self.last_sync_hlc_nid,
-        )?)
+        )
     }
 }
 

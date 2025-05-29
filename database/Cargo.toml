@@ -51,3 +51,4 @@ thiserror = "2.0.3"
 uuid = { version = "1.11.0", features = ["v4"] }
 regex = "1.11.1"
 tempfile = "3.17.1"
+axum = "0.8.2"
