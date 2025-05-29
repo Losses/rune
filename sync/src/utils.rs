@@ -9,12 +9,6 @@ use crate::chunking::{ChunkFkMapping, DataChunk};
 ///
 /// # Returns
 /// * Merged ChunkFkMapping
-///
-/// # Example
-/// ```rust
-/// let chunks = vec![chunk1, chunk2, chunk3];
-/// let merged_mappings = merge_fk_mappings(&chunks);
-/// ```
 pub fn merge_fk_mappings(chunks: &Vec<DataChunk>) -> ChunkFkMapping {
     let mut merged_mapping: ChunkFkMapping = HashMap::new();
 
@@ -41,6 +35,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::hlc::HLC;
+    use crate::utils::merge_fk_mappings;
 
     use super::*;
 
