@@ -209,7 +209,7 @@ pub async fn get_remote_chunks_handler(
     Ok(Json(chunks))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GetRemoteSubChunksPayload {
     pub parent_chunk: DataChunk,
     pub sub_chunk_size: u64,
