@@ -108,6 +108,64 @@ pub enum TableSyncResult {
     },
 }
 
+impl TableSyncResult {
+    pub fn is_success(&self) -> bool {
+        matches!(self, Self::Success(_))
+    }
+
+    pub fn get_metadata(&self) -> Option<&SyncTableMetadata> {
+        match self {
+            Self::Success(summary) => Some(summary),
+            Self::Failure { .. } => None,
+        }
+    }
+
+    // Equivalent to std::result::Result::err
+    pub fn get_error(&self) -> Option<&anyhow::Error> {
+        match self {
+            Self::Success(_) => None,
+            Self::Failure { error, .. } => Some(error),
+        }
+    }
+
+    // Equivalent to std::result::Result::unwrap
+    // Consumes self
+    pub fn unwrap_metadata(self) -> SyncTableMetadata {
+        // Returning TableSyncSummary
+        match self {
+            Self::Success(summary) => summary,
+            Self::Failure { table_name, error } => {
+                panic!(
+                    "called unwrap_summary() on a Failure value for table '{}': {:?}",
+                    table_name, error
+                )
+            }
+        }
+    }
+
+    // Provides a reference to the summary, panics on failure.
+    pub fn metadata_ref(&self) -> &SyncTableMetadata {
+        // Returning TableSyncSummary
+        match self {
+            Self::Success(summary) => summary,
+            Self::Failure { table_name, error } => {
+                panic!(
+                    "called summary_ref() on a Failure value for table '{}': {:?}",
+                    table_name, error
+                )
+            }
+        }
+    }
+
+    // Helper to get table_name, useful for error messages
+    pub fn table_name_str(&self) -> &str {
+        match self {
+            Self::Success(summary) => &summary.table_name,
+            Self::Failure { table_name, .. } => table_name,
+        }
+    }
+}
+
 /// Manages and executes a sequence of table synchronization jobs.
 #[derive(Debug)]
 pub struct SyncScheduler;
