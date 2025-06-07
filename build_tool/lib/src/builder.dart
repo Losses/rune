@@ -148,7 +148,9 @@ class RustBuilder {
         'run',
         _toolchain,
         'cargo',
-        environment.glibcVersion != null ? 'zigbuild' : 'build',
+        (target.android == null && environment.glibcVersion != null)
+            ? 'zigbuild'
+            : 'build',
         ...extraArgs,
         '--manifest-path',
         manifestPath,
@@ -157,7 +159,7 @@ class RustBuilder {
         if (!environment.configuration.isDebug) '--release',
         '--target',
         target.rust +
-            (environment.glibcVersion != null
+            ((target.android == null && environment.glibcVersion != null)
                 ? '.${environment.glibcVersion!}'
                 : ""),
         '--target-dir',
