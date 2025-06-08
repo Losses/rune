@@ -34,7 +34,7 @@
 //! and SeaORM.
 
 use std::{
-    cmp::Ordering,
+    cmp::{self, Ordering},
     str::FromStr,
     sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
@@ -134,7 +134,7 @@ mod timestamp_tests {
 /// An HLC combines a physical timestamp with a logical counter to ensure
 /// monotonically increasing timestamps across a distributed system, even
 /// with clock skew.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Serialize, Deserialize)]
 pub struct HLC {
     /// Physical timestamp component, in milliseconds since the Unix epoch.
     pub timestamp: u64,
@@ -151,6 +151,30 @@ impl std::fmt::Display for HLC {
             "{}-{:08x}-{}",
             self.timestamp, self.version, self.node_id
         )
+    }
+}
+
+impl PartialEq for HLC {
+    fn eq(&self, other: &Self) -> bool {
+        self.timestamp == other.timestamp
+            && self.version == other.version
+            && self.node_id == other.node_id
+    }
+}
+
+impl PartialOrd for HLC {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HLC {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        (self.timestamp, self.version, self.node_id).cmp(&(
+            other.timestamp,
+            other.version,
+            other.node_id,
+        ))
     }
 }
 
@@ -242,7 +266,7 @@ impl HLC {
     /// ```
     /// use sync::hlc::HLC;
     /// use uuid::Uuid;
-    /// 
+    ///
     /// let hlc = HLC {
     ///     timestamp: 1640995200000, // 2022-01-01T00:00:00Z
     ///     version: 1,
@@ -359,11 +383,9 @@ pub trait HLCRecord: Clone + Send + Sync + 'static {
 #[async_trait]
 pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
     /// Returns the SeaORM column definition for the HLC timestamp component.
-    /// Assumes this column stores a value comparable via RFC3339 strings (like DATETIME or TIMESTAMP).
     fn updated_at_time_column() -> Self::Column;
 
     /// Returns the SeaORM column definition for the HLC version/counter component.
-    /// Assumes this column stores an integer type (like INTEGER or BIGINT).
     fn updated_at_version_column() -> Self::Column;
 
     /// Returns the SeaORM column definition for the node ID.
@@ -374,72 +396,75 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 
     /// Creates a SeaORM condition for records strictly greater than the given HLC.
     fn gt(hlc: &HLC) -> Result<Condition> {
-        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
             .with_context(|| format!("Failed to format GT timestamp for HLC {}", hlc))?;
+        let ver_val = hlc.version as i32;
+        let nid_str = hlc.node_id.to_string();
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().gt(timestamp_str.clone()))
+            // (ts > hlc.ts)
+            .add(Self::updated_at_time_column().gt(ts_str.clone()))
+            // OR (ts == hlc.ts AND ver > hlc.ver)
             .add(
-                Self::updated_at_time_column()
-                    .eq(timestamp_str)
-                    .and(Self::updated_at_version_column().gt(hlc.version as i32)), // Cast u32 to i32 if column is INTEGER
+                Condition::all()
+                    .add(Self::updated_at_time_column().eq(ts_str.clone()))
+                    .add(Self::updated_at_version_column().gt(ver_val)),
+            )
+            // OR (ts == hlc.ts AND ver == hlc.ver AND nid > hlc.nid)
+            .add(
+                Condition::all()
+                    .add(Self::updated_at_time_column().eq(ts_str))
+                    .add(Self::updated_at_version_column().eq(ver_val))
+                    .add(Self::updated_at_node_id_column().gt(nid_str)),
             ))
     }
 
     /// Creates a SeaORM condition for records less than the given HLC.
     fn lt(hlc: &HLC) -> Result<Condition> {
-        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
             .with_context(|| format!("Failed to format LT timestamp for HLC {}", hlc))?;
+        let ver_val = hlc.version as i32;
+        let nid_str = hlc.node_id.to_string();
 
         Ok(Condition::any()
-            .add(Self::updated_at_time_column().lt(timestamp_str.clone()))
+            // (ts < hlc.ts)
+            .add(Self::updated_at_time_column().lt(ts_str.clone()))
+            // OR (ts == hlc.ts AND ver < hlc.ver)
             .add(
-                Self::updated_at_time_column()
-                    .eq(timestamp_str)
-                    .and(Self::updated_at_version_column().lt(hlc.version as i32)),
+                Condition::all()
+                    .add(Self::updated_at_time_column().eq(ts_str.clone()))
+                    .add(Self::updated_at_version_column().lt(ver_val)),
+            )
+            // OR (ts == hlc.ts AND ver == hlc.ver AND nid < hlc.nid)
+            .add(
+                Condition::all()
+                    .add(Self::updated_at_time_column().eq(ts_str))
+                    .add(Self::updated_at_version_column().eq(ver_val))
+                    .add(Self::updated_at_node_id_column().lt(nid_str)),
             ))
     }
 
     /// Creates a SeaORM condition for records greater than or equal to the given HLC.
     fn gte(hlc: &HLC) -> Result<Condition> {
-        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
-            .with_context(|| format!("Failed to format GTE timestamp for HLC {}", hlc))?;
-
-        Ok(Condition::any()
-            .add(Self::updated_at_time_column().gt(timestamp_str.clone()))
-            .add(
-                Self::updated_at_time_column()
-                    .eq(timestamp_str)
-                    .and(Self::updated_at_version_column().gte(hlc.version as i32)),
-            ))
+        Ok(Self::lt(hlc)?.not()) // More robust: gte is NOT lt
     }
 
     /// Creates a SeaORM condition for records less than or equal to the given HLC.
     fn lte(hlc: &HLC) -> Result<Condition> {
-        let timestamp_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
-            .with_context(|| format!("Failed to format LTE timestamp for HLC {}", hlc))?;
-
-        Ok(Condition::any()
-            .add(Self::updated_at_time_column().lt(timestamp_str.clone()))
-            .add(
-                Self::updated_at_time_column()
-                    .eq(timestamp_str)
-                    .and(Self::updated_at_version_column().lte(hlc.version as i32)),
-            ))
+        Ok(Self::gt(hlc)?.not()) // More robust: lte is NOT gt
     }
 
     /// Creates a SeaORM condition for records within the given HLC range (inclusive).
     fn between(start_hlc: &HLC, end_hlc: &HLC) -> Result<Condition> {
-        // Ensure start <= end for logical consistency, though DB might handle it.
         if start_hlc > end_hlc {
             bail!(
-                "Start HLC {} must be less than or equal to End HLC {} for between condition",
+                "Start HLC {} must be less than or equal to End HLC {}",
                 start_hlc,
                 end_hlc
             );
         }
 
-        // Use GTE for start and LTE for end
+        // A correct between is (>= start) AND (<= end)
         Ok(Condition::all()
             .add(Self::gte(start_hlc)?)
             .add(Self::lte(end_hlc)?))
