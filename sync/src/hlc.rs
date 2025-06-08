@@ -43,91 +43,13 @@ use std::{
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use blake3::Hasher;
-use chrono::{DateTime, LocalResult, TimeZone, Utc};
+use chrono::DateTime;
 use sea_orm::{
     entity::prelude::*, Condition, DatabaseConnection, DeleteResult, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-/// Converts a Unix timestamp (in milliseconds since epoch) to an RFC3339 formatted string for DB.
-/// SeaORM often uses chrono::DateTime<Utc> which maps well to RFC3339.
-/// NOTE: HLC uses milliseconds, but DB timestamp columns might store seconds or need specific formats.
-/// This function assumes the DB expects RFC3339 UTC. Adjust if your DB type differs.
-pub fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
-    // Convert milliseconds to seconds and nanoseconds
-    let secs = (millis / 1000) as i64;
-    let nanos = ((millis % 1000) * 1_000_000) as u32;
-
-    match Utc.timestamp_opt(secs, nanos) {
-        LocalResult::Single(datetime) => {
-            // Format to RFC3339 with milliseconds precision
-            let rfc3339_string = datetime.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true);
-            Ok(rfc3339_string)
-        }
-        LocalResult::None => {
-            bail!("HLC Milliseconds timestamp is out of range: {}", millis)
-        }
-        LocalResult::Ambiguous(..) => {
-            // Ambiguous should not happen for UTC timestamps
-            bail!(
-                "HLC Milliseconds timestamp is ambiguous (should not happen for UTC): {}",
-                millis
-            )
-        }
-    }
-}
-
-#[cfg(test)]
-mod timestamp_tests {
-    // Renamed inner mod tests to avoid conflict
-    use super::*;
-
-    #[test]
-    fn test_hlc_millis_to_rfc3339_valid() -> Result<()> {
-        let millis: u64 = 1678838400123; // March 15, 2023 00:00:00.123 UTC
-        let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
-        // chrono format includes '+00:00' instead of 'Z' sometimes, both are valid RFC3339 UTC.
-        assert!(
-            rfc3339_string == "2023-03-15T00:00:00.123000000Z"
-                || rfc3339_string == "2023-03-15T00:00:00.123000000+00:00"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_hlc_millis_to_rfc3339_zero() -> Result<()> {
-        let millis: u64 = 0; // Epoch
-        let rfc3339_string = hlc_timestamp_millis_to_rfc3339(millis)?;
-        assert!(
-            rfc3339_string == "1970-01-01T00:00:00.000000000Z"
-                || rfc3339_string == "1970-01-01T00:00:00.000000000+00:00"
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_hlc_millis_out_of_range() {
-        // chrono's range is roughly +/- 262,000 years from 1970.
-        // u64::MAX milliseconds is far beyond that.
-        let invalid_millis: u64 = u64::MAX;
-        let result = hlc_timestamp_millis_to_rfc3339(invalid_millis);
-        assert!(result.is_err());
-        let error_message = result.err().unwrap().to_string();
-        println!("Out of range error: {}", error_message); // Print error for info
-        assert!(error_message.contains("HLC Milliseconds timestamp is out of range"));
-    }
-
-    #[test]
-    fn test_hlc_millis_to_rfc3339_ambiguous_unreachable() {
-        // Using chrono::Utc prevents ambiguous results, which typically occur during
-        // DST transitions in local time zones. This test case exists to acknowledge
-        // the code path, although it cannot be practically triggered with Utc.
-        // If the function were generic over TimeZone, a local zone could trigger this.
-        println!("Note: LocalResult::Ambiguous is not reachable with Utc timezone.");
-    }
-}
 
 /// Represents a Hybrid Logical Clock (HLC).
 ///
@@ -396,8 +318,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 
     /// Creates a SeaORM condition for records strictly greater than the given HLC.
     fn gt(hlc: &HLC) -> Result<Condition> {
-        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
-            .with_context(|| format!("Failed to format GT timestamp for HLC {}", hlc))?;
+        let ts_str = hlc.to_rfc3339();
         let ver_val = hlc.version as i32;
         let nid_str = hlc.node_id.to_string();
 
@@ -421,8 +342,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 
     /// Creates a SeaORM condition for records less than the given HLC.
     fn lt(hlc: &HLC) -> Result<Condition> {
-        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
-            .with_context(|| format!("Failed to format LT timestamp for HLC {}", hlc))?;
+        let ts_str = hlc.to_rfc3339();
         let ver_val = hlc.version as i32;
         let nid_str = hlc.node_id.to_string();
 
@@ -446,12 +366,12 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 
     /// Creates a SeaORM condition for records greater than or equal to the given HLC.
     fn gte(hlc: &HLC) -> Result<Condition> {
-        Ok(Self::lt(hlc)?.not()) // More robust: gte is NOT lt
+        Ok(<Self as HLCModel>::lt(hlc)?.not())
     }
 
     /// Creates a SeaORM condition for records less than or equal to the given HLC.
     fn lte(hlc: &HLC) -> Result<Condition> {
-        Ok(Self::gt(hlc)?.not()) // More robust: lte is NOT gt
+        Ok(<Self as HLCModel>::gt(hlc)?.not())
     }
 
     /// Creates a SeaORM condition for records within the given HLC range (inclusive).
@@ -464,10 +384,26 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
             );
         }
 
-        // A correct between is (>= start) AND (<= end)
-        Ok(Condition::all()
-            .add(Self::gte(start_hlc)?)
-            .add(Self::lte(end_hlc)?))
+        if start_hlc == end_hlc {
+            // Handle the single HLC case explicitly
+            let ts_str = start_hlc.to_rfc3339();
+            println!("** ** TIMESTR: {}", ts_str);
+            println!("** ** VER: {}", start_hlc.version);
+            println!("** ** NODEID: {}", start_hlc.node_id);
+            return Ok(Condition::all()
+                .add(Self::updated_at_time_column().eq(ts_str))
+                .add(Self::updated_at_version_column().eq(start_hlc.version as i32))
+                .add(Self::updated_at_node_id_column().eq(start_hlc.node_id.to_string())));
+        }
+
+        // Handle the range case: >= start AND <= end
+        let start_cond = Self::gte(start_hlc)?;
+        let end_cond = Self::lte(end_hlc)?;
+
+        println!("** ** START COND: {:#?}", start_cond);
+        println!("** ** END COND: {:#?}", end_cond);
+
+        Ok(Condition::all().add(start_cond).add(end_cond))
     }
 
     /// Finds a single record by its unique_id (typically sync_id).
@@ -499,7 +435,7 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
 mod hlcmodel_tests {
     use crate::{
         chunking::tests::test_model_def::Entity,
-        hlc::{create_hlc, hlc_timestamp_millis_to_rfc3339, HLCModel, HLC},
+        hlc::{create_hlc, HLCModel, HLC},
     };
     use anyhow::Result;
     use sea_orm::{Condition, DbBackend, EntityTrait, QueryFilter, QueryTrait, Statement, Value};
@@ -568,7 +504,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_gt() -> Result<()> {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_ts_str = hlc.to_rfc3339();
         let expected_version = hlc.version as i32;
 
         let condition = Entity::gt(&hlc)?;
@@ -598,7 +534,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_lt() -> Result<()> {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_ts_str = hlc.to_rfc3339();
         let expected_version = hlc.version as i32;
 
         let condition = Entity::lt(&hlc)?;
@@ -626,7 +562,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_gte() -> Result<()> {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_ts_str = hlc.to_rfc3339();
         let expected_version = hlc.version as i32;
 
         let condition = Entity::gte(&hlc)?;
@@ -654,7 +590,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_lte() -> Result<()> {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let expected_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let expected_ts_str = hlc.to_rfc3339();
         let expected_version = hlc.version as i32;
 
         let condition = Entity::lte(&hlc)?;
@@ -683,8 +619,8 @@ mod hlcmodel_tests {
         let node_id = Uuid::new_v4();
         let start_hlc = create_hlc(1678886400000, 1, &node_id.to_string());
         let end_hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let start_ts_str = hlc_timestamp_millis_to_rfc3339(start_hlc.timestamp)?;
-        let end_ts_str = hlc_timestamp_millis_to_rfc3339(end_hlc.timestamp)?;
+        let start_ts_str = start_hlc.to_rfc3339();
+        let end_ts_str = end_hlc.to_rfc3339();
         let start_version = start_hlc.version as i32;
         let end_version = end_hlc.version as i32;
 
@@ -717,7 +653,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_between_same_hlc() -> Result<()> {
         let node_id = Uuid::new_v4();
         let hlc = create_hlc(1678886400123, 5, &node_id.to_string());
-        let ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)?;
+        let ts_str = hlc.to_rfc3339();
         let version = hlc.version as i32;
 
         let condition = Entity::between(&hlc, &hlc)?;
