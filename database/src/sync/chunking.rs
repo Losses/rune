@@ -1,4 +1,4 @@
-use std::{cmp::max as cmp_max, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use axum::{
@@ -9,8 +9,8 @@ use axum::{
 };
 use log::{debug, error, info, warn};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, IntoActiveModel, QueryFilter,
-    TransactionTrait,
+    sea_query::OnConflict, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
+    EntityTrait, IntoActiveModel, QueryFilter, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use sync::chunking::{break_data_chunk, generate_data_chunks};
@@ -27,7 +27,8 @@ use crate::{
 use ::sync::{
     chunking::{ChunkingOptions, DataChunk, SubDataChunk},
     core::{RemoteRecordsWithPayload, SyncOperation},
-    foreign_key::{ForeignKeyResolver, ModelWithForeignKeyOps},
+    // FIX: Added ActiveModelWithForeignKeyOps to the import
+    foreign_key::{ActiveModelWithForeignKeyOps, ForeignKeyResolver, ModelWithForeignKeyOps},
     hlc::{HLCModel, HLCQuery, HLCRecord, HLC},
 };
 
@@ -450,6 +451,89 @@ pub fn new_server_hlc(server_node_id: Uuid) -> HLC {
     HLC::new(server_node_id)
 }
 
+/// The payload sent to the `apply_remote_changes` endpoint.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApplyChangesPayload<Model: HLCRecord> {
+    pub operations: Vec<SyncOperation<Model>>,
+    pub client_node_id: Uuid,
+    pub new_last_sync_hlc: HLC,
+}
+
+/// A version of the payload used to peek at the non-generic header fields.
+#[derive(Deserialize)]
+struct ChangesHeader {
+    client_node_id: Uuid,
+    new_last_sync_hlc: HLC,
+}
+
+/// Generic function to process sync operations for a given entity within a transaction.
+async fn process_entity_changes<'a, E, FKR>(
+    txn: &'a sea_orm::DatabaseTransaction,
+    body: &'a Bytes,
+    fk_resolver: &'a FKR,
+    table_name: &str,
+) -> Result<u64>
+where
+    E: HLCModel + EntityTrait + Send + Sync,
+    E::Model: HLCRecord
+        + Send
+        + Sync
+        + for<'de> Deserialize<'de>
+        + IntoActiveModel<E::ActiveModel>
+        + ModelWithForeignKeyOps,
+    E::ActiveModel: sea_orm::ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
+    FKR: ForeignKeyResolver + Send + Sync,
+{
+    let payload: ApplyChangesPayload<E::Model> =
+        serde_json::from_slice(body).with_context(|| {
+            format!(
+                "Failed to deserialize full payload for table {}",
+                table_name
+            )
+        })?;
+
+    let mut operations_processed_count = 0;
+
+    for op in payload.operations {
+        match op {
+            SyncOperation::InsertRemote(model, fk_payload) => {
+                let mut active_model = model.clone().into_active_model();
+                fk_resolver
+                    .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
+                    .await?;
+                active_model.insert(txn).await?;
+                operations_processed_count += 1;
+            }
+            SyncOperation::UpdateRemote(model, fk_payload) => {
+                let mut active_model = model.clone().into_active_model();
+                fk_resolver
+                    .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
+                    .await?;
+                active_model.update(txn).await?;
+                operations_processed_count += 1;
+            }
+            SyncOperation::DeleteRemote(unique_id) => {
+                let res = E::delete_by_unique_id(&unique_id, txn).await?;
+                if res.rows_affected > 0 {
+                    operations_processed_count += 1;
+                } else {
+                    warn!(
+                        "DeleteRemote for table {}: Record with sync_id {} not found.",
+                        table_name, unique_id
+                    );
+                }
+            }
+            _ => {
+                warn!(
+                    "Received unexpected SyncOperation variant in apply_remote_changes: {:?}",
+                    op
+                );
+            }
+        }
+    }
+    Ok(operations_processed_count)
+}
+
 /// Applies a batch of `SyncOperation`s to the remote data source for a specific table.
 /// Corresponds to `RemoteDataSource::apply_remote_changes`
 pub async fn apply_remote_changes_handler(
@@ -458,6 +542,10 @@ pub async fn apply_remote_changes_handler(
     body: Bytes,
 ) -> Result<Json<HLC>, AppError> {
     info!("Request: apply_remote_changes for table '{}'", table_name);
+
+    // Peek at the header to get metadata common to all entity types
+    let header: ChangesHeader =
+        serde_json::from_slice(&body).context("Failed to deserialize changes header")?;
 
     let db = &state.db;
     let fk_resolver = state.fk_resolver.as_ref();
@@ -469,128 +557,59 @@ pub async fn apply_remote_changes_handler(
         table_name
     );
 
-    // Initialize with HLC::new(server_node_id) for the earliest possible HLC from this server.
-    // This ensures max_hlc_in_batch always has a valid HLC with the correct node_id.
-    let mut max_hlc_in_batch = HLC::new(server_node_id);
-    let mut operations_processed_count = 0;
-    let mut any_hlc_updated = false; // Track if any operation provided an HLC
-
-    macro_rules! process_entity_changes {
-        ($entity:ty, $active_model_ty:ty, $model_ty:ty) => {{
-            type Entity = $entity;
-            type Model = $model_ty;
-
-            let operations: Vec<SyncOperation<Model>> = serde_json::from_slice(&body)
-                .with_context(|| format!("Failed to deserialize operations for table {}", table_name))?;
-            debug!("Deserialized {} operations for table {}", operations.len(), table_name);
-
-            for op in operations {
-                match op {
-                    SyncOperation::InsertRemote(model, fk_payload) => {
-                        debug!("Processing InsertRemote for sync_id: {} in table {}", model.unique_id(), table_name);
-
-                        // Convert Model to ActiveModel.
-                        // Your `ModelWithForeignKeyOps` should likely define `into_active_model_for_insert`
-                        // or you rely on `model.clone().into_active_model()` if it sets HLCs.
-                        // For now, let's assume `model.clone().into()` works or an ActiveModel can be constructed.
-                        // And then `remap_and_set_foreign_keys` and `set_hlc_fields` are called.
-                        // Let's assume `model.into_active_model()` is the way.
-                        let mut active_model = model.clone().into_active_model();
-                        // Or if you need a new ActiveModel and then populate:
-                        // let mut active_model = ActiveModel::new();
-                        // active_model.set_from_model(&model); // hypothetical helper
-
-                        fk_resolver
-                            .remap_and_set_foreign_keys(&mut active_model, &fk_payload, &txn)
-                            .await
-                            .with_context(|| format!("Failed to remap FKs for InsertRemote on sync_id {}", model.unique_id()))?;
-
-                        // Set HLC fields if they are not part of the `model.into_active_model()` or if they need to be server-generated/overridden
-                        // For InsertRemote, the client provides HLCs.
-                        // Assume `into_active_model()` handles setting these.
-
-                        active_model.insert(&txn).await.with_context(|| {
-                            format!("Failed to insert record with sync_id {} for table {}", model.unique_id(), table_name)
-                        })?;
-
-                        if let Some(hlc) = model.updated_at_hlc() {
-                            max_hlc_in_batch = cmp_max(max_hlc_in_batch.clone(), hlc);
-                            any_hlc_updated = true;
-                        }
-                        operations_processed_count +=1;
-                    }
-                    SyncOperation::UpdateRemote(model, fk_payload) => {
-                        debug!("Processing UpdateRemote for sync_id: {} in table {}", model.unique_id(), table_name);
-
-                        // Create active model directly from the incoming model
-                        let mut active_model = model.clone().into_active_model();
-
-                        // Remap foreign keys using the resolver
-                        fk_resolver
-                            .remap_and_set_foreign_keys(&mut active_model, &fk_payload, &txn)
-                            .await
-                            .with_context(|| format!("Failed to remap FKs for UpdateRemote on sync_id {}", model.unique_id()))?;
-
-                        // Perform the update
-                        active_model.update(&txn).await.with_context(|| {
-                            format!("Failed to update record with sync_id {} for table {}", model.unique_id(), table_name)
-                        })?;
-
-                        if let Some(hlc) = model.updated_at_hlc() {
-                            max_hlc_in_batch = cmp_max(max_hlc_in_batch.clone(), hlc);
-                            any_hlc_updated = true;
-                        }
-                        operations_processed_count +=1;
-                    }
-                    SyncOperation::DeleteRemote(unique_id) => {
-                        // ... (no changes here, DeleteRemote was likely fine)
-                        debug!("Processing DeleteRemote for sync_id: {} in table {}", unique_id, table_name);
-                        let res = <Entity as HLCModel>::delete_by_unique_id(&unique_id, &txn)
-                            .await
-                            .with_context(|| format!("Failed to delete record with sync_id {}", unique_id))?;
-                        if res.rows_affected == 0 {
-                            warn!("DeleteRemote: Record with sync_id {} not found or already deleted.", unique_id);
-                        } else {
-                             operations_processed_count +=1;
-                        }
-                    }
-                    _ => {
-                        warn!("Received unexpected SyncOperation variant in apply_remote_changes: {:?}", op);
-                    }
-                }
-            }
-        }};
-    }
-
-    match table_name.as_str() {
-        "albums" => process_entity_changes!(albums::Entity, albums::ActiveModel, albums::Model),
-        "artists" => process_entity_changes!(artists::Entity, artists::ActiveModel, artists::Model),
-        "genres" => process_entity_changes!(genres::Entity, genres::ActiveModel, genres::Model),
-        "media_cover_art" => process_entity_changes!(
-            media_cover_art::Entity,
-            media_cover_art::ActiveModel,
-            media_cover_art::Model
-        ),
-        "media_files" => process_entity_changes!(
-            media_files::Entity,
-            media_files::ActiveModel,
-            media_files::Model
-        ),
-        "media_file_albums" => process_entity_changes!(
-            media_file_albums::Entity,
-            media_file_albums::ActiveModel,
-            media_file_albums::Model
-        ),
-        "media_file_artists" => process_entity_changes!(
-            media_file_artists::Entity,
-            media_file_artists::ActiveModel,
-            media_file_artists::Model
-        ),
-        "media_file_genres" => process_entity_changes!(
-            media_file_genres::Entity,
-            media_file_genres::ActiveModel,
-            media_file_genres::Model
-        ),
+    let operations_processed_count = match table_name.as_str() {
+        "albums" => {
+            process_entity_changes::<albums::Entity, _>(&txn, &body, fk_resolver, &table_name)
+                .await?
+        }
+        "artists" => {
+            process_entity_changes::<artists::Entity, _>(&txn, &body, fk_resolver, &table_name)
+                .await?
+        }
+        "genres" => {
+            process_entity_changes::<genres::Entity, _>(&txn, &body, fk_resolver, &table_name)
+                .await?
+        }
+        "media_cover_art" => {
+            process_entity_changes::<media_cover_art::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
+        "media_files" => {
+            process_entity_changes::<media_files::Entity, _>(&txn, &body, fk_resolver, &table_name)
+                .await?
+        }
+        "media_file_albums" => {
+            process_entity_changes::<media_file_albums::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
+        "media_file_artists" => {
+            process_entity_changes::<media_file_artists::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
+        "media_file_genres" => {
+            process_entity_changes::<media_file_genres::Entity, _>(
+                &txn,
+                &body,
+                fk_resolver,
+                &table_name,
+            )
+            .await?
+        }
         _ => {
             txn.rollback()
                 .await
@@ -600,6 +619,35 @@ pub async fn apply_remote_changes_handler(
                 table_name
             )));
         }
+    };
+
+    // If changes were processed, update the sync_record for this client and table atomically
+    if operations_processed_count > 0 {
+        let sync_record_model = sync_record::ActiveModel {
+            table_name: Set(table_name.clone()),
+            client_node_id: Set(header.client_node_id.to_string()),
+            last_sync_hlc_ts: Set(header.new_last_sync_hlc.timestamp.to_string()),
+            last_sync_hlc_ver: Set(header.new_last_sync_hlc.version as i32),
+            last_sync_hlc_nid: Set(header.new_last_sync_hlc.node_id.to_string()),
+            ..Default::default()
+        };
+
+        sync_record::Entity::insert(sync_record_model)
+            .on_conflict(
+                OnConflict::columns([
+                    sync_record::Column::TableName,
+                    sync_record::Column::ClientNodeId,
+                ])
+                .update_columns([
+                    sync_record::Column::LastSyncHlcTs,
+                    sync_record::Column::LastSyncHlcVer,
+                    sync_record::Column::LastSyncHlcNid,
+                ])
+                .to_owned(),
+            )
+            .exec(&txn)
+            .await
+            .context("Failed to upsert sync_record")?;
     }
 
     txn.commit().await.context("Failed to commit transaction")?;
@@ -608,14 +656,9 @@ pub async fn apply_remote_changes_handler(
         table_name
     );
 
-    // If operations were processed and at least one HLC was updated from them, use max_hlc_in_batch.
-    // Otherwise, (e.g., only deletes, or empty batch, or no HLCs provided in ops),
-    // generate a new server HLC for the transaction time.
-    let result_hlc = if operations_processed_count > 0 && any_hlc_updated {
-        max_hlc_in_batch
-    } else {
-        HLC::new(server_node_id)
-    };
+    // Return a new HLC from the server, representing the time of this transaction.
+    // In a real system, you might generate this from a shared HLC context.
+    let result_hlc = HLC::new(server_node_id);
 
     info!(
         "apply_remote_changes for table '{}' completed. Effective HLC: {}",
@@ -638,10 +681,9 @@ pub async fn get_remote_last_sync_hlc_handler(
     let client_node_id = Uuid::parse_str(&client_node_id_str)
         .with_context(|| format!("Invalid client_node_id UUID string: {}", client_node_id_str))?;
 
-    // Assuming sync_record::Entity and its HLC methods are correctly defined
     let sync_log_model = sync_record::Entity::find()
         .filter(sync_record::Column::TableName.eq(table_name.clone()))
-        .filter(sync_record::Column::ClientNodeId.eq(client_node_id))
+        .filter(sync_record::Column::ClientNodeId.eq(client_node_id.to_string()))
         .one(&state.db)
         .await
         .with_context(|| {
@@ -652,9 +694,6 @@ pub async fn get_remote_last_sync_hlc_handler(
         })?;
 
     if let Some(log_entry) = sync_log_model {
-        // Assuming `log_entry` has fields `last_sync_hlc_ts`, `last_sync_hlc_v`, `last_sync_hlc_nid`
-        // or a method `get_hlc()` that constructs it.
-        // Let's assume direct field access for this example based on sync_record entity.
         let hlc = parse_hlc(
             &log_entry.last_sync_hlc_ts,
             log_entry.last_sync_hlc_ver,
