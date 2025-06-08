@@ -466,6 +466,7 @@ struct ChangesHeader {
 }
 
 /// Generic function to process sync operations for a given entity within a transaction.
+#[allow(clippy::needless_borrow)]
 async fn process_entity_changes<'a, E, FKR>(
     txn: &'a sea_orm::DatabaseTransaction,
     body: &'a Bytes,
@@ -493,9 +494,14 @@ where
 
     let mut operations_processed_count = 0;
 
-    for op in payload.operations {
+    for op in &payload.operations {
         match op {
-            SyncOperation::InsertRemote(model, fk_payload) => {
+            SyncOperation::InsertRemote(model, fk_payload)
+            | SyncOperation::InsertLocal(model, fk_payload) => {
+                if !matches!(op, SyncOperation::InsertRemote(..)) {
+                    warn!("Server processing an 'InsertLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
+                }
+
                 let mut active_model = model.clone().into_active_model();
                 fk_resolver
                     .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
@@ -503,7 +509,12 @@ where
                 active_model.insert(txn).await?;
                 operations_processed_count += 1;
             }
-            SyncOperation::UpdateRemote(model, fk_payload) => {
+            SyncOperation::UpdateRemote(model, fk_payload)
+            | SyncOperation::UpdateLocal(model, fk_payload) => {
+                if !matches!(op, SyncOperation::UpdateRemote(..)) {
+                    warn!("Server processing an 'UpdateLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
+                }
+
                 let mut active_model = model.clone().into_active_model();
                 fk_resolver
                     .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
@@ -511,20 +522,25 @@ where
                 active_model.update(txn).await?;
                 operations_processed_count += 1;
             }
-            SyncOperation::DeleteRemote(unique_id) => {
+            SyncOperation::DeleteRemote(unique_id) | SyncOperation::DeleteLocal(unique_id) => {
+                if !matches!(op, SyncOperation::DeleteRemote(..)) {
+                    warn!("Server processing a 'DeleteLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
+                }
+
                 let res = E::delete_by_unique_id(&unique_id, txn).await?;
                 if res.rows_affected > 0 {
                     operations_processed_count += 1;
                 } else {
                     warn!(
-                        "DeleteRemote for table {}: Record with sync_id {} not found.",
+                        "Delete operation for table {}: Record with sync_id {} not found.",
                         table_name, unique_id
                     );
                 }
             }
             _ => {
-                warn!(
-                    "Received unexpected SyncOperation variant in apply_remote_changes: {:?}",
+                // This will now only catch NoOp.
+                debug!(
+                    "Received non-actionable SyncOperation variant in apply_remote_changes: {:?}",
                     op
                 );
             }
@@ -622,6 +638,7 @@ pub async fn apply_remote_changes_handler(
 
     // If changes were processed, update the sync_record for this client and table atomically
     if operations_processed_count > 0 {
+        debug!("Processed {} operations for table '{}', updating sync_record.", operations_processed_count, table_name);
         let sync_record_model = sync_record::ActiveModel {
             table_name: Set(table_name.clone()),
             client_node_id: Set(header.client_node_id.to_string()),
@@ -647,6 +664,8 @@ pub async fn apply_remote_changes_handler(
             .exec(&txn)
             .await
             .context("Failed to upsert sync_record")?;
+    } else {
+        debug!("No operations processed for table '{}'. No sync_record update.", table_name);
     }
 
     txn.commit().await.context("Failed to commit transaction")?;
