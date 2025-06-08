@@ -7,10 +7,12 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
+use chrono::DateTime;
 use log::{debug, error, info, warn};
 use sea_orm::{
     sea_query::OnConflict, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
-    EntityTrait, IntoActiveModel, QueryFilter, TransactionTrait,
+    EntityTrait, IntoActiveModel, Iterable, PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter,
+    TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use sync::chunking::{break_data_chunk, generate_data_chunks};
@@ -28,7 +30,7 @@ use ::sync::{
     chunking::{ChunkingOptions, DataChunk, SubDataChunk},
     core::{RemoteRecordsWithPayload, SyncOperation},
     foreign_key::{ActiveModelWithForeignKeyOps, ForeignKeyResolver, ModelWithForeignKeyOps},
-    hlc::{HLCModel, HLCQuery, HLCRecord, HLC},
+    hlc::{HLCModel, HLCQuery, HLCRecord, SyncTaskContext, HLC},
 };
 
 use super::foreign_keys::RuneForeignKeyResolver;
@@ -37,9 +39,11 @@ use super::foreign_keys::RuneForeignKeyResolver;
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabaseConnection,
-    pub node_id: Uuid, // Server's own node ID
+    pub node_id: Uuid,
     pub fk_resolver: Arc<RuneForeignKeyResolver>,
     pub default_chunking_options: ChunkingOptions,
+    // Add an HLC context for the server to generate timestamps
+    pub hlc_context: Arc<SyncTaskContext>,
 }
 
 // Custom error type for API handlers
@@ -65,52 +69,31 @@ where
     }
 }
 
-// Helper to parse HLC from query parameters (example)
-#[derive(Deserialize, Debug)]
-pub struct HlcQueryParams {
-    pub timestamp: Option<u64>,
-    pub version: Option<u32>,
-    pub node_id: Option<String>,
-}
-
-impl HlcQueryParams {
-    pub fn try_into_hlc(&self) -> Result<HLC> {
-        let nid_str = self
-            .node_id
-            .as_deref()
-            .ok_or_else(|| anyhow!("Missing HLC node_id"))?;
-        Ok(HLC {
-            timestamp: self
-                .timestamp
-                .ok_or_else(|| anyhow!("Missing HLC timestamp"))?,
-            version: self.version.ok_or_else(|| anyhow!("Missing HLC version"))?,
-            node_id: Uuid::parse_str(nid_str)
-                .with_context(|| format!("Invalid HLC node_id string: {}", nid_str))?,
-        })
-    }
-}
-
 pub fn parse_optional_hlc_from_parts(
-    ts: Option<u64>,
+    ts: Option<String>,
     v: Option<u32>,
     nid_str_opt: Option<String>,
 ) -> Result<Option<HLC>> {
     match (ts, v, nid_str_opt) {
-        (Some(timestamp), Some(version), Some(nid_str)) => {
+        (Some(timestamp_str), Some(version), Some(nid_str)) => {
+            // Parse RFC3339 timestamp and convert to milliseconds
+            let timestamp_ms = DateTime::parse_from_rfc3339(&timestamp_str)
+                .with_context(|| format!("Invalid RFC3339 timestamp: {}", timestamp_str))?
+                .timestamp_millis() as u64;
+
             let node_id = Uuid::parse_str(&nid_str)
                 .with_context(|| format!("Invalid HLC node_id string: {}", nid_str))?;
+
             Ok(Some(HLC {
-                timestamp,
+                timestamp: timestamp_ms,
                 version,
                 node_id,
             }))
         }
-        (None, None, None) => Ok(None), // All parts missing, means no HLC provided
-        _ => {
-            // Partial HLC provided, which is an error.
-            // Alternatively, you could try to default parts, but explicit is better.
-            Err(anyhow!("Incomplete HLC provided. Must provide all parts (timestamp, version, node_id) or none."))
-        }
+        (None, None, None) => Ok(None),
+        _ => Err(anyhow!(
+            "Incomplete HLC provided. Must provide all parts (timestamp, version, node_id) or none."
+        )),
     }
 }
 
@@ -120,7 +103,7 @@ pub async fn get_node_id_handler(State(state): State<Arc<AppState>>) -> Json<Uui
 
 #[derive(Deserialize, Debug)]
 pub struct GetRemoteChunksParams {
-    pub after_hlc_ts: Option<u64>,
+    pub after_hlc_ts: Option<String>,
     pub after_hlc_ver: Option<u32>,
     pub after_hlc_nid: Option<String>,
 }
@@ -308,10 +291,10 @@ pub async fn get_remote_sub_chunks_handler(
 
 #[derive(Deserialize, Debug)]
 pub struct GetRemoteRecordsParams {
-    pub start_hlc_ts: u64,
+    pub start_hlc_ts: String,
     pub start_hlc_ver: u32,
     pub start_hlc_nid: String,
-    pub end_hlc_ts: u64,
+    pub end_hlc_ts: String,
     pub end_hlc_ver: u32,
     pub end_hlc_nid: String,
 }
@@ -350,13 +333,20 @@ pub async fn get_remote_records_in_hlc_range_handler(
     Path(table_name): Path<String>,
     Query(params): Query<GetRemoteRecordsParams>,
 ) -> Result<Response, AppError> {
+    let start_ts_ms = DateTime::parse_from_rfc3339(&params.start_hlc_ts)
+        .with_context(|| format!("Invalid start_hlc_ts: {}", params.start_hlc_ts))?
+        .timestamp_millis() as u64;
+    let end_ts_ms = DateTime::parse_from_rfc3339(&params.end_hlc_ts)
+        .with_context(|| format!("Invalid end_hlc_ts: {}", params.end_hlc_ts))?
+        .timestamp_millis() as u64;
+
     let start_hlc = HLC {
-        timestamp: params.start_hlc_ts,
+        timestamp: start_ts_ms,
         version: params.start_hlc_ver,
         node_id: Uuid::parse_str(&params.start_hlc_nid)?,
     };
     let end_hlc = HLC {
-        timestamp: params.end_hlc_ts,
+        timestamp: end_ts_ms,
         version: params.end_hlc_ver,
         node_id: Uuid::parse_str(&params.end_hlc_nid)?,
     };
@@ -446,11 +436,6 @@ pub async fn get_remote_records_in_hlc_range_handler(
     Ok(Json(response_json).into_response())
 }
 
-pub fn new_server_hlc(server_node_id: Uuid) -> HLC {
-    HLC::new(server_node_id)
-}
-
-/// The payload sent to the `apply_remote_changes` endpoint.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ApplyChangesPayload<Model: HLCRecord> {
     pub operations: Vec<SyncOperation<Model>>,
@@ -458,23 +443,17 @@ pub struct ApplyChangesPayload<Model: HLCRecord> {
     pub new_last_sync_hlc: HLC,
 }
 
-/// A version of the payload used to peek at the non-generic header fields.
-#[derive(Deserialize)]
-struct ChangesHeader {
-    client_node_id: Uuid,
-    new_last_sync_hlc: HLC,
-}
-
 /// Generic function to process sync operations for a given entity within a transaction.
-#[allow(clippy::needless_borrow)]
+/// This is a corrected and robust implementation.
 async fn process_entity_changes<'a, E, FKR>(
     txn: &'a sea_orm::DatabaseTransaction,
     body: &'a Bytes,
     fk_resolver: &'a FKR,
     table_name: &str,
-) -> Result<u64>
+) -> Result<(u64, Uuid, HLC)>
 where
     E: HLCModel + EntityTrait + Send + Sync,
+    E::PrimaryKey: PrimaryKeyTrait,
     E::Model: HLCRecord
         + Send
         + Sync
@@ -496,75 +475,102 @@ where
 
     for op in &payload.operations {
         match op {
-            SyncOperation::InsertRemote(model, fk_payload)
-            | SyncOperation::InsertLocal(model, fk_payload) => {
-                if !matches!(op, SyncOperation::InsertRemote(..)) {
-                    warn!("Server processing an 'InsertLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
+            SyncOperation::InsertRemote(model, fk_payload) => {
+                let id_str = model.unique_id();
+                debug!("Server TXN: Inserting record with unique_id {}", id_str);
+                let mut active_model = model.clone().into_active_model();
+
+                // CRITICAL: Reset the primary key so the server's database can generate a new one.
+                // This is essential for preventing PK conflicts in a multi-client environment.
+                for pk_col in E::PrimaryKey::iter() {
+                    active_model.reset(pk_col.into_column());
                 }
 
-                let mut active_model = model.clone().into_active_model();
                 fk_resolver
                     .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
                     .await?;
-                active_model.insert(txn).await?;
+
+                E::insert(active_model).exec(txn).await.with_context(|| {
+                    format!("Failed to insert server record with unique_id {}", id_str)
+                })?;
+
                 operations_processed_count += 1;
             }
-            SyncOperation::UpdateRemote(model, fk_payload)
-            | SyncOperation::UpdateLocal(model, fk_payload) => {
-                if !matches!(op, SyncOperation::UpdateRemote(..)) {
-                    warn!("Server processing an 'UpdateLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
+            SyncOperation::UpdateRemote(model, fk_payload) => {
+                let id_str = model.unique_id();
+                debug!("Server TXN: Updating record with unique_id {}", id_str);
+                let mut active_model = model.clone().into_active_model();
+
+                for pk_col in E::PrimaryKey::iter() {
+                    active_model.reset(pk_col.into_column());
                 }
 
-                let mut active_model = model.clone().into_active_model();
                 fk_resolver
                     .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
                     .await?;
-                active_model.update(txn).await?;
-                operations_processed_count += 1;
-            }
-            SyncOperation::DeleteRemote(unique_id) | SyncOperation::DeleteLocal(unique_id) => {
-                if !matches!(op, SyncOperation::DeleteRemote(..)) {
-                    warn!("Server processing a 'DeleteLocal' operation from remote. This may indicate a client-side logic error, but proceeding.");
-                }
 
-                let res = E::delete_by_unique_id(&unique_id, txn).await?;
+                let res = E::update_many()
+                    .set(active_model)
+                    .filter(E::unique_id_column().eq(id_str.clone()))
+                    .exec(txn)
+                    .await?;
+
                 if res.rows_affected > 0 {
                     operations_processed_count += 1;
                 } else {
                     warn!(
-                        "Delete operation for table {}: Record with sync_id {} not found.",
+                        "Update operation for table {} with unique_id {} affected 0 rows.",
+                        table_name, id_str
+                    );
+                }
+            }
+            SyncOperation::DeleteRemote(unique_id) => {
+                debug!("Server TXN: Deleting record with unique_id {}", unique_id);
+                let res = E::delete_many()
+                    .filter(E::unique_id_column().eq(unique_id.clone()))
+                    .exec(txn)
+                    .await?;
+
+                if res.rows_affected > 0 {
+                    operations_processed_count += 1;
+                } else {
+                    warn!(
+                        "Delete operation for table {}: Record with unique_id {} not found.",
                         table_name, unique_id
                     );
                 }
             }
-            _ => {
-                // This will now only catch NoOp.
+            // Other operations received from a client are unexpected but should be ignored gracefully.
+            op => {
                 debug!(
-                    "Received non-actionable SyncOperation variant in apply_remote_changes: {:?}",
+                    "Server received a non-standard or no-op client operation, ignoring: {:?}",
                     op
                 );
             }
         }
     }
-    Ok(operations_processed_count)
+
+    Ok((
+        operations_processed_count,
+        payload.client_node_id,
+        payload.new_last_sync_hlc,
+    ))
 }
 
 /// Applies a batch of `SyncOperation`s to the remote data source for a specific table.
-/// Corresponds to `RemoteDataSource::apply_remote_changes`
 pub async fn apply_remote_changes_handler(
     State(state): State<Arc<AppState>>,
     Path(table_name): Path<String>,
     body: Bytes,
 ) -> Result<Json<HLC>, AppError> {
-    info!("Request: apply_remote_changes for table '{}'", table_name);
-
-    // Peek at the header to get metadata common to all entity types
-    let header: ChangesHeader =
-        serde_json::from_slice(&body).context("Failed to deserialize changes header")?;
+    println!(
+        "[SERVER] Request: apply_remote_changes for table '{}' with body: {}",
+        table_name,
+        String::from_utf8_lossy(&body)
+    );
 
     let db = &state.db;
     let fk_resolver = state.fk_resolver.as_ref();
-    let server_node_id = state.node_id;
 
     let txn = db.begin().await.context("Failed to begin transaction")?;
     debug!(
@@ -572,7 +578,8 @@ pub async fn apply_remote_changes_handler(
         table_name
     );
 
-    let operations_processed_count = match table_name.as_str() {
+    let (operations_processed_count, client_node_id, new_last_sync_hlc) = match table_name.as_str()
+    {
         "albums" => {
             process_entity_changes::<albums::Entity, _>(&txn, &body, fk_resolver, &table_name)
                 .await?
@@ -636,15 +643,17 @@ pub async fn apply_remote_changes_handler(
         }
     };
 
-    // If changes were processed, update the sync_record for this client and table atomically
     if operations_processed_count > 0 {
-        debug!("Processed {} operations for table '{}', updating sync_record.", operations_processed_count, table_name);
+        debug!(
+            "Processed {} operations for table '{}', updating sync_record.",
+            operations_processed_count, table_name
+        );
         let sync_record_model = sync_record::ActiveModel {
             table_name: Set(table_name.clone()),
-            client_node_id: Set(header.client_node_id.to_string()),
-            last_sync_hlc_ts: Set(header.new_last_sync_hlc.timestamp.to_string()),
-            last_sync_hlc_ver: Set(header.new_last_sync_hlc.version as i32),
-            last_sync_hlc_nid: Set(header.new_last_sync_hlc.node_id.to_string()),
+            client_node_id: Set(client_node_id.to_string()),
+            last_sync_hlc_ts: Set(new_last_sync_hlc.to_rfc3339()),
+            last_sync_hlc_ver: Set(new_last_sync_hlc.version as i32),
+            last_sync_hlc_nid: Set(new_last_sync_hlc.node_id.to_string()),
             ..Default::default()
         };
 
@@ -665,7 +674,10 @@ pub async fn apply_remote_changes_handler(
             .await
             .context("Failed to upsert sync_record")?;
     } else {
-        debug!("No operations processed for table '{}'. No sync_record update.", table_name);
+        debug!(
+            "No operations processed for table '{}'. No sync_record update.",
+            table_name
+        );
     }
 
     txn.commit().await.context("Failed to commit transaction")?;
@@ -674,9 +686,8 @@ pub async fn apply_remote_changes_handler(
         table_name
     );
 
-    // Return a new HLC from the server, representing the time of this transaction.
-    // In a real system, you might generate this from a shared HLC context.
-    let result_hlc = HLC::new(server_node_id);
+    // CRITICAL: Return a new, valid HLC from the server, not a zero-HLC.
+    let result_hlc = state.hlc_context.generate_hlc();
 
     info!(
         "apply_remote_changes for table '{}' completed. Effective HLC: {}",
@@ -686,7 +697,6 @@ pub async fn apply_remote_changes_handler(
 }
 
 /// Fetches the remote's perspective of the last sync HLC with the local node.
-/// Corresponds to `RemoteDataSource::get_remote_last_sync_hlc`
 pub async fn get_remote_last_sync_hlc_handler(
     State(state): State<Arc<AppState>>,
     Path((table_name, client_node_id_str)): Path<(String, String)>,
@@ -696,20 +706,12 @@ pub async fn get_remote_last_sync_hlc_handler(
         table_name, client_node_id_str
     );
 
-    let client_node_id = Uuid::parse_str(&client_node_id_str)
-        .with_context(|| format!("Invalid client_node_id UUID string: {}", client_node_id_str))?;
-
+    let client_node_id = Uuid::parse_str(&client_node_id_str)?;
     let sync_log_model = sync_record::Entity::find()
         .filter(sync_record::Column::TableName.eq(table_name.clone()))
         .filter(sync_record::Column::ClientNodeId.eq(client_node_id.to_string()))
         .one(&state.db)
-        .await
-        .with_context(|| {
-            format!(
-                "DB error fetching last sync HLC for table {} and client {}",
-                table_name, client_node_id
-            )
-        })?;
+        .await?;
 
     if let Some(log_entry) = sync_log_model {
         let hlc = parse_hlc(

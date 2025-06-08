@@ -7,20 +7,24 @@ macro_rules! impl_hlc_record_for_model {
             }
 
             fn created_at_hlc(&self) -> Option<HLC> {
-                let ts = self.created_at_hlc_ts.parse::<i64>().ok()?;
+                let ts = chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts)
+                    .ok()?
+                    .timestamp_millis() as u64;
                 let nid = Uuid::parse_str(&self.created_at_hlc_nid).ok()?;
                 Some(HLC {
-                    timestamp: ts as u64,
+                    timestamp: ts,
                     version: self.created_at_hlc_ver as u32,
                     node_id: nid,
                 })
             }
 
             fn updated_at_hlc(&self) -> Option<HLC> {
-                let ts = self.updated_at_hlc_ts.parse::<i64>().ok()?;
+                let ts = chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts)
+                    .ok()?
+                    .timestamp_millis() as u64;
                 let nid = Uuid::parse_str(&self.updated_at_hlc_nid).ok()?;
                 Some(HLC {
-                    timestamp: ts as u64,
+                    timestamp: ts,
                     version: self.updated_at_hlc_ver as u32,
                     node_id: nid,
                 })
