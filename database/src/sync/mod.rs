@@ -38,13 +38,15 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
     let fk_resolver = Arc::new(RuneForeignKeyResolver);
 
     // Helper to create initial metadata
-    // It now uses hlc_context from the SyncContext to generate an initial HLC.
     let initial_meta = |table_name_str: &str| SyncTableMetadata {
         table_name: table_name_str.to_string(),
-        // Assuming SyncTaskContext has a method like new_hlc() or similar for initial HLC.
-        // Or HLC::new(timestamp, version, node_id) if you want a specific start.
-        last_sync_hlc: HLC::generate(sync_context.hlc_context),
+        last_sync_hlc: HLC::new(local_node_id),
     };
+
+    // TODO: In a real application, we would first try to load saved metadata
+    // from a persistent store. If and only if no metadata is found for a table,
+    // we would then use `initial_meta` to create the default. This implementation
+    // always starts from scratch, which is fine for prototype purpose.
 
     let jobs: Vec<TableSyncJob<RDS>> = vec![
         TableSyncJob::new::<entities::albums::Entity, _>(
