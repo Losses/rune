@@ -134,12 +134,10 @@ pub enum CristianError {
 /// Users need to implement this trait to provide the communication layer.
 pub trait TimestampExchanger {
     /// Exchanges timestamp with the reference node.
-    /// ... (rest of trait documentation)
     fn exchange_timestamp(&self) -> Result<Timestamp, CristianError>;
 }
 
 /// Executes Cristian's Algorithm to perform initial clock synchronization.
-/// ... (rest of function documentation)
 /// # Example
 ///
 /// ```rust
@@ -215,7 +213,6 @@ pub fn initial_sync<T: TimestampExchanger>(
 }
 
 /// Checks the clock offset in a task execution context using Cristian's Algorithm (single sample).
-/// ... (rest of function documentation)
 /// # Example
 ///
 /// ```rust

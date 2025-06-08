@@ -34,8 +34,7 @@ use ::sync::{
     chunking::{ChunkingOptions, DataChunk},
     core::{RemoteDataSource, RemoteRecordsWithPayload, SyncOperation},
     hlc::{HLCModel, HLCRecord, SyncTaskContext, HLC},
-    // Presuming TableSyncResult and SyncTableMetadata are exposed from here or a sub-module like sync_scheduler
-    sync_scheduler::TableSyncResult, // Added this for clarity, adjust path if needed
+    sync_scheduler::TableSyncResult,
 };
 
 #[derive(Debug)]
@@ -181,15 +180,13 @@ impl RemoteDataSource for RemoteHttpDataSource {
 }
 
 async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
-    let db_id = if is_server { "server" } else { "client" };
-    // Unique DB name per test execution to avoid conflicts with shared in-memory DBs
-    let db_name = format!(
-        "file:memdb_sync_test_{}_{}?mode=memory&cache=shared",
-        db_id,
-        Uuid::new_v4()
-    );
+    if is_server {
+        println!("Setting up database for the server side");
+    } else {
+        println!("Setting up database for the client side");
+    }
 
-    let mut opt = ConnectOptions::new(db_name);
+    let mut opt = ConnectOptions::new("sqlite::memory:");
     opt.sqlx_logging(false) // Disable verbose SQL logging from sea-orm unless debugging
         .acquire_timeout(Duration::from_secs(10)); // Longer timeout for CI
 
@@ -241,21 +238,24 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
 
     let app = Router::new()
         .route("/node-id", get(get_node_id_handler))
-        .route("/tables/:table_name/chunks", get(get_remote_chunks_handler))
         .route(
-            "/tables/:table_name/sub-chunks",
+            "/tables/{table_name}/chunks",
+            get(get_remote_chunks_handler),
+        )
+        .route(
+            "/tables/{table_name}/sub-chunks",
             post(get_remote_sub_chunks_handler),
         )
         .route(
-            "/tables/:table_name/records",
+            "/tables/{table_name}/records",
             get(get_remote_records_in_hlc_range_handler),
         )
         .route(
-            "/tables/:table_name/changes",
+            "/tables/{table_name}/changes",
             post(apply_remote_changes_handler),
         )
         .route(
-            "/tables/:table_name/last-sync-hlc/:client_node_id",
+            "/tables/{table_name}/last-sync-hlc/{client_node_id}",
             get(get_remote_last_sync_hlc_handler),
         )
         .with_state(app_state.clone());
