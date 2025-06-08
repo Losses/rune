@@ -1,11 +1,15 @@
+use std::{
+    fmt::{self, Debug},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+};
+
 use anyhow::Result;
 #[cfg(not(test))]
 use log::{error, info};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Debug};
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::Arc;
+
 #[cfg(test)]
 use std::{println as info, println as error};
 
@@ -82,6 +86,7 @@ impl<R: RemoteDataSource + Send + Sync + Debug + 'static> TableSyncJob<R> {
                 move |context: &SyncContext<'_, R>, metadata_arg: SyncTableMetadata| {
                     let t_name = task_table_name_captured.clone();
                     let resolver_captured = fk_resolver.clone();
+
                     Box::pin(async move {
                         core::synchronize_table::<E, R, FKR>(
                             // R is the concrete type from SyncContext
