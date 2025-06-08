@@ -248,7 +248,7 @@ impl HLC {
     ///     version: 1,
     ///     node_id: Uuid::new_v4(),
     /// };
-    /// assert_eq!(hlc.to_rfc3339(), "2022-01-01T00:00:00.000Z");
+    /// assert_eq!(hlc.to_rfc3339(), "2022-01-01T00:00:00+00:00");
     /// ```
     pub fn to_rfc3339(&self) -> String {
         DateTime::from_timestamp_millis(self.timestamp as i64)
