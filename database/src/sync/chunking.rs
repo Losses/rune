@@ -445,6 +445,7 @@ pub struct ApplyChangesPayload<Model: HLCRecord> {
 
 /// Generic function to process sync operations for a given entity within a transaction.
 /// This is a corrected and robust implementation.
+#[allow(clippy::needless_borrow)]
 async fn process_entity_changes<'a, E, FKR>(
     txn: &'a sea_orm::DatabaseTransaction,
     body: &'a Bytes,
