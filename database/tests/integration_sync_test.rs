@@ -505,6 +505,7 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
     albums::ActiveModel {
         id: ActiveValue::Set(album_c_pk_id),
         name: ActiveValue::Set("Album C (from Client)".to_string()),
+        group: ActiveValue::Set("Client Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_c_hlc_uuid.clone()),
         created_at_hlc_ts: ActiveValue::Set(client_hlc.timestamp.to_string()),
         created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
@@ -512,7 +513,6 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         updated_at_hlc_ts: ActiveValue::Set(client_hlc.timestamp.to_string()),
         updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-        ..Default::default()
     }
     .insert(&client_db)
     .await?;
@@ -523,6 +523,7 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
     albums::ActiveModel {
         id: ActiveValue::Set(album_s_pk_id),
         name: ActiveValue::Set("Album S (from Server)".to_string()),
+        group: ActiveValue::Set("Server Group".to_string()), // FIX: Added missing non-null field
         hlc_uuid: ActiveValue::Set(album_s_hlc_uuid.clone()),
         created_at_hlc_ts: ActiveValue::Set(server_hlc.timestamp.to_string()),
         created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
@@ -530,7 +531,6 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         updated_at_hlc_ts: ActiveValue::Set(server_hlc.timestamp.to_string()),
         updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-        ..Default::default()
     }
     .insert(&server_db)
     .await?;

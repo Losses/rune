@@ -27,7 +27,6 @@ use crate::{
 use ::sync::{
     chunking::{ChunkingOptions, DataChunk, SubDataChunk},
     core::{RemoteRecordsWithPayload, SyncOperation},
-    // FIX: Added ActiveModelWithForeignKeyOps to the import
     foreign_key::{ActiveModelWithForeignKeyOps, ForeignKeyResolver, ModelWithForeignKeyOps},
     hlc::{HLCModel, HLCQuery, HLCRecord, HLC},
 };
