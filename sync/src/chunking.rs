@@ -286,18 +286,18 @@ where
                     .as_millis() as u64
             }),
         None => {
-            info!(
-                "No records found for entity {:?}. No chunks generated.",
-                std::any::type_name::<E>()
-            );
-            return Ok(chunks); // No data, no chunks
+            // If the local table is empty, we might still need to process
+            // chunks (e.g., when the server generates chunks for a client to pull).
+            // The age calculation needs a "now" reference; the current system time is a suitable fallback.
+            // The loop below will correctly find no records and exit gracefully.
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64
         }
     };
 
     // Ensure latest_hlc_timestamp is non-zero if data exists, otherwise age calculation might be weird.
-    // If the latest timestamp is 0 (e.g., initial HLC), use current time? Or is 0 okay?
-    // Let's assume 0 is okay, age will be large.
-    // If latest_hlc_timestamp is 0 and current_hlc.timestamp is also 0, age is 0.
     let effective_latest_timestamp = if latest_hlc_timestamp == 0 {
         warn!("Latest HLC timestamp is 0, age calculation might result in larger initial chunks.");
         latest_hlc_timestamp // Proceed with 0
@@ -354,7 +354,7 @@ where
 
         // Fetch the next batch of records strictly *after* current_hlc, up to window_size
         let records: Vec<E::Model> = E::find()
-            .filter(E::gt(&current_hlc)?) // Use HLCModel::gt for correct comparison
+            .filter(E::gt(&current_hlc)?)
             .order_by_hlc_asc::<E>() // Order consistently
             .limit(window_size) // Limit results
             .all(db)
@@ -846,7 +846,6 @@ pub mod tests {
 
     // Timestamp Conversion Helper
     // Converts u64 milliseconds since epoch to RFC3339 string.
-    // Required by `insert_task`. Assumed to exist in `crate::hlc` in the main code.
     fn hlc_timestamp_millis_to_rfc3339(millis: u64) -> Result<String> {
         // Create a NaiveDateTime from seconds and nanoseconds
         let seconds = (millis / 1000) as i64;
