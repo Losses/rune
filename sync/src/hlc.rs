@@ -43,7 +43,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use blake3::Hasher;
-use chrono::{LocalResult, TimeZone, Utc};
+use chrono::{DateTime, LocalResult, TimeZone, Utc};
 use sea_orm::{
     entity::prelude::*, Condition, DatabaseConnection, DeleteResult, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder,
@@ -230,6 +230,30 @@ impl HLC {
             self.timestamp += 1;
             self.version = 0;
         }
+    }
+
+    /// Converts the HLC timestamp to RFC3339 format.
+    ///
+    /// Returns a string representation of the timestamp in RFC3339 format (ISO 8601).
+    /// The timestamp is interpreted as milliseconds since the Unix epoch.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use sync::hlc::HLC;
+    /// use uuid::Uuid;
+    /// 
+    /// let hlc = HLC {
+    ///     timestamp: 1640995200000, // 2022-01-01T00:00:00Z
+    ///     version: 1,
+    ///     node_id: Uuid::new_v4(),
+    /// };
+    /// assert_eq!(hlc.to_rfc3339(), "2022-01-01T00:00:00.000Z");
+    /// ```
+    pub fn to_rfc3339(&self) -> String {
+        DateTime::from_timestamp_millis(self.timestamp as i64)
+            .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap())
+            .to_rfc3339()
     }
 }
 
