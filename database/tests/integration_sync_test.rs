@@ -226,21 +226,23 @@ struct TestServer {
     shutdown_tx: tokio::sync::oneshot::Sender<()>,
     handle: JoinHandle<Result<()>>,
     node_id: Uuid,
+    hlc_context: Arc<SyncTaskContext>,
 }
 
 async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
     let server_node_id = Uuid::new_v4();
-    // Add the hlc_context to the AppState initialization
+
+    let hlc_context = Arc::new(SyncTaskContext::new(server_node_id));
+
     let app_state = Arc::new(AppState {
         db,
         node_id: server_node_id,
         fk_resolver: Arc::new(RuneForeignKeyResolver),
         default_chunking_options: ChunkingOptions::default(server_node_id),
-        hlc_context: Arc::new(SyncTaskContext::new(server_node_id)),
+        hlc_context: hlc_context.clone(),
     });
 
     let app = Router::new()
-        // ... routes are unchanged
         .route("/node-id", get(get_node_id_handler))
         .route(
             "/tables/{table_name}/chunks",
@@ -264,7 +266,6 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
         )
         .with_state(app_state.clone());
 
-    // ... rest of the function is unchanged
     let port = portpicker::pick_unused_port().context("No free ports")?;
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
 
@@ -288,6 +289,7 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
         shutdown_tx,
         handle,
         node_id: server_node_id,
+        hlc_context,
     })
 }
 
@@ -413,11 +415,6 @@ async fn test_client_inserts_album_synced_to_server() -> Result<()> {
         album_creation_hlc
     );
 
-    // FOR DEBUG PURPOSE:
-    println!("** SYNC_RESULT: {:#?}", albums_job_result_item_ref);
-    let all_server_albums = albums::Entity::find().all(&server_db).await?;
-    println!("** SERVER_DB: {:#?}", all_server_albums);
-
     let server_album = albums::Entity::find()
         .filter(albums::Column::HlcUuid.eq(new_album_hlc_uuid.clone()))
         .one(&server_db)
@@ -434,6 +431,7 @@ async fn test_client_inserts_album_synced_to_server() -> Result<()> {
 
 #[tokio::test]
 async fn test_server_inserts_album_synced_to_client() -> Result<()> {
+    println!("== test_server_inserts_album_synced_to_client ==");
     let _ = env_logger::try_init();
 
     let server_db = setup_db(true, "").await?;
@@ -443,7 +441,7 @@ async fn test_server_inserts_album_synced_to_client() -> Result<()> {
     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
     let hlc_task_context = SyncTaskContext::new(client_node_id);
 
-    let album_creation_hlc = HLC::new(test_server.node_id);
+    let album_creation_hlc = test_server.hlc_context.generate_hlc();
     let new_album_pk_id = 2;
     let new_album_hlc_uuid = Uuid::new_v4().to_string();
 
@@ -461,6 +459,8 @@ async fn test_server_inserts_album_synced_to_client() -> Result<()> {
     }
     .insert(&server_db)
     .await?;
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
     let results: Vec<TableSyncResult> = setup_and_run_sync(
         &client_db,
@@ -497,82 +497,86 @@ async fn test_server_inserts_album_synced_to_client() -> Result<()> {
     Ok(())
 }
 
-// #[tokio::test]
-// async fn test_bidirectional_sync_different_albums() -> Result<()> {
-//     let _ = env_logger::try_init();
+#[tokio::test]
+async fn test_bidirectional_sync_different_albums() -> Result<()> {
+    println!("== test_bidirectional_sync_different_albums ==");
 
-//     let server_db = setup_db(true).await?;
-//     let client_db = setup_db(false).await?;
-//     let test_server = start_server(server_db.clone()).await?;
-//     let client_node_id = Uuid::new_v4();
-//     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
-//     let hlc_task_context = SyncTaskContext::new(client_node_id);
+    let _ = env_logger::try_init();
 
-//     let client_hlc = HLC::new(client_node_id);
-//     let album_c_pk_id = 3;
-//     let album_c_hlc_uuid = Uuid::new_v4().to_string();
-//     albums::ActiveModel {
-//         id: ActiveValue::Set(album_c_pk_id),
-//         name: ActiveValue::Set("Album C (from Client)".to_string()),
-//         group: ActiveValue::Set("Client Group".to_string()),
-//         hlc_uuid: ActiveValue::Set(album_c_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//     }
-//     .insert(&client_db)
-//     .await?;
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
 
-//     let server_hlc = HLC::new(test_server.node_id);
-//     let album_s_pk_id = 4;
-//     let album_s_hlc_uuid = Uuid::new_v4().to_string();
-//     albums::ActiveModel {
-//         id: ActiveValue::Set(album_s_pk_id),
-//         name: ActiveValue::Set("Album S (from Server)".to_string()),
-//         group: ActiveValue::Set("Server Group".to_string()), // FIX: Added missing non-null field
-//         hlc_uuid: ActiveValue::Set(album_s_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//     }
-//     .insert(&server_db)
-//     .await?;
+    let client_hlc = hlc_task_context.generate_hlc();
+    let album_c_pk_id = 3;
+    let album_c_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_c_pk_id),
+        name: ActiveValue::Set("Album C (from Client)".to_string()),
+        group: ActiveValue::Set("Client Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_c_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
+    }
+    .insert(&client_db)
+    .await?;
 
-//     let results: Vec<TableSyncResult> = setup_and_run_sync(
-//         &client_db,
-//         client_node_id,
-//         &remote_data_source,
-//         &hlc_task_context,
-//     )
-//     .await?;
+    let server_hlc = test_server.hlc_context.generate_hlc();
+    let album_s_pk_id = 4;
+    let album_s_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_s_pk_id),
+        name: ActiveValue::Set("Album S (from Server)".to_string()),
+        group: ActiveValue::Set("Server Group".to_string()), // FIX: 添加了缺失的 group 字段
+        hlc_uuid: ActiveValue::Set(album_s_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
+    }
+    .insert(&server_db)
+    .await?;
 
-//     let albums_job_metadata = results
-//         .iter()
-//         .find(|r| r.get_metadata().is_some_and(|s| s.table_name == "albums"))
-//         .expect("Albums job result not found")
-//         .metadata_ref();
+    tokio::time::sleep(Duration::from_millis(10)).await;
 
-//     let max_creation_hlc = std::cmp::max(client_hlc, server_hlc);
-//     assert!(
-//         albums_job_metadata.last_sync_hlc >= max_creation_hlc,
-//         "Last sync HLC ({}) should be >= the max HLC of all created records ({})",
-//         albums_job_metadata.last_sync_hlc,
-//         max_creation_hlc
-//     );
+    let results: Vec<TableSyncResult> = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
 
-//     assert_eq!(albums::Entity::find().count(&client_db).await?, 2);
-//     assert_eq!(albums::Entity::find().count(&server_db).await?, 2);
+    let albums_job_metadata = results
+        .iter()
+        .find(|r| r.get_metadata().is_some_and(|s| s.table_name == "albums"))
+        .expect("Albums job result not found")
+        .metadata_ref();
 
-//     test_server.shutdown_tx.send(()).ok();
-//     test_server.handle.await??;
-//     Ok(())
-// }
+    let max_creation_hlc = std::cmp::max(client_hlc, server_hlc);
+    assert!(
+        albums_job_metadata.last_sync_hlc >= max_creation_hlc,
+        "Last sync HLC ({}) should be >= the max HLC of all created records ({})",
+        albums_job_metadata.last_sync_hlc,
+        max_creation_hlc
+    );
+
+    assert_eq!(albums::Entity::find().count(&client_db).await?, 2);
+    assert_eq!(albums::Entity::find().count(&server_db).await?, 2);
+
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
 
 // #[tokio::test]
 // async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
