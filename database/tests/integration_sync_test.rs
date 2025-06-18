@@ -291,62 +291,64 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
     })
 }
 
-// #[tokio::test]
-// async fn test_initial_sync_empty_databases() -> Result<()> {
-//     let _ = env_logger::try_init();
+#[tokio::test]
+async fn test_initial_sync_empty_databases() -> Result<()> {
+    let _ = env_logger::try_init();
 
-//     let server_db = setup_db(true).await.context("Server DB setup failed")?;
-//     let client_db = setup_db(false).await.context("Client DB setup failed")?;
+    let server_db = setup_db(true, "").await.context("Server DB setup failed")?;
+    let client_db = setup_db(false, "")
+        .await
+        .context("Client DB setup failed")?;
 
-//     let test_server = start_server(server_db.clone())
-//         .await
-//         .context("Server start failed")?;
-//     let client_node_id = Uuid::new_v4();
+    let test_server = start_server(server_db.clone())
+        .await
+        .context("Server start failed")?;
+    let client_node_id = Uuid::new_v4();
 
-//     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
-//     let hlc_task_context = SyncTaskContext::new(client_node_id);
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
 
-//     let results: Vec<TableSyncResult> = setup_and_run_sync(
-//         &client_db,
-//         client_node_id,
-//         &remote_data_source,
-//         &hlc_task_context,
-//     )
-//     .await
-//     .context("Sync execution failed")?;
+    let results: Vec<TableSyncResult> = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await
+    .context("Sync execution failed")?;
 
-//     for result in results {
-//         assert!(
-//             result.is_success(),
-//             "Sync job for table '{}' failed: {:?}",
-//             result.table_name_str(),
-//             result.get_error()
-//         );
-//         let metadata = result.unwrap_metadata();
-//         let known_tables = [
-//             "albums",
-//             "artists",
-//             "genres",
-//             "media_cover_art",
-//             "media_files",
-//             "media_file_albums",
-//             "media_file_artists",
-//             "media_file_genres",
-//         ];
-//         assert!(
-//             known_tables.contains(&metadata.table_name.as_str()),
-//             "Unexpected table in sync metadata: {}",
-//             metadata.table_name
-//         );
-//     }
+    for result in results {
+        assert!(
+            result.is_success(),
+            "Sync job for table '{}' failed: {:?}",
+            result.table_name_str(),
+            result.get_error()
+        );
+        let metadata = result.unwrap_metadata();
+        let known_tables = [
+            "albums",
+            "artists",
+            "genres",
+            "media_cover_art",
+            "media_files",
+            "media_file_albums",
+            "media_file_artists",
+            "media_file_genres",
+        ];
+        assert!(
+            known_tables.contains(&metadata.table_name.as_str()),
+            "Unexpected table in sync metadata: {}",
+            metadata.table_name
+        );
+    }
 
-//     assert_eq!(albums::Entity::find().count(&client_db).await?, 0);
-//     assert_eq!(albums::Entity::find().count(&server_db).await?, 0);
+    assert_eq!(albums::Entity::find().count(&client_db).await?, 0);
+    assert_eq!(albums::Entity::find().count(&server_db).await?, 0);
 
-//     test_server.shutdown_tx.send(()).ok();
-//     test_server.handle.await??;
-//     Ok(())
-// }
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
 
 #[tokio::test]
 async fn test_client_inserts_album_synced_to_server() -> Result<()> {
