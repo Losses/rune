@@ -213,7 +213,8 @@ async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
 
     let mut opt = ConnectOptions::new(&db_url);
 
-    opt.sqlx_logging(false)
+    opt.sqlx_logging(true)
+        .sqlx_logging_level(log::LevelFilter::Trace)
         .acquire_timeout(Duration::from_secs(10));
 
     let db = Database::connect(opt).await?;
