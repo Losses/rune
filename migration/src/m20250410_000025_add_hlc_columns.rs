@@ -10,10 +10,14 @@ use crate::{
     m20230701_000005_create_playlists_table::Playlists,
     m20230701_000006_create_media_file_playlists::MediaFilePlaylists,
     m20230728_000008_create_media_cover_art_table::MediaCoverArt,
-    m20230806_000009_create_artists_table::Artists, m20230806_000011_create_albums_table::Albums,
+    m20230806_000009_create_artists_table::Artists,
+    m20230806_000010_create_media_file_artists_table::MediaFileArtists,
+    m20230806_000011_create_albums_table::Albums,
+    m20230806_000012_create_media_file_albums_table::MediaFileAlbums,
     m20230912_000013_create_mixes_table::Mixes,
     m20230912_000014_create_mix_queries_table::MixQueries,
     m20250311_000021_create_genres_table::Genres,
+    m20250311_000022_create_media_file_genres_table::MediaFileGenres,
 };
 
 #[derive(DeriveMigrationName)]
@@ -41,6 +45,9 @@ impl MigrationTrait for Migration {
         Self::add_tracking_columns(manager, MediaFiles::Table, true).await?;
         Self::add_tracking_columns(manager, MediaMetadata::Table, true).await?;
         Self::add_tracking_columns(manager, MediaFilePlaylists::Table, true).await?;
+        Self::add_tracking_columns(manager, MediaFileAlbums::Table, true).await?;
+        Self::add_tracking_columns(manager, MediaFileArtists::Table, true).await?;
+        Self::add_tracking_columns(manager, MediaFileGenres::Table, true).await?;
 
         Self::add_tracking_columns_with_existing_ts(manager, Mixes::Table).await?;
         Self::add_tracking_columns_with_existing_ts(manager, MixQueries::Table).await?;
@@ -58,6 +65,9 @@ impl MigrationTrait for Migration {
         Self::remove_tracking_columns(manager, MediaFiles::Table, true).await?;
         Self::remove_tracking_columns(manager, MediaMetadata::Table, true).await?;
         Self::remove_tracking_columns(manager, MediaFilePlaylists::Table, true).await?;
+        Self::remove_tracking_columns(manager, MediaFileAlbums::Table, true).await?;
+        Self::remove_tracking_columns(manager, MediaFileArtists::Table, true).await?;
+        Self::remove_tracking_columns(manager, MediaFileGenres::Table, true).await?;
 
         Self::remove_tracking_columns_with_existing_ts(manager, Mixes::Table).await?;
         Self::remove_tracking_columns_with_existing_ts(manager, MixQueries::Table).await?;
