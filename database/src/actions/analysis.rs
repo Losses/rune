@@ -379,14 +379,6 @@ pub async fn get_analyze_count(main_db: &DatabaseConnection) -> Result<u64> {
 ///
 /// * `AnalysisResultMean` - A struct containing the mean values of the analysis results.
 ///
-/// # Example
-///
-/// ```compile_fail
-/// let main_db: DatabaseConnection = ...;
-/// let file_ids = vec![1, 2, 3];
-/// let result = get_centralized_analysis_result(&main_db, file_ids).await;
-/// println!("{:?}", result);
-/// ```
 pub async fn get_centralized_analysis_result(
     main_db: &DatabaseConnection,
     file_ids: Vec<i32>,
