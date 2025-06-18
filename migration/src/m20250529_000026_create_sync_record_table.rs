@@ -26,7 +26,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(SyncRecord::ClientNodeId).string().not_null())
                     .col(
                         ColumnDef::new(SyncRecord::LastSyncHlcTs)
-                            .timestamp()
+                            .string()
                             .not_null(),
                     )
                     .col(
@@ -38,6 +38,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(SyncRecord::LastSyncHlcNid)
                             .string()
                             .not_null(),
+                    )
+                    .index(
+                        Index::create()
+                            .name("idx_sync_record_table_client_unique")
+                            .col(SyncRecord::TableName)
+                            .col(SyncRecord::ClientNodeId)
+                            .unique(),
                     )
                     .to_owned(),
             )
