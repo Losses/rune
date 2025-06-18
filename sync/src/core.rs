@@ -437,7 +437,7 @@ where
         &mut max_hlc_encountered,
     );
 
-    println!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
+    debug!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
 
     // Process the reconciliation queue until empty
     while let Some(item) = reconciliation_queue.pop_front() {
@@ -461,7 +461,7 @@ where
                 );
                 let (local_res, remote_res) = tokio::join!(local_fut, remote_fut);
 
-                println!("** ** FETCH RANGE: LOCAL {:#?}", local_res);
+                debug!("** ** FETCH RANGE: LOCAL {:#?}", local_res);
 
                 // Extend the comparison lists, propagating errors
                 local_records_to_compare.extend(local_res.with_context(|| {
@@ -477,7 +477,7 @@ where
                     )
                 })?;
 
-                println!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
+                debug!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
 
                 remote_records_to_compare.extend(remote_res.records);
             }

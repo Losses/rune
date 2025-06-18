@@ -6,6 +6,7 @@ use axum::{
     serve, Router,
 };
 use chrono::Utc;
+use database::connection::initialize_db;
 use sea_orm::{
     prelude::Decimal, ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, ConnectionTrait,
     Database, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, Schema,
@@ -17,10 +18,7 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use uuid::Uuid;
 
 use ::database::{
-    entities::{
-        albums, artists, genres, media_cover_art, media_file_albums, media_file_artists,
-        media_file_genres, media_files, sync_record,
-    },
+    entities::albums,
     sync::{
         chunking::{
             apply_remote_changes_handler, get_node_id_handler, get_remote_chunks_handler,
@@ -32,6 +30,7 @@ use ::database::{
         setup_and_run_sync, utils as sync_utils,
     },
 };
+use ::migration::{Migrator, MigratorTrait};
 use ::sync::{
     chunking::{ChunkingOptions, DataChunk},
     core::{RemoteDataSource, RemoteRecordsWithPayload, SyncOperation},
@@ -199,7 +198,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
     }
 }
 
-async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
+async fn setup_db(is_server: bool, node_id: &str) -> Result<DatabaseConnection> {
     let side = if is_server { "server" } else { "client" };
     println!("Setting up database for the {} side", side);
 
@@ -218,33 +217,8 @@ async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
         .acquire_timeout(Duration::from_secs(10));
 
     let db = Database::connect(opt).await?;
-    setup_schema_for_db(&db).await?;
+    initialize_db(&db, node_id).await?;
     Ok(db)
-}
-
-async fn setup_schema_for_db(db: &DatabaseConnection) -> Result<()> {
-    let schema = Schema::new(db.get_database_backend());
-    let builder = db.get_database_backend();
-
-    macro_rules! create_table {
-        ($entity:path) => {
-            db.execute(builder.build(schema.create_table_from_entity($entity).if_not_exists()))
-                .await
-                .with_context(|| format!("Failed to create table for {:?}", stringify!($entity)))?;
-        };
-    }
-
-    create_table!(albums::Entity);
-    create_table!(artists::Entity);
-    create_table!(genres::Entity);
-    create_table!(media_cover_art::Entity);
-    create_table!(media_files::Entity);
-    create_table!(media_file_albums::Entity);
-    create_table!(media_file_artists::Entity);
-    create_table!(media_file_genres::Entity);
-    create_table!(sync_record::Entity);
-
-    Ok(())
 }
 
 struct TestServer {
@@ -378,8 +352,8 @@ async fn start_server(db: DatabaseConnection) -> Result<TestServer> {
 async fn test_client_inserts_album_synced_to_server() -> Result<()> {
     let _ = env_logger::try_init();
 
-    let server_db = setup_db(true).await?;
-    let client_db = setup_db(false).await?;
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
     let test_server = start_server(server_db.clone()).await?;
     let client_node_id = Uuid::new_v4();
     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));

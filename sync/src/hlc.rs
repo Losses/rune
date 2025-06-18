@@ -387,9 +387,6 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
         if start_hlc == end_hlc {
             // Handle the single HLC case explicitly
             let ts_str = start_hlc.to_rfc3339();
-            println!("** ** TIMESTR: {}", ts_str);
-            println!("** ** VER: {}", start_hlc.version);
-            println!("** ** NODEID: {}", start_hlc.node_id);
             return Ok(Condition::all()
                 .add(Self::updated_at_time_column().eq(ts_str))
                 .add(Self::updated_at_version_column().eq(start_hlc.version as i32))
@@ -399,9 +396,6 @@ pub trait HLCModel: EntityTrait + Sized + Send + Sync + 'static {
         // Handle the range case: >= start AND <= end
         let start_cond = Self::gte(start_hlc)?;
         let end_cond = Self::lte(end_hlc)?;
-
-        println!("** ** START COND: {:#?}", start_cond);
-        println!("** ** END COND: {:#?}", end_cond);
 
         Ok(Condition::all().add(start_cond).add(end_cond))
     }
