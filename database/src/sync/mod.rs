@@ -34,7 +34,6 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
         hlc_context: hlc_task_context_ref,
     };
 
-    // FKResolver is Arc'd, so it's 'static and can be cloned into closures
     let fk_resolver = Arc::new(RuneForeignKeyResolver);
 
     // Helper to create initial metadata
@@ -43,15 +42,14 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
         last_sync_hlc: HLC::new(local_node_id),
     };
 
-    // TODO: In a real application, we would first try to load saved metadata
-    // from a persistent store. If and only if no metadata is found for a table,
-    // we would then use `initial_meta` to create the default. This implementation
-    // always starts from scratch, which is fine for prototype purpose.
-
+    // Define the sync order based on table dependencies (topological sort).
+    // Parent tables must be synced before their dependent child tables.
     let jobs: Vec<TableSyncJob<RDS>> = vec![
-        TableSyncJob::new::<entities::albums::Entity, _>(
-            entities::albums::Entity.table_name().to_string(),
-            initial_meta(entities::albums::Entity.table_name()),
+        // Phase 1: Parent/Independent tables
+        // These tables do not have foreign keys to other synced tables, or are parents.
+        TableSyncJob::new::<entities::media_cover_art::Entity, _>(
+            entities::media_cover_art::Entity.table_name().to_string(),
+            initial_meta(entities::media_cover_art::Entity.table_name()),
             fk_resolver.clone(),
         ),
         TableSyncJob::new::<entities::artists::Entity, _>(
@@ -64,11 +62,20 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
             initial_meta(entities::genres::Entity.table_name()),
             fk_resolver.clone(),
         ),
+        TableSyncJob::new::<entities::albums::Entity, _>(
+            entities::albums::Entity.table_name().to_string(),
+            initial_meta(entities::albums::Entity.table_name()),
+            fk_resolver.clone(),
+        ),
+        // Phase 2: Child tables that depend on Phase 1 tables
+        // `media_files` depends on `media_cover_art`.
         TableSyncJob::new::<entities::media_files::Entity, _>(
             entities::media_files::Entity.table_name().to_string(),
             initial_meta(entities::media_files::Entity.table_name()),
             fk_resolver.clone(),
         ),
+        // Phase 3: Join tables that depend on Phase 1 and Phase 2 tables
+        // These tables link `media_files` with `albums`, `artists`, `genres`.
         TableSyncJob::new::<entities::media_file_albums::Entity, _>(
             entities::media_file_albums::Entity.table_name().to_string(),
             initial_meta(entities::media_file_albums::Entity.table_name()),
@@ -84,11 +91,6 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
         TableSyncJob::new::<entities::media_file_genres::Entity, _>(
             entities::media_file_genres::Entity.table_name().to_string(),
             initial_meta(entities::media_file_genres::Entity.table_name()),
-            fk_resolver.clone(),
-        ),
-        TableSyncJob::new::<entities::media_cover_art::Entity, _>(
-            entities::media_cover_art::Entity.table_name().to_string(),
-            initial_meta(entities::media_cover_art::Entity.table_name()),
             fk_resolver.clone(),
         ),
     ];
