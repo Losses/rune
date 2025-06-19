@@ -59,7 +59,7 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Eq, Serialize, Deserialize)]
 pub struct HLC {
     /// Physical timestamp component, in milliseconds since the Unix epoch.
-    pub timestamp: u64,
+    pub timestamp_ms: u64,
     /// Logical counter component, incremented for events within the same millisecond.
     pub version: u32,
     /// Unique identifier for the node that generated this HLC.
@@ -71,14 +71,14 @@ impl std::fmt::Display for HLC {
         write!(
             f,
             "{}-{:08x}-{}",
-            self.timestamp, self.version, self.node_id
+            self.timestamp_ms, self.version, self.node_id
         )
     }
 }
 
 impl PartialEq for HLC {
     fn eq(&self, other: &Self) -> bool {
-        self.timestamp == other.timestamp
+        self.timestamp_ms == other.timestamp_ms
             && self.version == other.version
             && self.node_id == other.node_id
     }
@@ -92,8 +92,8 @@ impl PartialOrd for HLC {
 
 impl Ord for HLC {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        (self.timestamp, self.version, self.node_id).cmp(&(
-            other.timestamp,
+        (self.timestamp_ms, self.version, self.node_id).cmp(&(
+            other.timestamp_ms,
             other.version,
             other.node_id,
         ))
@@ -106,7 +106,7 @@ impl HLC {
     /// This is often used as a starting point or default value.
     pub fn new(node_id: Uuid) -> Self {
         HLC {
-            timestamp: 0,
+            timestamp_ms: 0,
             version: 0,
             node_id,
         }
@@ -125,7 +125,7 @@ impl HLC {
             .expect("Time went backwards")
             .as_millis() as u64;
 
-        let (timestamp, counter) = match current_timestamp.cmp(&last_hlc.timestamp) {
+        let (timestamp, counter) = match current_timestamp.cmp(&last_hlc.timestamp_ms) {
             Ordering::Greater => (current_timestamp, 0),
             Ordering::Equal => {
                 if last_hlc.version == u32::MAX {
@@ -139,15 +139,15 @@ impl HLC {
             }
             Ordering::Less => {
                 if last_hlc.version == u32::MAX {
-                    (last_hlc.timestamp + 1, 0)
+                    (last_hlc.timestamp_ms + 1, 0)
                 } else {
-                    (last_hlc.timestamp, last_hlc.version + 1)
+                    (last_hlc.timestamp_ms, last_hlc.version + 1)
                 }
             }
         };
 
         let new_hlc = HLC {
-            timestamp,
+            timestamp_ms: timestamp,
             version: counter,
             node_id: context.node_id,
         };
@@ -173,7 +173,7 @@ impl HLC {
         } else {
             // Overflow: Increment timestamp and reset version
             // We assume timestamp itself won't realistically overflow u64.
-            self.timestamp += 1;
+            self.timestamp_ms += 1;
             self.version = 0;
         }
     }
@@ -197,7 +197,7 @@ impl HLC {
     /// assert_eq!(hlc.to_rfc3339(), "2022-01-01T00:00:00+00:00");
     /// ```
     pub fn to_rfc3339(&self) -> String {
-        DateTime::from_timestamp_millis(self.timestamp as i64)
+        DateTime::from_timestamp_millis(self.timestamp_ms as i64)
             .unwrap_or_else(|| DateTime::from_timestamp(0, 0).unwrap())
             .to_rfc3339()
     }
@@ -228,7 +228,7 @@ impl FromStr for HLC {
             .with_context(|| format!("Invalid node ID format in HLC: '{}'", parts[2]))?;
 
         Ok(HLC {
-            timestamp,
+            timestamp_ms: timestamp,
             version: counter,
             node_id,
         })
@@ -691,7 +691,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_timestamp_conversion_error() {
         let node_id = Uuid::new_v4();
         let invalid_hlc = HLC {
-            timestamp: u64::MAX, // Known out-of-range value for chrono
+            timestamp_ms: u64::MAX, // Known out-of-range value for chrono
             version: 0,
             node_id,
         };
@@ -847,7 +847,7 @@ where
 #[cfg(test)]
 pub fn create_hlc(ts: u64, v: u32, node_id_str: &str) -> HLC {
     HLC {
-        timestamp: ts,
+        timestamp_ms: ts,
         version: v,
         node_id: Uuid::parse_str(node_id_str).unwrap(),
     }
@@ -862,12 +862,12 @@ mod hlc_increment_tests {
     fn test_hlc_increment_normal() {
         let node_id = Uuid::new_v4();
         let mut hlc = HLC {
-            timestamp: 1000,
+            timestamp_ms: 1000,
             version: 5,
             node_id,
         };
         hlc.increment();
-        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.timestamp_ms, 1000);
         assert_eq!(hlc.version, 6);
         assert_eq!(hlc.node_id, node_id);
     }
@@ -876,12 +876,12 @@ mod hlc_increment_tests {
     fn test_hlc_increment_version_max() {
         let node_id = Uuid::new_v4();
         let mut hlc = HLC {
-            timestamp: 1000,
+            timestamp_ms: 1000,
             version: u32::MAX - 1,
             node_id,
         };
         hlc.increment();
-        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.timestamp_ms, 1000);
         assert_eq!(hlc.version, u32::MAX);
         assert_eq!(hlc.node_id, node_id);
     }
@@ -890,13 +890,13 @@ mod hlc_increment_tests {
     fn test_hlc_increment_overflow() {
         let node_id = Uuid::new_v4();
         let mut hlc = HLC {
-            timestamp: 1000,
+            timestamp_ms: 1000,
             version: u32::MAX,
             node_id,
         };
         hlc.increment();
         assert_eq!(
-            hlc.timestamp, 1001,
+            hlc.timestamp_ms, 1001,
             "Timestamp should increment on version overflow"
         );
         assert_eq!(hlc.version, 0, "Version should reset to 0 on overflow");
@@ -907,24 +907,24 @@ mod hlc_increment_tests {
     fn test_hlc_increment_multiple_overflows() {
         let node_id = Uuid::new_v4();
         let mut hlc = HLC {
-            timestamp: 1000,
+            timestamp_ms: 1000,
             version: u32::MAX - 1,
             node_id,
         };
 
         // Increment to MAX
         hlc.increment();
-        assert_eq!(hlc.timestamp, 1000);
+        assert_eq!(hlc.timestamp_ms, 1000);
         assert_eq!(hlc.version, u32::MAX);
 
         // Increment causing overflow
         hlc.increment();
-        assert_eq!(hlc.timestamp, 1001);
+        assert_eq!(hlc.timestamp_ms, 1001);
         assert_eq!(hlc.version, 0);
 
         // Normal increment after overflow
         hlc.increment();
-        assert_eq!(hlc.timestamp, 1001);
+        assert_eq!(hlc.timestamp_ms, 1001);
         assert_eq!(hlc.version, 1);
     }
 }
@@ -957,15 +957,15 @@ mod hlc_generate_tests {
         let after_ts = get_current_millis(); // Timestamp might advance slightly during test
 
         assert!(
-            new_hlc.timestamp > initial_hlc.timestamp,
+            new_hlc.timestamp_ms > initial_hlc.timestamp_ms,
             "New timestamp should be greater"
         );
         assert!(
-            new_hlc.timestamp >= initial_ts + 5,
+            new_hlc.timestamp_ms >= initial_ts + 5,
             "New timestamp should be roughly current time"
         );
         assert!(
-            new_hlc.timestamp <= after_ts,
+            new_hlc.timestamp_ms <= after_ts,
             "New timestamp should be roughly current time"
         );
         assert_eq!(new_hlc.version, 0, "Counter should reset");
@@ -986,7 +986,7 @@ mod hlc_generate_tests {
         let new_hlc = context.generate_hlc();
 
         // It's possible the millisecond ticked over between get_current_millis and generate()
-        if new_hlc.timestamp == initial_hlc.timestamp {
+        if new_hlc.timestamp_ms == initial_hlc.timestamp_ms {
             assert_eq!(
                 new_hlc.version,
                 initial_hlc.version + 1,
@@ -995,7 +995,7 @@ mod hlc_generate_tests {
         } else {
             // If time advanced, counter should reset
             assert!(
-                new_hlc.timestamp > initial_hlc.timestamp,
+                new_hlc.timestamp_ms > initial_hlc.timestamp_ms,
                 "Timestamp advanced"
             );
             assert_eq!(
@@ -1018,7 +1018,7 @@ mod hlc_generate_tests {
         let new_hlc = context.generate_hlc();
 
         assert_eq!(
-            new_hlc.timestamp, initial_hlc.timestamp,
+            new_hlc.timestamp_ms, initial_hlc.timestamp_ms,
             "Timestamp should use the last HLC's timestamp during skew"
         );
         assert_eq!(
@@ -1040,7 +1040,7 @@ mod hlc_generate_tests {
             .as_millis() as u64;
         let initial_version = 5u32;
         let initial_hlc = HLC {
-            timestamp: current_ts,
+            timestamp_ms: current_ts,
             version: initial_version,
             node_id,
         };
@@ -1050,7 +1050,7 @@ mod hlc_generate_tests {
         let new_hlc = context.generate_hlc();
 
         // Check the Ordering::Equal case explicitly
-        if new_hlc.timestamp == initial_hlc.timestamp {
+        if new_hlc.timestamp_ms == initial_hlc.timestamp_ms {
             assert_eq!(
                 new_hlc.version,
                 initial_hlc.version + 1,
@@ -1059,7 +1059,7 @@ mod hlc_generate_tests {
         } else {
             // If time advanced, counter should reset (Ordering::Greater case)
             assert!(
-                new_hlc.timestamp > initial_hlc.timestamp,
+                new_hlc.timestamp_ms > initial_hlc.timestamp_ms,
                 "Timestamp advanced unexpectedly fast, test assumption failed or different code path taken."
             );
             assert_eq!(
@@ -1081,7 +1081,7 @@ mod hlc_generate_tests {
             .as_millis() as u64
             + 10000; // 10 seconds in the future
         let initial_hlc = HLC {
-            timestamp: future_ts,
+            timestamp_ms: future_ts,
             version: u32::MAX, // Set counter to MAX
             node_id,
         };
@@ -1092,8 +1092,8 @@ mod hlc_generate_tests {
         // Clock skew detected (Ordering::Less), counter was MAX.
         // Should increment timestamp and reset counter.
         assert_eq!(
-            new_hlc.timestamp,
-            initial_hlc.timestamp + 1, // Timestamp increments because counter overflowed
+            new_hlc.timestamp_ms,
+            initial_hlc.timestamp_ms + 1, // Timestamp increments because counter overflowed
             "Timestamp should increment due to counter overflow during skew"
         );
         assert_eq!(
@@ -1117,7 +1117,7 @@ mod hlc_generate_tests {
         let node_id = Uuid::new_v4();
         let current_ts = get_current_millis();
         let initial_hlc = HLC {
-            timestamp: current_ts,
+            timestamp_ms: current_ts,
             version: u32::MAX, // Set version to max
             node_id,
         };
@@ -1147,7 +1147,7 @@ mod hlc_from_str_tests {
         let hlc_string = format!("1234567890123-0000abcd-{}", node_id);
         let hlc = HLC::from_str(&hlc_string)?;
 
-        assert_eq!(hlc.timestamp, 1234567890123);
+        assert_eq!(hlc.timestamp_ms, 1234567890123);
         assert_eq!(hlc.version, 0xabcd);
         assert_eq!(hlc.node_id, node_id);
         Ok(())

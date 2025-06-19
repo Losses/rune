@@ -273,7 +273,7 @@ where
     let latest_hlc_timestamp = match latest_record_opt {
         Some(record) => record
             .updated_at_hlc()
-            .map(|h| h.timestamp)
+            .map(|h| h.timestamp_ms)
             .unwrap_or_else(|| {
                 // This case should ideally not happen if HLCs are mandatory on update
                 warn!(
@@ -327,7 +327,7 @@ where
 
         // Calculate age factor based on the start HLC of the potential *next* chunk
         // Age is difference between latest update anywhere and the start of this chunk.
-        let age_millis = effective_latest_timestamp.saturating_sub(current_hlc.timestamp);
+        let age_millis = effective_latest_timestamp.saturating_sub(current_hlc.timestamp_ms);
         let age_days = age_millis as f64 / MILLISECONDS_PER_DAY as f64;
 
         // Ensure age_factor doesn't become negative if clock sync caused latest_ts < current_ts
@@ -756,7 +756,7 @@ pub mod tests {
                 // Parse the RFC3339 string back to u64 milliseconds since UNIX_EPOCH
                 match DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64, // Convert to u64 millis
+                        timestamp_ms: dt.timestamp_millis() as u64, // Convert to u64 millis
                         version: self.updated_at_hlc_v as u32,   // Convert back to u32
                         node_id: self.updated_at_hlc_nid,
                     }),
@@ -883,7 +883,7 @@ pub mod tests {
         hlc: &HLC,
     ) -> Result<Model, DbErr> {
         // Convert HLC timestamp (u64 ms) to RFC3339 string for storage
-        let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp)
+        let hlc_ts_str = hlc_timestamp_millis_to_rfc3339(hlc.timestamp_ms)
             // Convert the anyhow::Error from the helper to DbErr for compatibility
             .map_err(|e| DbErr::Custom(format!("Failed to format HLC timestamp: {}", e)))?;
 
@@ -903,7 +903,7 @@ pub mod tests {
     // Convenience function for creating HLC instances in tests.
     fn hlc(ts_millis: u64, version: u32, node_str: &str) -> HLC {
         HLC {
-            timestamp: ts_millis,
+            timestamp_ms: ts_millis,
             version,
             node_id: Uuid::parse_str(node_str).expect("Invalid UUID string in test"),
         }
@@ -938,7 +938,7 @@ pub mod tests {
             // but calculate_record_hash uses data_for_hashing which *doesn't* include timestamps.
             // So, the actual timestamp string value doesn't affect the hash calculation itself.
             // However, for completeness and realism, let's format it.
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h.timestamp)?,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h.timestamp_ms)?,
             updated_at_hlc_v: h.version as i32,
             updated_at_hlc_nid: h.node_id,
         };
@@ -963,7 +963,7 @@ pub mod tests {
             // Use the test Model
             id: 1,
             content: "A".to_string(),
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp)?,
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp_ms)?,
             updated_at_hlc_v: h1.version as i32,
             updated_at_hlc_nid: h1.node_id,
         };
@@ -972,7 +972,7 @@ pub mod tests {
             // Use the test Model
             id: 2,
             content: "B".to_string(),
-            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h2.timestamp)?, // Format even if same ms
+            updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h2.timestamp_ms)?, // Format even if same ms
             updated_at_hlc_v: h2.version as i32,
             updated_at_hlc_nid: h2.node_id,
         };
@@ -1612,7 +1612,7 @@ pub mod tests {
                 // Manually construct for hash calc
                 id: 1,
                 content: "T1".to_string(),
-                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp)?,
+                updated_at_hlc_ts: hlc_timestamp_millis_to_rfc3339(h1.timestamp_ms)?,
                 updated_at_hlc_v: h1.version as i32,
                 updated_at_hlc_nid: h1.node_id,
             }])?,

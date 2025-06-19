@@ -809,7 +809,7 @@ async fn test_get_remote_last_sync_hlc() -> Result<()> {
     assert_eq!(server_album.name, album_name);
 
     let expected_hlc_from_op = HLC {
-        timestamp: album_creation_hlc.timestamp,
+        timestamp_ms: album_creation_hlc.timestamp_ms,
         version: album_creation_hlc.version,
         node_id: album_creation_hlc.node_id,
     };

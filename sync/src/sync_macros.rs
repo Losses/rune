@@ -12,7 +12,7 @@ macro_rules! impl_hlc_record_for_model {
                     .timestamp_millis() as u64;
                 let nid = Uuid::parse_str(&self.created_at_hlc_nid).ok()?;
                 Some(HLC {
-                    timestamp: ts,
+                    timestamp_ms: ts,
                     version: self.created_at_hlc_ver as u32,
                     node_id: nid,
                 })
@@ -24,7 +24,7 @@ macro_rules! impl_hlc_record_for_model {
                     .timestamp_millis() as u64;
                 let nid = Uuid::parse_str(&self.updated_at_hlc_nid).ok()?;
                 Some(HLC {
-                    timestamp: ts,
+                    timestamp_ms: ts,
                     version: self.updated_at_hlc_ver as u32,
                     node_id: nid,
                 })

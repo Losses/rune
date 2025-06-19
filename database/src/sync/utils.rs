@@ -24,7 +24,7 @@ pub fn create_sync_record_active_model(
 
 pub fn parse_hlc(timestamp: &str, last_sync_hlc_ver: i32, last_sync_hlc_nid: &str) -> Result<HLC> {
     Ok(HLC {
-        timestamp: timestamp.parse::<DateTime<FixedOffset>>()?.timestamp_millis() as u64,
+        timestamp_ms: timestamp.parse::<DateTime<FixedOffset>>()?.timestamp_millis() as u64,
         version: last_sync_hlc_ver as u32,
         node_id: Uuid::parse_str(last_sync_hlc_nid)?,
     })

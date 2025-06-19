@@ -814,8 +814,8 @@ where
                 );
 
                 // Compare timestamp and version first
-                let ts_ver_cmp = (local_hlc.timestamp, local_hlc.version)
-                    .cmp(&(remote_hlc.timestamp, remote_hlc.version));
+                let ts_ver_cmp = (local_hlc.timestamp_ms, local_hlc.version)
+                    .cmp(&(remote_hlc.timestamp_ms, remote_hlc.version));
 
                 let (local_wins, remote_wins) = match ts_ver_cmp {
                     std::cmp::Ordering::Greater => {
@@ -1518,7 +1518,7 @@ pub(crate) mod tests {
             fn created_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.created_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.created_at_hlc_ct as u32,
                         node_id: self.created_at_hlc_id,
                     }),
@@ -1535,7 +1535,7 @@ pub(crate) mod tests {
             fn updated_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.updated_at_hlc_ct as u32,
                         node_id: self.updated_at_hlc_id,
                     }),
@@ -2017,7 +2017,7 @@ pub(crate) mod tests {
 
     fn hlc(ts: u64, v: u32, node_str: &str) -> HLC {
         HLC {
-            timestamp: ts,
+            timestamp_ms: ts,
             version: v,
             node_id: Uuid::parse_str(node_str).unwrap(),
         }
@@ -3914,7 +3914,7 @@ pub(crate) mod tests {
             fn created_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.created_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.created_at_hlc_ct as u32,
                         node_id: self.created_at_hlc_id,
                     }),
@@ -3931,7 +3931,7 @@ pub(crate) mod tests {
             fn updated_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.updated_at_hlc_ct as u32,
                         node_id: self.updated_at_hlc_id,
                     }),
@@ -4110,7 +4110,7 @@ pub(crate) mod tests {
             fn created_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.created_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.created_at_hlc_ct as u32,
                         node_id: self.created_at_hlc_id,
                     }),
@@ -4127,7 +4127,7 @@ pub(crate) mod tests {
             fn updated_at_hlc(&self) -> Option<HLC> {
                 match chrono::DateTime::parse_from_rfc3339(&self.updated_at_hlc_ts) {
                     Ok(dt) => Some(HLC {
-                        timestamp: dt.timestamp_millis() as u64,
+                        timestamp_ms: dt.timestamp_millis() as u64,
                         version: self.updated_at_hlc_ct as u32,
                         node_id: self.updated_at_hlc_id,
                     }),

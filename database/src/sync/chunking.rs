@@ -85,7 +85,7 @@ pub fn parse_optional_hlc_from_parts(
                 .with_context(|| format!("Invalid HLC node_id string: {}", nid_str))?;
 
             Ok(Some(HLC {
-                timestamp: timestamp_ms,
+                timestamp_ms,
                 version,
                 node_id,
             }))
@@ -341,12 +341,12 @@ pub async fn get_remote_records_in_hlc_range_handler(
         .timestamp_millis() as u64;
 
     let start_hlc = HLC {
-        timestamp: start_ts_ms,
+        timestamp_ms: start_ts_ms,
         version: params.start_hlc_ver,
         node_id: Uuid::parse_str(&params.start_hlc_nid)?,
     };
     let end_hlc = HLC {
-        timestamp: end_ts_ms,
+        timestamp_ms: end_ts_ms,
         version: params.end_hlc_ver,
         node_id: Uuid::parse_str(&params.end_hlc_nid)?,
     };
