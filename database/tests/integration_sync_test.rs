@@ -6,14 +6,16 @@ use axum::{
     serve, Router,
 };
 use chrono::Utc;
-use database::connection::initialize_db;
+use database::{
+    connection::initialize_db,
+    entities::{media_cover_art, media_files, sync_record},
+};
 use sea_orm::{
-    prelude::Decimal, ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, ConnectionTrait,
-    Database, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, Schema,
+    prelude::Decimal, ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database,
+    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
 };
 use serde::{Deserialize, Serialize};
-use sync::core::SyncTableMetadata;
-use tempfile::{tempdir, TempDir};
+
 use tokio::{net::TcpListener, task::JoinHandle};
 use uuid::Uuid;
 
@@ -30,10 +32,9 @@ use ::database::{
         setup_and_run_sync, utils as sync_utils,
     },
 };
-use ::migration::{Migrator, MigratorTrait};
 use ::sync::{
     chunking::{ChunkingOptions, DataChunk},
-    core::{RemoteDataSource, RemoteRecordsWithPayload, SyncOperation},
+    core::{RemoteDataSource, RemoteRecordsWithPayload, SyncOperation, SyncTableMetadata},
     hlc::{HLCModel, HLCRecord, SyncTaskContext, HLC},
     sync_scheduler::TableSyncResult,
 };
@@ -221,11 +222,11 @@ async fn setup_db(is_server: bool, node_id: &str) -> Result<DatabaseConnection> 
     Ok(db)
 }
 
-struct TestServer {
+pub struct TestServer {
     addr: SocketAddr,
     shutdown_tx: tokio::sync::oneshot::Sender<()>,
     handle: JoinHandle<Result<()>>,
-    node_id: Uuid,
+    pub node_id: Uuid,
     hlc_context: Arc<SyncTaskContext>,
 }
 
@@ -578,269 +579,271 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
     Ok(())
 }
 
-// #[tokio::test]
-// async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
-//     let _ = env_logger::try_init();
+#[tokio::test]
+async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
+    let _ = env_logger::try_init();
 
-//     let server_db = setup_db(true).await?;
-//     let client_db = setup_db(false).await?;
-//     let test_server = start_server(server_db.clone()).await?;
-//     let client_node_id = Uuid::new_v4();
-//     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
-//     let hlc_task_context = SyncTaskContext::new(client_node_id);
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
 
-//     let mut client_hlc = HLC::new(client_node_id);
+    // Client: Insert CoverArt CA1, MediaFile MF1 -> CA1
+    let ca1_hlc = hlc_task_context.generate_hlc(); // <-- FIX
+    let ca1_pk_id = 1;
+    let ca1_hlc_uuid = Uuid::new_v4().to_string();
+    let ca1_client = media_cover_art::ActiveModel {
+        id: ActiveValue::Set(ca1_pk_id),
+        file_hash: ActiveValue::Set("ca1_hash_client".to_string()),
+        binary: ActiveValue::Set(vec![1, 1, 1]),
+        primary_color: ActiveValue::Set(Some(0xAAAAAA)),
+        hlc_uuid: ActiveValue::Set(ca1_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(ca1_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(ca1_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(ca1_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(ca1_hlc.node_id.to_string()),
+    };
+    ca1_client.insert(&client_db).await?;
 
-//     // Client: Insert CoverArt CA1, MediaFile MF1 -> CA1
-//     let ca1_pk_id = 1;
-//     let ca1_hlc_uuid = Uuid::new_v4().to_string();
-//     let ca1_client = media_cover_art::ActiveModel {
-//         id: ActiveValue::Set(ca1_pk_id),
-//         file_hash: ActiveValue::Set("ca1_hash_client".to_string()),
-//         binary: ActiveValue::Set(vec![1, 1, 1]),
-//         primary_color: ActiveValue::Set(Some(0xAAAAAA)),
-//         hlc_uuid: ActiveValue::Set(ca1_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//     };
-//     ca1_client.insert(&client_db).await?;
-//     client_hlc.increment();
+    let mf1_hlc = hlc_task_context.generate_hlc();
+    let mf1_pk_id = 10;
+    let mf1_hlc_uuid = Uuid::new_v4().to_string();
+    let mf1_client = media_files::ActiveModel {
+        id: ActiveValue::Set(mf1_pk_id),
+        file_name: ActiveValue::Set("client_song_1".to_string()),
+        directory: ActiveValue::Set("/music/client/".to_string()),
+        extension: ActiveValue::Set("mp3".to_string()),
+        file_hash: ActiveValue::Set("mf1_hash_client".to_string()),
+        last_modified: ActiveValue::Set(Utc::now().to_rfc3339()),
+        cover_art_id: ActiveValue::Set(Some(ca1_pk_id)),
+        sample_rate: ActiveValue::Set(44100),
+        duration: ActiveValue::Set(Decimal::new(180, 0)),
+        hlc_uuid: ActiveValue::Set(mf1_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(mf1_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(mf1_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(mf1_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(mf1_hlc.node_id.to_string()),
+    };
+    mf1_client.insert(&client_db).await?;
 
-//     let mf1_pk_id = 10;
-//     let mf1_hlc_uuid = Uuid::new_v4().to_string();
-//     let mf1_client = media_files::ActiveModel {
-//         id: ActiveValue::Set(mf1_pk_id),
-//         file_name: ActiveValue::Set("client_song_1".to_string()),
-//         directory: ActiveValue::Set("/music/client/".to_string()),
-//         extension: ActiveValue::Set("mp3".to_string()),
-//         file_hash: ActiveValue::Set("mf1_hash_client".to_string()),
-//         last_modified: ActiveValue::Set(Utc::now().to_rfc3339()),
-//         cover_art_id: ActiveValue::Set(Some(ca1_pk_id)),
-//         sample_rate: ActiveValue::Set(44100),
-//         duration: ActiveValue::Set(Decimal::new(180, 0)), // 180s
-//         hlc_uuid: ActiveValue::Set(mf1_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-//     };
-//     mf1_client.insert(&client_db).await?;
+    // First sync (Client -> Server)
+    let _results1: Vec<TableSyncResult> = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
 
-//     // First sync (Client -> Server)
-//     let _results1: Vec<TableSyncResult> = setup_and_run_sync(
-//         &client_db,
-//         client_node_id,
-//         &remote_data_source,
-//         &hlc_task_context,
-//     )
-//     .await?;
+    let server_ca1 = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::HlcUuid.eq(ca1_hlc_uuid.clone()))
+        .one(&server_db)
+        .await?
+        .context("CA1 not on server")?;
+    assert_eq!(server_ca1.file_hash, "ca1_hash_client");
+    assert_eq!(server_ca1.binary, vec![1, 1, 1]);
+    assert_eq!(server_ca1.primary_color, Some(0xAAAAAA));
 
-//     let server_ca1 = media_cover_art::Entity::find()
-//         .filter(media_cover_art::Column::HlcUuid.eq(ca1_hlc_uuid.clone()))
-//         .one(&server_db)
-//         .await?
-//         .context("CA1 not on server")?;
-//     assert_eq!(server_ca1.file_hash, "ca1_hash_client");
-//     assert_eq!(server_ca1.binary, vec![1, 1, 1]);
-//     assert_eq!(server_ca1.primary_color, Some(0xAAAAAA));
+    let server_mf1 = media_files::Entity::find()
+        .filter(media_files::Column::HlcUuid.eq(mf1_hlc_uuid.clone()))
+        .one(&server_db)
+        .await?
+        .context("MF1 not on server")?;
+    assert_eq!(server_mf1.file_name, "client_song_1");
+    assert_eq!(server_mf1.directory, "/music/client/");
+    assert_eq!(server_mf1.cover_art_id, Some(server_ca1.id)); // FK check
 
-//     let server_mf1 = media_files::Entity::find()
-//         .filter(media_files::Column::HlcUuid.eq(mf1_hlc_uuid.clone()))
-//         .one(&server_db)
-//         .await?
-//         .context("MF1 not on server")?;
-//     assert_eq!(server_mf1.file_name, "client_song_1");
-//     assert_eq!(server_mf1.directory, "/music/client/");
-//     assert_eq!(server_mf1.cover_art_id, Some(server_ca1.id)); // FK check
+    // Server: Insert CoverArt CA2, MediaFile MF2 -> CA2
+    let ca2_hlc = test_server.hlc_context.generate_hlc();
+    let ca2_pk_id = 2;
+    let ca2_hlc_uuid = Uuid::new_v4().to_string();
+    let ca2_server = media_cover_art::ActiveModel {
+        id: ActiveValue::Set(ca2_pk_id),
+        file_hash: ActiveValue::Set("ca2_hash_server".to_string()),
+        binary: ActiveValue::Set(vec![2, 2, 2]),
+        primary_color: ActiveValue::Set(Some(0xBBBBBB)),
+        hlc_uuid: ActiveValue::Set(ca2_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(ca2_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(ca2_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(ca2_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(ca2_hlc.node_id.to_string()),
+    };
+    ca2_server.insert(&server_db).await?;
 
-//     // Server: Insert CoverArt CA2, MediaFile MF2 -> CA2
-//     let mut server_hlc = HLC::new(test_server.node_id);
-//     let ca2_pk_id = 2;
-//     let ca2_hlc_uuid = Uuid::new_v4().to_string();
-//     let ca2_server = media_cover_art::ActiveModel {
-//         id: ActiveValue::Set(ca2_pk_id),
-//         file_hash: ActiveValue::Set("ca2_hash_server".to_string()),
-//         binary: ActiveValue::Set(vec![2, 2, 2]),
-//         primary_color: ActiveValue::Set(Some(0xBBBBBB)),
-//         hlc_uuid: ActiveValue::Set(ca2_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//     };
-//     ca2_server.insert(&server_db).await?;
-//     server_hlc.increment();
+    let mf2_hlc = test_server.hlc_context.generate_hlc();
+    let mf2_pk_id = 20;
+    let mf2_hlc_uuid = Uuid::new_v4().to_string();
+    let mf2_server = media_files::ActiveModel {
+        id: ActiveValue::Set(mf2_pk_id),
+        file_name: ActiveValue::Set("server_song_2".to_string()),
+        directory: ActiveValue::Set("/audio/server/".to_string()),
+        extension: ActiveValue::Set("ogg".to_string()),
+        file_hash: ActiveValue::Set("mf2_hash_server".to_string()),
+        last_modified: ActiveValue::Set(Utc::now().to_rfc3339()),
+        cover_art_id: ActiveValue::Set(Some(ca2_pk_id)),
+        sample_rate: ActiveValue::Set(48000),
+        duration: ActiveValue::Set(Decimal::new(2405, 1)),
+        hlc_uuid: ActiveValue::Set(mf2_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(mf2_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(mf2_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(mf2_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(mf2_hlc.node_id.to_string()),
+    };
+    mf2_server.insert(&server_db).await?;
 
-//     let mf2_pk_id = 20;
-//     let mf2_hlc_uuid = Uuid::new_v4().to_string();
-//     let mf2_server = media_files::ActiveModel {
-//         id: ActiveValue::Set(mf2_pk_id),
-//         file_name: ActiveValue::Set("server_song_2".to_string()),
-//         directory: ActiveValue::Set("/audio/server/".to_string()),
-//         extension: ActiveValue::Set("ogg".to_string()),
-//         file_hash: ActiveValue::Set("mf2_hash_server".to_string()),
-//         last_modified: ActiveValue::Set(Utc::now().to_rfc3339()),
-//         cover_art_id: ActiveValue::Set(Some(ca2_pk_id)),
-//         sample_rate: ActiveValue::Set(48000),
-//         duration: ActiveValue::Set(Decimal::new(2405, 1)), // 240.5s
-//         hlc_uuid: ActiveValue::Set(mf2_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-//     };
-//     mf2_server.insert(&server_db).await?;
+    // Second sync (Server -> Client)
+    let _results_2: Vec<TableSyncResult> = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
 
-//     // Second sync (Server -> Client, and client also checks for updates)
-//     let _results_2: Vec<TableSyncResult> = setup_and_run_sync(
-//         &client_db,
-//         client_node_id,
-//         &remote_data_source,
-//         &hlc_task_context,
-//     )
-//     .await?;
+    let client_ca2 = media_cover_art::Entity::find()
+        .filter(media_cover_art::Column::HlcUuid.eq(ca2_hlc_uuid.clone()))
+        .one(&client_db)
+        .await?
+        .context("CA2 not on client")?;
+    assert_eq!(client_ca2.file_hash, "ca2_hash_server");
+    assert_eq!(client_ca2.binary, vec![2, 2, 2]);
+    assert_eq!(client_ca2.primary_color, Some(0xBBBBBB));
 
-//     let client_ca2 = media_cover_art::Entity::find()
-//         .filter(media_cover_art::Column::HlcUuid.eq(ca2_hlc_uuid.clone()))
-//         .one(&client_db)
-//         .await?
-//         .context("CA2 not on client")?;
-//     assert_eq!(client_ca2.file_hash, "ca2_hash_server");
-//     assert_eq!(client_ca2.binary, vec![2, 2, 2]);
-//     assert_eq!(client_ca2.primary_color, Some(0xBBBBBB));
+    let client_mf2 = media_files::Entity::find()
+        .filter(media_files::Column::HlcUuid.eq(mf2_hlc_uuid.clone()))
+        .one(&client_db)
+        .await?
+        .context("MF2 not on client")?;
+    assert_eq!(client_mf2.file_name, "server_song_2");
+    assert_eq!(client_mf2.directory, "/audio/server/");
+    assert_eq!(client_mf2.sample_rate, 48000);
+    assert_eq!(client_mf2.duration, Decimal::new(2405, 1));
+    assert_eq!(client_mf2.cover_art_id, Some(client_ca2.id)); // FK check
 
-//     let client_mf2 = media_files::Entity::find()
-//         .filter(media_files::Column::HlcUuid.eq(mf2_hlc_uuid.clone()))
-//         .one(&client_db)
-//         .await?
-//         .context("MF2 not on client")?;
-//     assert_eq!(client_mf2.file_name, "server_song_2");
-//     assert_eq!(client_mf2.directory, "/audio/server/");
-//     assert_eq!(client_mf2.sample_rate, 48000);
-//     assert_eq!(client_mf2.duration, Decimal::new(2405, 1));
-//     assert_eq!(client_mf2.cover_art_id, Some(client_ca2.id)); // FK check
+    // Verify counts
+    assert_eq!(media_cover_art::Entity::find().count(&client_db).await?, 2);
+    assert_eq!(media_files::Entity::find().count(&client_db).await?, 2);
+    assert_eq!(media_cover_art::Entity::find().count(&server_db).await?, 2);
+    assert_eq!(media_files::Entity::find().count(&server_db).await?, 2);
 
-//     // Verify counts
-//     assert_eq!(media_cover_art::Entity::find().count(&client_db).await?, 2);
-//     assert_eq!(media_files::Entity::find().count(&client_db).await?, 2);
-//     assert_eq!(media_cover_art::Entity::find().count(&server_db).await?, 2);
-//     assert_eq!(media_files::Entity::find().count(&server_db).await?, 2);
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
 
-//     test_server.shutdown_tx.send(()).ok();
-//     test_server.handle.await??;
-//     Ok(())
-// }
+#[tokio::test]
+async fn test_get_remote_last_sync_hlc() -> Result<()> {
+    let _ = env_logger::try_init();
 
-// #[tokio::test]
-// async fn test_get_remote_last_sync_hlc() -> Result<()> {
-//     let _ = env_logger::try_init();
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
 
-//     let server_db = setup_db(true).await?;
-//     let client_db = setup_db(false).await?;
-//     let test_server = start_server(server_db.clone()).await?;
-//     let client_node_id = Uuid::new_v4();
-//     let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
-//     let hlc_task_context = SyncTaskContext::new(client_node_id);
+    // Initial check
+    let last_hlc_before_sync = remote_data_source
+        .get_remote_last_sync_hlc("albums", client_node_id)
+        .await?;
+    assert!(last_hlc_before_sync.is_none());
 
-//     let last_hlc_before_sync = remote_data_source
-//         .get_remote_last_sync_hlc("albums", client_node_id)
-//         .await?;
-//     assert!(last_hlc_before_sync.is_none());
+    let album_creation_hlc = hlc_task_context.generate_hlc();
+    let album_pk_id = 5;
+    let album_hlc_uuid = Uuid::new_v4().to_string();
+    let album_name = "Album for Last Sync HLC Test".to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id),
+        name: ActiveValue::Set(album_name.clone()),
+        group: ActiveValue::Set("Last Sync Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
+    }
+    .insert(&client_db)
+    .await?;
 
-//     let album_creation_hlc = HLC::new(client_node_id);
-//     let album_pk_id = 5;
-//     let album_hlc_uuid = Uuid::new_v4().to_string();
-//     let album_name = "Album for Last Sync HLC Test".to_string();
-//     albums::ActiveModel {
-//         id: ActiveValue::Set(album_pk_id),
-//         name: ActiveValue::Set(album_name.clone()),
-//         group: ActiveValue::Set("Last Sync Group".to_string()),
-//         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-//         created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
-//         created_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
-//         created_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
-//         updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
-//         updated_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
-//         updated_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
-//     }
-//     .insert(&client_db)
-//     .await?;
+    // Run sync
+    let results: Vec<TableSyncResult> = setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
 
-//     let results: Vec<TableSyncResult> = setup_and_run_sync(
-//         &client_db,
-//         client_node_id,
-//         &remote_data_source,
-//         &hlc_task_context,
-//     )
-//     .await?;
+    let albums_job_metadata_owned: SyncTableMetadata = results
+        .into_iter()
+        .find(|r: &TableSyncResult| r.get_metadata().is_some_and(|s| s.table_name == "albums"))
+        .expect("Albums job result not found")
+        .unwrap_metadata();
 
-//     let albums_job_metadata_owned: SyncTableMetadata = results
-//         .into_iter()
-//         .find(|r: &TableSyncResult| r.get_metadata().is_some_and(|s| s.table_name == "albums"))
-//         .expect("Albums job result not found") // This returns TableSyncResult
-//         .unwrap_metadata(); // Consumes TableSyncResult -> SyncTableMetadata
+    let last_hlc_after_sync_opt = remote_data_source
+        .get_remote_last_sync_hlc("albums", client_node_id)
+        .await?;
 
-//     let last_hlc_after_sync_opt = remote_data_source
-//         .get_remote_last_sync_hlc("albums", client_node_id)
-//         .await?;
+    assert_eq!(
+        last_hlc_after_sync_opt,
+        Some(albums_job_metadata_owned.last_sync_hlc),
+        "Last sync HLC from server API does not match HLC from client's sync metadata"
+    );
 
-//     assert_eq!(
-//         last_hlc_after_sync_opt, Some(albums_job_metadata_owned.last_sync_hlc), // This is now Some(HLC) == Option<HLC>
-//         "Last sync HLC from server API does not match HLC from client's sync metadata after client sent data"
-//     );
+    let server_album = albums::Entity::find()
+        .filter(albums::Column::HlcUuid.eq(album_hlc_uuid))
+        .one(&server_db)
+        .await?
+        .context("Album not found on server after sync")?;
+    assert_eq!(server_album.name, album_name);
 
-//     let server_album = albums::Entity::find()
-//         .filter(albums::Column::HlcUuid.eq(album_hlc_uuid))
-//         .one(&server_db)
-//         .await?
-//         .context("Album not found on server after sync")?;
-//     assert_eq!(server_album.name, album_name);
+    let expected_hlc_from_op = HLC {
+        timestamp: album_creation_hlc.timestamp,
+        version: album_creation_hlc.version,
+        node_id: album_creation_hlc.node_id,
+    };
 
-//     let expected_hlc_from_op = HLC {
-//         timestamp: album_creation_hlc.timestamp,
-//         version: album_creation_hlc.version,
-//         node_id: album_creation_hlc.node_id,
-//     };
+    let server_sync_record = sync_record::Entity::find()
+        .filter(sync_record::Column::TableName.eq("albums"))
+        .filter(sync_record::Column::ClientNodeId.eq(client_node_id))
+        .one(&server_db)
+        .await?
+        .context("sync_record not found on server")?;
 
-//     let server_sync_record = sync_record::Entity::find()
-//         .filter(sync_record::Column::TableName.eq("albums"))
-//         .filter(sync_record::Column::ClientNodeId.eq(client_node_id))
-//         .one(&server_db)
-//         .await?
-//         .context("sync_record not found on server")?;
+    let server_stored_hlc = sync_utils::parse_hlc(
+        &server_sync_record.last_sync_hlc_ts,
+        server_sync_record.last_sync_hlc_ver,
+        &server_sync_record.last_sync_hlc_nid,
+    )?;
 
-//     let server_stored_hlc = sync_utils::parse_hlc(
-//         &server_sync_record.last_sync_hlc_ts,
-//         server_sync_record.last_sync_hlc_ver,
-//         &server_sync_record.last_sync_hlc_nid,
-//     )?;
+    assert_eq!(
+        Some(server_stored_hlc.clone()),
+        last_hlc_after_sync_opt, // Compare Option<HLC> with Option<HLC>
+        "Server's stored HLC in sync_record table mismatches API response"
+    );
+    assert!(
+        server_stored_hlc >= expected_hlc_from_op,
+        "Server's stored HLC should be >= HLC of the operation. Server: {}, Op: {}",
+        server_stored_hlc,
+        expected_hlc_from_op
+    );
 
-//     assert_eq!(
-//         Some(server_stored_hlc.clone()),
-//         last_hlc_after_sync_opt, // Compare Option<HLC> with Option<HLC>
-//         "Server's stored HLC in sync_record table mismatches API response"
-//     );
-//     assert!(
-//         server_stored_hlc >= expected_hlc_from_op,
-//         "Server's stored HLC should be >= HLC of the operation. Server: {}, Op: {}",
-//         server_stored_hlc,
-//         expected_hlc_from_op
-//     );
-
-//     test_server.shutdown_tx.send(()).ok();
-//     test_server.handle.await??;
-//     Ok(())
-// }
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
 
 // // TODO: Add more tests:
 // // - Updates (client updates, server updates)
