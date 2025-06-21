@@ -15,6 +15,7 @@ use crate::entities;
 
 pub mod bindings;
 pub mod chunking;
+pub mod data_source;
 pub mod foreign_keys;
 pub mod utils;
 
