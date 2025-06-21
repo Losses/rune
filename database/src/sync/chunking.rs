@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use anyhow::{anyhow, Context, Result};
 use axum::{
@@ -10,9 +10,9 @@ use axum::{
 use chrono::DateTime;
 use log::{debug, error, info, warn};
 use sea_orm::{
-    sea_query::OnConflict, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
-    EntityTrait, IntoActiveModel, Iterable, PrimaryKeyToColumn, PrimaryKeyTrait, QueryFilter,
-    TransactionTrait,
+    sea_query::OnConflict, ActiveModelBehavior, ActiveModelTrait, ActiveValue::Set, ColumnTrait,
+    DatabaseConnection, EntityTrait, IntoActiveModel, Iterable, ModelTrait, PrimaryKeyToColumn,
+    PrimaryKeyTrait, QueryFilter, TransactionTrait,
 };
 use serde::{Deserialize, Serialize};
 use sync::chunking::{break_data_chunk, generate_data_chunks};
@@ -444,7 +444,7 @@ pub struct ApplyChangesPayload<Model: HLCRecord> {
 }
 
 /// Generic function to process sync operations for a given entity within a transaction.
-/// This is a corrected and robust implementation.
+/// This version includes extensive diagnostic logging.
 #[allow(clippy::needless_borrow)]
 async fn process_entity_changes<'a, E, FKR>(
     txn: &'a sea_orm::DatabaseTransaction,
@@ -455,13 +455,17 @@ async fn process_entity_changes<'a, E, FKR>(
 where
     E: HLCModel + EntityTrait + Send + Sync,
     E::PrimaryKey: PrimaryKeyTrait,
+    <E::PrimaryKey as PrimaryKeyTrait>::ValueType: Send + Debug,
     E::Model: HLCRecord
+        + ModelTrait
         + Send
         + Sync
         + for<'de> Deserialize<'de>
         + IntoActiveModel<E::ActiveModel>
-        + ModelWithForeignKeyOps,
-    E::ActiveModel: sea_orm::ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
+        + ModelWithForeignKeyOps
+        + Debug
+        + Clone, // Added clone bound for the fix
+    E::ActiveModel: ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
     FKR: ForeignKeyResolver + Send + Sync,
 {
     let payload: ApplyChangesPayload<E::Model> =
@@ -478,11 +482,12 @@ where
         match op {
             SyncOperation::InsertRemote(model, fk_payload) => {
                 let id_str = model.unique_id();
-                debug!("Server TXN: Inserting record with unique_id {}", id_str);
+                println!(
+                    "[SERVER DIAGNOSTICS] InsertRemote for unique_id: {}",
+                    id_str
+                );
                 let mut active_model = model.clone().into_active_model();
 
-                // CRITICAL: Reset the primary key so the server's database can generate a new one.
-                // This is essential for preventing PK conflicts in a multi-client environment.
                 for pk_col in E::PrimaryKey::iter() {
                     active_model.reset(pk_col.into_column());
                 }
@@ -491,47 +496,141 @@ where
                     .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
                     .await?;
 
-                E::insert(active_model).exec(txn).await.with_context(|| {
-                    format!("Failed to insert server record with unique_id {}", id_str)
-                })?;
-
-                operations_processed_count += 1;
+                let insert_result = E::insert(active_model).exec(txn).await;
+                match insert_result {
+                    Ok(_) => {
+                        println!("[SERVER DIAGNOSTICS] Insert successful for {}", id_str);
+                        operations_processed_count += 1;
+                    }
+                    Err(e) => {
+                        println!("[SERVER DIAGNOSTICS] Insert failed for {}: {:?}", id_str, e);
+                        return Err(e.into());
+                    }
+                }
             }
-            SyncOperation::UpdateRemote(model, fk_payload) => {
-                let id_str = model.unique_id();
-                debug!("Server TXN: Updating record with unique_id {}", id_str);
-                let mut active_model = model.clone().into_active_model();
+            SyncOperation::UpdateRemote(incoming_model, fk_payload) => {
+                let unique_id = incoming_model.unique_id();
+                println!(
+                    "[SERVER DIAGNOSTICS] UpdateRemote for unique_id: {}",
+                    unique_id
+                );
+                println!(
+                    "[SERVER DIAGNOSTICS] Incoming model data: {:?}",
+                    incoming_model
+                );
 
-                for pk_col in E::PrimaryKey::iter() {
-                    active_model.reset(pk_col.into_column());
-                }
+                let existing_record = E::find()
+                    .filter(E::unique_id_column().eq(unique_id.clone()))
+                    .one(txn)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "DB error finding existing record with unique_id {}",
+                            unique_id
+                        )
+                    })?;
 
-                fk_resolver
-                    .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
-                    .await?;
-
-                let res = E::update_many()
-                    .set(active_model)
-                    .filter(E::unique_id_column().eq(id_str.clone()))
-                    .exec(txn)
-                    .await?;
-
-                if res.rows_affected > 0 {
-                    operations_processed_count += 1;
-                } else {
-                    warn!(
-                        "Update operation for table {} with unique_id {} affected 0 rows.",
-                        table_name, id_str
+                if let Some(db_record) = existing_record {
+                    println!(
+                        "[SERVER DIAGNOSTICS] Found existing record in DB: {:?}",
+                        db_record
                     );
+
+                    let incoming_hlc = incoming_model.updated_at_hlc();
+                    let db_hlc = db_record.updated_at_hlc();
+
+                    if incoming_hlc > db_hlc {
+                        println!(
+                            "[SERVER DIAGNOSTICS] Incoming HLC ({:?}) is newer than DB HLC ({:?}). Preparing update.",
+                            incoming_hlc, db_hlc
+                        );
+
+                        // FIX: `into_active_model()` creates an ActiveModel with `Unchanged` fields,
+                        // which prevents `update()` from working. The `from_json` method creates an
+                        // ActiveModel with `Set` fields, ensuring the update applies all columns.
+                        let json_val = serde_json::to_value(incoming_model.clone())?;
+                        let mut active_model = E::ActiveModel::from_json(json_val)?;
+
+                        // Log the state of the ActiveModel before setting the PK
+                        println!(
+                            "[SERVER DIAGNOSTICS] ActiveModel from client payload: {:?}",
+                            active_model
+                        );
+
+                        // Overwrite the primary key with the server's actual primary key.
+                        for pk_def in E::PrimaryKey::iter() {
+                            let pk_col = pk_def.into_column();
+                            let server_pk_value = db_record.get(pk_col);
+                            println!(
+                                "[SERVER DIAGNOSTICS] Setting server PK `{:?}` to `{:?}`",
+                                pk_col, server_pk_value
+                            );
+                            active_model.set(pk_col, server_pk_value);
+                        }
+
+                        // Log the state of the ActiveModel after setting the PK
+                        println!(
+                            "[SERVER DIAGNOSTICS] ActiveModel after setting server PK: {:?}",
+                            active_model
+                        );
+
+                        fk_resolver
+                            .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
+                            .await?;
+
+                        let update_result = active_model.update(txn).await;
+
+                        match update_result {
+                            Ok(updated_model) => {
+                                println!(
+                                    "[SERVER DIAGNOSTICS] Update successful. Resulting model: {:?}",
+                                    updated_model
+                                );
+                                operations_processed_count += 1;
+                            }
+                            Err(e) => {
+                                println!(
+                                    "[SERVER DIAGNOSTICS] Update failed for {}: {:?}",
+                                    unique_id, e
+                                );
+                                // The transaction will be rolled back by the caller, but we should propagate the error
+                                return Err(e.into());
+                            }
+                        }
+                    } else {
+                        println!("[SERVER DIAGNOSTICS] Incoming HLC ({:?}) is NOT newer than DB HLC ({:?}). Ignoring update.", incoming_hlc, db_hlc);
+                    }
+                } else {
+                    println!("[SERVER DIAGNOSTICS] Update received for non-existent unique_id {}. Treating as an insert.", unique_id);
+                    // This re-uses your existing insert logic.
+                    let mut active_model = incoming_model.clone().into_active_model();
+                    for pk_col in E::PrimaryKey::iter() {
+                        active_model.reset(pk_col.into_column());
+                    }
+                    fk_resolver
+                        .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
+                        .await?;
+                    E::insert(active_model).exec(txn).await.with_context(|| {
+                        format!("Failed to insert server record during update-to-insert promotion for unique_id {}", unique_id)
+                    })?;
+
+                    operations_processed_count += 1;
                 }
             }
             SyncOperation::DeleteRemote(unique_id) => {
-                debug!("Server TXN: Deleting record with unique_id {}", unique_id);
+                println!(
+                    "[SERVER DIAGNOSTICS] DeleteRemote for unique_id: {}",
+                    unique_id
+                );
                 let res = E::delete_many()
                     .filter(E::unique_id_column().eq(unique_id.clone()))
                     .exec(txn)
                     .await?;
 
+                println!(
+                    "[SERVER DIAGNOSTICS] Delete result: rows_affected = {}",
+                    res.rows_affected
+                );
                 if res.rows_affected > 0 {
                     operations_processed_count += 1;
                 } else {
@@ -541,7 +640,6 @@ where
                     );
                 }
             }
-            // Other operations received from a client are unexpected but should be ignored gracefully.
             op => {
                 debug!(
                     "Server received a non-standard or no-op client operation, ignoring: {:?}",
