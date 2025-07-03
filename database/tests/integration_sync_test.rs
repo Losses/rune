@@ -8,7 +8,7 @@ use axum::{
 use chrono::Utc;
 use sea_orm::{
     prelude::Decimal, ActiveModelTrait, ActiveValue, ColumnTrait, ConnectOptions, Database,
-    DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    DatabaseConnection, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 use uuid::Uuid;
@@ -679,8 +679,388 @@ async fn test_get_remote_last_sync_hlc() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_client_updates_album_synced_to_server() -> Result<()> {
+    let _ = env_logger::try_init();
+
+    // 1. Setup
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
+
+    // 2. Create initial record and sync it
+    let initial_hlc = hlc_task_context.generate_hlc();
+    let album_pk_id = 101;
+    let album_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id),
+        name: ActiveValue::Set("Initial Album Name".to_string()),
+        group: ActiveValue::Set("Initial Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+    }
+    .insert(&client_db)
+    .await?;
+
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 3. Client updates the record
+    let client_update_hlc = hlc_task_context.generate_hlc();
+    // Fetch the existing record, convert it to an ActiveModel, then modify and save.
+    // This pattern is more robust and consistent with other passing tests.
+    let mut album_to_update = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .context("Failed to find album on client before updating")?
+        .into_active_model();
+
+    album_to_update.name = ActiveValue::Set("Updated by Client".to_string());
+    album_to_update.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    album_to_update.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
+    album_to_update.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
+
+    album_to_update.update(&client_db).await?;
+
+    // 4. Run sync again
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 5. Assertions
+    let server_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .context("Album not found on server after update sync")?;
+
+    assert_eq!(server_album.name, "Updated by Client");
+    assert_eq!(
+        server_album.updated_at_hlc_ts,
+        client_update_hlc.to_rfc3339()
+    );
+    assert_eq!(
+        server_album.updated_at_hlc_ver,
+        client_update_hlc.version as i32
+    );
+    assert_eq!(
+        server_album.updated_at_hlc_nid,
+        client_update_hlc.node_id.to_string()
+    );
+
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_updates_album_synced_to_client() -> Result<()> {
+    let _ = env_logger::try_init();
+
+    // 1. Setup
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
+
+    // 2. Create initial record on server and sync it
+    let initial_hlc = test_server.hlc_context.generate_hlc();
+    let album_pk_id = 102;
+    let album_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id),
+        name: ActiveValue::Set("Original Server Album".to_string()),
+        group: ActiveValue::Set("Original Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+    }
+    .insert(&server_db)
+    .await?;
+
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 3. Server updates the record using the EXACT same partial update pattern as the passing test
+    let server_update_hlc = test_server.hlc_context.generate_hlc();
+    let album_to_update = albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id), // The PK is essential for the WHERE clause
+        name: ActiveValue::Set("Updated by Server".to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(server_update_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(server_update_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(server_update_hlc.node_id.to_string()),
+        ..Default::default() // This ensures all other fields are `NotSet`
+    };
+    album_to_update.update(&server_db).await?;
+
+    // 4. Run sync again
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 5. Assertions
+    let client_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .context("Album not found on client after update sync")?;
+
+    assert_eq!(client_album.name, "Updated by Server");
+    assert_eq!(
+        client_album.updated_at_hlc_ts,
+        server_update_hlc.to_rfc3339()
+    );
+
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_conflict_resolution_client_wins() -> Result<()> {
+    let _ = env_logger::try_init();
+
+    // 1. Setup
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
+
+    // 2. Create initial record and sync it
+    let initial_hlc = hlc_task_context.generate_hlc();
+    let album_pk_id = 103;
+    let album_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id),
+        name: ActiveValue::Set("Conflict Candidate".to_string()),
+        group: ActiveValue::Set("Conflict Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+    }
+    .insert(&client_db)
+    .await?;
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 3. Server makes an update (the "older" one)
+    let server_update_hlc = test_server.hlc_context.generate_hlc();
+    let mut server_album_am = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    server_album_am.name = ActiveValue::Set("Server's Update (should lose)".to_string());
+    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    server_album_am.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
+    server_album_am.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
+    server_album_am.update(&server_db).await?;
+
+    // Ensure client HLC is newer
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 4. Client makes an update (the "newer" one)
+    let client_update_hlc = hlc_task_context.generate_hlc();
+    let mut client_album_am = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    client_album_am.name = ActiveValue::Set("Client's Update (should win)".to_string());
+    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    client_album_am.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
+    client_album_am.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
+    client_album_am.update(&client_db).await?;
+    assert!(
+        client_update_hlc > server_update_hlc,
+        "Test setup failed: client HLC was not greater than server HLC"
+    );
+
+    // 5. Run sync
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 6. Assertions: Client's update should be on both databases
+    let final_server_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .unwrap();
+    let final_client_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .unwrap();
+
+    assert_eq!(final_server_album.name, "Client's Update (should win)");
+    assert_eq!(
+        final_server_album.updated_at_hlc_nid,
+        client_update_hlc.node_id.to_string()
+    );
+
+    assert_eq!(final_client_album.name, "Client's Update (should win)");
+    assert_eq!(
+        final_client_album.updated_at_hlc_nid,
+        client_update_hlc.node_id.to_string()
+    );
+
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_conflict_resolution_server_wins() -> Result<()> {
+    let _ = env_logger::try_init();
+
+    // 1. Setup
+    let server_db = setup_db(true, "").await?;
+    let client_db = setup_db(false, "").await?;
+    let test_server = start_server(server_db.clone()).await?;
+    let client_node_id = Uuid::new_v4();
+    let remote_data_source = RemoteHttpDataSource::new(&format!("http://{}", test_server.addr));
+    let hlc_task_context = SyncTaskContext::new(client_node_id);
+
+    // 2. Create initial record and sync it
+    let initial_hlc = hlc_task_context.generate_hlc();
+    let album_pk_id = 104;
+    let album_hlc_uuid = Uuid::new_v4().to_string();
+    albums::ActiveModel {
+        id: ActiveValue::Set(album_pk_id),
+        name: ActiveValue::Set("Conflict Candidate".to_string()),
+        group: ActiveValue::Set("Conflict Group".to_string()),
+        hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
+        updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
+    }
+    .insert(&client_db)
+    .await?;
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 3. Client makes an update (the "older" one)
+    let client_update_hlc = hlc_task_context.generate_hlc();
+    let mut client_album_am = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    client_album_am.name = ActiveValue::Set("Client's Update (should lose)".to_string());
+    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    client_album_am.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
+    client_album_am.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
+    client_album_am.update(&client_db).await?;
+
+    // Ensure server HLC is newer
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 4. Server makes an update (the "newer" one)
+    let server_update_hlc = test_server.hlc_context.generate_hlc();
+    let mut server_album_am = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    server_album_am.name = ActiveValue::Set("Server's Update (should win)".to_string());
+    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    server_album_am.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
+    server_album_am.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
+    server_album_am.update(&server_db).await?;
+    assert!(
+        server_update_hlc > client_update_hlc,
+        "Test setup failed: server HLC was not greater than client HLC"
+    );
+
+    // 5. Run sync
+    setup_and_run_sync(
+        &client_db,
+        client_node_id,
+        &remote_data_source,
+        &hlc_task_context,
+    )
+    .await?;
+
+    // 6. Assertions: Server's update should be on both databases
+    let final_server_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .unwrap();
+    let final_client_album = albums::Entity::find_by_id(album_pk_id)
+        .one(&client_db)
+        .await?
+        .unwrap();
+
+    assert_eq!(final_server_album.name, "Server's Update (should win)");
+    assert_eq!(
+        final_server_album.updated_at_hlc_nid,
+        server_update_hlc.node_id.to_string()
+    );
+
+    assert_eq!(final_client_album.name, "Server's Update (should win)");
+    assert_eq!(
+        final_client_album.updated_at_hlc_nid,
+        server_update_hlc.node_id.to_string()
+    );
+
+    test_server.shutdown_tx.send(()).ok();
+    test_server.handle.await??;
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - Updates (client updates, server updates)
 // // - Deletes (client deletes, server deletes)
 // // - Sync for junction tables (media_file_albums, media_file_artists, media_file_genres)
 // //   ensuring FKs are correct (e.g. media_file_albums.track_number).

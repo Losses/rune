@@ -464,7 +464,7 @@ where
         + IntoActiveModel<E::ActiveModel>
         + ModelWithForeignKeyOps
         + Debug
-        + Clone, // Added clone bound for the fix
+        + Clone,
     E::ActiveModel: ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
     FKR: ForeignKeyResolver + Send + Sync,
 {
@@ -480,157 +480,84 @@ where
 
     for op in &payload.operations {
         match op {
-            SyncOperation::InsertRemote(model, fk_payload) => {
-                let id_str = model.unique_id();
-                println!(
-                    "[SERVER DIAGNOSTICS] InsertRemote for unique_id: {}",
-                    id_str
-                );
-                let mut active_model = model.clone().into_active_model();
-
-                for pk_col in E::PrimaryKey::iter() {
-                    active_model.reset(pk_col.into_column());
-                }
-
-                fk_resolver
-                    .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
-                    .await?;
-
-                let insert_result = E::insert(active_model).exec(txn).await;
-                match insert_result {
-                    Ok(_) => {
-                        println!("[SERVER DIAGNOSTICS] Insert successful for {}", id_str);
-                        operations_processed_count += 1;
-                    }
-                    Err(e) => {
-                        println!("[SERVER DIAGNOSTICS] Insert failed for {}: {:?}", id_str, e);
-                        return Err(e.into());
-                    }
-                }
-            }
-            SyncOperation::UpdateRemote(incoming_model, fk_payload) => {
-                let unique_id = incoming_model.unique_id();
-                println!(
-                    "[SERVER DIAGNOSTICS] UpdateRemote for unique_id: {}",
-                    unique_id
-                );
-                println!(
-                    "[SERVER DIAGNOSTICS] Incoming model data: {:?}",
-                    incoming_model
-                );
+            SyncOperation::InsertRemote(model, fk_payload)
+            | SyncOperation::UpdateRemote(model, fk_payload) => {
+                let op_type = if matches!(op, SyncOperation::InsertRemote(..)) {
+                    "InsertRemote"
+                } else {
+                    "UpdateRemote"
+                };
+                let unique_id = model.unique_id();
 
                 let existing_record = E::find()
                     .filter(E::unique_id_column().eq(unique_id.clone()))
                     .one(txn)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "DB error finding existing record with unique_id {}",
-                            unique_id
-                        )
-                    })?;
+                    .await?;
 
-                if let Some(db_record) = existing_record {
-                    println!(
-                        "[SERVER DIAGNOSTICS] Found existing record in DB: {:?}",
-                        db_record
-                    );
-
-                    let incoming_hlc = incoming_model.updated_at_hlc();
-                    let db_hlc = db_record.updated_at_hlc();
-
-                    if incoming_hlc > db_hlc {
-                        println!(
-                            "[SERVER DIAGNOSTICS] Incoming HLC ({:?}) is newer than DB HLC ({:?}). Preparing update.",
-                            incoming_hlc, db_hlc
+                if let Some(db_record) = &existing_record {
+                    if model.updated_at_hlc() <= db_record.updated_at_hlc() {
+                        debug!(
+                            "[SERVER DIAGNOSTICS] Ignoring stale {} for unique_id: {}",
+                            op_type, unique_id
                         );
-
-                        // FIX: `into_active_model()` creates an ActiveModel with `Unchanged` fields,
-                        // which prevents `update()` from working. The `from_json` method creates an
-                        // ActiveModel with `Set` fields, ensuring the update applies all columns.
-                        let json_val = serde_json::to_value(incoming_model.clone())?;
-                        let mut active_model = E::ActiveModel::from_json(json_val)?;
-
-                        // Log the state of the ActiveModel before setting the PK
-                        println!(
-                            "[SERVER DIAGNOSTICS] ActiveModel from client payload: {:?}",
-                            active_model
-                        );
-
-                        // Overwrite the primary key with the server's actual primary key.
-                        for pk_def in E::PrimaryKey::iter() {
-                            let pk_col = pk_def.into_column();
-                            let server_pk_value = db_record.get(pk_col);
-                            println!(
-                                "[SERVER DIAGNOSTICS] Setting server PK `{:?}` to `{:?}`",
-                                pk_col, server_pk_value
-                            );
-                            active_model.set(pk_col, server_pk_value);
-                        }
-
-                        // Log the state of the ActiveModel after setting the PK
-                        println!(
-                            "[SERVER DIAGNOSTICS] ActiveModel after setting server PK: {:?}",
-                            active_model
-                        );
-
-                        fk_resolver
-                            .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
-                            .await?;
-
-                        let update_result = active_model.update(txn).await;
-
-                        match update_result {
-                            Ok(updated_model) => {
-                                println!(
-                                    "[SERVER DIAGNOSTICS] Update successful. Resulting model: {:?}",
-                                    updated_model
-                                );
-                                operations_processed_count += 1;
-                            }
-                            Err(e) => {
-                                println!(
-                                    "[SERVER DIAGNOSTICS] Update failed for {}: {:?}",
-                                    unique_id, e
-                                );
-                                // The transaction will be rolled back by the caller, but we should propagate the error
-                                return Err(e.into());
-                            }
-                        }
-                    } else {
-                        println!("[SERVER DIAGNOSTICS] Incoming HLC ({:?}) is NOT newer than DB HLC ({:?}). Ignoring update.", incoming_hlc, db_hlc);
+                        continue;
                     }
-                } else {
-                    println!("[SERVER DIAGNOSTICS] Update received for non-existent unique_id {}. Treating as an insert.", unique_id);
-                    // This re-uses your existing insert logic.
-                    let mut active_model = incoming_model.clone().into_active_model();
+                }
+
+                debug!(
+                    "[SERVER DIAGNOSTICS] Processing {} for unique_id: {}",
+                    op_type, unique_id
+                );
+
+                // Create an active model from the incoming model, where all fields will be `Set`.
+                let json_val = serde_json::to_value(model.clone())?;
+                let mut active_model = E::ActiveModel::from_json(json_val)?;
+
+                // Remap FKs before inserting or updating.
+                fk_resolver
+                    .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
+                    .await?;
+
+                if existing_record.is_some() {
+                    // Reset the primary key field(s) to `NotSet`.
+                    // This is crucial to prevent trying to `SET` the primary key column
+                    // during the update operation.
                     for pk_col in E::PrimaryKey::iter() {
                         active_model.reset(pk_col.into_column());
                     }
-                    fk_resolver
-                        .remap_and_set_foreign_keys(&mut active_model, &fk_payload, txn)
-                        .await?;
-                    E::insert(active_model).exec(txn).await.with_context(|| {
-                        format!("Failed to insert server record during update-to-insert promotion for unique_id {}", unique_id)
-                    })?;
 
+                    // Use `update_many` filtered by the logical unique_id.
+                    // This correctly applies only the `Set` fields from `active_model`.
+                    let res = E::update_many()
+                        .set(active_model)
+                        .filter(E::unique_id_column().eq(unique_id.clone()))
+                        .exec(txn)
+                        .await?;
+
+                    if res.rows_affected == 0 {
+                        // This indicates a problem, as we found an existing record but couldn't update it.
+                        return Err(anyhow!(
+                            "Record with unique_id {} was found but update affected 0 rows.",
+                            unique_id
+                        ));
+                    }
+                    operations_processed_count += res.rows_affected;
+                } else {
+                    // Reset the primary key to ensure the database generates a new one.
+                    for pk_col in E::PrimaryKey::iter() {
+                        active_model.reset(pk_col.into_column());
+                    }
+
+                    // Explicitly call insert.
+                    E::insert(active_model).exec_without_returning(txn).await?;
                     operations_processed_count += 1;
                 }
             }
             SyncOperation::DeleteRemote(unique_id) => {
-                println!(
-                    "[SERVER DIAGNOSTICS] DeleteRemote for unique_id: {}",
-                    unique_id
-                );
                 let res = E::delete_many()
                     .filter(E::unique_id_column().eq(unique_id.clone()))
                     .exec(txn)
                     .await?;
-
-                println!(
-                    "[SERVER DIAGNOSTICS] Delete result: rows_affected = {}",
-                    res.rows_affected
-                );
                 if res.rows_affected > 0 {
                     operations_processed_count += 1;
                 } else {
