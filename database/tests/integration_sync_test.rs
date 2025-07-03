@@ -808,16 +808,19 @@ async fn test_server_updates_album_synced_to_client() -> Result<()> {
     )
     .await?;
 
-    // 3. Server updates the record using the EXACT same partial update pattern as the passing test
+    // 3. Server updates the record
     let server_update_hlc = test_server.hlc_context.generate_hlc();
-    let album_to_update = albums::ActiveModel {
-        id: ActiveValue::Set(album_pk_id), // The PK is essential for the WHERE clause
-        name: ActiveValue::Set("Updated by Server".to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(server_update_hlc.to_rfc3339()),
-        updated_at_hlc_ver: ActiveValue::Set(server_update_hlc.version as i32),
-        updated_at_hlc_nid: ActiveValue::Set(server_update_hlc.node_id.to_string()),
-        ..Default::default() // This ensures all other fields are `NotSet`
-    };
+    let mut album_to_update = albums::Entity::find_by_id(album_pk_id)
+        .one(&server_db)
+        .await?
+        .context("Failed to find album on server before updating")?
+        .into_active_model();
+
+    album_to_update.name = ActiveValue::Set("Updated by Server".to_string());
+    album_to_update.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    album_to_update.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
+    album_to_update.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
+
     album_to_update.update(&server_db).await?;
 
     // 4. Run sync again
