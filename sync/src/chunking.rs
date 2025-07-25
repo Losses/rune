@@ -261,7 +261,11 @@ where
 
     let mut chunks = Vec::new();
     // Start from HLC(0,0,node) or the specified start point
-    let mut current_hlc = start_hlc_exclusive.unwrap_or_else(|| HLC::new(options.node_id));
+    let mut current_hlc = start_hlc_exclusive.unwrap_or_else(|| HLC {
+        timestamp_ms: 0,
+        version: 0,
+        node_id: options.node_id,
+    });
 
     // Find the latest HLC in the dataset to calculate age relative to the "present"
     let latest_record_opt: Option<E::Model> = E::find()
