@@ -109,7 +109,6 @@ impl Migration {
                     .name(format!("idx_{}_hlc_uuid_unique", table.to_string()))
                     .table(table)
                     .col(CommonColumns::HlcUuid)
-                    .unique()
                     .to_owned(),
             )
             .await?;
