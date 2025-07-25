@@ -753,7 +753,7 @@ async fn test_client_updates_album_synced_to_server() -> Result<()> {
     assert_eq!(server_album.name, "Updated by Client");
     assert_eq!(
         server_album.updated_at_hlc_ts,
-        client_update_hlc.to_rfc3339()
+        client_update_hlc.to_rfc3339()?
     );
     assert_eq!(
         server_album.updated_at_hlc_ver,
@@ -841,7 +841,7 @@ async fn test_server_updates_album_synced_to_client() -> Result<()> {
     assert_eq!(client_album.name, "Updated by Server");
     assert_eq!(
         client_album.updated_at_hlc_ts,
-        server_update_hlc.to_rfc3339()
+        server_update_hlc.to_rfc3339()?
     );
 
     test_server.shutdown_tx.send(()).ok();

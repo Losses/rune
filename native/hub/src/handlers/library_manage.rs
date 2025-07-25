@@ -196,6 +196,7 @@ impl Signal for ScanAudioLibraryRequest {
 impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
@@ -204,6 +205,7 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.recommend_db),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
@@ -214,6 +216,7 @@ impl ParamsExtractor for AnalyzeAudioLibraryRequest {
 impl Signal for AnalyzeAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<RecommendationDbConnection>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
@@ -222,7 +225,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, recommend_db, task_tokens, broadcaster): Self::Params,
+        (main_db, node_id, recommend_db, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -250,6 +253,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                     let total_files = analysis_audio_library(
                         &main_db,
                         Path::new(&request_path),
+                        &node_id,
                         batch_size,
                         request.computing_device.into(),
                         move |progress, total| {
@@ -290,6 +294,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 impl ParamsExtractor for DeduplicateAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
@@ -297,6 +302,7 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
     fn extract_params(&self, all_params: &GlobalParams) -> Self::Params {
         (
             Arc::clone(&all_params.main_db),
+            Arc::clone(&all_params.node_id),
             Arc::clone(&all_params.task_tokens),
             Arc::clone(&all_params.broadcaster),
         )
@@ -306,6 +312,7 @@ impl ParamsExtractor for DeduplicateAudioLibraryRequest {
 impl Signal for DeduplicateAudioLibraryRequest {
     type Params = (
         Arc<MainDbConnection>,
+        Arc<String>,
         Arc<Mutex<TaskTokens>>,
         Arc<dyn Broadcaster>,
     );
@@ -313,7 +320,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
 
     async fn handle(
         &self,
-        (main_db, task_tokens, broadcaster): Self::Params,
+        (main_db, node_id, task_tokens, broadcaster): Self::Params,
         _session: Option<Session>,
         dart_signal: &Self,
     ) -> Result<Option<Self::Response>> {
@@ -346,6 +353,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
                 compute_file_fingerprints(
                     &main_db,
                     Path::new(&request_path_clone),
+                    &node_id,
                     batch_size,
                     move |cur, total| {
                         let progress = cur as f32 / total as f32 * 0.33;
