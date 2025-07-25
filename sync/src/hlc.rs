@@ -43,7 +43,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use blake3::Hasher;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use sea_orm::{
     entity::prelude::*, Condition, DatabaseConnection, DeleteResult, FromQueryResult,
     PaginatorTrait, QueryFilter, QueryOrder,
@@ -211,9 +211,11 @@ impl HLC {
     /// assert_eq!(hlc.to_rfc3339().unwrap(), "2022-01-01T00:00:00+00:00");
     /// ```
     pub fn to_rfc3339(&self) -> Result<String> {
-        Ok(DateTime::from_timestamp_millis(self.timestamp_ms as i64)
-            .context("HLC timestamp out of range for RFC3339 conversion")?
-            .to_rfc3339())
+        use chrono::TimeZone;
+        Utc.timestamp_millis_opt(self.timestamp_ms as i64)
+            .single()
+            .map(|dt| dt.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true))
+            .context("HLC timestamp out of range for RFC3339 conversion")
     }
 }
 
@@ -710,7 +712,7 @@ mod hlcmodel_tests {
     fn test_hlcmodel_timestamp_conversion_error() {
         let node_id = Uuid::new_v4();
         let invalid_hlc = HLC {
-            timestamp_ms: u64::MAX, // Known out-of-range value for chrono
+            timestamp_ms: i64::MAX as u64 + 1, // This will wrap around and be a large positive u64, but invalid as i64
             version: 0,
             node_id,
         };
@@ -719,12 +721,8 @@ mod hlcmodel_tests {
 
         assert!(result.is_err());
         let err = result.err().unwrap();
-        let top_level_msg = err.to_string(); // Message potentially including context
+        let top_level_msg = err.to_string();
 
-        println!("Timestamp conversion error message: {}", top_level_msg);
-        println!("Timestamp conversion error chain: {:?}", err); // Print full chain for debugging
-
-        // Check the context message added by with_context() which is reliable
         assert!(
             top_level_msg.contains(&format!(
                 "Failed to format GT timestamp for HLC {}",
@@ -733,17 +731,10 @@ mod hlcmodel_tests {
             "Error message should contain the context added in HLCModel::gt"
         );
 
-        // Check the root cause message. This depends on the exact error from hlc_timestamp_millis_to_rfc3339
-        // It might be "timestamp out of range", "value too large", etc.
-        // Make the check more general or adapt to the specific message if known.
         let root_cause_msg = err.root_cause().to_string();
-        println!("Root cause: {}", root_cause_msg);
         assert!(
-            // Check for common keywords related to range errors
-            root_cause_msg.contains("out of range")
-                || root_cause_msg.contains("invalid")
-                || root_cause_msg.contains("value too large"),
-            "Root cause should indicate an out-of-range or invalid timestamp. Root cause: {}",
+            root_cause_msg.contains("out of range"),
+            "Root cause should indicate an out-of-range timestamp. Root cause: {}",
             root_cause_msg
         );
     }
