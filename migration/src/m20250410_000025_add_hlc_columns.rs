@@ -106,7 +106,7 @@ impl Migration {
         manager
             .create_index(
                 Index::create()
-                    .name(format!("idx_{}_hlc_uuid_unique", table.to_string()))
+                    .name(format!("idx_{}_hlc_uuid", table.to_string()))
                     .table(table)
                     .col(CommonColumns::HlcUuid)
                     .to_owned(),
@@ -336,7 +336,7 @@ impl Migration {
             )
             .await?;
 
-        // STEP 3: Populate the 'hlc_uuid' column with unique values.
+        // STEP 3: Populate the 'hlc_uuid' column.
         let db = manager.get_connection();
 
         #[derive(Iden)]
@@ -368,14 +368,13 @@ impl Migration {
                 .await?;
         }
 
-        // STEP 4: Create the unique index on 'hlc_uuid'.
+        // STEP 4: Create the index on 'hlc_uuid'.
         manager
             .create_index(
                 Index::create()
-                    .name(format!("idx_{}_hlc_uuid_unique", table.to_string()))
+                    .name(format!("idx_{}_hlc_uuid", table.to_string()))
                     .table(table)
                     .col(CommonColumns::HlcUuid)
-                    .unique()
                     .to_owned(),
             )
             .await?;
