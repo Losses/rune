@@ -155,14 +155,15 @@ macro_rules! parallel_media_files_processing {
         $cancel_token:expr,
         $cursor_query:expr,
         $lib_path:expr,
+        $node_id: expr,
         $process_fn:expr,
         $result_handler:expr
     ) => {{
         use async_channel;
-        use tokio::sync::{Semaphore, Mutex};
-        use tokio::task;
-        use log::{debug, error, warn, info};
+        use log::{debug, error, info, warn};
         use std::sync::Arc;
+        use tokio::sync::{Mutex, Semaphore};
+        use tokio::task;
 
         let cursor_query_clone = $cursor_query.clone();
         let (tx, rx) = async_channel::bounded($batch_size);
@@ -189,18 +190,20 @@ macro_rules! parallel_media_files_processing {
                         }
                     }
 
-                    let files = match cursor.first($batch_size.try_into().unwrap())
+                    let files = match cursor
+                        .first($batch_size.try_into().unwrap())
                         .all($main_db)
-                        .await {
-                            Ok(f) => f,
-                            Err(e) => {
-                                error!("Database error: {:?}", e);
-                                // Send termination signal on error
-                                if let Err(e) = tx.send(None).await {
-                                    warn!("Failed to send termination signal: {:#?}", e);
-                                }
-                                return Err(e);
+                        .await
+                    {
+                        Ok(f) => f,
+                        Err(e) => {
+                            error!("Database error: {:?}", e);
+                            // Send termination signal on error
+                            if let Err(e) = tx.send(None).await {
+                                warn!("Failed to send termination signal: {:#?}", e);
                             }
+                            return Err(e);
+                        }
                     };
 
                     if files.is_empty() {
@@ -225,7 +228,7 @@ macro_rules! parallel_media_files_processing {
                         }
 
                         match tx.send(Some(file.clone())).await {
-                            Ok(_) => {},
+                            Ok(_) => {}
                             Err(e) => {
                                 warn!("Failed to send file: {:#?}", e);
                                 return Ok(());
@@ -276,18 +279,26 @@ macro_rules! parallel_media_files_processing {
                             let lib_path = Arc::clone(&$lib_path);
                             let processed_count = Arc::clone(&processed_count);
                             let progress_callback = Arc::clone(&progress_callback);
+                            let node_id_clone = $node_id.clone();
                             let process_cancel_token = consumer_cancel_token.clone();
 
                             let file_clone = file.clone();
                             let task = task::spawn(async move {
                                 let analysis_result = task::spawn_blocking(move || {
                                     let process_fn = $process_fn;
-                                    process_fn(&file_clone, &lib_path, process_cancel_token)  // Pass the cloned token
-                                }).await;
+                                    process_fn(&file_clone, &lib_path, process_cancel_token)
+                                    // Pass the cloned token
+                                })
+                                .await;
 
-                                match analysis_result.with_context(|| "Failed to spawn analysis task") {
+                                match analysis_result
+                                    .with_context(|| "Failed to spawn analysis task")
+                                {
                                     Ok(analysis_result) => {
-                                        $result_handler(&main_db, file, analysis_result).await;
+                                        {
+                                            $result_handler(&main_db, file, node_id_clone.clone(), analysis_result)
+                                            .await;
+                                        }
                                     }
                                     Err(e) => error!("{:?}", e),
                                 }
@@ -328,7 +339,6 @@ macro_rules! parallel_media_files_processing {
         if let Err(e) = consumer_result {
             error!("Consumer error: {:?}", e);
         }
-
 
         info!("Total tasks executed: {}", total_tasks);
 

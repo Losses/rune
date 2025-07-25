@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::env;
-use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -16,9 +16,7 @@ use sea_orm::{
 };
 use tokio_util::sync::CancellationToken;
 
-use metadata::cover_art::get_primary_color;
-use metadata::cover_art::{extract_cover_art_binary, CoverArt};
-use uuid::Uuid;
+use metadata::cover_art::{extract_cover_art_binary, get_primary_color, CoverArt};
 
 use crate::{
     entities::{media_cover_art, media_files},
@@ -55,7 +53,7 @@ pub async fn ensure_magic_cover_art(
             file_hash: ActiveValue::Set(String::new()),
             binary: ActiveValue::Set(Vec::new()),
             primary_color: ActiveValue::Set(Some(0)),
-            hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+            hlc_uuid: ActiveValue::Set(node_id.to_owned()),
             created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
             updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
             created_at_hlc_ver: ActiveValue::Set(0),
@@ -203,6 +201,7 @@ pub async fn insert_extract_result(
     file: &media_files::Model,
     magic_cover_art_id: i32,
     result: Option<CoverArt>,
+    node_id: &str,
 ) -> Result<()> {
     let file = file.clone();
     if let Some(cover_art) = result {
@@ -228,7 +227,7 @@ pub async fn insert_extract_result(
                 file_hash: ActiveValue::Set(cover_art.crc.clone()),
                 binary: ActiveValue::Set(cover_art.data.clone()),
                 primary_color: ActiveValue::Set(Some(cover_art.primary_color)),
-                hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+                hlc_uuid: ActiveValue::Set(node_id.to_owned()),
                 created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
                 updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
                 created_at_hlc_ver: ActiveValue::Set(0),
@@ -282,8 +281,10 @@ where
 
     let cursor_query = media_files::Entity::find();
 
-    let lib_path = Arc::new(lib_path.to_path_buf());
     let magic_cover_art_id = ensure_magic_cover_art_id(main_db, node_id).await?;
+
+    let lib_path = Arc::new(lib_path.to_path_buf());
+    let node_id = Arc::new(node_id.to_owned());
 
     parallel_media_files_processing!(
         main_db,
@@ -292,9 +293,10 @@ where
         cancel_token,
         cursor_query,
         lib_path,
+        node_id,
         move |file, lib_path, _cancel_token| { extract_cover_art_by_file_id(file, lib_path) },
-        |db, file: media_files::Model, result| async move {
-            match insert_extract_result(db, &file, magic_cover_art_id, result).await {
+        |db, file: media_files::Model, node_id: Arc<String>, result| async move {
+            match insert_extract_result(db, &file, magic_cover_art_id, result, &node_id).await {
                 Ok(_) => {
                     debug!("Processed cover art for file ID: {}", file.id);
                 }

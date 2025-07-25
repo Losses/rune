@@ -48,6 +48,7 @@ async fn main() {
     analysis_audio_library(
         &main_db,
         &root_path,
+        "",
         10,
         ComputingDevice::Gpu,
         empty_analysis_progress_callback,

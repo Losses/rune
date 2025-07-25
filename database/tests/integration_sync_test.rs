@@ -211,10 +211,10 @@ async fn test_client_inserts_album_synced_to_server() -> Result<()> {
         name: ActiveValue::Set("Client Test Album".to_string()),
         group: ActiveValue::Set("Test Group".to_string()),
         hlc_uuid: ActiveValue::Set(new_album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
     };
@@ -285,10 +285,10 @@ async fn test_server_inserts_album_synced_to_client() -> Result<()> {
         name: ActiveValue::Set("Server Test Album".to_string()),
         group: ActiveValue::Set("Server Group".to_string()),
         hlc_uuid: ActiveValue::Set(new_album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
     }
@@ -351,10 +351,10 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         name: ActiveValue::Set("Album C (from Client)".to_string()),
         group: ActiveValue::Set("Client Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_c_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(client_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(client_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(client_hlc.node_id.to_string()),
     }
@@ -369,10 +369,10 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         name: ActiveValue::Set("Album S (from Server)".to_string()),
         group: ActiveValue::Set("Server Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_s_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(server_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(server_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(server_hlc.node_id.to_string()),
     }
@@ -432,10 +432,10 @@ async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
         binary: ActiveValue::Set(vec![1, 1, 1]),
         primary_color: ActiveValue::Set(Some(0xAAAAAA)),
         hlc_uuid: ActiveValue::Set(ca1_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(ca1_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(ca1_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(ca1_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(ca1_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(ca1_hlc.node_id.to_string()),
     };
@@ -455,10 +455,10 @@ async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
         sample_rate: ActiveValue::Set(44100),
         duration: ActiveValue::Set(Decimal::new(180, 0)),
         hlc_uuid: ActiveValue::Set(mf1_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(mf1_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(mf1_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(mf1_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(mf1_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(mf1_hlc.node_id.to_string()),
     };
@@ -501,10 +501,10 @@ async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
         binary: ActiveValue::Set(vec![2, 2, 2]),
         primary_color: ActiveValue::Set(Some(0xBBBBBB)),
         hlc_uuid: ActiveValue::Set(ca2_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(ca2_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(ca2_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(ca2_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(ca2_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(ca2_hlc.node_id.to_string()),
     };
@@ -524,10 +524,10 @@ async fn test_sync_media_files_with_cover_art_fk() -> Result<()> {
         sample_rate: ActiveValue::Set(48000),
         duration: ActiveValue::Set(Decimal::new(2405, 1)),
         hlc_uuid: ActiveValue::Set(mf2_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(mf2_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(mf2_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(mf2_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(mf2_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(mf2_hlc.node_id.to_string()),
     };
@@ -599,10 +599,10 @@ async fn test_get_remote_last_sync_hlc() -> Result<()> {
         name: ActiveValue::Set(album_name.clone()),
         group: ActiveValue::Set("Last Sync Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(album_creation_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(album_creation_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(album_creation_hlc.node_id.to_string()),
     }
@@ -700,10 +700,10 @@ async fn test_client_updates_album_synced_to_server() -> Result<()> {
         name: ActiveValue::Set("Initial Album Name".to_string()),
         group: ActiveValue::Set("Initial Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
     }
@@ -729,7 +729,7 @@ async fn test_client_updates_album_synced_to_server() -> Result<()> {
         .into_active_model();
 
     album_to_update.name = ActiveValue::Set("Updated by Client".to_string());
-    album_to_update.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    album_to_update.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339()?);
     album_to_update.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
     album_to_update.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
 
@@ -790,10 +790,10 @@ async fn test_server_updates_album_synced_to_client() -> Result<()> {
         name: ActiveValue::Set("Original Server Album".to_string()),
         group: ActiveValue::Set("Original Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
     }
@@ -817,7 +817,7 @@ async fn test_server_updates_album_synced_to_client() -> Result<()> {
         .into_active_model();
 
     album_to_update.name = ActiveValue::Set("Updated by Server".to_string());
-    album_to_update.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    album_to_update.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339()?);
     album_to_update.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
     album_to_update.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
 
@@ -870,10 +870,10 @@ async fn test_conflict_resolution_client_wins() -> Result<()> {
         name: ActiveValue::Set("Conflict Candidate".to_string()),
         group: ActiveValue::Set("Conflict Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
     }
@@ -895,7 +895,7 @@ async fn test_conflict_resolution_client_wins() -> Result<()> {
         .unwrap()
         .into_active_model();
     server_album_am.name = ActiveValue::Set("Server's Update (should lose)".to_string());
-    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339()?);
     server_album_am.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
     server_album_am.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
     server_album_am.update(&server_db).await?;
@@ -911,7 +911,7 @@ async fn test_conflict_resolution_client_wins() -> Result<()> {
         .unwrap()
         .into_active_model();
     client_album_am.name = ActiveValue::Set("Client's Update (should win)".to_string());
-    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339()?);
     client_album_am.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
     client_album_am.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
     client_album_am.update(&client_db).await?;
@@ -977,10 +977,10 @@ async fn test_conflict_resolution_server_wins() -> Result<()> {
         name: ActiveValue::Set("Conflict Candidate".to_string()),
         group: ActiveValue::Set("Conflict Group".to_string()),
         hlc_uuid: ActiveValue::Set(album_hlc_uuid.clone()),
-        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        created_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         created_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         created_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
-        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()),
+        updated_at_hlc_ts: ActiveValue::Set(initial_hlc.to_rfc3339()?),
         updated_at_hlc_ver: ActiveValue::Set(initial_hlc.version as i32),
         updated_at_hlc_nid: ActiveValue::Set(initial_hlc.node_id.to_string()),
     }
@@ -1002,7 +1002,7 @@ async fn test_conflict_resolution_server_wins() -> Result<()> {
         .unwrap()
         .into_active_model();
     client_album_am.name = ActiveValue::Set("Client's Update (should lose)".to_string());
-    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339());
+    client_album_am.updated_at_hlc_ts = ActiveValue::Set(client_update_hlc.to_rfc3339()?);
     client_album_am.updated_at_hlc_ver = ActiveValue::Set(client_update_hlc.version as i32);
     client_album_am.updated_at_hlc_nid = ActiveValue::Set(client_update_hlc.node_id.to_string());
     client_album_am.update(&client_db).await?;
@@ -1018,7 +1018,7 @@ async fn test_conflict_resolution_server_wins() -> Result<()> {
         .unwrap()
         .into_active_model();
     server_album_am.name = ActiveValue::Set("Server's Update (should win)".to_string());
-    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339());
+    server_album_am.updated_at_hlc_ts = ActiveValue::Set(server_update_hlc.to_rfc3339()?);
     server_album_am.updated_at_hlc_ver = ActiveValue::Set(server_update_hlc.version as i32);
     server_album_am.updated_at_hlc_nid = ActiveValue::Set(server_update_hlc.node_id.to_string());
     server_album_am.update(&server_db).await?;

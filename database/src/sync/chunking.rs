@@ -676,7 +676,7 @@ pub async fn apply_remote_changes_handler(
     let sync_record_model = sync_record::ActiveModel {
         table_name: Set(table_name.clone()),
         client_node_id: Set(client_node_id.to_string()),
-        last_sync_hlc_ts: Set(new_last_sync_hlc.to_rfc3339()),
+        last_sync_hlc_ts: Set(new_last_sync_hlc.to_rfc3339()?),
         last_sync_hlc_ver: Set(new_last_sync_hlc.version as i32),
         last_sync_hlc_nid: Set(new_last_sync_hlc.node_id.to_string()),
         ..Default::default()

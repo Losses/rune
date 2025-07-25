@@ -10,10 +10,12 @@ pub async fn analyze_audio_library(
     main_db: &MainDbConnection,
     analysis_db: &RecommendationDbConnection,
     path: &Path,
+    node_id: &str,
 ) {
     if let Err(e) = analysis_audio_library(
         main_db,
         path,
+        node_id,
         15,
         computing_device,
         empty_progress_callback,

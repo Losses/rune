@@ -15,7 +15,7 @@ pub fn create_sync_record_active_model(
     Ok(ActiveModel {
         table_name: Set(table_name),
         client_node_id: Set(client_node_id.to_string()),
-        last_sync_hlc_ts: Set(hlc.to_rfc3339()),
+        last_sync_hlc_ts: Set(hlc.to_rfc3339()?),
         last_sync_hlc_ver: Set(hlc.version as i32),
         last_sync_hlc_nid: Set(hlc.node_id.to_string()),
         ..Default::default()

@@ -38,6 +38,7 @@ pub fn empty_progress_callback(_processed: usize, _total: usize) {}
 pub async fn analysis_audio_library<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
+    node_id: &str,
     batch_size: usize,
     computing_device: ComputingDevice,
     progress_callback: F,
@@ -65,6 +66,7 @@ where
         media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
 
     let lib_path = Arc::new(lib_path.to_path_buf());
+    let node_id = Arc::new(node_id.to_owned());
 
     parallel_media_files_processing!(
         main_db,
@@ -73,11 +75,13 @@ where
         cancel_token,
         cursor_query,
         lib_path,
+        node_id,
         move |file, lib_path, cancel_token| {
             analysis_file(file, lib_path, computing_device, cancel_token)
         },
         |db,
          file: media_files::Model,
+         _node_id,
          analysis_result: Result<Option<NormalizedAnalysisResult>>| async move {
             match analysis_result {
                 Ok(analysis_result) => {

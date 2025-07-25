@@ -25,6 +25,7 @@ use crate::parallel_media_files_processing;
 pub async fn compute_file_fingerprints<F>(
     main_db: &DatabaseConnection,
     lib_path: &Path,
+    node_id: &str,
     batch_size: usize,
     progress_callback: F,
     cancel_token: Option<CancellationToken>,
@@ -52,6 +53,7 @@ where
         media_files::Entity::find().filter(media_files::Column::Id.is_not_in(existed_ids));
 
     let lib_path = Arc::new(lib_path.to_path_buf());
+    let node_id = Arc::new(node_id.to_owned());
 
     parallel_media_files_processing!(
         main_db,
@@ -60,10 +62,11 @@ where
         cancel_token,
         cursor_query,
         lib_path,
+        node_id,
         move |file, lib_path, cancel_token| {
             compute_single_fingerprint(file, lib_path, &Configuration::default(), cancel_token)
         },
-        |db, file: media_files::Model, fingerprint_result: Result<(Vec<u32>, _)>| async move {
+        |db, file: media_files::Model, _node_id, fingerprint_result: Result<(Vec<u32>, _)>| async move {
             match fingerprint_result {
                 Ok((fingerprint, _duration)) => {
                     let fingerprint_bytes = fingerprint

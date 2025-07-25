@@ -52,7 +52,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         let url = self.build_url(&format!("/tables/{}/chunks", table_name));
         let mut query_params = Vec::new();
         if let Some(hlc) = after_hlc {
-            query_params.push(("after_hlc_ts", hlc.to_rfc3339()));
+            query_params.push(("after_hlc_ts", hlc.to_rfc3339()?));
             query_params.push(("after_hlc_ver", hlc.version.to_string()));
             query_params.push(("after_hlc_nid", hlc.node_id.to_string()));
         }
@@ -106,10 +106,10 @@ impl RemoteDataSource for RemoteHttpDataSource {
     {
         let url = self.build_url(&format!("/tables/{}/records", table_name));
         let query_params = [
-            ("start_hlc_ts", start_hlc.to_rfc3339()),
+            ("start_hlc_ts", start_hlc.to_rfc3339()?),
             ("start_hlc_ver", start_hlc.version.to_string()),
             ("start_hlc_nid", start_hlc.node_id.to_string()),
-            ("end_hlc_ts", end_hlc.to_rfc3339()),
+            ("end_hlc_ts", end_hlc.to_rfc3339()?),
             ("end_hlc_ver", end_hlc.version.to_string()),
             ("end_hlc_nid", end_hlc.node_id.to_string()),
         ];

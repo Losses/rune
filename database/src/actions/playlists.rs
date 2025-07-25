@@ -64,7 +64,7 @@ where
     let new_playlist = ActiveModel {
         name: ActiveValue::Set(name.clone()),
         group: ActiveValue::Set(group),
-        hlc_uuid: ActiveValue::Set(Uuid::new_v4().to_string()),
+        hlc_uuid: ActiveValue::Set(node_id.to_owned()),
         created_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         updated_at_hlc_ts: ActiveValue::Set(Utc::now().to_rfc3339()),
         created_at_hlc_ver: ActiveValue::Set(0),

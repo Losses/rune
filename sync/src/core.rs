@@ -2039,10 +2039,10 @@ pub(crate) mod tests {
             sync_id: Set(sync_id.to_string()),
             name: Set(name.to_string()),
             value: Set(val),
-            created_at_hlc_ts: Set(created_ts_str.clone()),
+            created_at_hlc_ts: Set(created_ts_str?.clone()),
             created_at_hlc_ct: Set(created_hlc.version as i32),
             created_at_hlc_id: Set(created_hlc.node_id),
-            updated_at_hlc_ts: Set(updated_ts_str.clone()),
+            updated_at_hlc_ts: Set(updated_ts_str?.clone()),
             updated_at_hlc_ct: Set(updated_hlc.version as i32),
             updated_at_hlc_id: Set(updated_hlc.node_id),
         };
@@ -2232,10 +2232,10 @@ pub(crate) mod tests {
             sync_id: "sync_remote1".to_string(),
             name: "NewRemote".to_string(),
             value: Some(2),
-            created_at_hlc_ts: hlc1.to_rfc3339(),
+            created_at_hlc_ts: hlc1.to_rfc3339()?,
             created_at_hlc_ct: hlc1.version as i32,
             created_at_hlc_id: hlc1.node_id,
-            updated_at_hlc_ts: hlc1.to_rfc3339(),
+            updated_at_hlc_ts: hlc1.to_rfc3339()?,
             updated_at_hlc_ct: hlc1.version as i32,
             updated_at_hlc_id: hlc1.node_id,
         };
@@ -2329,10 +2329,10 @@ pub(crate) mod tests {
             sync_id: "sync_conflict1".to_string(),
             name: "RemoteOld".to_string(),
             value: Some(99),
-            created_at_hlc_ts: hlc_remote_old.to_rfc3339(),
+            created_at_hlc_ts: hlc_remote_old.to_rfc3339()?,
             created_at_hlc_ct: hlc_remote_old.version as i32,
             created_at_hlc_id: hlc_remote_old.node_id,
-            updated_at_hlc_ts: hlc_remote_old.to_rfc3339(),
+            updated_at_hlc_ts: hlc_remote_old.to_rfc3339()?,
             updated_at_hlc_ct: hlc_remote_old.version as i32,
             updated_at_hlc_id: hlc_remote_old.node_id,
         };
@@ -2474,10 +2474,10 @@ pub(crate) mod tests {
             sync_id: "sync_conflict2".to_string(),
             name: "RemoteWin".to_string(),
             value: Some(100),
-            created_at_hlc_ts: hlc_local_old.to_rfc3339(), // Created at old hlc
+            created_at_hlc_ts: hlc_local_old.to_rfc3339()?, // Created at old hlc
             created_at_hlc_ct: hlc_local_old.version as i32,
             created_at_hlc_id: hlc_local_old.node_id,
-            updated_at_hlc_ts: hlc_remote_new.to_rfc3339(), // Updated to new hlc
+            updated_at_hlc_ts: hlc_remote_new.to_rfc3339()?, // Updated to new hlc
             updated_at_hlc_ct: hlc_remote_new.version as i32,
             updated_at_hlc_id: hlc_remote_new.node_id,
         };
@@ -2610,10 +2610,10 @@ pub(crate) mod tests {
             sync_id: "sync_tie1".to_string(),
             name: "RemoteTie".to_string(),
             value: Some(2),
-            created_at_hlc_ts: common_hlc_base_ts_ver.to_rfc3339(),
+            created_at_hlc_ts: common_hlc_base_ts_ver.to_rfc3339()?,
             created_at_hlc_ct: common_hlc_base_ts_ver.version as i32,
             created_at_hlc_id: common_hlc_base_ts_ver.node_id, // Could be either, doesn't affect tie-break logic for update
-            updated_at_hlc_ts: hlc_remote_tie.to_rfc3339(),
+            updated_at_hlc_ts: hlc_remote_tie.to_rfc3339()?,
             updated_at_hlc_ct: hlc_remote_tie.version as i32,
             updated_at_hlc_id: hlc_remote_tie.node_id,
         };
@@ -2729,10 +2729,10 @@ pub(crate) mod tests {
                     sync_id: "sync_i".to_string(),
                     name: "Inserted".to_string(),
                     value: Some(10),
-                    created_at_hlc_ts: hlc_i.to_rfc3339(),
+                    created_at_hlc_ts: hlc_i.to_rfc3339()?,
                     created_at_hlc_ct: hlc_i.version as i32,
                     created_at_hlc_id: hlc_i.node_id,
-                    updated_at_hlc_ts: hlc_i.to_rfc3339(),
+                    updated_at_hlc_ts: hlc_i.to_rfc3339()?,
                     updated_at_hlc_ct: hlc_i.version as i32,
                     updated_at_hlc_id: hlc_i.node_id,
                 },
@@ -2749,7 +2749,7 @@ pub(crate) mod tests {
                     created_at_hlc_ct: initial_record_u.created_at_hlc_ct,
                     created_at_hlc_id: initial_record_u.created_at_hlc_id,
                     // Set new update HLC fields
-                    updated_at_hlc_ts: hlc_u.to_rfc3339(),
+                    updated_at_hlc_ts: hlc_u.to_rfc3339()?,
                     updated_at_hlc_ct: hlc_u.version as i32,
                     updated_at_hlc_id: hlc_u.node_id,
                 },
@@ -2823,7 +2823,7 @@ pub(crate) mod tests {
                     created_at_hlc_ts: initial.created_at_hlc_ts.clone(),
                     created_at_hlc_ct: initial.created_at_hlc_ct,
                     created_at_hlc_id: initial.created_at_hlc_id,
-                    updated_at_hlc_ts: hlc_update_try.to_rfc3339(),
+                    updated_at_hlc_ts: hlc_update_try.to_rfc3339()?,
                     updated_at_hlc_ct: hlc_update_try.version as i32,
                     updated_at_hlc_id: hlc_update_try.node_id,
                 },
@@ -2836,10 +2836,10 @@ pub(crate) mod tests {
                     sync_id: "sync_dup".to_string(), // Duplicate unique key
                     name: "InsertedFail".to_string(),
                     value: Some(10),
-                    created_at_hlc_ts: hlc_insert_fail.to_rfc3339(),
+                    created_at_hlc_ts: hlc_insert_fail.to_rfc3339()?,
                     created_at_hlc_ct: hlc_insert_fail.version as i32,
                     created_at_hlc_id: hlc_insert_fail.node_id,
-                    updated_at_hlc_ts: hlc_insert_fail.to_rfc3339(),
+                    updated_at_hlc_ts: hlc_insert_fail.to_rfc3339()?,
                     updated_at_hlc_ct: hlc_insert_fail.version as i32,
                     updated_at_hlc_id: hlc_insert_fail.node_id,
                 },
@@ -2902,10 +2902,10 @@ pub(crate) mod tests {
             name: "RemoteData".to_string(),   // Different data -> different hash
             value: Some(2),
             // Use the same HLC components as the local record
-            created_at_hlc_ts: common_hlc.to_rfc3339(),
+            created_at_hlc_ts: common_hlc.to_rfc3339()?,
             created_at_hlc_ct: common_hlc.version as i32,
             created_at_hlc_id: common_hlc.node_id,
-            updated_at_hlc_ts: common_hlc.to_rfc3339(),
+            updated_at_hlc_ts: common_hlc.to_rfc3339()?,
             updated_at_hlc_ct: common_hlc.version as i32,
             updated_at_hlc_id: common_hlc.node_id,
         };
@@ -3056,10 +3056,10 @@ pub(crate) mod tests {
                 sync_id: sync_id.clone(),
                 name: format!("Remote_{}", i),
                 value: Some(i as i32 * 10),
-                created_at_hlc_ts: current_hlc.to_rfc3339(),
+                created_at_hlc_ts: current_hlc.to_rfc3339()?,
                 created_at_hlc_ct: current_hlc.version as i32,
                 created_at_hlc_id: current_hlc.node_id,
-                updated_at_hlc_ts: current_hlc.to_rfc3339(),
+                updated_at_hlc_ts: current_hlc.to_rfc3339()?,
                 updated_at_hlc_ct: current_hlc.version as i32,
                 updated_at_hlc_id: current_hlc.node_id,
             };
@@ -3218,10 +3218,10 @@ pub(crate) mod tests {
             sync_id: "mis_r1".to_string(),
             name: "R1".to_string(),
             value: Some(3),
-            created_at_hlc_ts: hlc3.to_rfc3339(),
+            created_at_hlc_ts: hlc3.to_rfc3339()?,
             created_at_hlc_ct: hlc3.version as i32,
             created_at_hlc_id: hlc3.node_id,
-            updated_at_hlc_ts: hlc3.to_rfc3339(),
+            updated_at_hlc_ts: hlc3.to_rfc3339()?,
             updated_at_hlc_ct: hlc3.version as i32,
             updated_at_hlc_id: hlc3.node_id,
         };
@@ -3230,10 +3230,10 @@ pub(crate) mod tests {
             sync_id: "mis_r2".to_string(),
             name: "R2".to_string(),
             value: Some(4),
-            created_at_hlc_ts: hlc4.to_rfc3339(),
+            created_at_hlc_ts: hlc4.to_rfc3339()?,
             created_at_hlc_ct: hlc4.version as i32,
             created_at_hlc_id: hlc4.node_id,
-            updated_at_hlc_ts: hlc4.to_rfc3339(),
+            updated_at_hlc_ts: hlc4.to_rfc3339()?,
             updated_at_hlc_ct: hlc4.version as i32,
             updated_at_hlc_id: hlc4.node_id,
         };
@@ -3377,10 +3377,10 @@ pub(crate) mod tests {
             sync_id: "pull_new".to_string(),
             name: "RemoteNew".to_string(),
             value: Some(2),
-            created_at_hlc_ts: hlc_remote_insert.to_rfc3339(),
+            created_at_hlc_ts: hlc_remote_insert.to_rfc3339()?,
             created_at_hlc_ct: hlc_remote_insert.version as i32,
             created_at_hlc_id: hlc_remote_insert.node_id,
-            updated_at_hlc_ts: hlc_remote_insert.to_rfc3339(),
+            updated_at_hlc_ts: hlc_remote_insert.to_rfc3339()?,
             updated_at_hlc_ct: hlc_remote_insert.version as i32,
             updated_at_hlc_id: hlc_remote_insert.node_id,
         };
@@ -3389,10 +3389,10 @@ pub(crate) mod tests {
             sync_id: "pull_rec".to_string(),
             name: "RemoteUpdateWins".to_string(),
             value: Some(3),
-            created_at_hlc_ts: hlc_local_old.to_rfc3339(),
+            created_at_hlc_ts: hlc_local_old.to_rfc3339()?,
             created_at_hlc_ct: hlc_local_old.version as i32,
             created_at_hlc_id: hlc_local_old.node_id,
-            updated_at_hlc_ts: hlc_remote_update.to_rfc3339(),
+            updated_at_hlc_ts: hlc_remote_update.to_rfc3339()?,
             updated_at_hlc_ct: hlc_remote_update.version as i32,
             updated_at_hlc_id: hlc_remote_update.node_id,
         };
@@ -3517,10 +3517,10 @@ pub(crate) mod tests {
             sync_id: "push_rec".to_string(),
             name: "RemoteOld".to_string(),
             value: Some(99),
-            created_at_hlc_ts: hlc_remote_old.to_rfc3339(),
+            created_at_hlc_ts: hlc_remote_old.to_rfc3339()?,
             created_at_hlc_ct: hlc_remote_old.version as i32,
             created_at_hlc_id: hlc_remote_old.node_id,
-            updated_at_hlc_ts: hlc_remote_old.to_rfc3339(),
+            updated_at_hlc_ts: hlc_remote_old.to_rfc3339()?,
             updated_at_hlc_ct: hlc_remote_old.version as i32,
             updated_at_hlc_id: hlc_remote_old.node_id,
         };
@@ -3680,10 +3680,10 @@ pub(crate) mod tests {
             sync_id: "fail_rec".to_string(),
             name: "Remote".to_string(),
             value: Some(2),
-            created_at_hlc_ts: data_hlc.to_rfc3339(),
+            created_at_hlc_ts: data_hlc.to_rfc3339()?,
             created_at_hlc_ct: data_hlc.version as i32,
             created_at_hlc_id: data_hlc.node_id,
-            updated_at_hlc_ts: data_hlc.to_rfc3339(),
+            updated_at_hlc_ts: data_hlc.to_rfc3339()?,
             updated_at_hlc_ct: data_hlc.version as i32,
             updated_at_hlc_id: data_hlc.node_id,
         };
@@ -4327,10 +4327,10 @@ pub(crate) mod tests {
             id: NotSet,
             sync_id: Set(sync_id.to_string()),
             name: Set(name.to_string()),
-            created_at_hlc_ts: Set(created_hlc.to_rfc3339()),
+            created_at_hlc_ts: Set(created_hlc.to_rfc3339()?),
             created_at_hlc_ct: Set(created_hlc.version as i32),
             created_at_hlc_id: Set(created_hlc.node_id),
-            updated_at_hlc_ts: Set(updated_hlc.to_rfc3339()),
+            updated_at_hlc_ts: Set(updated_hlc.to_rfc3339()?),
             updated_at_hlc_ct: Set(updated_hlc.version as i32),
             updated_at_hlc_id: Set(updated_hlc.node_id),
         };
@@ -4353,10 +4353,10 @@ pub(crate) mod tests {
             title: Set(title.to_string()),
             author_id: Set(author_id_val),
             remote_author_sync_id: Set(None), // Not stored in DB, set explicitly if needed for test construction
-            created_at_hlc_ts: Set(created_hlc.to_rfc3339()),
+            created_at_hlc_ts: Set(created_hlc.to_rfc3339()?),
             created_at_hlc_ct: Set(created_hlc.version as i32),
             created_at_hlc_id: Set(created_hlc.node_id),
-            updated_at_hlc_ts: Set(updated_hlc.to_rfc3339()),
+            updated_at_hlc_ts: Set(updated_hlc.to_rfc3339()?),
             updated_at_hlc_ct: Set(updated_hlc.version as i32),
             updated_at_hlc_id: Set(updated_hlc.node_id),
         };
@@ -4450,10 +4450,10 @@ pub(crate) mod tests {
             id: 101, // Mock remote PK
             sync_id: "author_sync_1".to_string(),
             name: "Local Author 1".to_string(), // Same name
-            created_at_hlc_ts: hlc_author_v1.to_rfc3339(),
+            created_at_hlc_ts: hlc_author_v1.to_rfc3339()?,
             created_at_hlc_ct: hlc_author_v1.version as i32,
             created_at_hlc_id: hlc_author_v1.node_id,
-            updated_at_hlc_ts: hlc_author_v1.to_rfc3339(),
+            updated_at_hlc_ts: hlc_author_v1.to_rfc3339()?,
             updated_at_hlc_ct: hlc_author_v1.version as i32,
             updated_at_hlc_id: hlc_author_v1.node_id,
         };
@@ -4478,10 +4478,10 @@ pub(crate) mod tests {
             title: "Remote Post 1".to_string(),
             author_id: remote_author1_model.id, // Remote's local FK to its author_sync_1
             remote_author_sync_id: Some(remote_author1_model.sync_id.clone()), // Critical for resolver
-            created_at_hlc_ts: hlc_post_v1_remote.to_rfc3339(),
+            created_at_hlc_ts: hlc_post_v1_remote.to_rfc3339()?,
             created_at_hlc_ct: hlc_post_v1_remote.version as i32,
             created_at_hlc_id: hlc_post_v1_remote.node_id,
-            updated_at_hlc_ts: hlc_post_v1_remote.to_rfc3339(),
+            updated_at_hlc_ts: hlc_post_v1_remote.to_rfc3339()?,
             updated_at_hlc_ct: hlc_post_v1_remote.version as i32,
             updated_at_hlc_id: hlc_post_v1_remote.node_id,
         };
@@ -4613,10 +4613,10 @@ pub(crate) mod tests {
             id: 101,
             sync_id: "author_sync_1".to_string(),
             name: "Local Author 1".to_string(),
-            created_at_hlc_ts: hlc_author_v1.to_rfc3339(),
+            created_at_hlc_ts: hlc_author_v1.to_rfc3339()?,
             created_at_hlc_ct: hlc_author_v1.version as i32,
             created_at_hlc_id: hlc_author_v1.node_id,
-            updated_at_hlc_ts: hlc_author_v1.to_rfc3339(),
+            updated_at_hlc_ts: hlc_author_v1.to_rfc3339()?,
             updated_at_hlc_ct: hlc_author_v1.version as i32,
             updated_at_hlc_id: hlc_author_v1.node_id,
         };
@@ -4767,23 +4767,23 @@ pub(crate) mod tests {
                                    hlc_val: &HLC,
                                    name_prefix: &str,
                                    id_val: i32|
-         -> author_entity::Model {
-            author_entity::Model {
+         -> Result<author_entity::Model> {
+            Ok(author_entity::Model {
                 id: id_val,
                 sync_id: sync_id.to_string(),
                 name: format!("{} {}", name_prefix, sync_id.chars().last().unwrap()),
-                created_at_hlc_ts: hlc_val.to_rfc3339(),
+                created_at_hlc_ts: hlc_val.to_rfc3339()?,
                 created_at_hlc_ct: hlc_val.version as i32,
                 created_at_hlc_id: hlc_val.node_id,
-                updated_at_hlc_ts: hlc_val.to_rfc3339(),
+                updated_at_hlc_ts: hlc_val.to_rfc3339()?,
                 updated_at_hlc_ct: hlc_val.version as i32,
                 updated_at_hlc_id: hlc_val.node_id,
-            }
+            })
         };
         let remote_author1_model =
-            common_author_setup("author_sync_1", &hlc_author1_v1, "Remote Author", 101);
+            common_author_setup("author_sync_1", &hlc_author1_v1, "Remote Author", 101)?;
         let remote_author2_model =
-            common_author_setup("author_sync_2", &hlc_author2_v1, "Remote Author", 102);
+            common_author_setup("author_sync_2", &hlc_author2_v1, "Remote Author", 102)?;
         remote_source
             .set_remote_data_for_table(
                 "authors",
@@ -4817,10 +4817,10 @@ pub(crate) mod tests {
             title: "New Title Reparented".to_string(),
             author_id: remote_author2_model.id, // Remote's local FK to its author_sync_2
             remote_author_sync_id: Some(remote_author2_model.sync_id.clone()), // CRITICAL: points to Author 2
-            created_at_hlc_ts: hlc_post_v1_local.to_rfc3339(),
+            created_at_hlc_ts: hlc_post_v1_local.to_rfc3339()?,
             created_at_hlc_ct: hlc_post_v1_local.version as i32,
             created_at_hlc_id: hlc_post_v1_local.node_id,
-            updated_at_hlc_ts: hlc_post_v1_remote_reparented.to_rfc3339(),
+            updated_at_hlc_ts: hlc_post_v1_remote_reparented.to_rfc3339()?,
             updated_at_hlc_ct: hlc_post_v1_remote_reparented.version as i32,
             updated_at_hlc_id: hlc_post_v1_remote_reparented.node_id,
         };
