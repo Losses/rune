@@ -1929,7 +1929,7 @@ pub(crate) mod tests {
             table_name: &str,
             operations: Vec<SyncOperation<E::Model>>,
             _client_node_id: Uuid,
-            _new_last_sync_hlc: &HLC,
+            new_last_sync_hlc: &HLC,
         ) -> Result<HLC>
         where
             E: HLCModel + EntityTrait + Send + Sync,
@@ -1948,8 +1948,6 @@ pub(crate) mod tests {
             let mut ops_map_guard = self.applied_ops_by_table.lock().await;
             let table_ops_json = ops_map_guard.entry(table_name.to_string()).or_default();
 
-            let mut max_hlc = HLC::new(self.node_id);
-
             for op in operations {
                 let op_json = serde_json::to_value(&op).with_context(|| {
                     format!("Failed to serialize SyncOperation for table {}", table_name)
@@ -1959,11 +1957,6 @@ pub(crate) mod tests {
                 match op {
                     SyncOperation::InsertRemote(model, _)
                     | SyncOperation::UpdateRemote(model, _) => {
-                        if let Some(hlc) = model.updated_at_hlc() {
-                            if hlc > max_hlc {
-                                max_hlc = hlc;
-                            }
-                        }
                         let model_sync_id = model.unique_id();
                         let model_json = serde_json::to_value(model).with_context(|| {
                             format!(
@@ -1980,21 +1973,7 @@ pub(crate) mod tests {
                 }
             }
 
-            if table_ops_json.iter().any(|op_val| {
-                // Check if any "real" ops were processed
-                let op_type_str = op_val
-                    .as_object()
-                    .and_then(|o| o.keys().next())
-                    .map(|s| s.as_str());
-                matches!(
-                    op_type_str,
-                    Some("InsertRemote") | Some("UpdateRemote") | Some("DeleteRemote")
-                )
-            }) {
-                Ok(max_hlc)
-            } else {
-                Ok(HLC::new(self.node_id))
-            }
+            Ok(new_last_sync_hlc.clone())
         }
 
         async fn get_remote_last_sync_hlc(
