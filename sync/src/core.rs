@@ -1106,68 +1106,45 @@ where
             }
             SyncOperation::UpdateLocal(model, fk_payload) => {
                 let id_str = model.unique_id();
-                debug!("Local TXN: Updating record ID {}", id_str);
+                debug!("Local TXN: Updating record ID {} via delete and insert", id_str);
 
-                // 1. Convert the incoming model to ActiveModel.
-                //    This ActiveModel might contain an incorrect primary key value
-                //    inherited from the `model` (e.g., if it came from remote).
-                let mut am_from_model: E::ActiveModel = model.into_active_model();
+                // First, delete the existing record by its unique ID
+                let delete_result = E::delete_many()
+                    .filter(E::unique_id_column().eq(id_str.clone()))
+                    .exec(&txn)
+                    .await
+                    .with_context(|| format!("Failed to delete local record for update: {}", id_str))?;
 
-                // 2. Reset the primary key field(s) in the ActiveModel.
-                //    This sets the PK fields to `NotSet`, ensuring that the `set`
-                //    operation below does not attempt to modify the primary key itself.
-                //    The filter condition will target the correct row.
-                //    Requires E::PrimaryKey: Into<E::Column> bound.
+                if delete_result.rows_affected == 0 {
+                    warn!("While updating {}, the existing record was not found for deletion. Proceeding with insert.", id_str);
+                }
+
+                // Second, insert the new version of the record
+                let mut active_model: E::ActiveModel = model.into_active_model();
+
+                // Reset the primary key to allow the database to generate a new one.
+                // This is crucial because we are re-inserting.
                 for pk_col in E::PrimaryKey::iter() {
-                    am_from_model.reset(pk_col.into_column());
+                    active_model.reset(pk_col.into_column());
                 }
 
                 if let Some(resolver) = &fk_resolver {
                     resolver
                         .remap_and_set_foreign_keys(
-                            &mut am_from_model, // Apply FK remapping to this AM
+                            &mut active_model,
                             &fk_payload,
                             &txn,
                         )
                         .await
-                        .with_context(|| format!("Failed to remap FKs for update of {}", id_str))?;
+                        .with_context(|| format!("Failed to remap FKs for insert-on-update of {}", id_str))?;
                 }
 
-                // 3. Perform the update using `update_many` (even for a single row).
-                //    Filter by the logical unique ID (`sync_id` in tests).
-                //    The `set` method applies only the fields that are `Set`
-                //    in `am_from_model` (which now excludes the PKs).
-                let update_result = E::update_many()
-                    .set(am_from_model) // Apply the changes (PK field is NotSet)
-                    .filter(E::unique_id_column().eq(id_str.clone())) // Use ColumnTrait::eq
+                E::insert(active_model)
                     .exec(&txn)
                     .await
-                    .with_context(|| {
-                        format!("Failed to update local record with unique ID {}", id_str)
-                    })?;
+                    .with_context(|| format!("Failed to insert local record for update: {}", id_str))?;
 
-                // 4. Check if any row was actually updated.
-                if update_result.rows_affected == 0 {
-                    // This implies the record with the given unique_id didn't exist locally.
-                    // This could happen if a remote delete won a conflict resolution
-                    // against a local update, but the delete hasn't been processed yet,
-                    // or indicates some other inconsistency.
-                    warn!(
-                        "Local TXN: Update operation for unique ID {} affected 0 rows. Record might not exist locally or was already deleted.",
-                        id_str
-                    );
-                } else if update_result.rows_affected > 1 {
-                    // This should ideally not happen if unique_id_column has a unique constraint.
-                    warn!(
-                        "Local TXN: Update operation for unique ID {} affected {} rows. Expected 1.",
-                        id_str, update_result.rows_affected
-                    );
-                } else {
-                    debug!(
-                        "Local TXN: Successfully updated 1 row for unique ID {}",
-                        id_str
-                    );
-                }
+                debug!("Local TXN: Successfully updated (re-inserted) record ID {}", id_str);
             }
             SyncOperation::DeleteLocal(id_str) => {
                 debug!("Local TXN: Deleting record ID {}", id_str);
