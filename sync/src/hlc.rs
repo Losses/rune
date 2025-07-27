@@ -208,7 +208,7 @@ impl HLC {
     ///     version: 1,
     ///     node_id: Uuid::new_v4(),
     /// };
-    /// assert_eq!(hlc.to_rfc3339().unwrap(), "2022-01-01T00:00:00+00:00");
+    assert_eq!(hlc.to_rfc3339().unwrap(), "2022-01-01T00:00:00.000000000Z");
     /// ```
     pub fn to_rfc3339(&self) -> Result<String> {
         use chrono::TimeZone;
