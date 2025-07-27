@@ -722,8 +722,81 @@ async fn test_conflict_resolution_server_wins() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_client_deletes_album_synced_to_server() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed an album on the client and sync it to the server
+    let album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        201,
+        "Album to be deleted by client",
+    )
+    .await?;
+    fixture.run_sync().await?;
+
+    // 2. Verify it exists on both client and server
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 1);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    // 3. Client deletes the album
+    Albums::delete_by_id(album.id)
+        .exec(&fixture.client_db)
+        .await?;
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 0);
+
+    // 4. Run sync again
+    fixture.run_sync().await?;
+
+    // 5. Verify the album is deleted on the server as well
+    assert_eq!(
+        Albums::find().count(&fixture.server_db).await?,
+        0,
+        "Album should have been deleted from the server"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_server_deletes_album_synced_to_client() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed an album on the server and sync it to the client
+    let album = seed_album(
+        &fixture.server_db,
+        fixture.server_hlc_context(),
+        202,
+        "Album to be deleted by server",
+    )
+    .await?;
+    fixture.run_sync().await?;
+
+    // 2. Verify it exists on both client and server
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 1);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    // 3. Server deletes the album
+    Albums::delete_by_id(album.id)
+        .exec(&fixture.server_db)
+        .await?;
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 0);
+
+    // 4. Run sync again
+    fixture.run_sync().await?;
+
+    // 5. Verify the album is deleted on the client as well
+    assert_eq!(
+        Albums::find().count(&fixture.client_db).await?,
+        0,
+        "Album should have been deleted from the client"
+    );
+
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - Deletes (client deletes, server deletes)
 // // - Sync for junction tables (media_file_albums, media_file_artists, media_file_genres)
 // //   ensuring FKs are correct (e.g. media_file_albums.track_number).
 // // - More complex bidirectional scenarios (e.g. client updates X, server updates Y, then sync).
