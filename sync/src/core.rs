@@ -396,6 +396,8 @@ where
 
     // Execute futures concurrently
     let (local_chunks_res, remote_chunks_res) = tokio::join!(local_chunks_fut, remote_chunks_fut);
+    println!("Local chunks: {:?}", local_chunks_res);
+    println!("Remote chunks: {:?}", remote_chunks_res);
 
     let mut local_chunks = local_chunks_res
         .with_context(|| format!("Failed to generate local chunks for table '{}'", table_name))?;
@@ -744,51 +746,94 @@ where
             RecordSyncState::LocalOnly(local_record) => {
                 // Record only exists locally
                 let id = local_record.unique_id();
-                println!("Conflict Resolution: Record {} is LocalOnly. Direction: {:?}. Generating InsertRemote.", id, context.sync_direction);
-                if context.sync_direction == SyncDirection::Push
-                    || context.sync_direction == SyncDirection::Bidirectional
-                {
-                    let fk_payload = if let Some(resolver) = &fk_resolver {
-                        resolver
-                            .extract_foreign_key_sync_ids(&local_record, context.db)
-                            .await
-                            .with_context(|| {
-                                format!(
-                                    "Failed to extract FK sync_ids for local-only record {}",
-                                    id
-                                )
-                            })?
+                if let Some(local_hlc) = local_record.created_at_hlc() {
+                    if local_hlc <= metadata.last_sync_hlc {
+                        debug!(
+                            "Conflict Resolution: Record {} is LocalOnly but was created before last sync. It was deleted on remote. Generating DeleteLocal.",
+                            id
+                        );
+                        if context.sync_direction == SyncDirection::Pull
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            local_ops.push(SyncOperation::DeleteLocal(id));
+                        } else {
+                            // In Push-only mode, if local has a record that remote deleted, we respect the remote's deletion
+                            // by doing nothing to the remote, but we also don't re-insert it.
+                            // A NoOp for remote is appropriate.
+                            remote_ops.push(SyncOperation::NoOp(id));
+                        }
                     } else {
-                        FkPayload::new()
-                    };
-
-                    // Push local record to remote
-                    remote_ops.push(SyncOperation::InsertRemote(local_record, fk_payload));
+                        // Record's created_at is newer than last_sync_hlc, so it's a genuine new record.
+                        debug!(
+                            "Conflict Resolution: Record {} is LocalOnly and new. Direction: {:?}. Generating InsertRemote.",
+                            id, context.sync_direction
+                        );
+                        if context.sync_direction == SyncDirection::Push
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            let fk_payload = if let Some(resolver) = &fk_resolver {
+                                resolver
+                                    .extract_foreign_key_sync_ids(&local_record, context.db)
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "Failed to extract FK sync_ids for local-only record {}",
+                                            id
+                                        )
+                                    })?
+                            } else {
+                                FkPayload::new()
+                            };
+                            remote_ops.push(SyncOperation::InsertRemote(local_record, fk_payload));
+                        } else {
+                            // In Pull-only, we don't push new local records.
+                            local_ops.push(SyncOperation::NoOp(id));
+                        }
+                    }
                 } else {
-                    // Pull only, do nothing locally or remotely for this record
+                    warn!("LocalOnly record {} has no HLC, cannot process.", id);
                     local_ops.push(SyncOperation::NoOp(id));
                 }
             }
             RecordSyncState::RemoteOnly(remote_record) => {
                 // Record only exists remotely
                 let id = remote_record.unique_id();
-                debug!("Conflict Resolution: Record {} is RemoteOnly.", id);
-                if context.sync_direction == SyncDirection::Pull
-                    || context.sync_direction == SyncDirection::Bidirectional
-                {
-                    let fk_payload = if let Some(resolver) = &fk_resolver {
-                        resolver.extract_sync_ids_from_remote_model_with_mapping(
-                            &remote_record,
-                            Some(&remote_fk_mappings),
-                        )?
+                if let Some(remote_hlc) = remote_record.created_at_hlc() {
+                    if remote_hlc <= metadata.last_sync_hlc {
+                        debug!(
+                            "Conflict Resolution: Record {} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote.",
+                            id
+                        );
+                        if context.sync_direction == SyncDirection::Push
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            remote_ops.push(SyncOperation::DeleteRemote(id));
+                        } else {
+                            // In Pull-only, if remote has a record that local deleted, respect local's deletion.
+                            local_ops.push(SyncOperation::NoOp(id));
+                        }
                     } else {
-                        FkPayload::new()
-                    };
-
-                    // Pull remote record to local
-                    local_ops.push(SyncOperation::InsertLocal(remote_record, fk_payload));
+                        // Record's created_at is newer than last_sync_hlc, so it's a genuine new record from remote.
+                        debug!("Conflict Resolution: Record {} is RemoteOnly and new. Generating InsertLocal.", id);
+                        if context.sync_direction == SyncDirection::Pull
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            let fk_payload = if let Some(resolver) = &fk_resolver {
+                                resolver.extract_sync_ids_from_remote_model_with_mapping(
+                                    &remote_record,
+                                    Some(&remote_fk_mappings),
+                                )?
+                            } else {
+                                FkPayload::new()
+                            };
+                            local_ops.push(SyncOperation::InsertLocal(remote_record, fk_payload));
+                        } else {
+                            // In Push-only, we don't pull new remote records.
+                            remote_ops.push(SyncOperation::NoOp(id));
+                        }
+                    }
                 } else {
-                    // Push only, do nothing locally or remotely for this record
+                    warn!("RemoteOnly record {} has no HLC, cannot process.", id);
                     remote_ops.push(SyncOperation::NoOp(id));
                 }
             }
