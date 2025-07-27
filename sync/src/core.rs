@@ -746,7 +746,7 @@ where
             RecordSyncState::LocalOnly(local_record) => {
                 // Record only exists locally
                 let id = local_record.unique_id();
-                if let Some(local_hlc) = local_record.created_at_hlc() {
+                if let Some(local_hlc) = local_record.updated_at_hlc() {
                     if local_hlc <= metadata.last_sync_hlc {
                         debug!(
                             "Conflict Resolution: Record {} is LocalOnly but was created before last sync. It was deleted on remote. Generating DeleteLocal.",
@@ -798,7 +798,8 @@ where
             RecordSyncState::RemoteOnly(remote_record) => {
                 // Record only exists remotely
                 let id = remote_record.unique_id();
-                if let Some(remote_hlc) = remote_record.created_at_hlc() {
+                if let Some(remote_hlc) = remote_record.updated_at_hlc() {
+                    debug!("Comparing remote_hlc: {:?} with last_sync_hlc: {:?}", remote_hlc, metadata.last_sync_hlc);
                     if remote_hlc <= metadata.last_sync_hlc {
                         debug!(
                             "Conflict Resolution: Record {} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote.",
