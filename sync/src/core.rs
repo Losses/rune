@@ -375,7 +375,7 @@ where
     );
 
     // Ensure remote node ID is obtained early for conflict resolution tie-breaking
-    let remote_node_id = context
+    let _remote_node_id = context
         .remote_source
         .get_remote_node_id()
         .await
@@ -813,45 +813,23 @@ where
                     id, local_hlc, remote_hlc
                 );
 
-                // Compare timestamp and version first
-                let ts_ver_cmp = (local_hlc.timestamp_ms, local_hlc.version)
-                    .cmp(&(remote_hlc.timestamp_ms, remote_hlc.version));
-
-                let (local_wins, remote_wins) = match ts_ver_cmp {
-                    std::cmp::Ordering::Greater => {
-                        debug!(":: Local TS/Version is greater.");
-                        (true, false) // Local wins based on TS/Version
-                    }
-                    std::cmp::Ordering::Less => {
-                        debug!(":: Remote TS/Version is greater.");
-                        (false, true) // Remote wins based on TS/Version
-                    }
-                    std::cmp::Ordering::Equal => {
-                        // Timestamps and Versions are identical, use Node ID as tie-breaker.
-                        // The node with the lexicographically smaller Node ID wins.
-                        debug!(
-                            ":: TS/Version are equal. Tie-breaking using Node IDs (Local HLC's: {}, Remote HLC's: {}).",
-                            local_hlc.node_id, remote_hlc.node_id
-                        );
-                        match local_hlc.node_id.cmp(&remote_hlc.node_id) {
-                            std::cmp::Ordering::Less => {
-                                debug!(":: Local HLC's Node ID wins tie-breaker.");
-                                (true, false) // Local wins tie-breaker
-                            }
-                            std::cmp::Ordering::Greater => {
-                                debug!(":: Remote HLC's Node ID wins tie-breaker.");
-                                (false, true) // Remote wins tie-breaker
-                            }
-                            std::cmp::Ordering::Equal => {
-                                // This is highly unlikely with UUIDs but possible. If HLCs are identical,
-                                // it implies the record state is identical, so no operation is needed.
-                                warn!(
-                                    "Identical HLCs (including Node ID: {}) found for record {}. Treating as NoOp.",
-                                    local_hlc.node_id, id
-                                );
-                                (true, false) // No winner
-                            }
-                        }
+                let (local_wins, remote_wins) = {
+                    if local_hlc.timestamp_ms > remote_hlc.timestamp_ms {
+                        (true, false)
+                    } else if local_hlc.timestamp_ms < remote_hlc.timestamp_ms {
+                        (false, true)
+                    } else if local_hlc.version > remote_hlc.version {
+                        (true, false)
+                    } else if local_hlc.version < remote_hlc.version {
+                        (false, true)
+                    } else if local_hlc.node_id < remote_hlc.node_id {
+                        (true, false)
+                    } else if local_hlc.node_id > remote_hlc.node_id {
+                        (false, true)
+                    } else {
+                        // HLCs are identical. The data is different (otherwise hashes would match).
+                        // Deterministically choose local to win.
+                        (true, false)
                     }
                 };
 
