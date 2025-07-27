@@ -827,30 +827,29 @@ where
                         (false, true) // Remote wins based on TS/Version
                     }
                     std::cmp::Ordering::Equal => {
-                        // Timestamps and Versions are identical, use Node ID as tie-breaker
+                        // Timestamps and Versions are identical, use Node ID as tie-breaker.
+                        // The node with the lexicographically smaller Node ID wins.
                         debug!(
-                            ":: TS/Version are equal. Tie-breaking using Node IDs (Local: {}, Remote: {}).",
-                            context.local_node_id, remote_node_id
+                            ":: TS/Version are equal. Tie-breaking using Node IDs (Local HLC's: {}, Remote HLC's: {}).",
+                            local_hlc.node_id, remote_hlc.node_id
                         );
-                        // Explicitly compare node IDs now
-                        match context.local_node_id.cmp(&remote_node_id) {
+                        match local_hlc.node_id.cmp(&remote_hlc.node_id) {
                             std::cmp::Ordering::Less => {
-                                debug!(":: Local Node ID wins tie-breaker.");
+                                debug!(":: Local HLC's Node ID wins tie-breaker.");
                                 (true, false) // Local wins tie-breaker
                             }
+                            std::cmp::Ordering::Greater => {
+                                debug!(":: Remote HLC's Node ID wins tie-breaker.");
+                                (false, true) // Remote wins tie-breaker
+                            }
                             std::cmp::Ordering::Equal => {
-                                // Node IDs are identical? Should not happen with UUIDs unless clocks synced *perfectly*
-                                // and somehow produced the exact same record state.
-                                // Treat as NoOp as the HLCs (and likely data) are identical.
+                                // This is highly unlikely with UUIDs but possible. If HLCs are identical,
+                                // it implies the record state is identical, so no operation is needed.
                                 warn!(
                                     "Identical HLCs (including Node ID: {}) found for record {}. Treating as NoOp.",
-                                    context.local_node_id, id
+                                    local_hlc.node_id, id
                                 );
-                                (false, false) // No winner, effectively NoOp
-                            }
-                            std::cmp::Ordering::Greater => {
-                                debug!(":: Remote Node ID wins tie-breaker.");
-                                (false, true) // Remote wins tie-breaker
+                                (true, false) // No winner
                             }
                         }
                     }
