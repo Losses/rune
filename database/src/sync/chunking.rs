@@ -705,12 +705,11 @@ pub async fn apply_remote_changes_handler(
         table_name
     );
 
-    let result_hlc = state.hlc_context.generate_hlc();
     info!(
         "apply_remote_changes for table '{}' completed. Effective HLC: {}",
-        table_name, result_hlc
+        table_name, new_last_sync_hlc
     );
-    Ok(Json(result_hlc))
+    Ok(Json(new_last_sync_hlc))
 }
 
 /// Fetches the remote's perspective of the last sync HLC with the local node.
