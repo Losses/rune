@@ -305,6 +305,7 @@ enum ReconciliationItem {
     ChunkPair(Box<DataChunk>, Box<DataChunk>), // (Local Chunk, Remote Chunk)
     /// An HLC range for which individual records need to be fetched from both local and remote sources.
     FetchRange(ComparisonRange),
+    DeleteChunk(Box<DataChunk>, bool),
 }
 
 /// Performs synchronization for a single table between the local node and the remote source.
@@ -431,11 +432,16 @@ where
     // Use a queue for iterative processing of ranges/chunks needing reconciliation
     let mut reconciliation_queue: VecDeque<ReconciliationItem> = VecDeque::new();
 
+    // Operation lists, to be populated during reconciliation and comparison.
+    let mut local_ops: Vec<SyncOperation<E::Model>> = Vec::new();
+    let mut remote_ops: Vec<SyncOperation<E::Model>> = Vec::new();
+
     // Align the top-level chunks and populate the initial reconciliation queue
     align_and_queue_chunks(
         local_chunks,
         remote_chunks,
         &mut reconciliation_queue,
+        &metadata.last_sync_hlc,
         &mut max_hlc_encountered,
     );
 
@@ -482,6 +488,51 @@ where
                 debug!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
 
                 remote_records_to_compare.extend(remote_res.records);
+            }
+            ReconciliationItem::DeleteChunk(chunk, is_local) => {
+                if is_local {
+                    // This chunk exists locally, but not remotely. And it's old.
+                    // This means the records were deleted on the remote. We should delete them locally too.
+                    debug!(
+                        "Processing DeleteChunk (local): [{}-{}]",
+                        chunk.start_hlc, chunk.end_hlc
+                    );
+                    let records_to_delete = fetch_local_records_in_range::<E>(
+                        context.db,
+                        &chunk.start_hlc,
+                        &chunk.end_hlc,
+                    )
+                    .await?;
+                    for record in records_to_delete {
+                        if context.sync_direction == SyncDirection::Pull
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            local_ops.push(SyncOperation::DeleteLocal(record.unique_id()));
+                        }
+                    }
+                } else {
+                    // This chunk exists remotely, but not locally. And it's old.
+                    // This means the records were deleted on the local side. We should delete them on remote too.
+                    debug!(
+                        "Processing DeleteChunk (remote): [{}-{}]",
+                        chunk.start_hlc, chunk.end_hlc
+                    );
+                    let records_to_delete = context
+                        .remote_source
+                        .get_remote_records_in_hlc_range::<E>(
+                            table_name,
+                            &chunk.start_hlc,
+                            &chunk.end_hlc,
+                        )
+                        .await?;
+                    for record in records_to_delete.records {
+                        if context.sync_direction == SyncDirection::Push
+                            || context.sync_direction == SyncDirection::Bidirectional
+                        {
+                            remote_ops.push(SyncOperation::DeleteRemote(record.unique_id()));
+                        }
+                    }
+                }
             }
             ReconciliationItem::ChunkPair(local_chunk, remote_chunk) => {
                 // This pair represents aligned chunks with differing hashes
@@ -586,6 +637,7 @@ where
                                 local_subs,
                                 remote_subs,
                                 &mut reconciliation_queue,
+                                &metadata.last_sync_hlc,
                                 &mut max_hlc_encountered, // Pass down max_hlc_encountered
                             );
                         }
@@ -738,8 +790,6 @@ where
     // 4. Conflict Resolution and Operation Generation
     // Iterate through the merged record states and determine the appropriate SyncOperation
     // based on the state, HLC comparison, Node ID tie-breaking, and SyncDirection.
-    let mut local_ops: Vec<SyncOperation<E::Model>> = Vec::new();
-    let mut remote_ops: Vec<SyncOperation<E::Model>> = Vec::new();
 
     for (_key, state) in comparison_map {
         match state {
@@ -799,7 +849,6 @@ where
                 // Record only exists remotely
                 let id = remote_record.unique_id();
                 if let Some(remote_hlc) = remote_record.updated_at_hlc() {
-                    debug!("Comparing remote_hlc: {:?} with last_sync_hlc: {:?}", remote_hlc, metadata.last_sync_hlc);
                     if remote_hlc <= metadata.last_sync_hlc {
                         debug!(
                             "Conflict Resolution: Record {} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote.",
@@ -1129,14 +1178,19 @@ where
             }
             SyncOperation::UpdateLocal(model, fk_payload) => {
                 let id_str = model.unique_id();
-                debug!("Local TXN: Updating record ID {} via delete and insert", id_str);
+                debug!(
+                    "Local TXN: Updating record ID {} via delete and insert",
+                    id_str
+                );
 
                 // First, delete the existing record by its unique ID
                 let delete_result = E::delete_many()
                     .filter(E::unique_id_column().eq(id_str.clone()))
                     .exec(&txn)
                     .await
-                    .with_context(|| format!("Failed to delete local record for update: {}", id_str))?;
+                    .with_context(|| {
+                        format!("Failed to delete local record for update: {}", id_str)
+                    })?;
 
                 if delete_result.rows_affected == 0 {
                     warn!("While updating {}, the existing record was not found for deletion. Proceeding with insert.", id_str);
@@ -1153,21 +1207,21 @@ where
 
                 if let Some(resolver) = &fk_resolver {
                     resolver
-                        .remap_and_set_foreign_keys(
-                            &mut active_model,
-                            &fk_payload,
-                            &txn,
-                        )
+                        .remap_and_set_foreign_keys(&mut active_model, &fk_payload, &txn)
                         .await
-                        .with_context(|| format!("Failed to remap FKs for insert-on-update of {}", id_str))?;
+                        .with_context(|| {
+                            format!("Failed to remap FKs for insert-on-update of {}", id_str)
+                        })?;
                 }
 
-                E::insert(active_model)
-                    .exec(&txn)
-                    .await
-                    .with_context(|| format!("Failed to insert local record for update: {}", id_str))?;
+                E::insert(active_model).exec(&txn).await.with_context(|| {
+                    format!("Failed to insert local record for update: {}", id_str)
+                })?;
 
-                debug!("Local TXN: Successfully updated (re-inserted) record ID {}", id_str);
+                debug!(
+                    "Local TXN: Successfully updated (re-inserted) record ID {}",
+                    id_str
+                );
             }
             SyncOperation::DeleteLocal(id_str) => {
                 debug!("Local TXN: Deleting record ID {}", id_str);
@@ -1214,6 +1268,7 @@ fn align_and_queue_chunks(
     local_chunks: Vec<DataChunk>,
     remote_chunks: Vec<DataChunk>,
     queue: &mut VecDeque<ReconciliationItem>,
+    last_sync_hlc: &HLC,
     max_hlc_encountered: &mut HLC, // Pass mutable ref to update max HLC
 ) {
     let mut local_idx = 0;
@@ -1238,10 +1293,17 @@ fn align_and_queue_chunks(
                             "Align: Local chunk [{}-{}] starts first. Queueing FetchRange.",
                             local.start_hlc, local.end_hlc
                         );
-                        queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
-                            start_hlc: local.start_hlc.clone(),
-                            end_hlc: local.end_hlc.clone(),
-                        }));
+                        if local.start_hlc <= *last_sync_hlc {
+                            queue.push_back(ReconciliationItem::DeleteChunk(
+                                Box::new(local.clone()),
+                                true,
+                            ));
+                        } else {
+                            queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
+                                start_hlc: local.start_hlc.clone(),
+                                end_hlc: local.end_hlc.clone(),
+                            }));
+                        }
                         local_idx += 1; // Advance local index
                     }
                     std::cmp::Ordering::Greater => {
@@ -1250,10 +1312,17 @@ fn align_and_queue_chunks(
                             "Align: Remote chunk [{}-{}] starts first. Queueing FetchRange.",
                             remote.start_hlc, remote.end_hlc
                         );
-                        queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
-                            start_hlc: remote.start_hlc.clone(),
-                            end_hlc: remote.end_hlc.clone(),
-                        }));
+                        if remote.start_hlc <= *last_sync_hlc {
+                            queue.push_back(ReconciliationItem::DeleteChunk(
+                                Box::new(remote.clone()),
+                                false,
+                            ));
+                        } else {
+                            queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
+                                start_hlc: remote.start_hlc.clone(),
+                                end_hlc: remote.end_hlc.clone(),
+                            }));
+                        }
                         remote_idx += 1; // Advance remote index
                     }
                     std::cmp::Ordering::Equal => {
@@ -1306,26 +1375,40 @@ fn align_and_queue_chunks(
             (Some(local), None) => {
                 update_max_hlc(max_hlc_encountered, &local.end_hlc);
                 debug!(
-                    "Align: Remaining local chunk [{}-{}]. Queueing FetchRange.",
+                    "Align: Remaining local chunk [{}-{}]. Queueing DeleteChunk.",
                     local.start_hlc, local.end_hlc
                 );
-                queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
-                    start_hlc: local.start_hlc.clone(),
-                    end_hlc: local.end_hlc.clone(),
-                }));
+                if local.start_hlc <= *last_sync_hlc {
+                    queue.push_back(ReconciliationItem::DeleteChunk(
+                        Box::new(local.clone()),
+                        true,
+                    ));
+                } else {
+                    queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
+                        start_hlc: local.start_hlc.clone(),
+                        end_hlc: local.end_hlc.clone(),
+                    }));
+                }
                 local_idx += 1;
             }
             // Case 3: Only remote chunks left
             (None, Some(remote)) => {
                 update_max_hlc(max_hlc_encountered, &remote.end_hlc);
                 debug!(
-                    "Align: Remaining remote chunk [{}-{}]. Queueing FetchRange.",
+                    "Align: Remaining remote chunk [{}-{}]. Queueing DeleteChunk.",
                     remote.start_hlc, remote.end_hlc
                 );
-                queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
-                    start_hlc: remote.start_hlc.clone(),
-                    end_hlc: remote.end_hlc.clone(),
-                }));
+                if remote.start_hlc <= *last_sync_hlc {
+                    queue.push_back(ReconciliationItem::DeleteChunk(
+                        Box::new(remote.clone()),
+                        false,
+                    ));
+                } else {
+                    queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
+                        start_hlc: remote.start_hlc.clone(),
+                        end_hlc: remote.end_hlc.clone(),
+                    }));
+                }
                 remote_idx += 1;
             }
             // Case 4: Both lists exhausted
