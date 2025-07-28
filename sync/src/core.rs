@@ -385,20 +385,14 @@ where
     // 1. Fetch Initial Chunks
     // Fetch local and remote chunk metadata for data modified *after* the last sync HLC.
     let sync_start_hlc = metadata.last_sync_hlc.clone();
-    let local_chunks_fut = generate_data_chunks::<E, FKR>(
-        context.db,
-        &context.chunking_options,
-        Some(sync_start_hlc.clone()),
-        fk_resolver,
-    );
+    let local_chunks_fut =
+        generate_data_chunks::<E, FKR>(context.db, &context.chunking_options, None, fk_resolver);
     let remote_chunks_fut = context
         .remote_source
-        .get_remote_chunks::<E>(table_name, Some(&sync_start_hlc));
+        .get_remote_chunks::<E>(table_name, None);
 
     // Execute futures concurrently
     let (local_chunks_res, remote_chunks_res) = tokio::join!(local_chunks_fut, remote_chunks_fut);
-    println!("Local chunks: {:?}", local_chunks_res);
-    println!("Remote chunks: {:?}", remote_chunks_res);
 
     let mut local_chunks = local_chunks_res
         .with_context(|| format!("Failed to generate local chunks for table '{}'", table_name))?;
@@ -419,15 +413,12 @@ where
         sync_start_hlc
     );
 
-    println!("Local Chunks for '{}': {:?}", table_name, local_chunks);
-    println!("Remote Chunks for '{}': {:?}", table_name, remote_chunks);
-
     // 2. Reconcile Chunk Differences Recursively/Iteratively
     // Initialize lists to store records that need detailed comparison
     let mut local_records_to_compare: Vec<E::Model> = Vec::new();
     let mut remote_records_to_compare: Vec<E::Model> = Vec::new();
     // Track the maximum HLC encountered across all processed chunks/records
-    let mut max_hlc_encountered = sync_start_hlc.clone();
+    let mut max_hlc_encountered = metadata.last_sync_hlc.clone();
 
     // Use a queue for iterative processing of ranges/chunks needing reconciliation
     let mut reconciliation_queue: VecDeque<ReconciliationItem> = VecDeque::new();
@@ -446,6 +437,8 @@ where
     );
 
     debug!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
+
+    debug!("Reconciliation queue: {:?}", reconciliation_queue);
 
     // Process the reconciliation queue until empty
     while let Some(item) = reconciliation_queue.pop_front() {
@@ -1002,10 +995,8 @@ where
     // 5. Apply Changes Transactionally
     let final_sync_hlc = max_hlc_encountered.clone();
 
-    println!(
-        "Operations generated for table '{}'. Local Ops: {:?}, Remote Ops: {:?}",
-        table_name, local_ops, remote_ops
-    );
+    debug!("Generated local operations: {:?}", local_ops);
+    debug!("Generated remote operations: {:?}", remote_ops);
 
     debug!(
         "Applying changes for table '{}'. {} local ops, {} remote ops. Target HLC: {}",
@@ -1288,42 +1279,46 @@ fn align_and_queue_chunks(
                 // Compare chunks based on start HLC first for alignment
                 match local.start_hlc.cmp(&remote.start_hlc) {
                     std::cmp::Ordering::Less => {
-                        // Local chunk starts earlier -> Assume local-only range for now
+                        // Local chunk starts earlier -> This range is local-only.
                         debug!(
-                            "Align: Local chunk [{}-{}] starts first. Queueing FetchRange.",
+                            "Align: Local chunk [{}-{}] starts first. Queueing as local-only.",
                             local.start_hlc, local.end_hlc
                         );
-                        if local.start_hlc <= *last_sync_hlc {
+                        if local.end_hlc <= *last_sync_hlc {
+                            // Entirely old chunk, must have been deleted on remote.
                             queue.push_back(ReconciliationItem::DeleteChunk(
                                 Box::new(local.clone()),
-                                true,
+                                true, // is_local
                             ));
                         } else {
+                            // Chunk is new or overlaps the sync boundary. Fetch to compare.
                             queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
                                 start_hlc: local.start_hlc.clone(),
                                 end_hlc: local.end_hlc.clone(),
                             }));
                         }
-                        local_idx += 1; // Advance local index
+                        local_idx += 1;
                     }
                     std::cmp::Ordering::Greater => {
-                        // Remote chunk starts earlier -> Assume remote-only range for now
+                        // Remote chunk starts earlier -> This range is remote-only.
                         debug!(
-                            "Align: Remote chunk [{}-{}] starts first. Queueing FetchRange.",
+                            "Align: Remote chunk [{}-{}] starts first. Queueing as remote-only.",
                             remote.start_hlc, remote.end_hlc
                         );
-                        if remote.start_hlc <= *last_sync_hlc {
+                        if remote.end_hlc <= *last_sync_hlc {
+                            // Entirely old chunk, must have been deleted on local.
                             queue.push_back(ReconciliationItem::DeleteChunk(
                                 Box::new(remote.clone()),
-                                false,
+                                false, // !is_local
                             ));
                         } else {
+                            // Chunk is new or overlaps. Fetch to compare.
                             queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
                                 start_hlc: remote.start_hlc.clone(),
                                 end_hlc: remote.end_hlc.clone(),
                             }));
                         }
-                        remote_idx += 1; // Advance remote index
+                        remote_idx += 1;
                     }
                     std::cmp::Ordering::Equal => {
                         // Start HLCs match, now compare end HLCs
@@ -1375,15 +1370,17 @@ fn align_and_queue_chunks(
             (Some(local), None) => {
                 update_max_hlc(max_hlc_encountered, &local.end_hlc);
                 debug!(
-                    "Align: Remaining local chunk [{}-{}]. Queueing DeleteChunk.",
+                    "Align: Remaining local chunk [{}-{}]. Queueing as local-only.",
                     local.start_hlc, local.end_hlc
                 );
-                if local.start_hlc <= *last_sync_hlc {
+                if local.end_hlc <= *last_sync_hlc {
+                    // Entirely old chunk, must have been deleted on remote.
                     queue.push_back(ReconciliationItem::DeleteChunk(
                         Box::new(local.clone()),
-                        true,
+                        true, // is_local
                     ));
                 } else {
+                    // Chunk is new or overlaps. Fetch to compare.
                     queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
                         start_hlc: local.start_hlc.clone(),
                         end_hlc: local.end_hlc.clone(),
@@ -1395,15 +1392,17 @@ fn align_and_queue_chunks(
             (None, Some(remote)) => {
                 update_max_hlc(max_hlc_encountered, &remote.end_hlc);
                 debug!(
-                    "Align: Remaining remote chunk [{}-{}]. Queueing DeleteChunk.",
+                    "Align: Remaining remote chunk [{}-{}]. Queueing as remote-only.",
                     remote.start_hlc, remote.end_hlc
                 );
-                if remote.start_hlc <= *last_sync_hlc {
+                if remote.end_hlc <= *last_sync_hlc {
+                    // Entirely old chunk, must have been deleted on local.
                     queue.push_back(ReconciliationItem::DeleteChunk(
                         Box::new(remote.clone()),
-                        false,
+                        false, // !is_local
                     ));
                 } else {
+                    // Chunk is new or overlaps. Fetch to compare.
                     queue.push_back(ReconciliationItem::FetchRange(ComparisonRange {
                         start_hlc: remote.start_hlc.clone(),
                         end_hlc: remote.end_hlc.clone(),
