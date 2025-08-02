@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     serve, Router,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use sea_orm::{
     prelude::Decimal, ActiveModelTrait, ColumnTrait, ConnectOptions, Database, DatabaseConnection,
     EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
@@ -183,13 +183,14 @@ async fn seed_album(
     hlc_context: &SyncTaskContext,
     pk_id: i32,
     name: &str,
+    hlc_uuid: Option<Uuid>,
 ) -> Result<albums::Model> {
     let hlc = hlc_context.generate_hlc();
     let model = albums::ActiveModel {
         id: Set(pk_id),
         name: Set(name.to_string()),
         group: Set("Test Group".to_string()),
-        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        hlc_uuid: Set(hlc_uuid.unwrap_or_else(Uuid::new_v4).to_string()),
         created_at_hlc_ts: Set(hlc.to_rfc3339()?),
         created_at_hlc_ver: Set(hlc.version as i32),
         created_at_hlc_nid: Set(hlc.node_id.to_string()),
@@ -322,6 +323,7 @@ async fn test_client_inserts_album_synced_to_server() -> Result<()> {
         &fixture.client_hlc_context,
         1,
         "Client Album",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -346,6 +348,7 @@ async fn test_server_inserts_album_synced_to_client() -> Result<()> {
         fixture.server_hlc_context(),
         2,
         "Server Album",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -369,6 +372,7 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         &fixture.client_hlc_context,
         3,
         "Client Album",
+        None,
     )
     .await?;
     let server_album = seed_album(
@@ -376,6 +380,7 @@ async fn test_bidirectional_sync_different_albums() -> Result<()> {
         fixture.server_hlc_context(),
         4,
         "Server Album",
+        None,
     )
     .await?;
 
@@ -520,6 +525,7 @@ async fn test_get_remote_last_sync_hlc() -> Result<()> {
         &fixture.client_hlc_context,
         5,
         "Album for HLC test",
+        None,
     )
     .await?;
     let results = fixture.run_sync().await?;
@@ -556,6 +562,7 @@ async fn test_client_updates_album_synced_to_server() -> Result<()> {
         &fixture.client_hlc_context,
         101,
         "Initial Name",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -590,6 +597,7 @@ async fn test_server_updates_album_synced_to_client() -> Result<()> {
         fixture.server_hlc_context(),
         102,
         "Initial Name",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -624,6 +632,7 @@ async fn test_conflict_resolution_client_wins() -> Result<()> {
         &fixture.client_hlc_context,
         103,
         "Conflict Candidate",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -691,6 +700,7 @@ async fn test_conflict_resolution_server_wins() -> Result<()> {
         &fixture.client_hlc_context,
         104,
         "Conflict Candidate",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -759,6 +769,7 @@ async fn test_client_deletes_album_synced_to_server() -> Result<()> {
         &fixture.client_hlc_context,
         201,
         "Album to be deleted by client",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -796,6 +807,7 @@ async fn test_server_deletes_album_synced_to_client() -> Result<()> {
         fixture.server_hlc_context(),
         202,
         "Album to be deleted by server",
+        None,
     )
     .await?;
     fixture.run_sync().await?;
@@ -833,6 +845,7 @@ async fn test_sync_junction_table_media_file_albums() -> Result<()> {
         &fixture.client_hlc_context,
         301,
         "Junction Test Album",
+        None,
     )
     .await?;
     let client_mf = seed_media_file(
@@ -907,6 +920,7 @@ async fn test_bidirectional_updates_different_albums() -> Result<()> {
         &fixture.client_hlc_context,
         1,
         "Album A from Client",
+        None,
     )
     .await?;
     let server_album = seed_album(
@@ -914,6 +928,7 @@ async fn test_bidirectional_updates_different_albums() -> Result<()> {
         fixture.server_hlc_context(),
         2,
         "Album B from Server",
+        None,
     )
     .await?;
 
@@ -977,7 +992,252 @@ async fn test_bidirectional_updates_different_albums() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_conflict_resolution_create_create_client_wins() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+    let conflict_uuid = Uuid::new_v4();
+
+    // 1. Server creates a record
+    let server_album = seed_album(
+        &fixture.server_db,
+        fixture.server_hlc_context(),
+        501,
+        "Create-Create Server",
+        Some(conflict_uuid),
+    )
+    .await?;
+
+    // Ensure client's HLC will be newer
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 2. Client creates a record with the same hlc_uuid
+    let client_album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        502, // Different PK
+        "Create-Create Client",
+        Some(conflict_uuid),
+    )
+    .await?;
+
+    // Pre-condition check
+    let client_hlc = ::sync::hlc::HLC {
+        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        version: client_album.updated_at_hlc_ver as u32,
+        node_id: client_album.updated_at_hlc_nid.parse()?,
+    };
+    let server_hlc = ::sync::hlc::HLC {
+        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        version: server_album.updated_at_hlc_ver as u32,
+        node_id: server_album.updated_at_hlc_nid.parse()?,
+    };
+    assert!(client_hlc > server_hlc, "Client HLC should be greater");
+
+    // 3. Run sync
+    fixture.run_sync().await?;
+
+    // 4. Verify resolution
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 1);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    let final_client_album = Albums::find().one(&fixture.client_db).await?.unwrap();
+    let final_server_album = Albums::find().one(&fixture.server_db).await?.unwrap();
+
+    assert_eq!(final_client_album.name, "Create-Create Client");
+    assert_eq!(final_server_album.name, "Create-Create Client");
+    assert_eq!(final_client_album.hlc_uuid, client_album.hlc_uuid);
+    assert_eq!(final_server_album.hlc_uuid, client_album.hlc_uuid);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_conflict_resolution_create_create_server_wins() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+    let conflict_uuid = Uuid::new_v4();
+
+    // 1. Client creates a record
+    let client_album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        502,
+        "Create-Create Client",
+        Some(conflict_uuid),
+    )
+    .await?;
+
+    // Ensure server's HLC will be newer
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 2. Server creates a record with the same hlc_uuid
+    let server_album = seed_album(
+        &fixture.server_db,
+        fixture.server_hlc_context(),
+        501, // Different PK
+        "Create-Create Server",
+        Some(conflict_uuid),
+    )
+    .await?;
+
+    // Pre-condition check
+    let client_hlc = ::sync::hlc::HLC {
+        timestamp_ms: DateTime::parse_from_rfc3339(&client_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        version: client_album.updated_at_hlc_ver as u32,
+        node_id: client_album.updated_at_hlc_nid.parse()?,
+    };
+    let server_hlc = ::sync::hlc::HLC {
+        timestamp_ms: DateTime::parse_from_rfc3339(&server_album.updated_at_hlc_ts)?.timestamp_millis() as u64,
+        version: server_album.updated_at_hlc_ver as u32,
+        node_id: server_album.updated_at_hlc_nid.parse()?,
+    };
+    assert!(server_hlc > client_hlc, "Server HLC should be greater");
+
+    // 3. Run sync
+    fixture.run_sync().await?;
+
+    // 4. Verify resolution
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 1);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    let final_client_album = Albums::find().one(&fixture.client_db).await?.unwrap();
+    let final_server_album = Albums::find().one(&fixture.server_db).await?.unwrap();
+
+    assert_eq!(final_client_album.name, "Create-Create Server");
+    assert_eq!(final_server_album.name, "Create-Create Server");
+    assert_eq!(final_client_album.hlc_uuid, server_album.hlc_uuid);
+    assert_eq!(final_server_album.hlc_uuid, server_album.hlc_uuid);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_conflict_resolution_update_delete_delete_wins() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed and sync a record
+    let album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        601,
+        "Update-Delete Candidate",
+        None,
+    )
+    .await?;
+    fixture.run_sync().await?;
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    // 2. Server updates the record
+    let server_update_hlc = fixture.server_hlc_context().generate_hlc();
+    let mut server_am = Albums::find_by_id(album.id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    server_am.name = Set("Server Update (should be deleted)".to_string());
+    server_am.updated_at_hlc_ts = Set(server_update_hlc.to_rfc3339()?);
+    server_am.updated_at_hlc_ver = Set(server_update_hlc.version as i32);
+    server_am.updated_at_hlc_nid = Set(server_update_hlc.node_id.to_string());
+    server_am.update(&fixture.server_db).await?;
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 3. Client deletes the record (with a newer HLC)
+    Albums::delete_by_id(album.id)
+        .exec(&fixture.client_db)
+        .await?;
+    let client_delete_hlc = fixture.client_hlc_context.generate_hlc();
+    assert!(
+        client_delete_hlc > server_update_hlc,
+        "Client delete HLC must be newer"
+    );
+
+    // 4. Run sync
+    fixture.run_sync().await?;
+
+    // 5. Verify the record is deleted on both ends
+    assert_eq!(
+        Albums::find().count(&fixture.client_db).await?,
+        0,
+        "Client should have no albums"
+    );
+    assert_eq!(
+        Albums::find().count(&fixture.server_db).await?,
+        0,
+        "Server should have no albums, delete should win"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_conflict_resolution_update_delete_update_wins() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed and sync a record
+    let album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        602,
+        "Update-Delete Candidate",
+        None,
+    )
+    .await?;
+    fixture.run_sync().await?;
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+
+    // 2. Client deletes the record (with an older HLC)
+    Albums::delete_by_id(album.id)
+        .exec(&fixture.client_db)
+        .await?;
+    let client_delete_hlc = fixture.client_hlc_context.generate_hlc();
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 3. Server updates the record (with a newer HLC)
+    let server_update_hlc = fixture.server_hlc_context().generate_hlc();
+    let mut server_am = Albums::find_by_id(album.id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    server_am.name = Set("Server Update (should win)".to_string());
+    server_am.updated_at_hlc_ts = Set(server_update_hlc.to_rfc3339()?);
+    server_am.updated_at_hlc_ver = Set(server_update_hlc.version as i32);
+    server_am.updated_at_hlc_nid = Set(server_update_hlc.node_id.to_string());
+    let updated_album = server_am.update(&fixture.server_db).await?;
+    assert!(
+        server_update_hlc > client_delete_hlc,
+        "Server update HLC must be newer"
+    );
+
+    // 4. Run sync
+    fixture.run_sync().await?;
+
+    // 5. Verify the record is updated on both ends
+    assert_eq!(
+        Albums::find().count(&fixture.client_db).await?,
+        1,
+        "Client should have one album, update should win"
+    );
+    assert_eq!(
+        Albums::find().count(&fixture.server_db).await?,
+        1,
+        "Server should have one album"
+    );
+
+    let final_client_album = Albums::find_by_id(album.id)
+        .one(&fixture.client_db)
+        .await?
+        .unwrap();
+    assert_eq!(final_client_album.name, "Server Update (should win)");
+    assert_eq!(
+        final_client_album.updated_at_hlc_ts,
+        updated_album.updated_at_hlc_ts
+    );
+
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - Conflict scenarios (if your HLC logic handles them, e.g., both update same record).
 // // - Test chunking and sub-chunking more directly if specific behaviors need validation beyond successful sync.
 // // - Test error conditions (e.g., server down during a call, malformed data).
