@@ -897,8 +897,87 @@ async fn test_sync_junction_table_media_file_albums() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_bidirectional_updates_different_albums() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed initial data
+    let client_album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        1,
+        "Album A from Client",
+    )
+    .await?;
+    let server_album = seed_album(
+        &fixture.server_db,
+        fixture.server_hlc_context(),
+        2,
+        "Album B from Server",
+    )
+    .await?;
+
+    // 2. Initial sync
+    fixture.run_sync().await?;
+
+    // 3. Verify initial state is consistent
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 2);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 2);
+
+    // Ensure HLCs progress for updates
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    // 4. Server updates the album that originated from the client
+    let server_update_hlc = fixture.server_hlc_context().generate_hlc();
+    let mut album_a_on_server = Albums::find_by_id(client_album.id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    album_a_on_server.name = Set("Album A updated by Server".to_string());
+    album_a_on_server.updated_at_hlc_ts = Set(server_update_hlc.to_rfc3339()?);
+    album_a_on_server.updated_at_hlc_ver = Set(server_update_hlc.version as i32);
+    album_a_on_server.updated_at_hlc_nid = Set(server_update_hlc.node_id.to_string());
+    let updated_a = album_a_on_server.update(&fixture.server_db).await?;
+
+    // 5. Client updates the album that originated from the server
+    let client_update_hlc = fixture.client_hlc_context.generate_hlc();
+    let mut album_b_on_client = Albums::find_by_id(server_album.id)
+        .one(&fixture.client_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    album_b_on_client.name = Set("Album B updated by Client".to_string());
+    album_b_on_client.updated_at_hlc_ts = Set(client_update_hlc.to_rfc3339()?);
+    album_b_on_client.updated_at_hlc_ver = Set(client_update_hlc.version as i32);
+    album_b_on_client.updated_at_hlc_nid = Set(client_update_hlc.node_id.to_string());
+    let updated_b = album_b_on_client.update(&fixture.client_db).await?;
+
+    // 6. Final sync
+    fixture.run_sync().await?;
+
+    // 7. Verify final state
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 2);
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 2);
+
+    // Check Album A on both sides
+    let final_a_on_client = Albums::find_by_id(client_album.id).one(&fixture.client_db).await?.unwrap();
+    let final_a_on_server = Albums::find_by_id(client_album.id).one(&fixture.server_db).await?.unwrap();
+    assert_eq!(final_a_on_client.name, "Album A updated by Server");
+    assert_eq!(final_a_on_server.name, "Album A updated by Server");
+    assert_eq!(final_a_on_server.updated_at_hlc_ts, updated_a.updated_at_hlc_ts);
+
+    // Check Album B on both sides
+    let final_b_on_client = Albums::find_by_id(server_album.id).one(&fixture.client_db).await?.unwrap();
+    let final_b_on_server = Albums::find_by_id(server_album.id).one(&fixture.server_db).await?.unwrap();
+    assert_eq!(final_b_on_client.name, "Album B updated by Client");
+    assert_eq!(final_b_on_server.name, "Album B updated by Client");
+    assert_eq!(final_b_on_client.updated_at_hlc_ts, updated_b.updated_at_hlc_ts);
+
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - More complex bidirectional scenarios (e.g. client updates X, server updates Y, then sync).
 // // - Conflict scenarios (if your HLC logic handles them, e.g., both update same record).
 // // - Test chunking and sub-chunking more directly if specific behaviors need validation beyond successful sync.
 // // - Test error conditions (e.g., server down during a call, malformed data).
