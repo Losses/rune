@@ -76,9 +76,9 @@ use std::hash::Hash;
 
 use anyhow::{anyhow, Context, Result};
 #[cfg(not(test))]
-use log::{debug, error, info, warn};
+use log::{error, info, warn};
 #[cfg(test)]
-use std::{println as info, println as warn, println as error, println as debug};
+use std::{println as info, println as warn, println as error};
 
 use sea_orm::entity::prelude::*;
 use sea_orm::{
@@ -405,7 +405,7 @@ where
 
     let remote_fk_mappings = merge_fk_mappings(&remote_chunks);
 
-    debug!(
+    info!(
         "Table '{}': Found {} local chunks, {} remote chunks after HLC {}",
         table_name,
         local_chunks.len(),
@@ -436,16 +436,16 @@ where
         &mut max_hlc_encountered,
     );
 
-    debug!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
+    info!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
 
-    debug!("Reconciliation queue: {:?}", reconciliation_queue);
+    info!("Reconciliation queue: {:?}", reconciliation_queue);
 
     // Process the reconciliation queue until empty
     while let Some(item) = reconciliation_queue.pop_front() {
         match item {
             ReconciliationItem::FetchRange(range) => {
                 // This range requires fetching individual records
-                debug!(
+                info!(
                     "Processing FetchRange: [{}-{}]",
                     range.start_hlc, range.end_hlc
                 );
@@ -462,7 +462,7 @@ where
                 );
                 let (local_res, remote_res) = tokio::join!(local_fut, remote_fut);
 
-                debug!("** ** FETCH RANGE: LOCAL {:#?}", local_res);
+                info!("** ** FETCH RANGE: LOCAL {:#?}", local_res);
 
                 // Extend the comparison lists, propagating errors
                 local_records_to_compare.extend(local_res.with_context(|| {
@@ -478,7 +478,7 @@ where
                     )
                 })?;
 
-                debug!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
+                info!("** ** FETCH RANGE: LOCAL {:#?}", remote_res);
 
                 remote_records_to_compare.extend(remote_res.records);
             }
@@ -486,7 +486,7 @@ where
                 if is_local {
                     // This chunk exists locally, but not remotely. And it's old.
                     // This means the records were deleted on the remote. We should delete them locally too.
-                    debug!(
+                    info!(
                         "Processing DeleteChunk (local): [{}-{}]",
                         chunk.start_hlc, chunk.end_hlc
                     );
@@ -506,7 +506,7 @@ where
                 } else {
                     // This chunk exists remotely, but not locally. And it's old.
                     // This means the records were deleted on the local side. We should delete them on remote too.
-                    debug!(
+                    info!(
                         "Processing DeleteChunk (remote): [{}-{}]",
                         chunk.start_hlc, chunk.end_hlc
                     );
@@ -529,7 +529,7 @@ where
             }
             ReconciliationItem::ChunkPair(local_chunk, remote_chunk) => {
                 // This pair represents aligned chunks with differing hashes
-                debug!(
+                info!(
                     "Processing ChunkPair: [{}-{}] (Hash L: {:.8}, Hash R: {:.8})",
                     local_chunk.start_hlc,
                     local_chunk.end_hlc,
@@ -567,7 +567,7 @@ where
                     ));
                 } else if max_count <= COMPARISON_THRESHOLD {
                     // Count is small enough, fetch individual records for this range
-                    debug!(
+                    info!(
                         "Chunk count ({}) <= threshold ({}). Adding FetchRange [{}-{}].",
                         max_count, COMPARISON_THRESHOLD, local_chunk.start_hlc, local_chunk.end_hlc
                     );
@@ -579,7 +579,7 @@ where
                     ));
                 } else {
                     // Count is too large, break down the chunk recursively
-                    debug!(
+                    info!(
                         "Chunk count ({}) > threshold ({}). Breaking down chunk [{}-{}].",
                         max_count, COMPARISON_THRESHOLD, local_chunk.start_hlc, local_chunk.end_hlc
                     );
@@ -619,7 +619,7 @@ where
                             local_subs.sort_by(|a, b| a.start_hlc.cmp(&b.start_hlc));
                             remote_subs.sort_by(|a, b| a.start_hlc.cmp(&b.start_hlc));
 
-                            debug!(
+                            info!(
                                 "Successfully broke down chunk [{}-{}] into {} local and {} remote sub-chunks. Aligning sub-chunks.",
                                 local_chunk.start_hlc, local_chunk.end_hlc,
                                 local_subs.len(), remote_subs.len()
@@ -664,7 +664,7 @@ where
         }
     } // End of reconciliation queue processing loop
 
-    debug!(
+    info!(
         "Finished chunk reconciliation for table '{}'. Comparing {} local and {} remote records.",
         table_name,
         local_records_to_compare.len(),
@@ -723,7 +723,7 @@ where
         unique_map.into_values().collect::<Vec<_>>()
     };
 
-    debug!(
+    info!(
         "After deduplication: {} local and {} remote records for table '{}'.",
         local_records_to_compare.len(),
         remote_records_to_compare.len(),
@@ -791,7 +791,7 @@ where
                 let id = local_record.unique_id();
                 if let Some(local_hlc) = local_record.updated_at_hlc() {
                     if local_hlc <= metadata.last_sync_hlc {
-                        debug!(
+                        info!(
                             "Conflict Resolution: Record {} is LocalOnly but was created before last sync. It was deleted on remote. Generating DeleteLocal.",
                             id
                         );
@@ -807,7 +807,7 @@ where
                         }
                     } else {
                         // Record's created_at is newer than last_sync_hlc, so it's a genuine new record.
-                        debug!(
+                        info!(
                             "Conflict Resolution: Record {} is LocalOnly and new. Direction: {:?}. Generating InsertRemote.",
                             id, context.sync_direction
                         );
@@ -843,7 +843,7 @@ where
                 let id = remote_record.unique_id();
                 if let Some(remote_hlc) = remote_record.updated_at_hlc() {
                     if remote_hlc <= metadata.last_sync_hlc {
-                        debug!(
+                        info!(
                             "Conflict Resolution: Record {} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote.",
                             id
                         );
@@ -857,7 +857,7 @@ where
                         }
                     } else {
                         // Record's created_at is newer than last_sync_hlc, so it's a genuine new record from remote.
-                        debug!("Conflict Resolution: Record {} is RemoteOnly and new. Generating InsertLocal.", id);
+                        info!("Conflict Resolution: Record {} is RemoteOnly and new. Generating InsertLocal.", id);
                         if context.sync_direction == SyncDirection::Pull
                             || context.sync_direction == SyncDirection::Bidirectional
                         {
@@ -896,7 +896,7 @@ where
                     )
                 })?;
 
-                debug!(
+                info!(
                     "Conflict Resolution: Record {} is Both (Local HLC: {}, Remote HLC: {})",
                     id, local_hlc, remote_hlc
                 );
@@ -930,7 +930,7 @@ where
                         // If local won (either by TS/Version or tie-breaker), push the update.
                         // The previous complex check is simplified because `local_wins` already
                         // incorporates the necessary comparison logic (including tie-breaker).
-                        debug!(":: Action: UpdateRemote with local winner.");
+                        info!(":: Action: UpdateRemote with local winner.");
                         let fk_payload = if let Some(resolver) = &fk_resolver {
                             resolver
                                 .extract_foreign_key_sync_ids(&local_record, context.db)
@@ -961,7 +961,7 @@ where
                         || context.sync_direction == SyncDirection::Bidirectional
                     {
                         // If remote won, update local.
-                        debug!(":: Action: UpdateLocal with remote winner.");
+                        info!(":: Action: UpdateLocal with remote winner.");
 
                         let fk_payload = if let Some(resolver) = &fk_resolver {
                             resolver.extract_sync_ids_from_remote_model_with_mapping(
@@ -984,7 +984,7 @@ where
                     remote_ops.push(SyncOperation::NoOp(id));
                 } else {
                     // No winner (e.g., identical HLC including Node ID)
-                    debug!(":: No clear winner or records identical. Action: NoOp for both.");
+                    info!(":: No clear winner or records identical. Action: NoOp for both.");
                     local_ops.push(SyncOperation::NoOp(id.clone()));
                     remote_ops.push(SyncOperation::NoOp(id));
                 }
@@ -995,10 +995,10 @@ where
     // 5. Apply Changes Transactionally
     let final_sync_hlc = max_hlc_encountered.clone();
 
-    debug!("Generated local operations: {:?}", local_ops);
-    debug!("Generated remote operations: {:?}", remote_ops);
+    info!("Generated local operations: {:?}", local_ops);
+    info!("Generated remote operations: {:?}", remote_ops);
 
-    debug!(
+    info!(
         "Applying changes for table '{}'. {} local ops, {} remote ops. Target HLC: {}",
         table_name,
         local_ops.len(),
@@ -1039,7 +1039,7 @@ where
                     .await
                     .context("Failed to apply remote changes")
             } else {
-                debug!(
+                info!(
                     "No remote changes to apply or sync direction prevents it for table '{}'.",
                     table_name
                 );
@@ -1127,7 +1127,7 @@ where
         .collect();
 
     if ops_to_apply.is_empty() {
-        debug!("No local operations to apply.");
+        info!("No local operations to apply.");
         return Ok(());
     }
 
@@ -1137,7 +1137,7 @@ where
         .begin()
         .await
         .context("Failed to begin local transaction")?;
-    debug!(
+    info!(
         "Applying {} local operations within transaction.",
         ops_to_apply.len()
     );
@@ -1146,7 +1146,7 @@ where
         match op {
             SyncOperation::InsertLocal(model, fk_payload) => {
                 let id_str = model.unique_id(); // Get ID for logging before move
-                debug!("Local TXN: Inserting record ID {}", id_str);
+                info!("Local TXN: Inserting record ID {}", id_str);
                 // Convert Model to the Entity's specific ActiveModel
                 let mut active_model: E::ActiveModel = model.into_active_model();
 
@@ -1169,7 +1169,7 @@ where
             }
             SyncOperation::UpdateLocal(model, fk_payload) => {
                 let id_str = model.unique_id();
-                debug!(
+                info!(
                     "Local TXN: Updating record ID {} via delete and insert",
                     id_str
                 );
@@ -1209,13 +1209,13 @@ where
                     format!("Failed to insert local record for update: {}", id_str)
                 })?;
 
-                debug!(
+                info!(
                     "Local TXN: Successfully updated (re-inserted) record ID {}",
                     id_str
                 );
             }
             SyncOperation::DeleteLocal(id_str) => {
-                debug!("Local TXN: Deleting record ID {}", id_str);
+                info!("Local TXN: Deleting record ID {}", id_str);
                 let delete_result = E::delete_many()
                     // Filter using the unique_id column and the string ID directly
                     .filter(E::unique_id_column().eq(id_str.clone()))
@@ -1245,7 +1245,7 @@ where
     txn.commit()
         .await
         .context("Failed to commit local transaction")?;
-    debug!("Local transaction committed successfully.");
+    info!("Local transaction committed successfully.");
     Ok(())
 }
 
@@ -1280,7 +1280,7 @@ fn align_and_queue_chunks(
                 match local.start_hlc.cmp(&remote.start_hlc) {
                     std::cmp::Ordering::Less => {
                         // Local chunk starts earlier -> This range is local-only.
-                        debug!(
+                        info!(
                             "Align: Local chunk [{}-{}] starts first. Queueing as local-only.",
                             local.start_hlc, local.end_hlc
                         );
@@ -1301,7 +1301,7 @@ fn align_and_queue_chunks(
                     }
                     std::cmp::Ordering::Greater => {
                         // Remote chunk starts earlier -> This range is remote-only.
-                        debug!(
+                        info!(
                             "Align: Remote chunk [{}-{}] starts first. Queueing as remote-only.",
                             remote.start_hlc, remote.end_hlc
                         );
@@ -1326,13 +1326,13 @@ fn align_and_queue_chunks(
                             // Perfect alignment: Start and End HLCs match
                             if local.chunk_hash == remote.chunk_hash {
                                 // Hashes match -> Chunks are identical, skip
-                                debug!(
+                                info!(
                                     "Align: Chunks perfectly aligned and hashes match for [{}-{}]. Skipping.",
                                     local.start_hlc, local.end_hlc
                                 );
                             } else {
                                 // Hashes differ -> Needs reconciliation
-                                debug!(
+                                info!(
                                     "Align: Chunks perfectly aligned, hashes differ for [{}-{}]. Queueing ChunkPair.",
                                     local.start_hlc, local.end_hlc
                                 );
@@ -1369,9 +1369,13 @@ fn align_and_queue_chunks(
             // Case 2: Only local chunks left
             (Some(local), None) => {
                 update_max_hlc(max_hlc_encountered, &local.end_hlc);
-                debug!(
+                info!(
                     "Align: Remaining local chunk [{}-{}]. Queueing as local-only.",
                     local.start_hlc, local.end_hlc
+                );
+                info!(
+                    "[CUSTOM_LOG] Align: Comparing local.end_hlc ({}) <= last_sync_hlc ({})",
+                    local.end_hlc, last_sync_hlc
                 );
                 if local.end_hlc <= *last_sync_hlc {
                     // Entirely old chunk, must have been deleted on remote.
@@ -1391,9 +1395,13 @@ fn align_and_queue_chunks(
             // Case 3: Only remote chunks left
             (None, Some(remote)) => {
                 update_max_hlc(max_hlc_encountered, &remote.end_hlc);
-                debug!(
+                info!(
                     "Align: Remaining remote chunk [{}-{}]. Queueing as remote-only.",
                     remote.start_hlc, remote.end_hlc
+                );
+                info!(
+                    "Align: Comparing remote.end_hlc ({}) <= last_sync_hlc ({})",
+                    remote.end_hlc, last_sync_hlc
                 );
                 if remote.end_hlc <= *last_sync_hlc {
                     // Entirely old chunk, must have been deleted on local.
