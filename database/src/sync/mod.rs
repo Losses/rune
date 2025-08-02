@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use foreign_keys::RuneForeignKeyResolver;
-use sea_orm::{DatabaseConnection, EntityName};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityName, EntityTrait, QueryFilter, Set};
 use sync::{
     chunking::ChunkingOptions,
     core::{RemoteDataSource, SyncContext, SyncDirection, SyncTableMetadata},
@@ -12,7 +12,8 @@ use sync::{
 use uuid::Uuid;
 
 use crate::entities;
-use crate::sync::utils::get_local_last_sync_hlc;
+use crate::entities::sync_record;
+use crate::sync::utils::{create_sync_record_active_model, get_local_last_sync_hlc};
 
 pub mod bindings;
 pub mod chunking;
@@ -114,6 +115,28 @@ pub async fn setup_and_run_sync<'s, RDS: RemoteDataSource + Debug + Send + Sync 
 
     let scheduler = SyncScheduler::new();
     let results = scheduler.run_plan(&sync_context, jobs).await;
+
+    for result in &results {
+        if let TableSyncResult::Success(metadata) = result {
+            let existing_record = sync_record::Entity::find()
+                .filter(sync_record::Column::TableName.eq(metadata.table_name.clone()))
+                .filter(sync_record::Column::ClientNodeId.eq(local_node_id.to_string()))
+                .one(db)
+                .await?;
+
+            let mut active_model = create_sync_record_active_model(
+                metadata.table_name.clone(),
+                local_node_id,
+                &metadata.last_sync_hlc,
+            )?;
+
+            if let Some(record) = existing_record {
+                active_model.id = Set(record.id);
+            }
+
+            active_model.save(db).await?;
+        }
+    }
 
     Ok(results)
 }
