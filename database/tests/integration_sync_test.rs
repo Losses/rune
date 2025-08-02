@@ -201,6 +201,28 @@ async fn seed_album(
     model.insert(db).await.context("Failed to seed album")
 }
 
+async fn seed_album_with_hlc(
+    db: &DatabaseConnection,
+    pk_id: i32,
+    name: &str,
+    hlc_uuid: Option<Uuid>,
+    hlc: &::sync::hlc::HLC,
+) -> Result<albums::Model> {
+    let model = albums::ActiveModel {
+        id: Set(pk_id),
+        name: Set(name.to_string()),
+        group: Set("Test Group".to_string()),
+        hlc_uuid: Set(hlc_uuid.unwrap_or_else(Uuid::new_v4).to_string()),
+        created_at_hlc_ts: Set(hlc.to_rfc3339()?),
+        created_at_hlc_ver: Set(hlc.version as i32),
+        created_at_hlc_nid: Set(hlc.node_id.to_string()),
+        updated_at_hlc_ts: Set(hlc.to_rfc3339()?),
+        updated_at_hlc_ver: Set(hlc.version as i32),
+        updated_at_hlc_nid: Set(hlc.node_id.to_string()),
+    };
+    model.insert(db).await.context("Failed to seed album")
+}
+
 async fn seed_cover_art(
     db: &DatabaseConnection,
     hlc_context: &SyncTaskContext,
@@ -1217,6 +1239,105 @@ async fn test_conflict_resolution_update_delete_update_wins() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_chunking_and_update_propagation() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+    let server_node_id = fixture.server.node_id;
+
+    // 1. Seed 150 albums on the server with varying timestamps
+    let num_albums = 150;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as u64;
+
+    for i in 0..50 { // 50 records, ~30 days old
+        let timestamp_ms = now_ms - 30 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
+        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
+        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+    }
+    for i in 50..100 { // 50 records, ~10 days old
+        let timestamp_ms = now_ms - 10 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
+        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
+        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+    }
+    for i in 100..num_albums { // 50 records, ~1 day old
+        let timestamp_ms = now_ms - 1 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
+        let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
+        seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
+    }
+
+    // 2. Initial sync to get all albums on the client
+    fixture.run_sync().await?;
+    assert_eq!(
+        Albums::find().count(&fixture.client_db).await?,
+        num_albums as u64,
+        "Client should have all albums after initial sync"
+    );
+
+    // 3. Directly get chunks from the server to verify chunking is happening
+    let chunks_before = fixture
+        .remote_data_source
+        .get_remote_chunks::<albums::Entity>(ALBUMS_TABLE, None)
+        .await?;
+    assert!(
+        !chunks_before.is_empty(),
+        "Should have at least one chunk for 150 albums. Found 0 chunks."
+    );
+
+    // 4. Update one of the recent albums on the server
+    let album_to_update_id = 125; // One of the newer albums
+    let mut album_to_update = Albums::find_by_id(album_to_update_id)
+        .one(&fixture.server_db)
+        .await?
+        .unwrap()
+        .into_active_model();
+    
+    let update_hlc = fixture.server_hlc_context().generate_hlc(); // A current HLC
+    
+    album_to_update.name = Set("Updated Album Name".to_string());
+    album_to_update.updated_at_hlc_ts = Set(update_hlc.to_rfc3339()?);
+    album_to_update.updated_at_hlc_ver = Set(update_hlc.version as i32);
+    album_to_update.updated_at_hlc_nid = Set(update_hlc.node_id.to_string());
+    album_to_update.update(&fixture.server_db).await?;
+
+    // 5. Get chunks again and verify only one has changed
+    let chunks_after = fixture
+        .remote_data_source
+        .get_remote_chunks::<albums::Entity>(ALBUMS_TABLE, None)
+        .await?;
+    
+    assert_eq!(chunks_before.len(), chunks_after.len(), "Number of chunks should not change");
+
+    let changed_chunks = chunks_before
+        .iter()
+        .zip(chunks_after.iter())
+        .filter(|(a, b)| a.chunk_hash != b.chunk_hash)
+        .count();
+    assert_eq!(changed_chunks, 1, "Exactly one chunk hash should have changed");
+
+    // 6. Run sync again
+    fixture.run_sync().await?;
+
+    // 7. Verify the update propagated to the client
+    let updated_album_on_client = Albums::find_by_id(album_to_update_id)
+        .one(&fixture.client_db)
+        .await?
+        .context("Updated album not found on client")?;
+    
+    assert_eq!(updated_album_on_client.name, "Updated Album Name");
+    assert_eq!(
+        Albums::find().count(&fixture.client_db).await?,
+        num_albums as u64,
+        "Client should still have the same number of albums"
+    );
+    assert_eq!(
+        Albums::find().count(&fixture.server_db).await?,
+        num_albums as u64,
+        "Server should still have the same number of albums"
+    );
+
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - Test chunking and sub-chunking more directly if specific behaviors need validation beyond successful sync.
 // // - Test error conditions (e.g., server down during a call, malformed data).
