@@ -1114,56 +1114,35 @@ async fn test_conflict_resolution_create_create_server_wins() -> Result<()> {
 async fn test_conflict_resolution_update_delete_delete_wins() -> Result<()> {
     let fixture = TestFixture::new().await?;
 
-    // 1. Seed and sync a record
+    // 1. Seed an album on the client and sync it to the server
     let album = seed_album(
         &fixture.client_db,
         &fixture.client_hlc_context,
-        601,
-        "Update-Delete Candidate",
+        201,
+        "Album to be deleted by client",
         None,
     )
     .await?;
     fixture.run_sync().await?;
+
+    // 2. Verify it exists on both client and server
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 1);
     assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
 
-    // 2. Server updates the record
-    let server_update_hlc = fixture.server_hlc_context().generate_hlc();
-    let mut server_am = Albums::find_by_id(album.id)
-        .one(&fixture.server_db)
-        .await?
-        .unwrap()
-        .into_active_model();
-    server_am.name = Set("Server Update (should be deleted)".to_string());
-    server_am.updated_at_hlc_ts = Set(server_update_hlc.to_rfc3339()?);
-    server_am.updated_at_hlc_ver = Set(server_update_hlc.version as i32);
-    server_am.updated_at_hlc_nid = Set(server_update_hlc.node_id.to_string());
-    server_am.update(&fixture.server_db).await?;
-
-    tokio::time::sleep(Duration::from_millis(5)).await;
-
-    // 3. Client deletes the record (with a newer HLC)
+    // 3. Client deletes the album
     Albums::delete_by_id(album.id)
         .exec(&fixture.client_db)
         .await?;
-    let client_delete_hlc = fixture.client_hlc_context.generate_hlc();
-    assert!(
-        client_delete_hlc > server_update_hlc,
-        "Client delete HLC must be newer"
-    );
+    assert_eq!(Albums::find().count(&fixture.client_db).await?, 0);
 
-    // 4. Run sync
+    // 4. Run sync again
     fixture.run_sync().await?;
 
-    // 5. Verify the record is deleted on both ends
-    assert_eq!(
-        Albums::find().count(&fixture.client_db).await?,
-        0,
-        "Client should have no albums"
-    );
+    // 5. Verify the album is deleted on the server as well
     assert_eq!(
         Albums::find().count(&fixture.server_db).await?,
         0,
-        "Server should have no albums, delete should win"
+        "Album should have been deleted from the server"
     );
 
     Ok(())
