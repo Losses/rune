@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use ::database::{
     connection::initialize_db,
-    entities::{albums, media_cover_art, media_files, prelude::*},
+    entities::{albums, media_cover_art, media_file_albums, media_files, prelude::*},
     sync::{
         chunking::{
             apply_remote_changes_handler, get_node_id_handler, get_remote_chunks_handler,
@@ -255,6 +255,33 @@ async fn seed_media_file(
     .insert(db)
     .await
     .context("Failed to seed media file")
+}
+
+async fn seed_media_file_album(
+    db: &DatabaseConnection,
+    hlc_context: &SyncTaskContext,
+    id: i32,
+    media_file_id: i32,
+    album_id: i32,
+    track_number: i32,
+) -> Result<media_file_albums::Model> {
+    let hlc = hlc_context.generate_hlc();
+    media_file_albums::ActiveModel {
+        id: Set(id),
+        media_file_id: Set(media_file_id),
+        album_id: Set(album_id),
+        track_number: Set(Some(track_number)),
+        hlc_uuid: Set(Uuid::new_v4().to_string()),
+        created_at_hlc_ts: Set(hlc.to_rfc3339()?),
+        created_at_hlc_ver: Set(hlc.version as i32),
+        created_at_hlc_nid: Set(hlc.node_id.to_string()),
+        updated_at_hlc_ts: Set(hlc.to_rfc3339()?),
+        updated_at_hlc_ver: Set(hlc.version as i32),
+        updated_at_hlc_nid: Set(hlc.node_id.to_string()),
+    }
+    .insert(db)
+    .await
+    .context("Failed to seed media file album")
 }
 
 // Refactored Tests
@@ -796,9 +823,81 @@ async fn test_server_deletes_album_synced_to_client() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn test_sync_junction_table_media_file_albums() -> Result<()> {
+    let fixture = TestFixture::new().await?;
+
+    // 1. Seed related entities on the client
+    let client_album = seed_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        301,
+        "Junction Test Album",
+    )
+    .await?;
+    let client_mf = seed_media_file(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        302,
+        "junction_test_song",
+        None,
+    )
+    .await?;
+
+    // 2. Seed the junction table entry on the client
+    let client_mfa = seed_media_file_album(
+        &fixture.client_db,
+        &fixture.client_hlc_context,
+        1,
+        client_mf.id,
+        client_album.id,
+        1, // track_number
+    )
+    .await?;
+
+    // 3. Run sync
+    fixture.run_sync().await?;
+
+    // 4. Verify all entities and the junction exist on the server
+    assert_eq!(Albums::find().count(&fixture.server_db).await?, 1);
+    assert_eq!(MediaFiles::find().count(&fixture.server_db).await?, 1);
+    assert_eq!(MediaFileAlbums::find().count(&fixture.server_db).await?, 1);
+
+    // 5. Verify the FKs and data on the server's junction table entry
+    let server_mfa = MediaFileAlbums::find()
+        .filter(media_file_albums::Column::HlcUuid.eq(client_mfa.hlc_uuid))
+        .one(&fixture.server_db)
+        .await?
+        .context("Junction entry not found on server")?;
+
+    // Find the corresponding album and media file on the server by their original IDs
+    let server_album = Albums::find_by_id(client_album.id)
+        .one(&fixture.server_db)
+        .await?
+        .context("Album not found on server")?;
+    let server_mf = MediaFiles::find_by_id(client_mf.id)
+        .one(&fixture.server_db)
+        .await?
+        .context("Media file not found on server")?;
+
+    assert_eq!(
+        server_mfa.album_id, server_album.id,
+        "Junction album_id FK is incorrect"
+    );
+    assert_eq!(
+        server_mfa.media_file_id, server_mf.id,
+        "Junction media_file_id FK is incorrect"
+    );
+    assert_eq!(
+        server_mfa.track_number,
+        Some(1),
+        "Track number did not sync correctly"
+    );
+
+    Ok(())
+}
+
 // // TODO: Add more tests:
-// // - Sync for junction tables (media_file_albums, media_file_artists, media_file_genres)
-// //   ensuring FKs are correct (e.g. media_file_albums.track_number).
 // // - More complex bidirectional scenarios (e.g. client updates X, server updates Y, then sync).
 // // - Conflict scenarios (if your HLC logic handles them, e.g., both update same record).
 // // - Test chunking and sub-chunking more directly if specific behaviors need validation beyond successful sync.
