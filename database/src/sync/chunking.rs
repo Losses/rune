@@ -589,7 +589,7 @@ pub async fn apply_remote_changes_handler(
     Path(table_name): Path<String>,
     body: Bytes,
 ) -> Result<Json<HLC>, AppError> {
-    println!(
+    info!(
         "[SERVER] Request: apply_remote_changes for table '{}' with body: {}",
         table_name,
         String::from_utf8_lossy(&body)

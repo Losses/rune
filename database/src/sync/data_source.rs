@@ -1,4 +1,5 @@
 use anyhow::Result;
+use log::info;
 use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -34,7 +35,7 @@ impl RemoteHttpDataSource {
 impl RemoteDataSource for RemoteHttpDataSource {
     async fn get_remote_node_id(&self) -> Result<Uuid> {
         let url = self.build_url("/node-id");
-        println!("[CLIENT] -> GET {}", url);
+        info!("[CLIENT] -> GET {}", url);
         let resp = self.client.get(&url).send().await?.error_for_status()?;
         let node_id: Uuid = resp.json().await?;
         Ok(node_id)
@@ -57,7 +58,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
             query_params.push(("after_hlc_nid", hlc.node_id.to_string()));
         }
 
-        println!("[CLIENT] -> GET {} with query {:?}", url, query_params);
+        info!("[CLIENT] -> GET {} with query {:?}", url, query_params);
 
         let resp = self
             .client
@@ -141,7 +142,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
             new_last_sync_hlc: new_last_sync_hlc.clone(),
         };
 
-        println!(
+        info!(
             "[CLIENT] -> POST {} with payload: {}",
             url,
             serde_json::to_string_pretty(&payload)?
