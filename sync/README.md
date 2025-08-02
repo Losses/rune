@@ -42,7 +42,6 @@ The library assumes a simple data model for synchronized entities:
   - `created_hlc`: The HLC timestamp when the record was created. This value is set only on insertion and **must not** be changed afterward.
 - **Per-Table Node Storage**: Each node needs to store the following metadata _for each table_ being synchronized:
   - `last_sync_time`: The HLC timestamp indicating the point up to which synchronization was last successfully completed.
-  - `last_sync_id`: The maximum record ID (or similar marker) processed during the last sync (can optimize fetching new data).
   - `node_id`: The unique UUID v4 identifier for the current node.
 
 ### 3. Chunking Algorithm
@@ -63,24 +62,26 @@ To efficiently compare large datasets, data is divided into chunks using an adap
 
 ### 4. Synchronization
 
-The synchronization process involves several steps:
+The synchronization process involves several steps, with the logic fundamentally pivoting on the `last_sync_time` of the two nodes. This approach avoids the need for a complex tombstone system for handling deletions.
 
 - **Pre-Sync Preparation**: Before exchanging data, nodes must exchange HLC information and perform clock calibration to establish a consistent time baseline.
-- **Data Comparison & Conflict Resolution**:
-  - **Conflict Types & Strategies**:
-    - **Create-Create**: Both nodes created the same record (same `entity_key`). Keep the record with the higher `modified_hlc`. If HLCs are identical, keep the one from the node with the lexicographically smaller `Node ID`.
-    - **Update-Update**: Both nodes updated the same record. Keep the version with the higher `modified_hlc`.
-    - **Update-Delete**: One node updated, another deleted the record.
-      - If Delete HLC ≥ Update HLC: Perform the delete.
-      - If Delete HLC < Update HLC: Keep the update.
-    - **Metadata Conflict**: (Potentially related to sync state or other metadata). Prioritize based on criteria like version vector coverage (if used), latest modification time, or node priority (if defined). _Note: The spec mentions this but details might depend on specific metadata being tracked._
-- **Historical Data Synchronization**:
-  - Compare chunk hashes.
-  - If chunk hashes differ, recursively split the chunk (or compare records directly if small enough).
-  - Compare individual records based primarily on their `modified_hlc` for total ordering. The spec mentions comparing `updated_at` if "version numbers" are identical, which might serve as a fallback under specific (potentially rare) HLC collision scenarios.
-- **4. Optimization**:
-  - **Per-Table Timestamps**: Maintain separate `last_sync_time` for each table to narrow the scope of data needing comparison in subsequent syncs.
-  - **Transactional Writes**: All database writes resulting from a sync operation should occur within a single transaction. If the transaction fails, it's rolled back. If successful, the `last_sync_time` (and `last_sync_id`) are updated. This ensures atomicity and data consistency.
+- **Two-Phase Data Reconciliation**: The core logic is split into two phases based on the `last_sync_time` for the table being synchronized. Comparison starts by comparing chunk hashes; if they differ, the system drills down to individual record comparison.
+
+  - **Phase 1: Historical Data Reconciliation (Intersection Logic)**
+
+    - **Scope**: Applies to all data with a `modified_hlc` _before_ the `last_sync_time`.
+    - **Logic**: The nodes enforce consistency by taking the **intersection** of their datasets. For any given record in this time range, if it exists on one node but not the other, it is **deleted** from the node where it exists.
+    - **Purpose**: This ensures that historical data is identical on both nodes, cleaning up any discrepancies from previous partial syncs or out-of-band modifications. This implicit deletion mechanism makes a tombstone system unnecessary.
+
+  - **Phase 2: Recent Data Synchronization (Union Logic)**
+    - **Scope**: Applies to all data with a `modified_hlc` _at or after_ the `last_sync_time`.
+    - **Logic**: The nodes merge recent changes by taking the **union** of their datasets. If a record exists on one node but not the other, it is **inserted** on the node where it is missing.
+    - **Conflict Resolution**: If a record (`entity_key`) exists on both nodes within this time range, a conflict occurs and is resolved as follows:
+      - **Update-Update / Create-Create**: Both nodes have a version of the same record. The conflict is resolved by keeping the version with the higher `modified_hlc`. If the HLCs are identical, the record from the node with the lexicographically smaller `Node ID` is chosen to ensure deterministic resolution.
+
+- **4.1. Optimization & Atomicity**
+  - **Per-Table Timestamps**: Maintain a separate `last_sync_time` for each table to narrow the scope of data needing comparison in subsequent syncs.
+  - **Transactional Writes**: All database writes (inserts, updates, deletes) resulting from a sync operation must occur within a single transaction. If the transaction fails, it is rolled back. If successful, the `last_sync_time` is updated. This ensures atomicity and data consistency.
 
 ### 5. Error Recovery Mechanism
 
