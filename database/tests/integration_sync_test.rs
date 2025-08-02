@@ -1261,7 +1261,7 @@ async fn test_chunking_and_update_propagation() -> Result<()> {
         seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
     }
     for i in 100..num_albums { // 50 records, ~1 day old
-        let timestamp_ms = now_ms - 1 * 24 * 60 * 60 * 1000 + (i * 1000) as u64;
+        let timestamp_ms = now_ms - 24 * 60 * 60 * 1000 + (i * 1000) as u64;
         let hlc = ::sync::hlc::HLC { timestamp_ms, version: 0, node_id: server_node_id };
         seed_album_with_hlc(&fixture.server_db, i + 1, &format!("Album {}", i + 1), None, &hlc).await?;
     }
