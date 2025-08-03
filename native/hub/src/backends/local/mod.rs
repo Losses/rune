@@ -20,17 +20,17 @@ use ::playback::player::Player;
 use ::playback::sfx_player::SfxPlayer;
 use ::scrobbling::manager::ScrobblingManager;
 
+use crate::Signal;
 use crate::listen_local_gui_event;
 use crate::messages::*;
 use crate::server::ServerManager;
-use crate::utils::nid::get_or_create_node_id;
-use crate::utils::player::initialize_local_player;
 use crate::utils::Broadcaster;
 use crate::utils::DatabaseConnections;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
 use crate::utils::TaskTokens;
-use crate::Signal;
+use crate::utils::nid::get_or_create_node_id;
+use crate::utils::player::initialize_local_player;
 
 pub async fn local_player_loop(
     lib_path: String,
