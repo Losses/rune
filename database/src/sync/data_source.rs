@@ -35,7 +35,7 @@ impl RemoteHttpDataSource {
 impl RemoteDataSource for RemoteHttpDataSource {
     async fn get_remote_node_id(&self) -> Result<Uuid> {
         let url = self.build_url("/node-id");
-        info!("[CLIENT] -> GET {}", url);
+        info!("[CLIENT] -> GET {url}");
         let resp = self.client.get(&url).send().await?.error_for_status()?;
         let node_id: Uuid = resp.json().await?;
         Ok(node_id)

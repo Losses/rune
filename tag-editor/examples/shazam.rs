@@ -58,10 +58,10 @@ async fn main() -> Result<()> {
         println!("= End Time: {:?}", event.end_time);
 
         let signature: Signature = compute_signature(event.sample_rate.try_into()?, &event.data);
-        println!("{}", signature);
+        println!("{signature}");
 
         let identified_result = identify(signature).await;
-        println!("{:?}", identified_result);
+        println!("{identified_result:?}");
 
         println!();
         println!();

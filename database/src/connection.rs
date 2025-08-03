@@ -169,7 +169,7 @@ pub async fn connect_main_db(
 
     let pool = SqlitePool::connect_with(connection_options).await?;
 
-    info!("Initializing main database: {}", db_url);
+    info!("Initializing main database: {}", {db_url});
 
     let db = SqlxSqliteConnector::from_sqlx_sqlite_pool(pool);
 
@@ -216,7 +216,7 @@ pub fn connect_recommendation_db(
         .into_string()
         .map_err(|_| anyhow::anyhow!("Failed to convert database path"))?;
 
-    info!("Initializing recommendation database: {}", path_str);
+    info!("Initializing recommendation database: {path_str}");
 
     let env = unsafe {
         EnvOpenOptions::new()

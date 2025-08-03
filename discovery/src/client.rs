@@ -578,7 +578,7 @@ pub async fn fetch_server_certificate(url: &str) -> Result<ServerCert, CertValid
 
     tokio::spawn(async move {
         if let Err(err) = connection.await {
-            eprintln!("Connection error: {}", err); // Spawn task to handle connection errors
+            eprintln!("Connection error: {}", {err}); // Spawn task to handle connection errors
         }
     });
 

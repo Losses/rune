@@ -318,7 +318,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     self.is_authenticating = false;
                     self.process_cache().await;
                     self.send_login_status().await;
-                    info!("Authenticated to {}", service);
+                    info!("Authenticated to {}", {service});
                     break;
                 }
                 Err(e) => {
@@ -353,12 +353,12 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.now_playing_cache.pop_front();
             }
 
-            info!("Caching now playing update for {}", service);
+            info!("Caching now playing update for {}", {service});
 
             return;
         }
 
-        info!("Updating now playing for {}", service);
+        info!("Updating now playing for {}", {service});
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
@@ -491,7 +491,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.scrobble_cache.pop_front();
             }
 
-            info!("Caching scrobble for {}", service);
+            info!("Caching scrobble for {}", {service});
 
             return;
         }
@@ -528,10 +528,10 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         error: e,
                     });
                 } else {
-                    info!("Scrobbled to {}", service);
+                    info!("Scrobbled to {}", {service});
                 }
             } else {
-                warn!("Not authenticated to {}", service);
+                warn!("Not authenticated to {}", {service});
             }
         }
     }
@@ -635,7 +635,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
             }
         }
 
-        info!("Logged out from {}", service);
+        info!("Logged out from {}", {service});
         self.send_login_status().await;
     }
 

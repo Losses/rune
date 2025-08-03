@@ -546,7 +546,7 @@ mod tests {
 
         println!("Running initial_sync expecting all failures...");
         let result = initial_sync(config, &exchanger);
-        println!("Result: {:?}", result);
+        println!("Result: {result:?}");
 
         assert!(
             result.is_err(),

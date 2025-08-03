@@ -74,7 +74,7 @@ fn main() -> anyhow::Result<()> {
         get_track_duration_in_secs(&fp1, &config).max(get_track_duration_in_secs(&fp2, &config)),
         &config,
     );
-    println!("\nOverall similarity score: {:.3}", similarity);
+    println!("\nOverall similarity score: {:.3}", {similarity});
 
     Ok(())
 }

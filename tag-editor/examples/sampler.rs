@@ -53,13 +53,13 @@ fn main() -> Result<()> {
 
     for (counter, event) in sampler.receiver.iter().enumerate() {
         // Create numbered output file names for both txt and pcm
-        let txt_file = format!("{}_{}.sample.log", output_file_base, counter);
+        let txt_file = format!("{output_file_base}_{counter}.sample.log");
         // You can use ` ffplay ./YOUR_FILE.pcm.log  -f s16le -ar 8000` to debug this
-        let pcm_file = format!("{}_{}.pcm.log", output_file_base, counter);
+        let pcm_file = format!("{output_file_base}_{counter}.pcm.log");
 
         // Log the output file paths
-        println!("Writing to text file: {}", txt_file);
-        println!("Writing to PCM file: {}", pcm_file);
+        println!("Writing to text file: {txt_file}");
+        println!("Writing to PCM file: {pcm_file}");
 
         // Write text file
         let mut text_file = File::create(&txt_file)?;

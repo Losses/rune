@@ -18,6 +18,6 @@ mod tests {
     fn test_bundle_id() {
         let bundle_id = get_bundle_id();
 
-        println!("Bundle ID: {}", bundle_id);
+        println!("Bundle ID: {}", {bundle_id});
     }
 }

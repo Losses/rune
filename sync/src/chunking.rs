@@ -449,7 +449,7 @@ where
             fk_mappings: current_chunk_fk_mappings,
         };
 
-        debug!("Generated chunk: {:?}", data_chunk);
+        debug!("Generated chunk: {data_chunk:?}");
         chunks.push(data_chunk);
 
         // Update current_hlc to the HLC of the *last* record processed in this chunk

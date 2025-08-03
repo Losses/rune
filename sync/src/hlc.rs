@@ -558,10 +558,10 @@ mod hlcmodel_tests {
         let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" < ?)"#;
         let expected_vals = expected_values(&expected_ts_str, expected_version);
 
-        println!("Generated SQL WHERE (LT): {}", sql_where);
-        println!("Generated Values (LT): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Generated SQL WHERE (LT): {sql_where}");
+        println!("Generated Values (LT): {values:?}");
+        println!("Expected SQL: {}", { expected_sql });
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -589,7 +589,7 @@ mod hlcmodel_tests {
         println!("Generated SQL WHERE (GTE): {sql_where}");
         println!("Generated Values (GTE): {values:?}");
         println!("Expected SQL: {expected_sql}");
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -614,10 +614,10 @@ mod hlcmodel_tests {
         let expected_sql = r#"("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?)"#;
         let expected_vals = expected_values(&expected_ts_str, expected_version);
 
-        println!("Generated SQL WHERE (LTE): {}", sql_where);
-        println!("Generated Values (LTE): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Generated SQL WHERE (LTE): {sql_where}");
+        println!("Generated Values (LTE): {values:?}");
+        println!("Expected SQL: {expected_sql}");
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -649,10 +649,10 @@ mod hlcmodel_tests {
         let expected_vals =
             expected_between_values(&start_ts_str, start_version, &end_ts_str, end_version);
 
-        println!("Generated SQL WHERE (Between): {}", sql_where);
-        println!("Generated Values (Between): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Generated SQL WHERE (Between): {sql_where}");
+        println!("Generated Values (Between): {values:?}");
+        println!("Expected SQL: {expected_sql}");
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -677,10 +677,10 @@ mod hlcmodel_tests {
         let expected_sql = r#"(("mock_tasks"."updated_at_hlc_ts" > ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" >= ?)) AND (("mock_tasks"."updated_at_hlc_ts" < ?) OR ("mock_tasks"."updated_at_hlc_ts" = ? AND "mock_tasks"."updated_at_hlc_v" <= ?))"#;
         let expected_vals = expected_between_values(&ts_str, version, &ts_str, version);
 
-        println!("Generated SQL WHERE (Between Same HLC): {}", sql_where);
-        println!("Generated Values (Between Same HLC): {:?}", values);
-        println!("Expected SQL: {}", expected_sql);
-        println!("Expected Values: {:?}", expected_vals);
+        println!("Generated SQL WHERE (Between Same HLC): {sql_where}");
+        println!("Generated Values (Between Same HLC): {values:?}");
+        println!("Expected SQL: {}", { expected_sql });
+        println!("Expected Values: {expected_vals:?}");
 
         assert_eq!(
             normalize_sql(&sql_where),
@@ -725,8 +725,7 @@ mod hlcmodel_tests {
 
         assert!(
             top_level_msg.contains(&format!(
-                "Failed to format GT timestamp for HLC {}",
-                invalid_hlc
+                "Failed to format GT timestamp for HLC {invalid_hlc}"
             )),
             "Error message should contain the context added in HLCModel::gt"
         );
@@ -734,8 +733,7 @@ mod hlcmodel_tests {
         let root_cause_msg = err.root_cause().to_string();
         assert!(
             root_cause_msg.contains("out of range"),
-            "Root cause should indicate an out-of-range timestamp. Root cause: {}",
-            root_cause_msg
+            "Root cause should indicate an out-of-range timestamp. Root cause: {root_cause_msg}"
         );
     }
 }
@@ -1154,7 +1152,7 @@ mod hlc_from_str_tests {
     #[test]
     fn test_from_str_valid() -> Result<()> {
         let node_id = Uuid::new_v4();
-        let hlc_string = format!("1234567890123-0000abcd-{}", node_id);
+        let hlc_string = format!("1234567890123-0000abcd-{node_id}");
         let hlc = HLC::from_str(&hlc_string)?;
 
         assert_eq!(hlc.timestamp_ms, 1234567890123);
@@ -1175,7 +1173,7 @@ mod hlc_from_str_tests {
     #[test]
     fn test_from_str_invalid_timestamp() {
         let node_id = Uuid::new_v4();
-        let hlc_string = format!("not_a_number-0000abcd-{}", node_id);
+        let hlc_string = format!("not_a_number-0000abcd-{node_id}");
         let result = HLC::from_str(&hlc_string);
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
@@ -1186,7 +1184,7 @@ mod hlc_from_str_tests {
     #[test]
     fn test_from_str_invalid_counter() {
         let node_id = Uuid::new_v4();
-        let hlc_string = format!("1234567890123-not_hex-{}", node_id);
+        let hlc_string = format!("1234567890123-not_hex-{node_id}");
         let result = HLC::from_str(&hlc_string);
         assert!(result.is_err());
         let err_msg = result.err().unwrap().to_string();
@@ -1198,7 +1196,7 @@ mod hlc_from_str_tests {
     fn test_from_str_invalid_counter_format_length() {
         // Valid hex, but format might imply fixed length (though not enforced by parse)
         let node_id = Uuid::new_v4();
-        let hlc_string = format!("1234567890123-abc-{}", node_id); // Shorter hex than usual
+        let hlc_string = format!("1234567890123-abc-{node_id}"); // Shorter hex than usual
         let hlc = HLC::from_str(&hlc_string).unwrap(); // Should still parse
         assert_eq!(hlc.version, 0xabc);
 

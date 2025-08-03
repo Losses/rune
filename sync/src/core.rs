@@ -436,7 +436,7 @@ where
         &mut max_hlc_encountered,
     );
 
-    info!("** ** RECONCILIATION_QUEUE: {:#?}", reconciliation_queue);
+    info!("** ** RECONCILIATION_QUEUE: {reconciliation_queue:#?}");
 
     info!("Reconciliation queue: {reconciliation_queue:?}");
 
@@ -995,8 +995,8 @@ where
     // 5. Apply Changes Transactionally
     let final_sync_hlc = max_hlc_encountered.clone();
 
-    info!("Generated local operations: {:?}", local_ops);
-    info!("Generated remote operations: {:?}", remote_ops);
+    info!("Generated local operations: {local_ops:?}");
+    info!("Generated remote operations: {remote_ops:?}");
 
     info!(
         "Applying changes for table '{}'. {} local ops, {} remote ops. Target HLC: {}",
@@ -1146,7 +1146,7 @@ where
         match op {
             SyncOperation::InsertLocal(model, fk_payload) => {
                 let id_str = model.unique_id(); // Get ID for logging before move
-                info!("Local TXN: Inserting record ID {}", id_str);
+                info!("Local TXN: Inserting record ID {id_str}");
                 // Convert Model to the Entity's specific ActiveModel
                 let mut active_model: E::ActiveModel = model.into_active_model();
 
@@ -1158,7 +1158,7 @@ where
                             &txn, // Use transaction for lookups
                         )
                         .await
-                        .with_context(|| format!("Failed to remap FKs for insert of {}", id_str))?;
+                        .with_context(|| format!("Failed to remap FKs for insert of {id_str}"))?;
                 }
 
                 // Ensure PK is NotSet or Default if auto-incrementing
@@ -1215,7 +1215,7 @@ where
                 );
             }
             SyncOperation::DeleteLocal(id_str) => {
-                info!("Local TXN: Deleting record ID {}", id_str);
+                info!("Local TXN: Deleting record ID {id_str}");
                 let delete_result = E::delete_many()
                     // Filter using the unique_id column and the string ID directly
                     .filter(E::unique_id_column().eq(id_str.clone()))
@@ -2846,7 +2846,7 @@ pub(crate) mod tests {
         let final_data = Entity::find().order_by_asc(Column::SyncId).all(&db).await?; // Order by sync_id for consistent results
         assert_eq!(final_data.len(), 2); // sync_i and sync_u remain
 
-        println!("FINAL DATA: {:#?}", final_data);
+        println!("FINAL DATA: {final_data:#?}");
 
         assert_eq!(final_data[0].sync_id, "sync_i");
         assert_eq!(final_data[0].name, "Inserted");
@@ -3719,7 +3719,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
         let error = result.err().unwrap(); // Get the anyhow::Error
         let error_string = error.to_string();
-        eprintln!("Actual error string (get_remote_chunks): {}", error_string);
+        eprintln!("Actual error string (get_remote_chunks): {error_string}");
 
         assert!(error_string.contains("Failed to fetch remote chunks for table 'test_items'"));
         assert!(error
@@ -3821,7 +3821,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
         let error = result.err().unwrap();
         let error_string = error.to_string();
-        eprintln!("Actual error string (get_remote_records): {}", error_string);
+        eprintln!("Actual error string (get_remote_records): {error_string}");
         assert!(error_string.contains("Failed to fetch remote records for range"));
         assert!(error
             .root_cause()

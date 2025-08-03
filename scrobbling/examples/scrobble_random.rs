@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
             }
         }
         _ => {
-            eprintln!("Unsupported service: {}", service);
+            eprintln!("Unsupported service: {}", {service});
             return Ok(());
         }
     };

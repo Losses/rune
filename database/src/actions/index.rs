@@ -37,7 +37,7 @@ pub async fn index_media_files(
     file_ids: Vec<i32>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<()> {
-    info!("Indexing media: {:?}", file_ids);
+    info!("Indexing media: {file_ids:?}");
 
     // Check for cancellation before starting any processing.
     if let Some(token) = &cancel_token {

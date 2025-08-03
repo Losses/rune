@@ -336,7 +336,7 @@ impl PlayerInternal {
 
     fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
         if let Some(index) = index {
-            debug!("Loading track at index: {}", index);
+            debug!("Loading track at index: {}", {index});
             let mapped_index = if mapped {
                 self.get_mapped_track_index(index)
             } else {
@@ -588,7 +588,7 @@ impl PlayerInternal {
 
     fn switch(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
-            debug!("Switching to track at index: {}", index);
+            debug!("Switching to track at index: {}", {index});
             self.load(Some(index), true, false)
                 .with_context(|| "Failed to switch track")?;
         } else {
@@ -658,7 +658,7 @@ impl PlayerInternal {
     }
 
     fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, std::path::PathBuf)>, mode: AddMode) {
-        debug!("Adding tracks to playlist with mode: {:?}", mode);
+        debug!("Adding tracks to playlist with mode: {:?}", {mode});
         let insert_index = match mode {
             AddMode::PlayNext => {
                 if let Some(current_index) = self.current_track_index {
@@ -700,7 +700,7 @@ impl PlayerInternal {
 
     fn remove_from_playlist(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
-            debug!("Removing from playlist at index: {}", index);
+            debug!("Removing from playlist at index: {}", {index});
             self.playlist.remove(index);
             self.playback_strategy.on_playlist_updated(
                 self.playlist.len(),
@@ -743,7 +743,7 @@ impl PlayerInternal {
             PlaybackMode::Shuffle => Box::new(ShuffleStrategy::new(self.playlist.len())),
         };
         self.send_progress()?;
-        info!("Playback mode set to {:?}", mode);
+        info!("Playback mode set to {:?}", {mode});
 
         Ok(())
     }
@@ -886,7 +886,7 @@ impl PlayerInternal {
     fn set_adaptive_switching(&mut self, x: bool) -> Result<()> {
         self.adaptive_switching = x;
 
-        info!("Adaptive switching status changed: {:#?}", x);
+        info!("Adaptive switching status changed: {:#?}", {x});
 
         Ok(())
     }
