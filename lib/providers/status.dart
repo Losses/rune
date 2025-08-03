@@ -60,7 +60,7 @@ class PlaybackStatusState {
   // Update from PlaybackStatus (machine generated)
   void updateFrom(PlaybackStatus newStatus) {
     state = newStatus.state;
-    ready = newStatus.ready ?? false;
+    ready = newStatus.ready;
     progressSeconds = newStatus.progressSeconds;
     progressPercentage = newStatus.progressPercentage;
     artist = newStatus.artist;
@@ -168,7 +168,7 @@ class PlaybackStatusProvider with ChangeNotifier {
         _playbackStatusState.index = newStatus.index;
         _playbackStatusState.item = newStatus.item;
         _playbackStatusState.playbackMode = newStatus.playbackMode;
-        _playbackStatusState.ready = newStatus.ready ?? false;
+        _playbackStatusState.ready = newStatus.ready;
         _playbackStatusState.coverArtPath = newStatus.coverArtPath;
         _playbackStatusState.libPath = newStatus.libPath;
 

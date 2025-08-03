@@ -328,7 +328,7 @@ class LibraryManagerProvider with ChangeNotifier {
     AnalyzeAudioLibraryRequest(
       path: path,
       computingDevice:
-          computingDevice == 'gpu' ? ComputingDevice.gpu : ComputingDevice.cpu,
+          computingDevice == 'gpu' ? ComputingDeviceRequest.gpu : ComputingDeviceRequest.cpu,
       workloadFactor: workloadFactor,
     ).sendSignalToRust();
   }

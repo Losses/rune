@@ -7,8 +7,8 @@ Future<SearchForResponse> searchFor(String query) async {
     query = '$query*';
   }
 
-  final searchRequest = SearchForRequest(queryStr: query, n: 30);
-  searchRequest.sendSignalToRust(); // GENERATED
+  final searchRequest = SearchForRequest(queryStr: query, n: 30, fields: []);
+  searchRequest.sendSignalToRust();
 
   return (await SearchForResponse.rustSignalStream.first).message;
 }

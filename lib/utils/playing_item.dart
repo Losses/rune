@@ -22,14 +22,10 @@ class PlayingItem {
       final fileId = inLibrary.fileId;
       final independentFile = request.independentFile;
 
-      if (fileId != null && fileId != 0) {
+      if (fileId != 0) {
         return PlayingItem.inLibrary(fileId);
       } else if (independentFile != null) {
-        final path = independentFile.path;
-        if (path != null) {
-          return PlayingItem.independentFile(path);
-        }
-        return PlayingItem.unknown();
+        return PlayingItem.independentFile(independentFile.path);
       } else {
         return PlayingItem.unknown();
       }
@@ -83,17 +79,17 @@ extension PlayingItemExtension on PlayingItem {
     if (inLibrary != null) {
       return PlayingItemRequest(
         inLibrary: InLibraryPlayingItem(fileId: inLibrary!),
-        independentFile: IndependentFilePlayingItem(path: null),
+        independentFile: null,
       );
     } else if (independentFile != null) {
       return PlayingItemRequest(
-        inLibrary: InLibraryPlayingItem(fileId: null),
+        inLibrary: null,
         independentFile: IndependentFilePlayingItem(path: independentFile!),
       );
     } else {
       return PlayingItemRequest(
-        inLibrary: InLibraryPlayingItem(fileId: null),
-        independentFile: IndependentFilePlayingItem(path: null),
+        inLibrary: null,
+        independentFile: null,
       );
     }
   }
