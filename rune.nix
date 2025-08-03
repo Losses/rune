@@ -1,7 +1,7 @@
 {
   lib,
   stdenv,
-  flutter324,
+  flutter329,
   rustPlatform,
   alsa-lib,
   fetchFromGitHub,
@@ -37,7 +37,7 @@ let
     system_tray = "sha256-1XMVu1uHy4ZgPKDqfQ7VTDVJvDxky5+/BbocGz8rKYs=";
   };
 
-  src = flutter324.buildFlutterApplication {
+  src = flutter329.buildFlutterApplication {
     inherit version pubspecLock gitHashes;
     pname = "source";
 
@@ -103,7 +103,7 @@ let
     };
   };
 in
-flutter324.buildFlutterApplication {
+flutter329.buildFlutterApplication {
   inherit
     version
     src

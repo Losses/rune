@@ -3,8 +3,6 @@
 let
   pkgsCross = nixpkgs.legacyPackages.x86_64-linux.pkgsCross.aarch64-multiplatform;
   rust-bin = rust-overlay.lib.mkRustBin { } pkgsCross.buildPackages;
-
-  expidusPkgs = import masterPkgs { inherit system; };
 in
 pkgsCross.callPackage (
   {
@@ -22,6 +20,7 @@ pkgsCross.callPackage (
     sqlite,
     clippy,
     rust-analyzer,
+    flutter329,
     rustup,
     mount,
     protobuf_26,
@@ -55,7 +54,7 @@ pkgsCross.callPackage (
       clang
       cmake
       binutils
-      expidusPkgs.flutter
+      flutter329
       clippy
       rust-analyzer
       rustup
