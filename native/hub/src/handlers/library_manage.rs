@@ -253,7 +253,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
         drop(tokens);
 
         // Clone the data from dart_signal before spawning the task
-        let request = dart_signal.clone();
+        let request = dart_signal;
         debug!("Analyzing media files: {:#?}", request);
 
         let request_path = request.path.clone();
@@ -349,7 +349,7 @@ impl Signal for DeduplicateAudioLibraryRequest {
         tokens.deduplicate_token = Some(new_token.clone());
         drop(tokens);
 
-        let request = dart_signal.clone();
+        let request = dart_signal;
         let request_path = Arc::new(request.path.clone());
         let batch_size = determine_batch_size(request.workload_factor);
         let config = Configuration::default();

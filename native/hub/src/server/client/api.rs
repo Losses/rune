@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use hub::messages::*;
 
@@ -70,9 +70,7 @@ pub async fn fetch_collection_group_summary(
     collection_type: CollectionType,
     connection: &WSConnection,
 ) -> Result<CollectionGroupSummaryResponse> {
-    let request = FetchCollectionGroupSummaryRequest {
-        collection_type: collection_type as i32,
-    };
+    let request = FetchCollectionGroupSummaryRequest { collection_type };
 
     connection
         .request("FetchCollectionGroupSummaryRequest", request)
@@ -85,7 +83,7 @@ pub async fn fetch_collection_groups(
     connection: &WSConnection,
 ) -> Result<FetchCollectionGroupsResponse> {
     let request = FetchCollectionGroupsRequest {
-        collection_type: collection_type as i32,
+        collection_type,
         bake_cover_arts: false,
         group_titles,
     };
@@ -95,6 +93,15 @@ pub async fn fetch_collection_groups(
         .await
 }
 
+impl From<OperateMode> for PlaylistOperateMode {
+    fn from(mode: OperateMode) -> Self {
+        match mode {
+            OperateMode::AppendToEnd => PlaylistOperateMode::AppendToEnd,
+            OperateMode::PlayNext => PlaylistOperateMode::PlayNext,
+            OperateMode::Replace => PlaylistOperateMode::Replace,
+        }
+    }
+}
 pub async fn operate_playback_with_mix_query_request(
     queries: Vec<(String, String)>,
     playback_mode: PlaybackMode,

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use colored::Colorize;
 
 use hub::messages::*;
@@ -552,6 +552,7 @@ impl AsStr for CollectionType {
             CollectionType::Mix => "Mix",
             CollectionType::Track => "Track",
             CollectionType::Genre => "Genre",
+            CollectionType::Directory => "Directory",
         }
     }
 }
