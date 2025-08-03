@@ -34,7 +34,7 @@ rustup target add aarch64-apple-darwin
 flutter pub global activate protoc_plugin
 export PATH="$PATH":"$HOME/.pub-cache/bin"
 
-cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+cargo install rinf_cli
 
 echo "DEBUG: ----------------------------"
 

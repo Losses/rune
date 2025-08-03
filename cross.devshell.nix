@@ -99,7 +99,6 @@ pkgsCross.callPackage (
     shellHook = ''
       alias ls=exa
       alias find=fd
-      alias rinf='flutter pub run rinf'
       alias build='flutter-elinux build elinux --target-arch=arm64'
       export PATH=$HOME/.cargo/bin:$HOME/.pub-cache/bin:$PATH
       export LDFLAGS="-L${stdenv.cc.cc.lib}/lib -L${wayland}/lib $LDFLAGS"

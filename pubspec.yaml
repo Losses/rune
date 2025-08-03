@@ -189,4 +189,3 @@ msix_config:
 
 rinf:
   gen_output_dir: lib/bindings
-

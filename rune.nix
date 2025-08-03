@@ -2,7 +2,6 @@
   lib,
   stdenv,
   flutter324,
-  protoc-gen-prost,
   rustPlatform,
   alsa-lib,
   fetchFromGitHub,
@@ -12,8 +11,6 @@
   dbus,
   libnotify,
   libayatana-appindicator,
-  protobuf_26,
-  protoc-gen-dart,
   targetFlutterPlatform ? "linux",
 }:
 
@@ -52,15 +49,17 @@ let
     };
 
     nativeBuildInputs = [
-      protobuf_26
-      protoc-gen-prost
-      protoc-gen-dart
+      rustPlatform.cargoSetupHook
+      pkg-config
     ];
 
     buildPhase = ''
       runHook preBuild
 
-      packageRun rinf message
+      export CARGO_HOME=$(mktemp -d)
+      cargo install rinf_cli
+      export PATH="$CARGO_HOME/bin:$PATH"
+      rinf gen
 
       runHook postBuild
     '';
@@ -87,7 +86,6 @@ let
 
     nativeBuildInputs = [
       pkg-config
-      protobuf_26
     ];
 
     buildInputs = [
@@ -113,6 +111,11 @@ flutter324.buildFlutterApplication {
     gitHashes
     ;
   pname = "rune-${targetFlutterPlatform}";
+
+  nativeBuildInputs = [
+    rustPlatform.cargoSetupHook
+    pkg-config
+  ];
 
   buildInputs = [
     libnotify

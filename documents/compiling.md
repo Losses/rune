@@ -21,7 +21,7 @@
    - Compile for Linux:
 
      ```bash
-     flutter pub run rinf message
+     rinf gen
      flutter build linux --release
      ```
 
@@ -43,7 +43,7 @@
 
     ```powershell
     flutter pub get
-    flutter pub run rinf message
+    rinf gen
     flutter build windows --release
     ```
 
@@ -52,7 +52,7 @@
 If you’ve cloned the project or modified `.proto` files in the `./messages` directory, run:
 
 ```bash
-flutter pub run rinf message
+rinf gen
 ```
 
 ### Running the App

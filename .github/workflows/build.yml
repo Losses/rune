@@ -34,7 +34,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        run: cargo install rinf_cli
 
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
@@ -104,7 +104,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        run:  cargo install rinf_cli
 
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
@@ -175,7 +175,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf@7.0.1 protoc-gen-prost
+        run: cargo install rinf_cli
 
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin
@@ -261,7 +261,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install the Rust dependencies
-        run: cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+        run: cargo install rinf_cli
 
       - name: Activate Protobuf
         run: flutter pub global activate protoc_plugin

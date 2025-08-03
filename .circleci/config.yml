@@ -43,17 +43,13 @@ jobs:
     - checkout
     - run:
         name: Install the Rust dependencies
-        command: cargo install "flutter_rust_bridge_codegen" rinf protoc-gen-prost
-    - run:
-        name: Activate Protobuf
-        command: |
-          flutter pub global activate protoc_plugin
+        command: cargo install rinf_cli
     - run:
         name: Flutter pub get
         command: flutter pub get
     - run:
         name: Generate message files
-        command: rinf message
+        command: rinf gen
     - run:
         name: Build linux
         no_output_timeout: 30m
@@ -142,7 +138,7 @@ jobs:
       - run:
           name: Generating Rinf files
           command: |
-            nix --extra-experimental-features "nix-command flakes" develop . --command flutter pub run rinf message
+            nix --extra-experimental-features "nix-command flakes" develop . --command rinf gen
             
       - run:
           name: Build APKs

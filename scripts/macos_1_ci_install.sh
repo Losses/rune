@@ -7,6 +7,6 @@ cd ..
 
 brew install CocoaPods lmdb create-dmg
 
-cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+cargo install rinf_cli
 
 flutter pub global activate protoc_plugin
