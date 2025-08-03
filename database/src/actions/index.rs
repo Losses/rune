@@ -601,10 +601,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
         // 7.1 Remove search terms associated with orphaned artists.
         for artist_id in &artist_ids {
             if let Err(e) = remove_term(&txn, CollectionQueryType::Artist, *artist_id).await {
-                error!(
-                    "Failed to remove search terms for artist {}: {}",
-                    artist_id, e
-                );
+                error!("Failed to remove search terms for artist {artist_id}: {e}");
             }
         }
 
@@ -624,10 +621,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
         // 8.1 Remove search terms associated with orphaned albums.
         for album_id in &album_ids {
             if let Err(e) = remove_term(&txn, CollectionQueryType::Album, *album_id).await {
-                error!(
-                    "Failed to remove search terms for album {}: {}",
-                    album_id, e
-                );
+                error!("Failed to remove search terms for album {album_id}: {e}");
             }
         }
 
@@ -647,10 +641,7 @@ pub async fn cleanup_orphaned_records(db: &DatabaseConnection) -> Result<()> {
         // 9.1 Remove search terms associated with orphaned genres.
         for genre_id in &genre_ids {
             if let Err(e) = remove_term(&txn, CollectionQueryType::Genre, *genre_id).await {
-                error!(
-                    "Failed to remove search terms for genre {}: {}",
-                    genre_id, e
-                );
+                error!("Failed to remove search terms for genre {genre_id}: {e}");
             }
         }
 

@@ -518,8 +518,7 @@ pub async fn remove_item_from_playlist(
     let txn = main_db.begin().await?;
 
     info!(
-        "Removing item {}(pos: {}) from playlist {}",
-        media_file_id, position, playlist_id
+        "Removing item {media_file_id}(pos: {position}) from playlist {playlist_id}"
     );
     let delete_result = MediaFilePlaylistEntity::delete_many()
         .filter(media_file_playlists::Column::PlaylistId.eq(playlist_id))

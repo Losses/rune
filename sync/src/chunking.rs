@@ -228,7 +228,7 @@ where
 /// # Type Parameters
 ///
 /// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
-///       `E` itself must implement `HLCModel`.
+///   `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
@@ -309,10 +309,7 @@ where
         latest_hlc_timestamp
     };
 
-    debug!(
-        "Latest HLC timestamp for age calculation: {}",
-        effective_latest_timestamp
-    );
+    debug!("Latest HLC timestamp for age calculation: {effective_latest_timestamp}");
 
     let mut safety_count = 0;
     const MAX_ITERATIONS: u32 = 1_000_000; // Safety break
@@ -321,8 +318,7 @@ where
         safety_count += 1;
         if safety_count > MAX_ITERATIONS {
             warn!(
-                "Chunk generation exceeded {} iterations, breaking loop. Check logic or data.",
-                MAX_ITERATIONS
+                "Chunk generation exceeded {MAX_ITERATIONS} iterations, breaking loop. Check logic or data."
             );
             // Consider returning an error instead?
             // return Err(anyhow::anyhow!("Chunk generation exceeded maximum iterations ({})", MAX_ITERATIONS));
@@ -352,8 +348,7 @@ where
         );
 
         debug!(
-            "Current HLC: {}, Age (days): {:.2} (raw {:.2}), AgeFactorCeil: {}, DesiredSize: {:.2}, WindowSize: {}",
-            current_hlc, non_negative_age_days, age_days, age_factor_ceil, desired_size, window_size
+            "Current HLC: {current_hlc}, Age (days): {non_negative_age_days:.2} (raw {age_days:.2}), AgeFactorCeil: {age_factor_ceil}, DesiredSize: {desired_size:.2}, WindowSize: {window_size}"
         );
 
         // Fetch the next batch of records strictly *after* current_hlc, up to window_size
@@ -364,17 +359,11 @@ where
             .all(db)
             .await
             .with_context(|| {
-                format!(
-                    "Failed to fetch next batch of records after HLC {}",
-                    current_hlc
-                )
+                format!("Failed to fetch next batch of records after HLC {current_hlc}")
             })?;
 
         if records.is_empty() {
-            debug!(
-                "No more records found after HLC {}. Chunk generation complete.",
-                current_hlc
-            );
+            debug!("No more records found after HLC {current_hlc}. Chunk generation complete.");
             break; // No more records to process
         }
 
@@ -417,8 +406,7 @@ where
         // Calculate hash for the chunk using the models fetched
         let chunk_hash = calculate_chunk_hash::<E::Model>(&records).with_context(|| {
             format!(
-                "Failed to calculate hash for chunk [{}-{}], count {}",
-                chunk_start_hlc, chunk_end_hlc, chunk_count
+                "Failed to calculate hash for chunk [{chunk_start_hlc}-{chunk_end_hlc}], count {chunk_count}"
             )
         })?;
 
@@ -473,7 +461,7 @@ where
 /// # Type Parameters
 ///
 /// * `E`: The SeaORM `EntityTrait`. Its associated `Model` must implement `HLCRecord`.
-///       `E` itself must implement `HLCModel`.
+///   `E` itself must implement `HLCModel`.
 ///
 /// # Arguments
 ///
@@ -657,10 +645,7 @@ where
         // Calculate hash for this specific sub-chunk
         let sub_chunk_hash = calculate_chunk_hash::<E::Model>(sub_chunk_records_slice)
             .with_context(|| {
-                format!(
-                    "Failed to calculate hash for sub-chunk [{}-{}]",
-                    sub_start_hlc, sub_end_hlc
-                )
+                format!("Failed to calculate hash for sub-chunk [{sub_start_hlc}-{sub_end_hlc}]")
             })?;
 
         let mut sub_chunk_fk_map: Option<ChunkFkMapping> = None;
@@ -1347,7 +1332,7 @@ pub mod tests {
         let err_msg = result.err().unwrap().to_string();
         assert!(err_msg.contains("Hash mismatch"));
         assert!(err_msg.contains(&format!("Expected '{}'", parent_chunk.chunk_hash)));
-        assert!(err_msg.contains(&format!("Calculated '{}'", correct_hash)));
+        assert!(err_msg.contains(&format!("Calculated '{correct_hash}'")));
 
         Ok(())
     }
@@ -1387,7 +1372,7 @@ pub mod tests {
         // Assert that the error message indicates a hash mismatch for an empty chunk
         let err_msg = result.err().unwrap().to_string();
         assert!(err_msg.contains("Parent chunk reported 0 count, but hash mismatch"));
-        assert!(err_msg.contains(&format!("Expected empty hash '{}'", correct_empty_hash)));
+        assert!(err_msg.contains(&format!("Expected empty hash '{correct_empty_hash}'")));
         assert!(err_msg.contains(&format!("Found '{}'", parent_chunk.chunk_hash)));
 
         Ok(())
@@ -1639,8 +1624,7 @@ pub mod tests {
         let err_msg = result.err().unwrap().to_string();
         assert!(
             err_msg.contains("Sub-chunk size cannot be zero"),
-            "Error message was: {}",
-            err_msg
+            "Error message was: {err_msg}"
         );
 
         Ok(())
@@ -1680,8 +1664,7 @@ pub mod tests {
             err_msg.contains(
                 "Invalid parent chunk definition: start_hlc > end_hlc with non-zero count."
             ),
-            "Error message was: {}",
-            err_msg
+            "Error message was: {err_msg}"
         );
 
         Ok(())

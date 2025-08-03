@@ -148,8 +148,8 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
 
-                let image_file_name = format!("{:08x}", crc32);
-                let color_file_name = format!("{}.color", image_file_name);
+                let image_file_name = format!("{crc32:08x}");
+                let color_file_name = format!("{image_file_name}.color");
 
                 let image_file: PathBuf = COVER_TEMP_DIR.clone().join(image_file_name);
                 let color_file: PathBuf = COVER_TEMP_DIR.clone().join(color_file_name);
@@ -182,8 +182,8 @@ impl PlayingFileMetadataProvider for IndependentFileProcessor {
                 // Calculate the CRC32 for the file path
                 let path_str = path.to_string_lossy();
                 let crc32 = media_crc32(path_str.as_bytes(), 0, 0, path_str.len());
-                let image_file_name = format!("{:08x}", crc32);
-                let color_file_name = format!("{}.color", image_file_name);
+                let image_file_name = format!("{crc32:08x}");
+                let color_file_name = format!("{image_file_name}.color");
                 let color_file: PathBuf = COVER_TEMP_DIR.clone().join(color_file_name);
 
                 // Check if the color file exists

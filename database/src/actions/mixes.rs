@@ -309,10 +309,7 @@ pub async fn replace_mix_queries(
             .one(&txn)
             .await
             .with_context(|| {
-                format!(
-                    "Failed to query existed query with `{}({})`",
-                    operator, parameter
-                )
+                format!("Failed to query existed query with `{operator}({parameter})`")
             })?;
 
         if let Some(existing_mix_query) = mix_query {
@@ -337,10 +334,7 @@ pub async fn replace_mix_queries(
                 .exec(&txn)
                 .await
                 .with_context(|| {
-                    format!(
-                        "Failed to insert new query with `{}({})`",
-                        operator, parameter
-                    )
+                    format!("Failed to insert new query with `{operator}({parameter})`")
                 })?;
         };
     }
@@ -424,10 +418,7 @@ where
     match parameter.parse::<T>() {
         Ok(x) => Some(x),
         Err(_) => {
-            warn!(
-                "Unable to parse the parameter of operator: {}({})",
-                operator, parameter
-            );
+            warn!("Unable to parse the parameter of operator: {operator}({parameter})");
             None
         }
     }
@@ -739,7 +730,7 @@ pub async fn query_mix_media_files(
             QueryOperator::FilterAnalyzed(analyzed) => filter_analyzed = Some(analyzed),
             QueryOperator::PipeLimit(limit) => pipe_limit = Some(limit),
             QueryOperator::PipeRecommend(recommend) => pipe_recommend = Some(recommend),
-            QueryOperator::Unknown(op) => warn!("Unknown operator: {}", op),
+            QueryOperator::Unknown(op) => warn!("Unknown operator: {op}"),
         }
     }
 
@@ -841,7 +832,7 @@ pub async fn query_mix_media_files(
             dir_conditions = dir_conditions.add(
                 Expr::col(media_files::Column::Directory)
                     .eq(dir)
-                    .or(Expr::col(media_files::Column::Directory).like(format!("{}/%", dir))),
+                    .or(Expr::col(media_files::Column::Directory).like(format!("{dir}/%"))),
             );
         }
         or_condition = or_condition.add(dir_conditions);

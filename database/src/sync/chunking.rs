@@ -78,11 +78,11 @@ pub fn parse_optional_hlc_from_parts(
         (Some(timestamp_str), Some(version), Some(nid_str)) => {
             // Parse RFC3339 timestamp and convert to milliseconds
             let timestamp_ms = DateTime::parse_from_rfc3339(&timestamp_str)
-                .with_context(|| format!("Invalid RFC3339 timestamp: {}", timestamp_str))?
+                .with_context(|| format!("Invalid RFC3339 timestamp: {timestamp_str}"))?
                 .timestamp_millis() as u64;
 
             let node_id = Uuid::parse_str(&nid_str)
-                .with_context(|| format!("Invalid HLC node_id string: {}", nid_str))?;
+                .with_context(|| format!("Invalid HLC node_id string: {nid_str}"))?;
 
             Ok(Some(HLC {
                 timestamp_ms,
@@ -468,13 +468,8 @@ where
     E::ActiveModel: ActiveModelBehavior + Send + Sync + ActiveModelWithForeignKeyOps,
     FKR: ForeignKeyResolver + Send + Sync,
 {
-    let payload: ApplyChangesPayload<E::Model> =
-        serde_json::from_slice(body).with_context(|| {
-            format!(
-                "Failed to deserialize full payload for table {}",
-                table_name
-            )
-        })?;
+    let payload: ApplyChangesPayload<E::Model> = serde_json::from_slice(body)
+        .with_context(|| format!("Failed to deserialize full payload for table {table_name}"))?;
 
     let mut operations_processed_count = 0;
 
@@ -497,17 +492,13 @@ where
                 if let Some(db_record) = &existing_record {
                     if model.updated_at_hlc() <= db_record.updated_at_hlc() {
                         debug!(
-                            "[SERVER DIAGNOSTICS] Ignoring stale {} for unique_id: {}",
-                            op_type, unique_id
+                            "[SERVER DIAGNOSTICS] Ignoring stale {op_type} for unique_id: {unique_id}"
                         );
                         continue;
                     }
                 }
 
-                debug!(
-                    "[SERVER DIAGNOSTICS] Processing {} for unique_id: {}",
-                    op_type, unique_id
-                );
+                debug!("[SERVER DIAGNOSTICS] Processing {op_type} for unique_id: {unique_id}");
 
                 // Create an active model from the incoming model, where all fields will be `Set`.
                 let json_val = serde_json::to_value(model.clone())?;
@@ -562,15 +553,13 @@ where
                     operations_processed_count += 1;
                 } else {
                     warn!(
-                        "Delete operation for table {}: Record with unique_id {} not found.",
-                        table_name, unique_id
+                        "Delete operation for table {table_name}: Record with unique_id {unique_id} not found."
                     );
                 }
             }
             op => {
                 debug!(
-                    "Server received a non-standard or no-op client operation, ignoring: {:?}",
-                    op
+                    "Server received a non-standard or no-op client operation, ignoring: {op:?}"
                 );
             }
         }
@@ -599,10 +588,7 @@ pub async fn apply_remote_changes_handler(
     let fk_resolver = state.fk_resolver.as_ref();
 
     let txn = db.begin().await.context("Failed to begin transaction")?;
-    debug!(
-        "Transaction started for apply_remote_changes on table {}",
-        table_name
-    );
+    debug!("Transaction started for apply_remote_changes on table {table_name}");
 
     let (operations_processed_count, client_node_id, new_last_sync_hlc) = match table_name.as_str()
     {
@@ -670,8 +656,7 @@ pub async fn apply_remote_changes_handler(
     };
 
     debug!(
-        "Processed {} operations for table '{}'. Upserting sync_record for client {} with HLC {}.",
-        operations_processed_count, table_name, client_node_id, new_last_sync_hlc
+        "Processed {operations_processed_count} operations for table '{table_name}'. Upserting sync_record for client {client_node_id} with HLC {new_last_sync_hlc}."
     );
     let sync_record_model = sync_record::ActiveModel {
         table_name: Set(table_name.clone()),
@@ -700,14 +685,10 @@ pub async fn apply_remote_changes_handler(
         .context("Failed to upsert sync_record")?;
 
     txn.commit().await.context("Failed to commit transaction")?;
-    debug!(
-        "Transaction committed for apply_remote_changes on table {}",
-        table_name
-    );
+    debug!("Transaction committed for apply_remote_changes on table {table_name}");
 
     info!(
-        "apply_remote_changes for table '{}' completed. Effective HLC: {}",
-        table_name, new_last_sync_hlc
+        "apply_remote_changes for table '{table_name}' completed. Effective HLC: {new_last_sync_hlc}"
     );
     Ok(Json(new_last_sync_hlc))
 }
@@ -718,8 +699,7 @@ pub async fn get_remote_last_sync_hlc_handler(
     Path((table_name, client_node_id_str)): Path<(String, String)>,
 ) -> Result<Json<Option<HLC>>, AppError> {
     info!(
-        "Request: get_remote_last_sync_hlc for table '{}', client_node_id: {}",
-        table_name, client_node_id_str
+        "Request: get_remote_last_sync_hlc for table '{table_name}', client_node_id: {client_node_id_str}"
     );
 
     let client_node_id = Uuid::parse_str(&client_node_id_str)?;

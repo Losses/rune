@@ -42,7 +42,7 @@ impl fmt::Display for LogLevel {
             LogLevel::Error => "ERROR",
             LogLevel::Debug => "DEBUG",
         };
-        write!(f, "{}", level_str)
+        write!(f, "{level_str}")
     }
 }
 
