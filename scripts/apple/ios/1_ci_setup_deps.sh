@@ -13,7 +13,7 @@ rustup-init -y
 rustup default stable
 rustup target add x86_64-apple-darwin
 rustup target add aarch64-apple-darwin
-cargo install 'flutter_rust_bridge_codegen' rinf protoc-gen-prost
+cargo install rinf_cli
 
 # Flutter
 flutter pub global activate protoc_plugin
