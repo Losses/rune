@@ -254,7 +254,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
 
         // Clone the data from dart_signal before spawning the task
         let request = dart_signal;
-        debug!("Analyzing media files: {:#?}", request);
+        debug!("Analyzing media files: {request:#?}");
 
         let request_path = request.path.clone();
         let closure_request_path = request_path.clone();
@@ -298,7 +298,7 @@ impl Signal for AnalyzeAudioLibraryRequest {
                 .await;
 
                 if let Err(e) = result {
-                    eprintln!("Error: {:?}", e);
+                    eprintln!("Error: {e:?}");
                 }
             })
         });

@@ -34,7 +34,7 @@ impl WSConnection {
             while let Some((type_name, payload, uuid)) = rx.recv().await {
                 let message = encode_message(&type_name, &payload, Some(uuid));
                 if let Err(e) = write.send(Message::Binary(message.into())).await {
-                    eprintln!("Failed to send message: {}", e);
+                    eprintln!("Failed to send message: {e}");
                     break;
                 }
             }
@@ -54,7 +54,7 @@ impl WSConnection {
                     }
                     Ok(Message::Close(_)) => break,
                     Err(e) => {
-                        error!("Error receiving message: {}", e);
+                        error!("Error receiving message: {e}");
                         exit(0);
                     }
                     _ => {}

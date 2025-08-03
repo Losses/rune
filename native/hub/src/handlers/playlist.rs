@@ -77,7 +77,7 @@ impl Signal for CreatePlaylistRequest {
         let playlist = create_playlist(&txn, &node_id, name.clone(), group.clone())
             .await
             .with_context(|| {
-                format!("Failed to create playlist: name={}, group={}", name, group)
+                format!("Failed to create playlist: name={name}, group={group}")
             })?;
         txn.commit().await?;
 

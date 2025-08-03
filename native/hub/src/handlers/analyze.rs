@@ -29,7 +29,7 @@ impl Signal for IfAnalyzeExistsRequest {
 
         let exists = if_analyze_exists(&main_db, file_id)
             .await
-            .with_context(|| format!("Failed to test if analysis exists: {}", file_id))?;
+            .with_context(|| format!("Failed to test if analysis exists: {file_id}"))?;
         Ok(Some(IfAnalyzeExistsResponse { file_id, exists }))
     }
 }

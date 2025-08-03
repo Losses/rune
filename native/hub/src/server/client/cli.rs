@@ -19,7 +19,7 @@ impl std::str::FromStr for PlaybackMode {
             "repeatall" => Ok(PlaybackMode::RepeatAll),
             "shuffle" => Ok(PlaybackMode::Shuffle),
             "nochange" => Ok(PlaybackMode::NoChange),
-            _ => Err(format!("Unknown playback mode: {}", s)),
+            _ => Err(format!("Unknown playback mode: {s}")),
         }
     }
 }
@@ -51,7 +51,7 @@ impl std::str::FromStr for OperateMode {
             "append" | "appendtoend" => Ok(OperateMode::AppendToEnd),
             "next" | "playnext" => Ok(OperateMode::PlayNext),
             "replace" => Ok(OperateMode::Replace),
-            _ => Err(format!("Unknown operate mode: {}", s)),
+            _ => Err(format!("Unknown operate mode: {s}")),
         }
     }
 }

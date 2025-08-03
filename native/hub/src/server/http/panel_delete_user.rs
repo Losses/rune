@@ -17,7 +17,7 @@ pub async fn delete_user_handler(
     Path(fingerprint): Path<String>,
     State(server_state): State<Arc<ServerState>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    info!("Deleting user {}", fingerprint);
+    info!("Deleting user {fingerprint}");
 
     server_state
         .permission_manager
@@ -27,7 +27,7 @@ pub async fn delete_user_handler(
         .await
         .map_err(|e| match e {
             PermissionError::UserNotFound => {
-                AppError::NotFound(format!("User {} not found", fingerprint))
+                AppError::NotFound(format!("User {fingerprint} not found"))
             }
             _ => AppError::Internal(e.to_string()),
         })?;

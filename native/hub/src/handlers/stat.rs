@@ -100,7 +100,7 @@ impl Signal for GetLikedRequest {
                 PlayingItem::InLibrary(file_id) => {
                     let liked = get_liked(&main_db, file_id)
                         .await
-                        .with_context(|| format!("Failed to get liked: file_id={}", file_id))?;
+                        .with_context(|| format!("Failed to get liked: file_id={file_id}"))?;
 
                     GetLikedResponse {
                         item: item.clone(),

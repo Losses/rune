@@ -56,20 +56,20 @@ async fn repl_mode(service_url: &str) -> Result<()> {
     let service_url = match validate_and_format_url(service_url) {
         Ok(x) => x,
         Err(e) => {
-            error!("{}", e);
+            error!("{e}");
             return Ok(());
         }
     };
 
     println!("Welcome to the Rune Speaker Command Line Interface");
-    println!("Service URL: {}", service_url);
+    println!("Service URL: {service_url}");
     println!("\nType 'help' to see available commands");
 
     let config = EditorConfig::default();
     let connection = match WSConnection::connect(service_url.clone()).await {
         Ok(x) => x,
         Err(e) => {
-            error!("{}", e);
+            error!("{e}");
             return Ok(());
         }
     };
@@ -109,9 +109,9 @@ async fn repl_mode(service_url: &str) -> Result<()> {
                     }
                     Err(err) => {
                         if !err.use_stderr() {
-                            println!("{}", err);
+                            println!("{err}");
                         } else {
-                            eprintln!("Error: {}", err);
+                            eprintln!("Error: {err}");
                         }
                     }
                 }
@@ -123,7 +123,7 @@ async fn repl_mode(service_url: &str) -> Result<()> {
                     break;
                 }
                 _ => {
-                    eprintln!("Error: {:?}", err);
+                    eprintln!("Error: {err:?}");
                     break;
                 }
             },
@@ -246,7 +246,7 @@ async fn handle_remote_command(cmd: RemoteCmd) -> Result<()> {
                 let hosts = validator.get_hosts_for_fingerprint(&fingerprint).await;
 
                 if hosts.is_empty() {
-                    info!("No hosts associated with fingerprint {}", fingerprint);
+                    info!("No hosts associated with fingerprint {fingerprint}");
                     return Ok(());
                 }
 
@@ -303,7 +303,7 @@ fn validate_and_format_url(input: &str) -> Result<String> {
             ));
         }
 
-        Ok(format!("ws://{}:{}/ws", host, port))
+        Ok(format!("ws://{host}:{port}/ws"))
     } else {
         Err(anyhow!("Invalid URL format"))
     }

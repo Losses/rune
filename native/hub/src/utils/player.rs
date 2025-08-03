@@ -104,7 +104,7 @@ pub async fn initialize_local_player(
         let mut last_status_item: Option<PlayingItem> = None;
 
         while let Ok(status) = status_receiver.recv().await {
-            debug!("Player status updated: {:?}", status);
+            debug!("Player status updated: {status:?}");
 
             let item = status.item.clone();
 
@@ -158,8 +158,7 @@ pub async fn initialize_local_player(
                                         Ok(_) => {}
                                         Err(e) => {
                                             error!(
-                                                "Error updating OS media controller metadata: {:?}",
-                                                e
+                                                "Error updating OS media controller metadata: {e:?}"
                                             );
                                         }
                                     };
@@ -168,14 +167,14 @@ pub async fn initialize_local_player(
                                     scrobbler.lock().await.update_now_playing_all(track);
                                 }
                                 None => {
-                                    error!("No metadata found for: {:?}", item_clone_for_status);
+                                    error!("No metadata found for: {item_clone_for_status:?}");
                                     cached_meta = None;
                                     last_status_item = Some(item_clone_for_status);
                                 }
                             },
                             Err(e) => {
                                 // Print the error if get_metadata_summary_by_file_id returns an error
-                                error!("Error fetching metadata: {:?}", e);
+                                error!("Error fetching metadata: {e:?}");
                                 cached_meta = None;
                                 last_status_item = Some(item_clone_for_status);
                             }
@@ -220,10 +219,10 @@ pub async fn initialize_local_player(
                     .await
                     .with_context(|| "Failed to update media controls")
             {
-                error!("{}", e);
+                error!("{e}");
                 e.chain()
                     .skip(1)
-                    .for_each(|cause| eprintln!("because: {}", cause));
+                    .for_each(|cause| eprintln!("because: {cause}"));
             }
 
             broadcaster_for_main.broadcast(&formated_status);
@@ -238,7 +237,7 @@ pub async fn initialize_local_player(
             send_playlist_update(&main_db, &playlist, &*broadcaster).await;
             match replace_playback_queue(&main_db, extract_in_library_ids(playlist.items)).await {
                 Ok(_) => {}
-                Err(e) => error!("Failed to update playback queue record: {:#?}", e),
+                Err(e) => error!("Failed to update playback queue record: {e:#?}"),
             };
         }
     });
@@ -255,7 +254,7 @@ pub async fn initialize_local_player(
                         .await
                         .with_context(|| "Unable to update played through count")
                     {
-                        error!("{:?}", e);
+                        error!("{e:?}");
                     }
                 }
                 PlayingItem::IndependentFile(_) => {}
@@ -317,17 +316,16 @@ pub async fn initialize_local_player(
                         &txn,
                         database::actions::logging::LogLevel::Error,
                         format!("scrobbler::{:?}::{:?}", error.action, error.service),
-                        format!("{:#?}", error),
+                        format!("{error:#?}"),
                     )
                     .await
                     {
-                        error!("Failed to log scrobbler error: {:#?}", e);
+                        error!("Failed to log scrobbler error: {e:#?}");
                     }
                 }
                 Err(e) => {
                     error!(
-                        "Failed to start txn while logging scrobbler error: {:#?}",
-                        e
+                        "Failed to start txn while logging scrobbler error: {e:#?}"
                     );
                 }
             }
@@ -353,11 +351,11 @@ pub async fn initialize_local_player(
                     )
                     .await
                     {
-                        error!("Failed to log player error: {:#?}", e);
+                        error!("Failed to log player error: {e:#?}");
                     }
                 }
                 Err(e) => {
-                    error!("Failed to start txn while logging player error: {:#?}", e);
+                    error!("Failed to start txn while logging player error: {e:#?}");
                 }
             }
         }
@@ -373,7 +371,7 @@ pub async fn initialize_local_player(
             {
                 e.chain()
                     .skip(1)
-                    .for_each(|cause| eprintln!("because: {}", cause));
+                    .for_each(|cause| eprintln!("because: {cause}"));
             };
         }
     });
@@ -449,7 +447,7 @@ pub async fn send_playlist_update(
             broadcaster.broadcast(&PlaylistUpdate { items });
         }
         Err(e) => {
-            error!("Error happened while updating playlist: {:?}", e)
+            error!("Error happened while updating playlist: {e:?}")
         }
     }
 }
@@ -477,7 +475,7 @@ async fn update_media_controls_metadata(
 
     match manager.controls.set_metadata(metadata) {
         Ok(x) => x,
-        Err(e) => bail!(Error::msg(format!("Failed to set media metadata: {:?}", e))),
+        Err(e) => bail!(Error::msg(format!("Failed to set media metadata: {e:?}"))),
     };
 
     Ok(())
@@ -506,8 +504,7 @@ async fn update_media_controls_progress(
     match manager.controls.set_playback(playback) {
         Ok(x) => x,
         Err(e) => bail!(Error::msg(format!(
-            "Failed to set media playback status: {:?}",
-            e
+            "Failed to set media playback status: {e:?}"
         ))),
     };
 

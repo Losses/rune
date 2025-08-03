@@ -20,7 +20,7 @@ pub async fn handle_ls(state: Arc<AppState>, long: bool) -> Result<bool> {
             if long {
                 for entry in entries {
                     let entry_type = if entry.is_directory { "DIR" } else { "FILE" };
-                    let id_str = entry.id.map(|id| format!(" [{}]", id)).unwrap_or_default();
+                    let id_str = entry.id.map(|id| format!(" [{id}]")).unwrap_or_default();
                     println!("{:<4} {}{}", entry_type, id_str, entry.name);
                 }
             } else {
@@ -29,7 +29,7 @@ pub async fn handle_ls(state: Arc<AppState>, long: bool) -> Result<bool> {
                 print_entries_grid(entries);
             }
         }
-        Err(e) => eprintln!("Error listing directory: {}", e),
+        Err(e) => eprintln!("Error listing directory: {e}"),
     }
     Ok(true)
 }
@@ -42,15 +42,15 @@ fn print_entries_grid(entries: Vec<VirtualEntry>) {
         .iter()
         .map(|e| {
             let id_str =
-                e.id.map(|id| format!("[{}] ", id).yellow().to_string())
+                e.id.map(|id| format!("[{id}] ").yellow().to_string())
                     .unwrap_or_default();
             let name = if e.is_directory {
                 e.name.blue().bold().to_string()
             } else {
                 e.name.clone()
             };
-            let display = format!("{}{}", id_str, name);
-            let width = e.id.map(|id| format!("[{}] ", id).width()).unwrap_or(0) + e.name.width();
+            let display = format!("{id_str}{name}");
+            let width = e.id.map(|id| format!("[{id}] ").width()).unwrap_or(0) + e.name.width();
             (display, width)
         })
         .collect();
@@ -93,11 +93,11 @@ pub async fn handle_cd(state: Arc<AppState>, path: String, id: bool) -> Result<b
             Ok(true)
         }
         Ok(false) => {
-            println!("Directory not found: {}", path);
+            println!("Directory not found: {path}");
             Ok(true)
         }
         Err(e) => {
-            println!("Error validating path: {}", e);
+            println!("Error validating path: {e}");
             Ok(true)
         }
     }
@@ -140,9 +140,9 @@ pub async fn handle_opq(
         .await
         {
             Ok(_) => println!("Successfully updated playback queue"),
-            Err(e) => eprintln!("Failed to update playback queue: {}", e),
+            Err(e) => eprintln!("Failed to update playback queue: {e}"),
         },
-        Err(e) => eprintln!("Error creating query from path: {}", e),
+        Err(e) => eprintln!("Error creating query from path: {e}"),
     }
     Ok(true)
 }

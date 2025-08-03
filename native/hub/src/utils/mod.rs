@@ -152,7 +152,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                 OperationDestination::Local => {
                     let database_path = dart_signal.message.db_path;
                     let database_mode = dart_signal.message.mode;
-                    info!("Received path: {}", media_library_path);
+                    info!("Received path: {media_library_path}");
 
                     let library_test = match check_library_state(media_library_path) {
                         Ok(x) => x,
@@ -160,7 +160,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.clone(),
                                 success: false,
-                                error: Some(format!("{:#?}", e)),
+                                error: Some(format!("{e:#?}")),
                                 not_ready: false,
                             });
                             continue;
@@ -188,7 +188,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                                 broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                     path: media_library_path.clone(),
                                     success: false,
-                                    error: Some(format!("{:#?}", e)),
+                                    error: Some(format!("{e:#?}")),
                                     not_ready: false,
                                 });
                                 continue;
@@ -223,12 +223,12 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             .await;
                         }
                         Err(e) => {
-                            error!("Database initialization failed: {:#?}", e);
+                            error!("Database initialization failed: {e:#?}");
                             // Send error response to Dart
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.to_string(),
                                 success: false,
-                                error: Some(format!("{:#?}", e)),
+                                error: Some(format!("{e:#?}")),
                                 not_ready: false,
                             });
                         }
@@ -249,7 +249,7 @@ pub async fn receive_media_library_path(scrobbler: Arc<Mutex<ScrobblingManager>>
                             broadcaster.broadcast(&SetMediaLibraryPathResponse {
                                 path: media_library_path.clone(),
                                 success: false,
-                                error: Some(format!("{:#?}", e)),
+                                error: Some(format!("{e:#?}")),
                                 not_ready: false,
                             });
                         }
@@ -363,7 +363,7 @@ pub fn process_cover_art_path(
                         .unwrap_or_default();
 
                     // Construct the URL using the host and cache prefix
-                    format!("{}/files/cache/{}", host, file_name)
+                    format!("{host}/files/cache/{file_name}")
                 } else {
                     // No host available, return the original path
                     path.to_string()
@@ -421,7 +421,7 @@ pub async fn parse_media_files(
                 media_files.push(media_file);
             }
             Err(e) => {
-                error!("{:?}", e);
+                error!("{e:?}");
             }
         }
     }

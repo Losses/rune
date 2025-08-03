@@ -201,7 +201,7 @@ fn create_query(domain: &str, parameter: &str) -> Result<Box<dyn ComplexQuery>> 
             enabled: parameter == "enable",
         })),
         unknown => {
-            warn!("Unknown complex query operator: {}", unknown);
+            warn!("Unknown complex query operator: {unknown}");
 
             Ok(Box::new(MixTrackComplexQuery {
                 query: vec![],

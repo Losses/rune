@@ -50,8 +50,7 @@ impl Signal for FetchMediaFilesRequest {
             .await
             .with_context(|| {
                 format!(
-                    "Failed to fetch media list, page: {}, size: {}",
-                    cursor, page_size
+                    "Failed to fetch media list, page: {cursor}, size: {page_size}"
                 )
             })?;
 

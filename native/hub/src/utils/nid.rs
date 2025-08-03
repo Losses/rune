@@ -7,7 +7,7 @@ use uuid::Uuid;
 pub async fn get_or_create_node_id(config_path: &str) -> Result<Uuid> {
     let config_path = Path::new(config_path);
     let nid_path = config_path.join("nid");
-    info!("Checking nid file at: {:?}", nid_path);
+    info!("Checking nid file at: {nid_path:?}");
 
     let content = fs::read_to_string(&nid_path);
     let uuid = match content {
@@ -15,7 +15,7 @@ pub async fn get_or_create_node_id(config_path: &str) -> Result<Uuid> {
             let trimmed = content.trim();
             match Uuid::parse_str(trimmed) {
                 Ok(uuid) => {
-                    info!("Found valid UUID: {}", uuid);
+                    info!("Found valid UUID: {uuid}");
                     uuid
                 }
                 Err(_) => {

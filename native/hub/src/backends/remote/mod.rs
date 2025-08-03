@@ -115,9 +115,9 @@ impl WebSocketDartBridge {
                     decoded.send_signal_to_dart();
                 }
                 Err(e) => {
-                    error!("Failed to decode message: {}", e);
+                    error!("Failed to decode message: {e}");
                     CrashResponse {
-                        detail: format!("Failed to decode message: {}", e),
+                        detail: format!("Failed to decode message: {e}"),
                     };
                 }
             },
@@ -134,8 +134,7 @@ impl WebSocketDartBridge {
             handler(payload);
         } else {
             error!(
-                "No handler registered for message type in the message bridge: {}",
-                msg_type
+                "No handler registered for message type in the message bridge: {msg_type}"
             );
         }
     }
@@ -155,7 +154,7 @@ impl WebSocketDartBridge {
             encode(host)
         );
 
-        info!("Connecting to {}", host);
+        info!("Connecting to {host}");
 
         match connect_async_tls_with_config(
             url.clone(),
@@ -234,17 +233,17 @@ impl WebSocketDartBridge {
                                     Some(Ok(msg)) => {
                                         if let TungsteniteMessage::Binary(payload) = msg {
                                             if let Some((msg_type, msg_payload, _request_id)) = decode_message(&payload) {
-                                                debug!("Received message with type: {}", msg_type);
+                                                debug!("Received message with type: {msg_type}");
                                                 if let Some(handler) = handlers.lock().await.get(&msg_type) {
                                                     handler(msg_payload);
                                                 } else {
-                                                    error!("No handler registered for message type while receiving response: {}", msg_type);
+                                                    error!("No handler registered for message type while receiving response: {msg_type}");
                                                 }
                                             }
                                         }
                                     }
                                     Some(Err(e)) => {
-                                        error!("Error receiving message: {}", e);
+                                        error!("Error receiving message: {e}");
                                         break;
                                     }
                                     None => break,
@@ -254,7 +253,7 @@ impl WebSocketDartBridge {
                                 info!("Received cancel signal, closing connection");
                                 let mut write = write_clone.lock().await;
                                 if let Err(e) = write.close().await {
-                                    error!("Error closing websocket connection: {}", e);
+                                    error!("Error closing websocket connection: {e}");
                                 }
                                 break;
                             }
@@ -307,8 +306,8 @@ impl WebSocketDartBridge {
                 Ok(())
             }
             Err(e) => {
-                let error_msg = format!("Failed to connect: {}", e);
-                error!("{}", error_msg);
+                let error_msg = format!("Failed to connect: {e}");
+                error!("{error_msg}");
 
                 CrashResponse { detail: error_msg }.send_signal_to_dart();
                 Err(e.into())

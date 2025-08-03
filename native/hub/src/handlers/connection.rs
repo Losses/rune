@@ -28,7 +28,7 @@ impl Signal for TestLibraryInitializedRequest {
         let media_library_path = dart_signal.path.clone();
         let test_result = check_library_state(&media_library_path);
 
-        info!("Testing the library path: {}", media_library_path);
+        info!("Testing the library path: {media_library_path}");
 
         let result = match test_result {
             Ok(state) => match &state {
@@ -48,7 +48,7 @@ impl Signal for TestLibraryInitializedRequest {
             Err(e) => TestLibraryInitializedResponse {
                 path: media_library_path.clone(),
                 success: false,
-                error: Some(format!("{:#?}", e)),
+                error: Some(format!("{e:#?}")),
                 not_ready: false,
             },
         };

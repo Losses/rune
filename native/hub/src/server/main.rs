@@ -107,7 +107,7 @@ fn setup_logging() {
 }
 
 async fn initialize_global_params(lib_path: &str, config_path: &str) -> Result<Arc<GlobalParams>> {
-    let db_path = format!("{}/.rune", lib_path);
+    let db_path = format!("{lib_path}/.rune");
     let node_id = Arc::new(get_or_create_node_id(config_path).await?.to_string());
 
     let db_connections = initialize_databases(lib_path, Some(&db_path), &node_id).await?;

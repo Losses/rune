@@ -53,7 +53,7 @@ impl Signal for AuthenticateSingleServiceRequest {
                 },
                 Err(e) => AuthenticateSingleServiceResponse {
                     success: false,
-                    error: format!("{:#?}", e).into(),
+                    error: format!("{e:#?}").into(),
                 },
             };
 

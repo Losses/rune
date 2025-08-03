@@ -95,7 +95,7 @@ impl Broadcaster for WebSocketService {
         let payload = match message.encode_to_vec() {
             Ok(payload) => payload,
             Err(e) => {
-                error!("Failed to encode message: {}", e);
+                error!("Failed to encode message: {e}");
                 return;
             },
         };
@@ -103,7 +103,7 @@ impl Broadcaster for WebSocketService {
         let message_data = encode_message(&type_name, &payload, None);
 
         if let Err(e) = self.broadcast_tx.send(message_data) {
-            error!("Failed to broadcast message: {}", e);
+            error!("Failed to broadcast message: {e}");
         }
     }
 }

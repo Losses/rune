@@ -35,7 +35,7 @@ impl DIYHinter {
     }
 
     pub fn set_colored_prompt(&mut self, prompt: String) {
-        self.colored_prompt = format!("\x1b[1;32m{}\x1b[0m", prompt);
+        self.colored_prompt = format!("\x1b[1;32m{prompt}\x1b[0m");
     }
 
     // Helper function to find the common prefix between the current input and directory entry

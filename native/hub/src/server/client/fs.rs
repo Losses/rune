@@ -395,7 +395,7 @@ impl VirtualFS {
                     let group_title = self
                         .current_path
                         .components()
-                        .last()
+                        .next_back()
                         .unwrap()
                         .as_os_str()
                         .to_str()
@@ -485,7 +485,7 @@ impl VirtualFS {
             2 => Ok(self.root_dirs.contains(
                 &new_path
                     .components()
-                    .last()
+                    .next_back()
                     .unwrap()
                     .as_os_str()
                     .to_string_lossy()
@@ -502,7 +502,7 @@ impl VirtualFS {
                     .ok_or_else(|| anyhow!("Invalid collection type"))?;
                 let group_name = new_path
                     .components()
-                    .last()
+                    .next_back()
                     .unwrap()
                     .as_os_str()
                     .to_str()
@@ -522,7 +522,7 @@ impl VirtualFS {
                     .ok_or_else(|| anyhow!("Invalid group name"))?;
                 let collection_name = new_path
                     .components()
-                    .last()
+                    .next_back()
                     .unwrap()
                     .as_os_str()
                     .to_str()

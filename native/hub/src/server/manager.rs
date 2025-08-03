@@ -212,14 +212,14 @@ impl ServerManager {
         };
 
         let server_handle = tokio::spawn(async move {
-            info!("Starting secure HTTPS/WSS server on {}", addr);
+            info!("Starting secure HTTPS/WSS server on {addr}");
             let server = axum_server::bind_rustls(addr, tls_config)
                 .handle(handle)
                 .serve(app.into_make_service_with_connect_info::<SocketAddr>());
 
             match server.await {
                 Ok(_) => info!("Server stopped gracefully"),
-                Err(e) => error!("Server error: {}", e),
+                Err(e) => error!("Server error: {e}"),
             }
         });
 
@@ -285,7 +285,7 @@ impl ServerManager {
 }
 
 pub async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
-    info!("Generating certificate in: {:?}", config_path);
+    info!("Generating certificate in: {config_path:?}");
 
     let certificate_id_path = config_path.join("cid");
     if certificate_id_path.exists() {
@@ -304,8 +304,7 @@ pub async fn get_or_generate_alias(config_path: &Path) -> Result<String> {
 
 pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
     info!(
-        "Updating certificate alias in: {:?} to: {}",
-        config_path, new_alias
+        "Updating certificate alias in: {config_path:?} to: {new_alias}"
     );
 
     let certificate_id_path = config_path.join("cid");
@@ -320,7 +319,7 @@ pub async fn update_alias(config_path: &Path, new_alias: &str) -> Result<()> {
 fn generate_random_alias() -> String {
     let mut rng = rand::thread_rng();
     let suffix: String = Alphanumeric.sample_string(&mut rng, 8);
-    format!("R-{}", suffix)
+    format!("R-{suffix}")
 }
 
 pub async fn generate_or_load_certificates<P: AsRef<Path>>(

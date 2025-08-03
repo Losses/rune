@@ -22,7 +22,7 @@ pub struct AppState {
 pub fn print_device_table(devices: &[DiscoveredDevice]) {
     for (i, dev) in devices.iter().enumerate() {
         let index = i + 1;
-        let index_str = format!("[{}]", index).red().bold();
+        let index_str = format!("[{index}]").red().bold();
         let alias = dev.alias.cyan().bold();
         let model_type = format!("{} ({})", dev.device_model, dev.device_type).blue();
         let main_ip = dev
@@ -86,12 +86,12 @@ pub fn print_certificate_table(validator: &CertValidator) {
 
             for (i, fp) in fingerprints.iter().enumerate() {
                 let index = i + 1;
-                let index_str = format!("[{}]", index).red().bold();
+                let index_str = format!("[{index}]").red().bold();
 
                 let fp_short: String = fp.chars().take(8).collect();
                 let fp_display = fp_short.magenta();
 
-                println!("{} {}", index_str, fp_display);
+                println!("{index_str} {fp_display}");
 
                 if let Some(hosts) = fp_map.get(*fp) {
                     for host in hosts {
@@ -102,7 +102,7 @@ pub fn print_certificate_table(validator: &CertValidator) {
                 println!();
             }
         }
-        Err(e) => error!("Unable to read the fingerprint map: {}", e),
+        Err(e) => error!("Unable to read the fingerprint map: {e}"),
     }
 }
 

@@ -13,7 +13,7 @@ pub fn get_config_dir() -> Result<PathBuf> {
 
     if config_path.exists() {
         if config_path.is_file() {
-            panic!("Config directory path is a file: {:?}", config_path);
+            panic!("Config directory path is a file: {config_path:?}");
         }
     } else {
         fs::create_dir_all(&config_path)?;

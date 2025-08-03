@@ -113,7 +113,7 @@ impl Signal for RegisterLicenseRequest {
                     valid: false,
                     license: None,
                     success: false,
-                    error: Some(format!("{:#?}", e)),
+                    error: Some(format!("{e:#?}")),
                 }))
             }
         };
@@ -122,12 +122,12 @@ impl Signal for RegisterLicenseRequest {
         let mut hasher = Sha256::new();
         hasher.update(&file_content);
         let result = hasher.finalize();
-        let license_hash = format!("{:x}", result);
+        let license_hash = format!("{result:x}");
 
         let mut hasher = Sha256::new();
         hasher.update(license_hash.as_bytes());
         let result = hasher.finalize();
-        let validation_hash = format!("{:x}", result);
+        let validation_hash = format!("{result:x}");
 
         // Validate the License
         let valid = LICENSES.contains(&validation_hash.as_str());
@@ -184,7 +184,7 @@ impl Signal for ValidateLicenseRequest {
                 let mut hasher = Sha256::new();
                 hasher.update(license.as_bytes());
                 let result = hasher.finalize();
-                let hash_str = format!("{:x}", result);
+                let hash_str = format!("{result:x}");
 
                 let pro_via_license = LICENSES.contains(&hash_str.as_str());
 

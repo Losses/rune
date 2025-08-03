@@ -244,8 +244,7 @@ impl Signal for AddItemToMixRequest {
         .await
         .with_context(|| {
             format!(
-                "Failed to add item to mix: mix_id={}, operator={}, parameter={}",
-                mix_id, operator, parameter
+                "Failed to add item to mix: mix_id={mix_id}, operator={operator}, parameter={parameter}"
             )
         })?;
 

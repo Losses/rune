@@ -248,7 +248,7 @@ impl Signal for StartServerRequest {
                 })),
                 Err(e) => Ok(Some(StartServerResponse {
                     success: false,
-                    error: format!("{:#?}", e),
+                    error: format!("{e:#?}"),
                 })),
             }
         }
@@ -286,7 +286,7 @@ impl Signal for StopServerRequest {
             })),
             Err(e) => Ok(Some(StopServerResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -319,9 +319,9 @@ impl Signal for ListClientsRequest {
                 fingerprint: u.fingerprint,
                 device_model: u.device_model,
                 status: match u.status {
-                    UserStatus::Approved => ClientStatus::Approved.into(),
-                    UserStatus::Pending => ClientStatus::Pending.into(),
-                    UserStatus::Blocked => ClientStatus::Blocked.into(),
+                    UserStatus::Approved => ClientStatus::Approved,
+                    UserStatus::Pending => ClientStatus::Pending,
+                    UserStatus::Blocked => ClientStatus::Blocked,
                 },
             })
             .collect();
@@ -390,7 +390,7 @@ impl Signal for RemoveTrustedClientRequest {
             })),
             Err(e) => Ok(Some(RemoveTrustedClientResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -421,7 +421,7 @@ impl Signal for ServerAvailabilityTestRequest {
             Err(e) => {
                 return Ok(Some(ServerAvailabilityTestResponse {
                     success: false,
-                    error: format!("{:#?}", e),
+                    error: format!("{e:#?}"),
                 }));
             }
         };
@@ -436,7 +436,7 @@ impl Signal for ServerAvailabilityTestRequest {
             },
             Err(e) => ServerAvailabilityTestResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             },
         }))
     }
@@ -479,7 +479,7 @@ impl Signal for UpdateClientStatusRequest {
             })),
             Err(e) => Ok(Some(UpdateClientStatusResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -515,7 +515,7 @@ impl Signal for EditHostsRequest {
             })),
             Err(e) => Ok(Some(EditHostsResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -567,7 +567,7 @@ impl Signal for AddTrustedServerRequest {
             })),
             Err(e) => Ok(Some(AddTrustedServerResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -603,7 +603,7 @@ impl Signal for RemoveTrustedServerRequest {
             })),
             Err(e) => Ok(Some(RemoveTrustedServerResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -644,7 +644,7 @@ impl Signal for RegisterDeviceOnServerRequest {
             Err(e) => {
                 return Ok(Some(RegisterDeviceOnServerResponse {
                     success: false,
-                    error: format!("{:#?}", e),
+                    error: format!("{e:#?}"),
                 }));
             }
         };
@@ -666,7 +666,7 @@ impl Signal for RegisterDeviceOnServerRequest {
             })),
             Err(e) => Ok(Some(RegisterDeviceOnServerResponse {
                 success: false,
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -704,7 +704,7 @@ impl Signal for CheckDeviceOnServerRequest {
             Err(e) => {
                 return Ok(Some(CheckDeviceOnServerResponse {
                     success: false,
-                    error: format!("{:#?}", e),
+                    error: format!("{e:#?}"),
                     status: None,
                 }));
             }
@@ -722,13 +722,13 @@ impl Signal for CheckDeviceOnServerRequest {
                 Ok(Some(CheckDeviceOnServerResponse {
                     success: true,
                     error: String::new(),
-                    status: Some(status.into()),
+                    status: Some(status),
                 }))
             }
             Err(e) => Ok(Some(CheckDeviceOnServerResponse {
                 success: false,
-                error: format!("{:#}", e),
-                status: Some(ClientStatus::Blocked.into()),
+                error: format!("{e:#}"),
+                status: Some(ClientStatus::Blocked),
             })),
         }
     }
@@ -812,7 +812,7 @@ impl Signal for FetchServerCertificateRequest {
             Err(e) => Ok(Some(FetchServerCertificateResponse {
                 success: false,
                 fingerprint: String::new(),
-                error: format!("{:#?}", e),
+                error: format!("{e:#?}"),
             })),
         }
     }
@@ -845,7 +845,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Invalid URL: {}", e),
+                    error: format!("Invalid URL: {e}"),
                 }));
             }
         };
@@ -884,7 +884,7 @@ impl Signal for FetchRemoteFileRequest {
             return Ok(Some(FetchRemoteFileResponse {
                 success: false,
                 local_path: String::new(),
-                error: format!("Failed to create temp directory: {}", e),
+                error: format!("Failed to create temp directory: {e}"),
             }));
         }
 
@@ -913,7 +913,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to create HTTPS client: {}", e),
+                    error: format!("Failed to create HTTPS client: {e}"),
                 }));
             }
         };
@@ -921,7 +921,7 @@ impl Signal for FetchRemoteFileRequest {
         // Build the request URI
         let uri = match Uri::builder()
             .scheme("https")
-            .authority(format!("{}:{}", host, port))
+            .authority(format!("{host}:{port}"))
             .path_and_query(path)
             .build()
         {
@@ -930,7 +930,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to build request URI: {}", e),
+                    error: format!("Failed to build request URI: {e}"),
                 }));
             }
         };
@@ -945,7 +945,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to build HTTP request: {}", e),
+                    error: format!("Failed to build HTTP request: {e}"),
                 }));
             }
         };
@@ -957,7 +957,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to send HTTP request: {}", e),
+                    error: format!("Failed to send HTTP request: {e}"),
                 }));
             }
         };
@@ -978,7 +978,7 @@ impl Signal for FetchRemoteFileRequest {
                 return Ok(Some(FetchRemoteFileResponse {
                     success: false,
                     local_path: String::new(),
-                    error: format!("Failed to read response body: {}", e),
+                    error: format!("Failed to read response body: {e}"),
                 }));
             }
         };
@@ -988,7 +988,7 @@ impl Signal for FetchRemoteFileRequest {
             return Ok(Some(FetchRemoteFileResponse {
                 success: false,
                 local_path: String::new(),
-                error: format!("Failed to write file to disk: {}", e),
+                error: format!("Failed to write file to disk: {e}"),
             }));
         }
 

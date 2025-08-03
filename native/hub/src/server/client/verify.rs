@@ -26,14 +26,14 @@ impl fmt::Display for VerificationResult {
         match self {
             VerificationResult::Match => write!(f, "Match"),
             VerificationResult::Mismatch(_) => write!(f, "Mismatch"),
-            VerificationResult::Error(e) => write!(f, "Error: {}", e),
+            VerificationResult::Error(e) => write!(f, "Error: {e}"),
         }
     }
 }
 
 async fn verify_single_host(host: String, expected_fp: String) -> (String, VerificationResult) {
-    let url = format!("https://{}:7863/ping", host);
-    info!("Connecting to {}", url);
+    let url = format!("https://{host}:7863/ping");
+    info!("Connecting to {url}");
 
     let result =
         match tokio::time::timeout(Duration::from_secs(5), fetch_server_certificate(&url)).await {
@@ -127,7 +127,7 @@ pub async fn verify_servers(expected_fingerprint: &str, hosts: Vec<String>) -> R
 pub async fn inspect_host(host: &str, config: Arc<ClientConfig>) -> Result<()> {
     let device_info = fetch_device_info(host, config).await?;
 
-    println!("{}", format!("Device Info for {}", host).bold().yellow());
+    println!("{}", format!("Device Info for {host}").bold().yellow());
     println!("  {:15}: {}", "Alias", device_info.alias);
     println!("  {:15}: {}", "Version", device_info.version);
     println!("  {:15}: {}", "Device Type", device_info.device_type);
@@ -177,7 +177,7 @@ pub async fn print_device_information() -> Result<()> {
     println!("  {:15}: {}", "Alias", certificate_id.cyan());
     println!("  {:15}: {}", "Device Type", "Headless".cyan());
     println!("  {:15}: {}", "Device Model", "RuneAudio".cyan());
-    println!("{}", public_key);
+    println!("{public_key}");
 
     Ok(())
 }

@@ -50,7 +50,7 @@ rinf::write_interface!();
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     if let Err(e) = default_provider().install_default() {
-        panic!("{:#?}", e);
+        panic!("{e:#?}");
     };
 
     let args: Vec<String> = std::env::args().collect();
@@ -81,7 +81,7 @@ async fn main() {
 
     // Start receiving the media library path
     if let Err(e) = receive_media_library_path(scrobbler).await {
-        error!("Failed to receive media library path: {}", e);
+        error!("Failed to receive media library path: {e}");
     }
 
     rinf::dart_shutdown().await;

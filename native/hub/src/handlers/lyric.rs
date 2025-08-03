@@ -84,7 +84,7 @@ impl Signal for GetLyricByTrackIdRequest {
                                     .collect(),
                             })),
                             Err(err) => {
-                                Err(err.context(format!("Unable to parse lyric: item={:#?}", item)))
+                                Err(err.context(format!("Unable to parse lyric: item={item:#?}")))
                             }
                         },
                         None => Ok(Some(GetLyricByTrackIdResponse {
