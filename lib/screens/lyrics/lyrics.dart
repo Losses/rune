@@ -78,8 +78,8 @@ class _LyricsPageState extends State<LyricsPage> {
   (int, int) _selectProgress(
       BuildContext context, PlaybackStatusProvider status) {
     return (
-      (status.playbackStatus.progressSeconds ?? 0 * 1000).round(),
-      (status.playbackStatus.duration ?? 0 * 1000).round(),
+      (status.playbackStatus.progressSeconds * 1000).round(),
+      (status.playbackStatus.duration * 1000).round(),
     );
   }
 

@@ -9,7 +9,7 @@ void seek(double value, PlaybackStatusState? status) {
   if (_shouldExecute) {
     if (status != null) {
       SeekRequest(
-        positionSeconds: (value / 100) * (status.duration ?? 0),
+        positionSeconds: (value / 100) * (status.duration),
       ).sendSignalToRust();
     }
     _shouldExecute = false;
@@ -23,7 +23,7 @@ void seek0(double value, PlaybackStatus? status) {
   if (_shouldExecute) {
     if (status != null) {
       SeekRequest(
-        positionSeconds: (value / 100) * (status.duration ?? 0),
+        positionSeconds: (value / 100) * (status.duration),
       ).sendSignalToRust();
     }
     _shouldExecute = false;

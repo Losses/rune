@@ -43,7 +43,7 @@ class _NowPlayingTrackCoverArtButtonState
               hint: (
                 status.album ?? "",
                 status.artist ?? "",
-                'Total Time ${formatTime(status.duration ?? 0)}'
+                'Total Time ${formatTime(status.duration)}'
               ),
               size: widget.size,
             ),

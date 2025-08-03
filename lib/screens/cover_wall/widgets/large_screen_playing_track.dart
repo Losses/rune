@@ -32,7 +32,7 @@ class LargeScreenPlayingTrack extends StatelessWidget {
         playbackStatusProvider.playbackStatus.artist ?? "",
         playbackStatusProvider.playbackStatus.album ?? "",
         playbackStatusProvider.playbackStatus.title ?? "",
-        playbackStatusProvider.playbackStatus.duration ?? 0,
+        playbackStatusProvider.playbackStatus.duration,
         playbackStatusProvider.playingItem,
       ),
       builder: (context, p, child) {

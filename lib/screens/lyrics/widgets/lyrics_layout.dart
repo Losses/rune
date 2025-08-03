@@ -164,7 +164,7 @@ class CoverArtFrame extends StatelessWidget {
             s.coverArtPath ?? "",
             s.album ?? "",
             s.artist ?? "",
-            s.duration ?? 0
+            s.duration
           );
         },
         builder: (context, p, child) {

@@ -205,7 +205,7 @@ pub async fn initialize_local_player(
                 artist: Some(meta.artist.clone()),
                 album: Some(meta.album.clone()),
                 title: Some(meta.title.clone()),
-                duration: Some(meta.duration),
+                duration: meta.duration,
                 item: status.item.map(Into::into),
                 index: status.index.map(|i| i as i32),
                 playback_mode: status.playback_mode.into(),

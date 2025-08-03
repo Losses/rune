@@ -10,16 +10,15 @@ import '../utils/theme_color_manager.dart';
 import '../bindings/bindings.dart';
 import '../constants/configurations.dart';
 
-// Custom state class that can be mutated
 class PlaybackStatusState {
   String state;
   bool ready;
-  double? progressSeconds;
-  double? progressPercentage;
+  double progressSeconds;
+  double progressPercentage;
   String? artist;
   String? album;
   String? title;
-  double? duration;
+  double duration;
   int? index;
   String? item;
   int? playbackMode;
@@ -29,12 +28,12 @@ class PlaybackStatusState {
   PlaybackStatusState({
     this.state = "Stopped",
     this.ready = false,
-    this.progressSeconds,
-    this.progressPercentage,
+    this.progressSeconds = 0,
+    this.progressPercentage = 0,
     this.artist,
     this.album,
     this.title,
-    this.duration,
+    this.duration = 0,
     this.index,
     this.item,
     this.playbackMode,

@@ -11,7 +11,7 @@ pub struct PlaybackStatus {
     pub artist: Option<String>,
     pub album: Option<String>,
     pub title: Option<String>,
-    pub duration: Option<f64>,
+    pub duration: f64,
     pub index: Option<i32>,
     pub item: Option<String>,
     pub playback_mode: u32,

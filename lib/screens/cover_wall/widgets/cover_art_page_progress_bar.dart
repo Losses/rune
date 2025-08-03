@@ -31,7 +31,7 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
       children: [
         Expanded(
           child: Slider(
-            value: status.progressPercentage ?? 0 * 100,
+            value: status.progressPercentage * 100,
             onChanged: !notReady ? (v) => seek(v, status) : null,
             style: const SliderThemeData(useThumbBall: false),
           ),
@@ -44,12 +44,12 @@ class CoverArtPageProgressBarState extends State<CoverArtPageProgressBar> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  formatTime(status.progressSeconds ?? 0),
+                  formatTime(status.progressSeconds),
                   style: typography.caption
                       ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
                 ),
                 Text(
-                  '-${formatTime((status.duration ?? 0) - (status.progressSeconds ?? 0))}',
+                  '-${formatTime((status.duration) - (status.progressSeconds))}',
                   style: typography.caption
                       ?.apply(shadows: widget.shadows, fontSizeFactor: 0.9),
                 ),

@@ -408,7 +408,7 @@ class CoverArtDiskState extends State<CoverArtDisk>
                                 hint: (
                                   status.album ?? "",
                                   status.artist ?? "",
-                                  'Total Time ${formatTime(status.duration ?? 0)}'
+                                  'Total Time ${formatTime(status.duration)}'
                                 ),
                               ),
                             ),
