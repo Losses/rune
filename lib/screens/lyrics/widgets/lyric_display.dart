@@ -52,21 +52,8 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   void didUpdateWidget(LyricsDisplay oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (!listEquals(oldWidget.activeLines, widget.activeLines)) {
-      _scheduleScroll();
-    }
-  }
-
-  bool _scrollScheduled = false;
-
-  void _scheduleScroll() {
-    if (_scrollScheduled) return;
-
-    _scrollScheduled = true;
-
-    Future.delayed(Duration(milliseconds: 50)).then((_) {
       _scrollToActiveLines();
-      _scrollScheduled = false;
-    });
+    }
   }
 
   void _offsetListener() {
@@ -98,27 +85,21 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   void _scrollToActiveLines([bool disableScrollToLine = false]) {
     if (widget.activeLines.isEmpty) return;
 
-    double totalOffset = 0;
-    int count = 0;
+    final allOffsetsAvailable =
+        widget.activeLines.every((index) => _lineOffsets.containsKey(index));
 
-    for (int index in widget.activeLines) {
-      final renderBox = _lineOffsets[index];
-
-      if (renderBox == null) {
-        if (!disableScrollToLine) {
-          _scrollToActiveLinesById();
-        }
-        warn$("No active line found!");
-        return;
+    if (!allOffsetsAvailable) {
+      if (!disableScrollToLine) {
+        _scrollToActiveLinesById();
       }
-
-      totalOffset += renderBox.$1 + renderBox.$2 / 2;
-      count += 1;
+      warn$("No active line found!");
+      return;
     }
 
-    if (count == 0) {
-      _scrollToActiveLinesById();
-      return;
+    double totalOffset = 0;
+    for (int index in widget.activeLines) {
+      final renderBox = _lineOffsets[index]!;
+      totalOffset += renderBox.$1 + renderBox.$2 / 2;
     }
 
     final scrollController = _itemScrollController.scrollController;
@@ -141,7 +122,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
     final viewportDimension = scrollController.position.viewportDimension;
     final maxScrollExtent = scrollController.position.maxScrollExtent;
 
-    final averageOffset = totalOffset / count;
+    final averageOffset = totalOffset / widget.activeLines.length;
     final containerMiddle = viewportDimension / 2;
     final scrollOffset =
         scrollController.offset + (averageOffset - containerMiddle);
@@ -156,7 +137,7 @@ class _LyricsDisplayState extends State<LyricsDisplay> {
   Widget _buildLyricsList(BoxConstraints constraints, bool isMini) {
     if (_lastConstraints != constraints) {
       _lastConstraints = constraints;
-      _scheduleScroll();
+      _scrollToActiveLines();
     }
 
     final double paddingSize =
