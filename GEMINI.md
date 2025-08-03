@@ -3,7 +3,6 @@
 ## Build/Test/Lint Commands
 - Build: `flutter build` (platform-specific flags can be added)
 - Run: `flutter run` or `./scripts/macos_2_run.sh` (macOS)
-- Lint: `just lint` (runs Rust and Flutter linting together)
 - Rust Lint: `cargo fmt -- --check && cargo clippy -- -D warnings`
 - Flutter Lint: `flutter analyze .`
 - Rust Tests: `cargo test` (run a single test: `cargo test test_name`)
