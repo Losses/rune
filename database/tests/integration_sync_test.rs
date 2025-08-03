@@ -96,7 +96,7 @@ impl Drop for TestFixture {
 async fn setup_db(is_server: bool) -> Result<DatabaseConnection> {
     let side = if is_server { "server" } else { "client" };
     let db_name = format!("test-db-{}-{}", side, Uuid::new_v4());
-    let db_url = format!("sqlite:file:{}?mode=memory&cache=shared", db_name);
+    let db_url = format!("sqlite:file:{db_name}?mode=memory&cache=shared");
 
     let mut opt = ConnectOptions::new(&db_url);
     opt.sqlx_logging(false); // Disable verbose logging for cleaner test output
@@ -260,9 +260,9 @@ async fn seed_media_file(
     media_files::ActiveModel {
         id: Set(pk_id),
         file_name: Set(file_name.to_string()),
-        directory: Set(format!("/music/{}/", file_name)),
+        directory: Set(format!("/music/{file_name}/")),
         extension: Set("mp3".to_string()),
-        file_hash: Set(format!("{}_hash", file_name)),
+        file_hash: Set(format!("{file_name}_hash")),
         last_modified: Set(Utc::now().to_rfc3339()),
         cover_art_id: Set(cover_art_id),
         sample_rate: Set(44100),

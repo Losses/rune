@@ -50,7 +50,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         E: HLCModel + EntityTrait + Send + Sync,
         E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
     {
-        let url = self.build_url(&format!("/tables/{}/chunks", table_name));
+        let url = self.build_url(&format!("/tables/{table_name}/chunks"));
         let mut query_params = Vec::new();
         if let Some(hlc) = after_hlc {
             query_params.push(("after_hlc_ts", hlc.to_rfc3339()?));
@@ -80,7 +80,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         E: HLCModel + EntityTrait + Send + Sync,
         E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
     {
-        let url = self.build_url(&format!("/tables/{}/sub-chunks", table_name));
+        let url = self.build_url(&format!("/tables/{table_name}/sub-chunks"));
         let payload = GetRemoteSubChunksPayload {
             parent_chunk: parent_chunk.clone(),
             sub_chunk_size,
@@ -105,7 +105,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         E: HLCModel + EntityTrait + Send + Sync,
         E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
     {
-        let url = self.build_url(&format!("/tables/{}/records", table_name));
+        let url = self.build_url(&format!("/tables/{table_name}/records"));
         let query_params = [
             ("start_hlc_ts", start_hlc.to_rfc3339()?),
             ("start_hlc_ver", start_hlc.version.to_string()),
@@ -135,7 +135,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         E: HLCModel + EntityTrait + Send + Sync,
         E::Model: HLCRecord + Send + Sync + for<'de> Deserialize<'de> + Serialize,
     {
-        let url = self.build_url(&format!("/tables/{}/changes", table_name));
+        let url = self.build_url(&format!("/tables/{table_name}/changes"));
         let payload = ApplyChangesPayload {
             operations,
             client_node_id,
@@ -164,8 +164,7 @@ impl RemoteDataSource for RemoteHttpDataSource {
         local_node_id: Uuid,
     ) -> Result<Option<HLC>> {
         let url = self.build_url(&format!(
-            "/tables/{}/last-sync-hlc/{}",
-            table_name, local_node_id
+            "/tables/{table_name}/last-sync-hlc/{local_node_id}"
         ));
         let resp = self.client.get(&url).send().await?.error_for_status()?;
         Ok(resp.json().await?)

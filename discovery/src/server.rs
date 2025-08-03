@@ -130,7 +130,7 @@ impl PermissionManager {
     ///
     /// # Arguments
     /// * `path` - The base path under which the permission data will be stored.
-    ///            A subdirectory `.known-clients` will be created under this path for storing permission data.
+    ///   A subdirectory `.known-clients` will be created under this path for storing permission data.
     ///
     /// # Returns
     /// `Result<Self, PermissionError>` - A `Result` containing the new `PermissionManager` instance,

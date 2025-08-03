@@ -96,7 +96,7 @@ fn extract_from_tagged_file(file_path: &Path) -> Option<CoverArt> {
         return None;
     }
 
-    let crc_string = format!("{:08x}", crc);
+    let crc_string = format!("{crc:08x}");
 
     Some(CoverArt {
         crc: crc_string,
@@ -184,7 +184,7 @@ fn process_external_cover(cover_path: &Path) -> Option<CoverArt> {
         return None;
     }
 
-    let crc_string = format!("{:08x}", crc);
+    let crc_string = format!("{crc:08x}");
 
     Some(CoverArt {
         crc: crc_string,

@@ -50,7 +50,7 @@ impl FileDescription {
                 crc = media_crc32(&buffer, crc, 0, bytes_read);
             }
 
-            let result = format!("{:08x}", crc);
+            let result = format!("{crc:08x}");
             self.file_hash = Some(result.clone());
             Ok(result)
         } else if let Some(result) = self.file_hash.clone() {
@@ -74,7 +74,7 @@ pub fn get_codec_information_from_path(full_path: &Path) -> Result<(u32, f64)> {
     };
 
     let format = get_format(full_math)
-        .with_context(|| format!("No supported format found: {}", full_math))?;
+        .with_context(|| format!("No supported format found: {full_math}"))?;
 
     let track = format
         .tracks()
@@ -83,7 +83,7 @@ pub fn get_codec_information_from_path(full_path: &Path) -> Result<(u32, f64)> {
         .with_context(|| "No supported audio tracks")?;
 
     let codec_information = get_codec_information(track)
-        .with_context(|| format!("Failed to get codec information: {}", full_math))?;
+        .with_context(|| format!("Failed to get codec information: {full_math}"))?;
 
     Ok(codec_information)
 }
@@ -129,7 +129,7 @@ pub fn describe_file(file_path: &PathBuf, lib_path: &Option<PathBuf>) -> Result<
     // Get last modified time
     let metadata = file_path.metadata()?;
     let last_modified = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_secs();
-    let last_modified = format!("{}", last_modified);
+    let last_modified = format!("{last_modified}");
 
     Ok(FileDescription {
         root_path: lib_path.clone(),

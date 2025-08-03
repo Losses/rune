@@ -98,7 +98,7 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
         signature: SignatureRequest {
             samplems: sample_ms,
             timestamp,
-            uri: &format!("data:audio/vnd.shazam.sig;base64,{}", encoded_signature),
+            uri: &format!("data:audio/vnd.shazam.sig;base64,{encoded_signature}"),
         },
         timestamp,
         timezone: "Europe/Berlin",
@@ -118,7 +118,7 @@ pub async fn identify(signature: Signature) -> Result<(Vec<Match>, Option<Track>
         LIMITER.acquire().await;
 
         let response = client
-            .post(format!("{}{}", url, query))
+            .post(format!("{url}{query}"))
             .header(
                 header::USER_AGENT,
                 header::HeaderValue::from_static(

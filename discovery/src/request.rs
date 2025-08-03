@@ -19,7 +19,7 @@ pub async fn create_https_client(
     let host = host.to_string();
     let tcp_stream = TcpStream::connect((host.clone(), port))
         .await
-        .with_context(|| format!("Failed to connect to {}:{}", host, port))?;
+        .with_context(|| format!("Failed to connect to {host}:{port}"))?;
 
     let server_name =
         ServerName::try_from(host.clone()).map_err(|_| anyhow!("Invalid server name: {}", host))?;
@@ -28,11 +28,11 @@ pub async fn create_https_client(
     let tls_stream = connector
         .connect(server_name, tcp_stream)
         .await
-        .with_context(|| format!("TLS handshake failed for {}:{}", host, port))?;
+        .with_context(|| format!("TLS handshake failed for {host}:{port}"))?;
 
     let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(tls_stream))
         .await
-        .with_context(|| format!("HTTP handshake failed for {}:{}", host, port))?;
+        .with_context(|| format!("HTTP handshake failed for {host}:{port}"))?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {

@@ -131,11 +131,11 @@ pub async fn identify(
             Ok(results) => return Ok(results),
             Err(e) if attempts < 3 => {
                 attempts += 1;
-                warn!("Attempt {} failed: {}. Retrying...", attempts, e);
+                warn!("Attempt {attempts} failed: {e}. Retrying...");
                 continue;
             }
             Err(e) => {
-                error!("Failed after {} attempts: {}", attempts, e);
+                error!("Failed after {attempts} attempts: {e}");
                 return Err(e);
             }
         }

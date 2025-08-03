@@ -17,7 +17,7 @@ fn convert_sample_rate(x: i32) -> i32 {
         16000 => 3,
         32000 => 4,
         44100 => 5,
-        _ => panic!("Invalid sample rate: {}", x),
+        _ => panic!("Invalid sample rate: {x}"),
     }
 }
 
@@ -192,7 +192,7 @@ impl Signature {
             let band = (band_info - 0x60030040) as usize;
 
             if band >= peaks_by_band.len() {
-                return Err(format!("invalid band index: {}", band));
+                return Err(format!("invalid band index: {band}"));
             }
 
             let mut pass = 0u32;

@@ -137,7 +137,7 @@ impl DiscoveryService {
     ///
     /// # Arguments
     /// * `path` -  Path to the directory where device discovery data will be persisted.
-    ///             If persistence is not required, use [`DiscoveryService::new_without_store`].
+    ///   If persistence is not required, use [`DiscoveryService::new_without_store`].
     ///
     /// # Returns
     /// `Result<Self>` - A `Result` containing the new `DiscoveryService` instance, or an error if initialization fails.
@@ -337,7 +337,7 @@ impl DiscoveryService {
         let msg = serde_json::to_vec(&announcement)?;
 
         for socket in sockets.iter() {
-            let target = format!("{}:{}", MULTICAST_GROUP, MULTICAST_PORT);
+            let target = format!("{MULTICAST_GROUP}:{MULTICAST_PORT}");
             match socket.send_to(&msg, &target).await {
                 Ok(bytes_sent) => debug!("[{}] Sent {} bytes", socket.local_addr()?, bytes_sent),
                 Err(e) => error!("Send error on {}: {}", socket.local_addr()?, e),

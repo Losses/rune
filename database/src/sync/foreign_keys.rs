@@ -274,11 +274,7 @@ fn extract_sync_id_from_chunk_map(
             .is_some_and(|m| m.get(parent_id_str).is_none())
     {
         warn!(
-            "Sync ID not found in map for {}.{} = {} (remote model {}). Child of non-existent parent?",
-            table_name_for_log,
-            fk_col_name,
-            parent_id_str,
-            model_unique_id
+            "Sync ID not found in map for {table_name_for_log}.{fk_col_name} = {parent_id_str} (remote model {model_unique_id}). Child of non-existent parent?"
         );
     }
     sync_id
@@ -707,8 +703,7 @@ impl ModelWithForeignKeyOps for media_files::Model {
                     .await
                     .with_context(|| {
                         format!(
-                            "Failed to get sync_id for parent entity media_cover_art referenced by {} (local_id: {}) in child media_files",
-                            fk_column_name, parent_local_id
+                            "Failed to get sync_id for parent entity media_cover_art referenced by {fk_column_name} (local_id: {parent_local_id}) in child media_files"
                         )
                     })?;
 
@@ -793,8 +788,7 @@ impl ActiveModelWithForeignKeyOps for media_files::ActiveModel {
 
             if local_cover_art_pk.is_none() && cover_art_sync_id_opt_str.is_some() {
                 debug!(
-                    "CoverArt with sync_id {:?} not found locally for media_files.cover_art_id. Setting FK to NULL.",
-                    cover_art_sync_id_opt_str
+                    "CoverArt with sync_id {cover_art_sync_id_opt_str:?} not found locally for media_files.cover_art_id. Setting FK to NULL."
                 );
             }
         }

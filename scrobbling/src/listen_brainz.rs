@@ -70,7 +70,7 @@ impl ListenBrainzClient {
                 .json(body)
                 .header(
                     "Authorization",
-                    HeaderValue::from_str(&format!("Token {}", token))?,
+                    HeaderValue::from_str(&format!("Token {token}"))?,
                 )
                 .send()
                 .await?;
@@ -94,7 +94,7 @@ impl ScrobblingClient for ListenBrainzClient {
             .get(format!("{}/1/validate-token", self.base_url))
             .header(
                 "Authorization",
-                HeaderValue::from_str(&format!("Token {}", password))?,
+                HeaderValue::from_str(&format!("Token {password}"))?,
             )
             .send()
             .await?;

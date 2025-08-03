@@ -45,7 +45,7 @@ fn main() -> io::Result<()> {
 
     // Print as hex
     for (i, byte) in binary_data.iter().enumerate() {
-        print!("{:02x}", byte);
+        print!("{byte:02x}");
         if (i + 1) % 8 == 0 {
             println!();
         } else {

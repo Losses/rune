@@ -225,7 +225,7 @@ fn probe_audio_file<P: AsRef<Path>>(file_path: P) -> Result<ProbeResult> {
 
     // Create the media source stream.
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
-    let ext = file_path_str.split('.').last().unwrap_or_default();
+    let ext = file_path_str.split('.').next_back().unwrap_or_default();
     hint.with_extension(ext);
 
     // Use the default options for metadata and format readers.

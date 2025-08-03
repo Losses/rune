@@ -30,7 +30,7 @@ pub fn parse_srt(content: &str) -> Result<LyricFile> {
     let content = if content.ends_with("\n\n") {
         content.to_string()
     } else {
-        format!("{}\n\n", content)
+        format!("{content}\n\n")
     };
 
     let subrip = SubRip::parse(&content)?;

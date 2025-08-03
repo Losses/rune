@@ -13,12 +13,12 @@ use ::database::playing_item::dispatcher::PlayingItemActionDispatcher;
 use ::playback::player::PlayingItem;
 use ::playback::strategies::AddMode;
 
-use crate::utils::files_to_playback_request;
-use crate::utils::find_nearest_index;
+use crate::Session;
 use crate::utils::GlobalParams;
 use crate::utils::ParamsExtractor;
-use crate::Session;
-use crate::{messages::*, Signal};
+use crate::utils::files_to_playback_request;
+use crate::utils::find_nearest_index;
+use crate::{Signal, messages::*};
 
 impl From<PlayingItem> for PlayingItemRequest {
     fn from(x: PlayingItem) -> Self {
@@ -476,7 +476,7 @@ impl Signal for OperatePlaybackWithMixQueryRequest {
 
         let mut player = player.lock().await;
 
-        let operate_mode = PlaylistOperateMode::try_from(request.operate_mode)?;
+        let operate_mode = request.operate_mode;
         // Clear the playlist if requested
         if operate_mode == PlaylistOperateMode::Replace {
             player.clear_playlist();

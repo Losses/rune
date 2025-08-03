@@ -30,7 +30,7 @@ impl fmt::Display for ScrobblingService {
             ScrobblingService::LibreFm => "LibreFm",
             ScrobblingService::ListenBrainz => "ListenBrainz",
         };
-        write!(f, "{}", s)
+        write!(f, "{s}")
     }
 }
 
@@ -51,7 +51,7 @@ impl FromStr for ScrobblingService {
 impl From<String> for ScrobblingService {
     fn from(s: String) -> Self {
         ScrobblingService::from_str(&s)
-            .unwrap_or_else(|_| panic!("Invalid string for ScrobblingService: {}", s))
+            .unwrap_or_else(|_| panic!("Invalid string for ScrobblingService: {s}"))
     }
 }
 
@@ -282,7 +282,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
         let mut attempts = 0;
 
         loop {
-            info!("Authenticating to {} ({})...", service, attempts);
+            info!("Authenticating to {service} ({attempts})...");
             let result = match service {
                 ScrobblingService::LastFm => {
                     let api_key = api_key
@@ -318,7 +318,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                     self.is_authenticating = false;
                     self.process_cache().await;
                     self.send_login_status().await;
-                    info!("Authenticated to {}", {service});
+                    info!("Authenticated to {}", { service });
                     break;
                 }
                 Err(e) => {
@@ -332,7 +332,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         }
                     }
 
-                    error!("Failed to authenticate to {}: {}", service, e);
+                    error!("Failed to authenticate to {service}: {e}");
 
                     if attempts >= self.max_retries || !enable_retry {
                         self.is_authenticating = false;
@@ -353,12 +353,12 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.now_playing_cache.pop_front();
             }
 
-            info!("Caching now playing update for {}", {service});
+            info!("Caching now playing update for {}", { service });
 
             return;
         }
 
-        info!("Updating now playing for {}", {service});
+        info!("Updating now playing for {}", { service });
 
         let max_retries = self.max_retries;
         let retry_delay = self.retry_delay;
@@ -388,7 +388,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 .await;
 
                 if let Err(e) = result {
-                    error!("Failed to update now playing for {}: {}", service, e);
+                    error!("Failed to update now playing for {service}: {e}");
 
                     self.error_sender.send(ScrobblingError {
                         service: *service,
@@ -491,7 +491,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                 self.scrobble_cache.pop_front();
             }
 
-            info!("Caching scrobble for {}", {service});
+            info!("Caching scrobble for {}", { service });
 
             return;
         }
@@ -520,7 +520,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         .await;
 
                 if let Err(e) = result {
-                    error!("Failed to scrobble to {}: {}", service, e);
+                    error!("Failed to scrobble to {service}: {e}");
 
                     self.error_sender.send(ScrobblingError {
                         service,
@@ -528,10 +528,10 @@ impl ScrobblingServiceManager for ScrobblingManager {
                         error: e,
                     });
                 } else {
-                    info!("Scrobbled to {}", {service});
+                    info!("Scrobbled to {}", { service });
                 }
             } else {
-                warn!("Not authenticated to {}", {service});
+                warn!("Not authenticated to {}", { service });
             }
         }
     }
@@ -635,7 +635,7 @@ impl ScrobblingServiceManager for ScrobblingManager {
             }
         }
 
-        info!("Logged out from {}", {service});
+        info!("Logged out from {}", { service });
         self.send_login_status().await;
     }
 

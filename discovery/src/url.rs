@@ -251,7 +251,7 @@ pub fn decode_rnsrv_url(url: &str) -> Result<Vec<String>, UrlError> {
     // Check if the URL starts with the "rnsrv://" protocol prefix.
     // If not, return an `InvalidProtocol` error.
     if !url.starts_with("rnsrv://") {
-        error!("Unable to parse: {}", url);
+        error!("Unable to parse: {url}");
         return Err(UrlError::InvalidProtocol);
     }
 

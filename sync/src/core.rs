@@ -742,10 +742,7 @@ where
         if let Some(hlc) = local_record.updated_at_hlc() {
             update_max_hlc(&mut max_hlc_encountered, &hlc);
         } else {
-            warn!(
-                "Local record {} missing updated_at_hlc during comparison phase.",
-                key
-            );
+            warn!("Local record {key} missing updated_at_hlc during comparison phase.");
             // Skip this record or handle error? Skipping for now.
             continue;
         }
@@ -759,10 +756,7 @@ where
         if let Some(hlc) = remote_record.updated_at_hlc() {
             update_max_hlc(&mut max_hlc_encountered, &hlc);
         } else {
-            warn!(
-                "Remote record {} missing updated_at_hlc during comparison phase.",
-                key
-            );
+            warn!("Remote record {key} missing updated_at_hlc during comparison phase.");
             // Skip this record or handle error? Skipping for now.
             continue;
         }
@@ -792,8 +786,7 @@ where
                 if let Some(local_hlc) = local_record.updated_at_hlc() {
                     if local_hlc <= metadata.last_sync_hlc {
                         info!(
-                            "Conflict Resolution: Record {} is LocalOnly but was created before last sync. It was deleted on remote. Generating DeleteLocal.",
-                            id
+                            "Conflict Resolution: Record {id} is LocalOnly but was created before last sync. It was deleted on remote. Generating DeleteLocal."
                         );
                         if context.sync_direction == SyncDirection::Pull
                             || context.sync_direction == SyncDirection::Bidirectional
@@ -820,8 +813,7 @@ where
                                     .await
                                     .with_context(|| {
                                         format!(
-                                            "Failed to extract FK sync_ids for local-only record {}",
-                                            id
+                                            "Failed to extract FK sync_ids for local-only record {id}"
                                         )
                                     })?
                             } else {
@@ -834,7 +826,7 @@ where
                         }
                     }
                 } else {
-                    warn!("LocalOnly record {} has no HLC, cannot process.", id);
+                    warn!("LocalOnly record {id} has no HLC, cannot process.");
                     local_ops.push(SyncOperation::NoOp(id));
                 }
             }
@@ -844,8 +836,7 @@ where
                 if let Some(remote_hlc) = remote_record.updated_at_hlc() {
                     if remote_hlc <= metadata.last_sync_hlc {
                         info!(
-                            "Conflict Resolution: Record {} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote.",
-                            id
+                            "Conflict Resolution: Record {id} is RemoteOnly but was created before last sync. It was deleted on local. Generating DeleteRemote."
                         );
                         if context.sync_direction == SyncDirection::Push
                             || context.sync_direction == SyncDirection::Bidirectional
@@ -857,7 +848,7 @@ where
                         }
                     } else {
                         // Record's created_at is newer than last_sync_hlc, so it's a genuine new record from remote.
-                        info!("Conflict Resolution: Record {} is RemoteOnly and new. Generating InsertLocal.", id);
+                        info!("Conflict Resolution: Record {id} is RemoteOnly and new. Generating InsertLocal.");
                         if context.sync_direction == SyncDirection::Pull
                             || context.sync_direction == SyncDirection::Bidirectional
                         {
@@ -876,7 +867,7 @@ where
                         }
                     }
                 } else {
-                    warn!("RemoteOnly record {} has no HLC, cannot process.", id);
+                    warn!("RemoteOnly record {id} has no HLC, cannot process.");
                     remote_ops.push(SyncOperation::NoOp(id));
                 }
             }
@@ -897,8 +888,7 @@ where
                 })?;
 
                 info!(
-                    "Conflict Resolution: Record {} is Both (Local HLC: {}, Remote HLC: {})",
-                    id, local_hlc, remote_hlc
+                    "Conflict Resolution: Record {id} is Both (Local HLC: {local_hlc}, Remote HLC: {remote_hlc})"
                 );
 
                 let (local_wins, remote_wins) = {
@@ -937,8 +927,7 @@ where
                                 .await
                                 .with_context(|| {
                                     format!(
-                                        "Failed to extract FK sync_ids for local winning record {}",
-                                        id
+                                        "Failed to extract FK sync_ids for local winning record {id}"
                                     )
                                 })?
                         } else {
@@ -1040,8 +1029,7 @@ where
                     .context("Failed to apply remote changes")
             } else {
                 info!(
-                    "No remote changes to apply or sync direction prevents it for table '{}'.",
-                    table_name
+                    "No remote changes to apply or sync direction prevents it for table '{table_name}'."
                 );
                 // If no remote ops needed, return the calculated final HLC as "achieved"
                 Ok(final_sync_hlc.clone())
@@ -1050,13 +1038,11 @@ where
         Err(e) => {
             // Local changes failed, abort sync for this table
             error!(
-                "Failed to apply local changes for table '{}': {:?}. Aborting sync for this table.",
-                table_name, e
+                "Failed to apply local changes for table '{table_name}': {e:?}. Aborting sync for this table."
             );
             // Propagate the error
             Err(e).context(format!(
-                "Local changes application failed for table '{}'",
-                table_name
+                "Local changes application failed for table '{table_name}'"
             ))
         }
     };
@@ -1070,8 +1056,7 @@ where
             let new_last_sync_hlc = std::cmp::max(final_sync_hlc, achieved_remote_hlc);
 
             info!(
-                "Sync successful for table '{}'. Updating last_sync_hlc to: {}",
-                table_name, new_last_sync_hlc
+                "Sync successful for table '{table_name}'. Updating last_sync_hlc to: {new_last_sync_hlc}"
             );
             // Return the new metadata to be persisted by the caller
             Ok(SyncTableMetadata {
@@ -1082,13 +1067,11 @@ where
         Err(e) => {
             // Remote changes failed (or local failed earlier and error propagated)
             error!(
-                "Sync failed for table '{}' during remote changes application: {:?}. Metadata not updated.",
-                table_name, e
+                "Sync failed for table '{table_name}' during remote changes application: {e:?}. Metadata not updated."
             );
             // Propagate the error, indicating sync failure for this table
             Err(e).context(format!(
-                "Sync failed for table '{}' during changes application",
-                table_name
+                "Sync failed for table '{table_name}' during changes application"
             ))
         }
     }
@@ -1165,14 +1148,11 @@ where
                 E::insert(active_model)
                     .exec(&txn)
                     .await
-                    .with_context(|| format!("Failed to insert local record ID {}", id_str))?;
+                    .with_context(|| format!("Failed to insert local record ID {id_str}"))?;
             }
             SyncOperation::UpdateLocal(model, fk_payload) => {
                 let id_str = model.unique_id();
-                info!(
-                    "Local TXN: Updating record ID {} via delete and insert",
-                    id_str
-                );
+                info!("Local TXN: Updating record ID {id_str} via delete and insert");
 
                 // First, delete the existing record by its unique ID
                 let delete_result = E::delete_many()
@@ -1180,11 +1160,11 @@ where
                     .exec(&txn)
                     .await
                     .with_context(|| {
-                        format!("Failed to delete local record for update: {}", id_str)
+                        format!("Failed to delete local record for update: {id_str}")
                     })?;
 
                 if delete_result.rows_affected == 0 {
-                    warn!("While updating {}, the existing record was not found for deletion. Proceeding with insert.", id_str);
+                    warn!("While updating {id_str}, the existing record was not found for deletion. Proceeding with insert.");
                 }
 
                 // Second, insert the new version of the record
@@ -1201,18 +1181,15 @@ where
                         .remap_and_set_foreign_keys(&mut active_model, &fk_payload, &txn)
                         .await
                         .with_context(|| {
-                            format!("Failed to remap FKs for insert-on-update of {}", id_str)
+                            format!("Failed to remap FKs for insert-on-update of {id_str}")
                         })?;
                 }
 
                 E::insert(active_model).exec(&txn).await.with_context(|| {
-                    format!("Failed to insert local record for update: {}", id_str)
+                    format!("Failed to insert local record for update: {id_str}")
                 })?;
 
-                info!(
-                    "Local TXN: Successfully updated (re-inserted) record ID {}",
-                    id_str
-                );
+                info!("Local TXN: Successfully updated (re-inserted) record ID {id_str}");
             }
             SyncOperation::DeleteLocal(id_str) => {
                 info!("Local TXN: Deleting record ID {id_str}");
@@ -1221,14 +1198,11 @@ where
                     .filter(E::unique_id_column().eq(id_str.clone()))
                     .exec(&txn)
                     .await
-                    .with_context(|| format!("Failed to delete local record {}", id_str))?;
+                    .with_context(|| format!("Failed to delete local record {id_str}"))?;
 
                 // Use delete_many with filter, consistent with update
                 if delete_result.rows_affected == 0 {
-                    warn!(
-                        "Local TXN: Delete operation for ID {} affected 0 rows.",
-                        id_str
-                    );
+                    warn!("Local TXN: Delete operation for ID {id_str} affected 0 rows.");
                 }
             }
             SyncOperation::NoOp(_) => { /* Already filtered out */ }
@@ -1440,12 +1414,7 @@ where
         .order_by_hlc_asc::<E>()
         .all(db)
         .await
-        .with_context(|| {
-            format!(
-                "Failed to fetch local records after HLC {}",
-                start_hlc_exclusive
-            )
-        })
+        .with_context(|| format!("Failed to fetch local records after HLC {start_hlc_exclusive}"))
 }
 
 /// Helper to fetch local records within an inclusive HLC range.
@@ -1464,10 +1433,7 @@ where
         .all(db)
         .await
         .with_context(|| {
-            format!(
-                "Failed to fetch local records in HLC range [{}-{}]",
-                start_hlc, end_hlc
-            )
+            format!("Failed to fetch local records in HLC range [{start_hlc}-{end_hlc}]")
         })
 }
 
@@ -1713,7 +1679,7 @@ pub(crate) mod tests {
                 s.parse::<i32>() // Parse as i32
                     .map_err(|e| {
                         anyhow!(e)
-                            .context(format!("Failed to parse primary key string '{}' as i32", s))
+                            .context(format!("Failed to parse primary key string '{s}' as i32"))
                     })
             }
         }
@@ -1838,8 +1804,7 @@ pub(crate) mod tests {
                     let model: M =
                         serde_json::from_value(record_json.clone()).with_context(|| {
                             format!(
-                                "Failed to deserialize mock record {} from table {}",
-                                sync_id, table_name
+                                "Failed to deserialize mock record {sync_id} from table {table_name}"
                             )
                         })?;
                     Ok(Some(model))
@@ -1923,8 +1888,7 @@ pub(crate) mod tests {
                 let record: E::Model =
                     serde_json::from_value(record_json.clone()).with_context(|| {
                         format!(
-                            "Failed to deserialize record for sub-chunking in table {}",
-                            table_name
+                            "Failed to deserialize record for sub-chunking in table {table_name}"
                         )
                     })?;
                 if let Some(hlc) = record.updated_at_hlc() {
@@ -1997,8 +1961,7 @@ pub(crate) mod tests {
                 let record: E::Model =
                     serde_json::from_value(record_json.clone()).with_context(|| {
                         format!(
-                            "Failed to deserialize record for HLC range fetch in table {}",
-                            table_name
+                            "Failed to deserialize record for HLC range fetch in table {table_name}"
                         )
                     })?;
                 if let Some(hlc) = record.updated_at_hlc() {
@@ -2040,7 +2003,7 @@ pub(crate) mod tests {
 
             for op in operations {
                 let op_json = serde_json::to_value(&op).with_context(|| {
-                    format!("Failed to serialize SyncOperation for table {}", table_name)
+                    format!("Failed to serialize SyncOperation for table {table_name}")
                 })?;
                 table_ops_json.push(op_json);
 
@@ -2050,8 +2013,7 @@ pub(crate) mod tests {
                         let model_sync_id = model.unique_id();
                         let model_json = serde_json::to_value(model).with_context(|| {
                             format!(
-                                "Failed to serialize model for remote storage in table {}",
-                                table_name
+                                "Failed to serialize model for remote storage in table {table_name}"
                             )
                         })?;
                         table_data.insert(model_sync_id, model_json);
@@ -2496,7 +2458,7 @@ pub(crate) mod tests {
                 assert_eq!(model.name, "LocalWin");
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc_local_new);
             }
-            op => panic!("Expected UpdateRemote operation, got {:?}", op),
+            op => panic!("Expected UpdateRemote operation, got {op:?}"),
         }
 
         let remote_record_after_sync: Option<test_entity::Model> = remote_source
@@ -2629,8 +2591,7 @@ pub(crate) mod tests {
                 || applied_ops
                     .iter()
                     .all(|op| matches!(op, SyncOperation::NoOp(_))),
-            "No real ops should be sent to remote, got: {:?}",
-            applied_ops
+            "No real ops should be sent to remote, got: {applied_ops:?}"
         );
 
         let local_final_data = test_entity::Entity::find().all(&db).await?;
@@ -2752,7 +2713,7 @@ pub(crate) mod tests {
                 assert_eq!(model.name, "LocalTie");
                 assert_eq!(model.updated_at_hlc().unwrap(), hlc_local_tie);
             }
-            op => panic!("Expected UpdateRemote operation, got {:?}", op),
+            op => panic!("Expected UpdateRemote operation, got {op:?}"),
         }
 
         // MODIFIED: Use the new helper to check remote state
@@ -3072,7 +3033,7 @@ pub(crate) mod tests {
                 assert_eq!(model.sync_id, "fetch_rec");
                 assert_eq!(model.name, "LocalData");
             }
-            op => panic!("Expected UpdateRemote, got {:?}", op),
+            op => panic!("Expected UpdateRemote, got {op:?}"),
         }
 
         let local_data = Entity::find().all(context.db).await?;
@@ -3100,7 +3061,7 @@ pub(crate) mod tests {
         let mut first_record_hlc = None;
 
         for i in 0..record_count {
-            let sync_id = format!("break_rec_{}", i);
+            let sync_id = format!("break_rec_{i}");
             current_hlc.increment(); // Increment *before* use for the current record
 
             if i == 0 {
@@ -3111,7 +3072,7 @@ pub(crate) mod tests {
             let local = insert_test_record(
                 &db,
                 &sync_id,
-                &format!("Local_{}", i),
+                &format!("Local_{i}"),
                 Some(i as i32),
                 &current_hlc, // Use the incremented HLC
                 &current_hlc, // Use the incremented HLC
@@ -3123,7 +3084,7 @@ pub(crate) mod tests {
             let remote = Model {
                 id: 1000 + i as i32, // Mock PK
                 sync_id: sync_id.clone(),
-                name: format!("Remote_{}", i),
+                name: format!("Remote_{i}"),
                 value: Some(i as i32 * 10),
                 created_at_hlc_ts: current_hlc.to_rfc3339()?,
                 created_at_hlc_ct: current_hlc.version as i32,
@@ -3255,7 +3216,7 @@ pub(crate) mod tests {
                     assert!(model.sync_id.starts_with("break_rec_"));
                     assert!(model.name.starts_with("Local_")); // Local data pushed
                 }
-                op => panic!("Expected UpdateRemote, got {:?}", op),
+                op => panic!("Expected UpdateRemote, got {op:?}"),
             }
         }
 
@@ -3892,10 +3853,7 @@ pub(crate) mod tests {
         assert!(result.is_err());
         let error = result.err().unwrap();
         let error_string = error.to_string();
-        eprintln!(
-            "Actual error string (apply_remote_changes): {}",
-            error_string
-        );
+        eprintln!("Actual error string (apply_remote_changes): {error_string}");
         assert!(
             error_string.contains("Sync failed for table 'test_items' during changes application") // Check context
         );
@@ -4099,8 +4057,7 @@ pub(crate) mod tests {
             fn read_key(s: &str) -> Result<<Self as PrimaryKeyTrait>::ValueType> {
                 s.parse::<i32>().map_err(|e| {
                     anyhow!(e).context(format!(
-                        "Failed to parse primary key string '{}' as i32 for Author",
-                        s
+                        "Failed to parse primary key string '{s}' as i32 for Author"
                     ))
                 })
             }
@@ -4327,8 +4284,7 @@ pub(crate) mod tests {
                             .await
                             .with_context(|| {
                                 format!(
-                                    "Failed to find author by sync_id {} for remapping FK",
-                                    author_sync_id
+                                    "Failed to find author by sync_id {author_sync_id} for remapping FK"
                                 )
                             })?
                         {
@@ -4376,8 +4332,7 @@ pub(crate) mod tests {
             fn read_key(s: &str) -> Result<<Self as PrimaryKeyTrait>::ValueType> {
                 s.parse::<i32>().map_err(|e| {
                     anyhow!(e).context(format!(
-                        "Failed to parse primary key string '{}' as i32 for Post",
-                        s
+                        "Failed to parse primary key string '{s}' as i32 for Post"
                     ))
                 })
             }

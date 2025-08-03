@@ -34,7 +34,7 @@ pub enum PlayingItem {
 impl fmt::Display for PlayingItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            PlayingItem::InLibrary(id) => write!(f, "PlayingItem::InLibrary({})", id),
+            PlayingItem::InLibrary(id) => write!(f, "PlayingItem::InLibrary({id})"),
             PlayingItem::IndependentFile(path) => {
                 write!(
                     f,
@@ -72,7 +72,7 @@ impl std::fmt::Display for PlaybackState {
             PlaybackState::Paused => "Paused",
             PlaybackState::Stopped => "Stopped",
         };
-        write!(f, "{}", state_str)
+        write!(f, "{state_str}")
     }
 }
 
@@ -240,7 +240,7 @@ impl Player {
                         status.position = position;
                         status.state = PlaybackState::Paused;
                     }
-                    PlayerEvent::Stopped {} => {
+                    PlayerEvent::Stopped => {
                         status.item = None;
                         status.index = None;
                         status.path = None;
@@ -286,10 +286,7 @@ impl Player {
                         path,
                         error,
                     } => {
-                        error!(
-                            "Error at index {}({:?}): {:?} - {}",
-                            index, item, path, error
-                        );
+                        error!("Error at index {index}({item:?}): {path:?} - {error}");
                     }
                     PlayerEvent::PlaylistUpdated(playlist) => {
                         status.playlist = playlist.clone();

@@ -48,7 +48,7 @@ async fn main() -> Result<()> {
     // Define the output file name
     let output_file_base = "output";
     let counter = 1; // Adjust as needed
-    let output_file = format!("{}_{}.signature.log", output_file_base, counter);
+    let output_file = format!("{output_file_base}_{counter}.signature.log");
 
     // Write the serialized signature to a file
     let mut file = OpenOptions::new()

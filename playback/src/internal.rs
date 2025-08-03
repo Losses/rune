@@ -302,7 +302,7 @@ impl PlayerInternal {
                 },
                 Some(error_message) = self.stream_error_receiver.recv() => {
                     self.stop()?;
-                    error!("Received error message: {}", error_message);
+                    error!("Received error message: {error_message}");
 
                     if self.stream_retry_count < 5 {
                         if let Some(index) = self.current_track_index {
@@ -336,7 +336,7 @@ impl PlayerInternal {
 
     fn load(&mut self, index: Option<usize>, play: bool, mapped: bool) -> Result<()> {
         if let Some(index) = index {
-            debug!("Loading track at index: {}", {index});
+            debug!("Loading track at index: {}", { index });
             let mapped_index = if mapped {
                 self.get_mapped_track_index(index)
             } else {
@@ -344,7 +344,7 @@ impl PlayerInternal {
             };
 
             if mapped_index + 1 > self.playlist.len() {
-                warn!("Index {} exceed the boundary", mapped_index);
+                warn!("Index {mapped_index} exceed the boundary");
                 return Ok(());
             }
 
@@ -588,14 +588,11 @@ impl PlayerInternal {
 
     fn switch(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
-            debug!("Switching to track at index: {}", {index});
+            debug!("Switching to track at index: {}", { index });
             self.load(Some(index), true, false)
                 .with_context(|| "Failed to switch track")?;
         } else {
-            warn!(
-                "Switch command received but index {} is out of bounds",
-                index
-            );
+            warn!("Switch command received but index {index} is out of bounds");
         }
 
         Ok(())
@@ -605,7 +602,7 @@ impl PlayerInternal {
         if let Some(sink) = &self.sink {
             match sink.try_seek(std::time::Duration::from_secs_f64(position)) {
                 Ok(_) => {
-                    info!("Seeking to position: {} s", position);
+                    info!("Seeking to position: {position} s");
 
                     let position = sink.get_pos();
                     if let Some(track_index) = self.current_track_index {
@@ -647,7 +644,7 @@ impl PlayerInternal {
                     }
                 }
                 Err(e) => {
-                    error!("Failed to seek: {:#?}", e);
+                    error!("Failed to seek: {e:#?}");
                 }
             }
         } else {
@@ -658,7 +655,7 @@ impl PlayerInternal {
     }
 
     fn add_to_playlist(&mut self, tracks: Vec<(PlayingItem, std::path::PathBuf)>, mode: AddMode) {
-        debug!("Adding tracks to playlist with mode: {:?}", {mode});
+        debug!("Adding tracks to playlist with mode: {:?}", { mode });
         let insert_index = match mode {
             AddMode::PlayNext => {
                 if let Some(current_index) = self.current_track_index {
@@ -700,7 +697,7 @@ impl PlayerInternal {
 
     fn remove_from_playlist(&mut self, index: usize) -> Result<()> {
         if index < self.playlist.len() {
-            debug!("Removing from playlist at index: {}", {index});
+            debug!("Removing from playlist at index: {}", { index });
             self.playlist.remove(index);
             self.playback_strategy.on_playlist_updated(
                 self.playlist.len(),
@@ -743,7 +740,7 @@ impl PlayerInternal {
             PlaybackMode::Shuffle => Box::new(ShuffleStrategy::new(self.playlist.len())),
         };
         self.send_progress()?;
-        info!("Playback mode set to {:?}", {mode});
+        info!("Playback mode set to {:?}", { mode });
 
         Ok(())
     }
@@ -815,10 +812,7 @@ impl PlayerInternal {
             return;
         }
 
-        debug!(
-            "Moving playlist item from index {} to index {}",
-            old_index, new_index
-        );
+        debug!("Moving playlist item from index {old_index} to index {new_index}");
 
         let item = self.playlist.remove(old_index);
         self.playlist.insert(new_index, item);
@@ -886,7 +880,7 @@ impl PlayerInternal {
     fn set_adaptive_switching(&mut self, x: bool) -> Result<()> {
         self.adaptive_switching = x;
 
-        info!("Adaptive switching status changed: {:#?}", {x});
+        info!("Adaptive switching status changed: {:#?}", { x });
 
         Ok(())
     }
