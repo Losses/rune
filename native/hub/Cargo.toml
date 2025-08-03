@@ -90,12 +90,7 @@ bincode = { version = "2.0.1", features = ["serde"] }
 
 [build-dependencies]
 anyhow = { version = "1.0.89", features = ["backtrace"] }
-vergen = { version = "9.0.4", features = [
-    "build",
-    "cargo",
-    "rustc",
-    "si",
-] }
+vergen = { version = "9.0.4", features = ["build", "cargo", "rustc", "si"] }
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.6.0", features = ["sync", "rt"] }
